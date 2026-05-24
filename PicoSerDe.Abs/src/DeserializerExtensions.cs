@@ -1,5 +1,3 @@
-using System.IO.Pipelines;
-
 namespace PicoSerDe.Abs;
 
 public static class DeserializerExtensions

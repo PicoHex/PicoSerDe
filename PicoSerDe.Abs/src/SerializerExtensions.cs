@@ -24,7 +24,11 @@ public static class SerializerExtensions
     }
 
     public static async ValueTask SerializeToStreamAsync<T>(
-        this ISerializer<T> serializer, T value, Stream stream, CancellationToken ct = default)
+        this ISerializer<T> serializer,
+        T value,
+        Stream stream,
+        CancellationToken ct = default
+    )
     {
         var writer = new ArrayBufferWriter<byte>();
         serializer.Serialize(writer, value);
