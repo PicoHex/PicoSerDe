@@ -63,6 +63,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             return null;
 
         var ns = namedType.ContainingNamespace?.ToDisplayString() ?? "";
+        // Roslyn returns "<global namespace>" for the global namespace — normalize to empty
+        if (ns == "<global namespace>")
+            ns = "";
         var properties = new List<PropertyInfo>();
 
         foreach (var member in namedType.GetMembers())

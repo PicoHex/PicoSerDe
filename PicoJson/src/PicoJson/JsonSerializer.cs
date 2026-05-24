@@ -2,8 +2,8 @@ namespace PicoJson;
 
 public static partial class JsonSerializer
 {
-    internal static readonly Dictionary<Type, object> _serializers = new();
-    internal static readonly Dictionary<Type, object> _deserializers = new();
+    public static readonly Dictionary<Type, object> _serializers = new();
+    public static readonly Dictionary<Type, object> _deserializers = new();
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
     {
