@@ -405,3 +405,6 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Superpowers internal planning docs (not public)
+docs/superpowers/
