@@ -75,7 +75,8 @@ public ref struct JsonWriter
         if ((_needsComma & (1L << _depth)) != 0)
             WriteByte((byte)',');
         _needsComma |= (1L << _depth);
-        if (_indented) WriteIndent();
+        if (_indented)
+            WriteIndent();
         WriteByte((byte)'"');
         WriteRaw(utf8Name);
         WriteByte((byte)'"');
@@ -93,7 +94,8 @@ public ref struct JsonWriter
     public void WriteEndObject()
     {
         _depth--;
-        if (_indented) WriteIndent();
+        if (_indented)
+            WriteIndent();
         WriteByte((byte)'}');
     }
 
@@ -107,7 +109,8 @@ public ref struct JsonWriter
     public void WriteEndArray()
     {
         _depth--;
-        if (_indented) WriteIndent();
+        if (_indented)
+            WriteIndent();
         WriteByte((byte)']');
     }
 
