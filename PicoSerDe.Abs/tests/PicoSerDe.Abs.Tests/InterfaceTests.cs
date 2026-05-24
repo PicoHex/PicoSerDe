@@ -1,5 +1,3 @@
-using System.Buffers;
-
 namespace PicoSerDe.Abs.Tests;
 
 public class InterfaceTests

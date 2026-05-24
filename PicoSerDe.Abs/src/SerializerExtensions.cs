@@ -22,4 +22,12 @@ public static class SerializerExtensions
         serializer.Serialize(writer, value);
         stream.Write(writer.WrittenSpan);
     }
+
+    public static async ValueTask SerializeToStreamAsync<T>(
+        this ISerializer<T> serializer, T value, Stream stream, CancellationToken ct = default)
+    {
+        var writer = new ArrayBufferWriter<byte>();
+        serializer.Serialize(writer, value);
+        await stream.WriteAsync(writer.WrittenSpan.ToArray(), ct);
+    }
 }

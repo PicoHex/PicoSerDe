@@ -1,7 +1,3 @@
-using System.Buffers;
-using System.IO.Pipelines;
-using System.Text;
-
 namespace PicoSerDe.Abs.Tests;
 
 public class ExtensionsTests
@@ -77,6 +73,42 @@ public class ExtensionsTests
         var bytes = Encoding.UTF8.GetBytes("hello");
         using var stream = new MemoryStream(bytes);
         var result = deserializer.DeserializeFromStream(stream);
+        await Assert.That(result).IsEqualTo("hello");
+    }
+
+    [Test]
+    public async Task SerializeToStreamAsync_WritesToStream()
+    {
+        var serializer = new StringSerializer();
+        using var stream = new MemoryStream();
+        await serializer.SerializeToStreamAsync("hello", stream);
+        stream.Position = 0;
+        using var reader = new StreamReader(stream);
+        var result = await reader.ReadToEndAsync();
+        await Assert.That(result).IsEqualTo("hello");
+    }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_ReadsFromStream()
+    {
+        var deserializer = new StringDeserializer();
+        var bytes = Encoding.UTF8.GetBytes("hello");
+        using var stream = new MemoryStream(bytes);
+        var result = await deserializer.DeserializeFromStreamAsync(stream);
+        await Assert.That(result).IsEqualTo("hello");
+    }
+
+    [Test]
+    public async Task DeserializeFromPipe_ReadsFromPipe()
+    {
+        var deserializer = new StringDeserializer();
+        var pipe = new Pipe();
+
+        var bytes = Encoding.UTF8.GetBytes("hello");
+        await pipe.Writer.WriteAsync(bytes);
+        await pipe.Writer.CompleteAsync();
+
+        var result = deserializer.DeserializeFromPipe(pipe.Reader);
         await Assert.That(result).IsEqualTo("hello");
     }
 
