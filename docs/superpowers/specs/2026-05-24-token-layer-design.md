@@ -142,7 +142,8 @@ ref struct SerDeReader {
     // ── Navigation ──
     bool Read();        // Advance to next token. Returns false at EOF.
     void Skip();        // Skip current token and any nested subtree.
-                        // Zero allocation — only depth counting.
+                        // Validates structural integrity — corrupted/malformed
+                        // content within the skipped subtree throws.
 
     // ── Zero-copy value access ──
     ReadOnlySpan<byte> RawValue { get; }  // Raw bytes of current token
@@ -308,7 +309,7 @@ Format implementations share the same `SerDeTokenType` enum and the same `Deseri
 1. **Reader does one thing** — Structural token extraction from bytes. Never allocates. Never knows about target types.
 2. **Zero-copy by default** — `GetStringRaw()`, `GetBytesRaw()`, `GetPropertyNameRaw()` return `ReadOnlySpan<byte>` pointing into the source buffer. Allocating `string` is opt-in at the consumer.
 3. **Depth defense** — `Depth` is tracked on every `ObjectStart`/`ArrayStart`. Configurable max prevents stack overflow from malicious nesting.
-4. **Skip is zero-cost** — `Skip()` does no parsing of the skipped content. It counts `ObjectStart`/`ArrayStart` depth and advances to the matching end. O(skip depth), not O(skip size).
+4. **Skip validates** — `Skip()` traverses the skipped subtree, validating every token. Silent data corruption from malformed skipped content is unacceptable. Cost: O(skip size), not just O(skip depth). The trade-off is correctness over raw speed.
 5. **Format-agnostic core** — TokenType enum is the only shared vocabulary. Format-specific features go through Extension tokens or format-specific reader/writer subclasses.
 
 ---
@@ -322,14 +323,17 @@ Format implementations share the same `SerDeTokenType` enum and the same `Deseri
 | **Extension token is a compatibility trap** | Tag registry prevents collisions. Reserve extension tags per format. |
 | **`ref struct` limits composition** | Cannot store reader in a class field or async method. Acceptable — the hot path is synchronous and stack-local. |
 | **Forward-only means no random access** | Acceptable constraint. Random access would require buffering, violating the zero-alloc goal. |
+| **Skip validation costs O(skip size)** | Acceptable. Skipping is a non-hot path (unknown fields, optional sections). Correctness > raw throughput for this operation. |
 
 ---
 
-## 11. Open Questions
+## 11. Resolved Design Decisions
 
-1. **Should `Skip()` validate structural integrity?** Current design: No (performance). Alternative: validate that skipped content is well-formed. Trade-off: speed vs. error detection quality.
-2. **Maximum depth default?** Suggested: 256. Matches System.Text.Json's default.
-3. **Should writer support `WriteRaw(ReadOnlySpan<byte>)` for pass-through scenarios?** Useful for format conversion (JSON → MessagePack without deserializing). Risk: bypasses structural validation.
+1. **`Skip()` MUST validate structural integrity.** Rationale: silent corruption from malformed skipped content is a catastrophic bug class. Performance loss is acceptable — skipping is already a non-hot-path operation (you only skip unknown fields). Cost moves from O(skip depth) to O(skip size).
+
+2. **Maximum depth default: 256.** Matches System.Text.Json's default. Configurable per reader instance.
+
+3. **No `WriteRaw(ReadOnlySpan<byte>)` on Writer.** `WriteRaw` is a correctness trap. Raw bytes from one format (e.g., JSON-escaped strings like `"hello\nworld"`) are not valid raw bytes in another format (MessagePack expects literal `0x0A`, not the two-character `\n` escape sequence). Cross-format pass-through must go through proper deserialization and re-serialization. Attempting to bypass this produces format-incompliant output that fails silently or corrupts downstream consumers.
 
 ---
 
