@@ -9,7 +9,7 @@ public class InterfaceTests
         public void Serialize(IBufferWriter<byte> writer, int value)
         {
             var span = writer.GetSpan(4);
-            BitConverter.TryWriteBytes(span, value);
+            _ = BitConverter.TryWriteBytes(span, value);
             writer.Advance(4);
         }
     }
