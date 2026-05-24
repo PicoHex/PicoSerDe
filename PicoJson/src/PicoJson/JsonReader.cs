@@ -1,5 +1,3 @@
-using System.Buffers.Text;
-
 namespace PicoJson;
 
 public ref struct JsonReader
