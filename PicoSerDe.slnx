@@ -1,11 +1,4 @@
 <Solution>
-  <Folder Name="/samples/">
-    <File Path="samples\README.md" />
-  </Folder>
-  <Folder Name="/src/">
-    <File Path="src\README.md" />
-  </Folder>
-  <Folder Name="/tests/">
-    <File Path="tests\README.md" />
-  </Folder>
+  <Project Path="PicoSerDe.Abs\src\PicoSerDe.Abs.csproj" />
+  <Project Path="PicoSerDe.Abs\tests\PicoSerDe.Abs.Tests\PicoSerDe.Abs.Tests.csproj" />
 </Solution>
