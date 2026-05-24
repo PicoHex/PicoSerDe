@@ -1,6 +1,3 @@
-using System.Buffers;
-using System.Text;
-
 namespace PicoSerDe.Abs;
 
 public static class SerializerExtensions

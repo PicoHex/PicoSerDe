@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace PicoSerDe.Abs;
 
 public static class DeserializerExtensions
