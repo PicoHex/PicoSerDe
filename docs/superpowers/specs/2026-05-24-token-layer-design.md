@@ -1,6 +1,6 @@
 # PicoSerDe Token Layer Design
 
-**Status**: Draft  
+**Status**: Approved  
 **Date**: 2026-05-24  
 **Topic**: Core serialization token abstraction — reader/writer contract
 
@@ -140,7 +140,9 @@ ref struct SerDeReader {
     long BytesConsumed { get; }
 
     // ── Navigation ──
-    bool Read();        // Advance to next token. Returns false at EOF.
+    bool Read();        // Advance to next token. Returns false at EOF (not at error).
+                        // Format errors throw. Following S.T.J's early-return
+                        // pattern for JIT inlining friendliness.
     void Skip();        // Skip current token and any nested subtree.
                         // Validates structural integrity — corrupted/malformed
                         // content within the skipped subtree throws.
@@ -148,26 +150,36 @@ ref struct SerDeReader {
     // ── Zero-copy value access ──
     ReadOnlySpan<byte> RawValue { get; }  // Raw bytes of current token
 
-    // Typed accessors (parse from RawValue on demand)
-    byte   GetUInt8();
-    short  GetInt16();
-    int    GetInt32();
-    long   GetInt64();
-    ushort GetUInt16();
-    uint   GetUInt32();
-    ulong  GetUInt64();
-    float  GetFloat32();
-    double GetFloat64();
-    bool   GetBool();
+    // Typed accessors — Try pattern. No silent truncation.
+    // Returns false on overflow or type mismatch.
+    bool TryGetInt8(out sbyte value);
+    bool TryGetInt16(out short value);
+    bool TryGetInt32(out int value);
+    bool TryGetInt64(out long value);
+    bool TryGetUInt8(out byte value);
+    bool TryGetUInt16(out ushort value);
+    bool TryGetUInt32(out uint value);
+    bool TryGetUInt64(out ulong value);
+    bool TryGetFloat16(out Half value);
+    bool TryGetFloat32(out float value);
+    bool TryGetFloat64(out double value);
+    bool TryGetBool(out bool value);
 
-    // Zero-copy spans (point directly into the source buffer)
-    ReadOnlySpan<byte> GetStringRaw();    // UTF-8 bytes, not copied
-    ReadOnlySpan<byte> GetBytesRaw();     // Binary data, not copied
-    ReadOnlySpan<byte> GetPropertyNameRaw(); // Property name, not copied
+    // Zero-copy spans.
+    // String: reader handles unescape internally (fast path: no '\' → points
+    // to source buffer; slow path: stackalloc decode). Deserializer always
+    // receives decoded UTF-8 bytes regardless of source format.
+    ReadOnlySpan<byte> GetStringRaw();
+    ReadOnlySpan<byte> GetBytesRaw();
+    ReadOnlySpan<byte> GetPropertyNameRaw();
 
     // ── Extension ──
     byte GetExtensionTag();
     ReadOnlySpan<byte> GetExtensionRaw();
+
+    // ── Array length hint (optional) ──
+    int? ArrayLength { get; }   // non-null for formats that know array size
+                                // upfront (MessagePack). null for JSON.
 }
 ```
 
@@ -176,11 +188,13 @@ ref struct SerDeReader {
 | Decision | Choice | Rationale |
 |---|---|---|
 | `ref struct` | Yes | Prevents heap escape. Guarantees stack lifetime. Enables `Span<byte>` fields. |
-| `Read()` returns `bool` | Yes | Clean EOF signal. No need for a separate `IsEOF` property. |
-| `Skip()` subtree skipping | Yes | When deserializing, skip unknown fields without parsing their contents. Cost: O(depth) depth counting only. |
-| No `TryReadXxx()` on reader | Yes | Reader doesn't know target types. Those methods belong on the deserializer layer. |
-| `GetStringRaw()` returns `Span<byte>` | Yes | Consumer decides: keep as Span (zero-copy) or allocate `string` via `Encoding.UTF8.GetString()`. |
-| `Depth` tracked by reader | Yes | Central defense against stack-overflow attacks. Max depth configurable per reader instance. |
+| `Read()` returns `bool` | Yes | Clean EOF signal. Format errors throw. Follows S.T.J's early-return pattern for JIT inlining. |
+| `Skip()` subtree skipping | Validates | Silent corruption from malformed skipped content is a catastrophic bug class. Cost: O(skip size), acceptable for a non-hot-path operation. |
+| Typed accessors use `Try` pattern | Yes | No silent truncation. `TryGetInt32()` returns false on overflow. No bare `GetInt32()` that throws — keeps error handling explicit. |
+| `GetStringRaw()` returns decoded UTF-8 | Yes | Reader handles escape sequences internally. Fast path (no `\`): zero-copy into source buffer. Slow path: stackalloc decode. Deserializer always receives clean decoded bytes. |
+| `Depth` tracked by reader | Yes | Central defense against stack-overflow attacks. Default max depth: 256 (configurable). |
+| Token order not validated | Yes | Reader outputs raw token stream. Semantic order validation (e.g., PropertyName must be followed by a value) is the Deserializer's responsibility. |
+| Multi-document support | Yes | After `Read()` returns false (EOF on current document), caller advances buffer offset and creates a new reader for the next document. Reader does not own buffer lifecycle. |
 
 ### 5.2 Usage Pattern
 
@@ -189,12 +203,32 @@ var reader = new SerDeReader(buffer);
 while (reader.Read()) {
     switch (reader.TokenType) {
         case SerDeTokenType.ObjectStart: /* handle */ break;
-        case SerDeTokenType.String:      /* use reader.GetStringRaw() */ break;
-        case SerDeTokenType.Int32:       /* use reader.GetInt32() */ break;
+        case SerDeTokenType.String:
+            var strSpan = reader.GetStringRaw(); // already unescaped
+            break;
+        case SerDeTokenType.Int32:
+            if (reader.TryGetInt32(out var val)) { /* use val */ }
+            break;
         // ...
     }
 }
+// Read() returned false → EOF for this document.
+// To read next document in a multi-doc stream:
+//   advance buffer past BytesConsumed, create new reader.
 ```
+
+### 5.3 String Unescape Strategy
+
+JSON strings may contain escape sequences (`\n`, `\u0041`). Reader uses a fast-path approach:
+
+```
+Read() → scan string for 0x5C ('\')   (SIMD-accelerable)
+  ├─ No '\' found → GetStringRaw() points directly into source buffer (zero-copy, ~95% of strings)
+  └─ '\' found   → stackalloc decode into internal Span<byte>
+                    → if too long (rare), rent from ArrayPool<byte>.Shared
+```
+
+This keeps the zero-alloc promise for the common case while correctly handling escaped strings. MessagePack and binary formats never have escape sequences — their `GetStringRaw()` always takes the fast path.
 
 ---
 
@@ -202,6 +236,10 @@ while (reader.Read()) {
 
 ```csharp
 ref struct SerDeWriter {
+    // Writer receives an IBufferWriter<byte> from the caller.
+    // Writer does NOT own buffer lifecycle or expansion policy.
+    // Standard .NET pattern (System.Text.Json, MessagePack-CSharp).
+
     // ── Structural ──
     void WriteObjectStart();
     void WriteObjectEnd();
@@ -214,15 +252,17 @@ ref struct SerDeWriter {
     void WriteBool(bool value);
 
     // ── Integers ──
-    void WriteUInt8(byte value);
+    void WriteInt8(sbyte value);
     void WriteInt16(short value);
     void WriteInt32(int value);
     void WriteInt64(long value);
+    void WriteUInt8(byte value);
     void WriteUInt16(ushort value);
     void WriteUInt32(uint value);
     void WriteUInt64(ulong value);
 
     // ── Floating ──
+    void WriteFloat16(Half value);
     void WriteFloat32(float value);
     void WriteFloat64(double value);
 
@@ -234,12 +274,12 @@ ref struct SerDeWriter {
     void WriteExtension(byte tag, ReadOnlySpan<byte> data);
 
     // ── Output ──
-    ReadOnlySpan<byte> GetWrittenSpan(); // Retrieve the written buffer
     long BytesWritten { get; }
+    void Flush();   // Commit pending bytes to underlying IBufferWriter
 }
 ```
 
-Writer is simpler than Reader — no "current token" state, just "write this". The format implementation handles encoding each `Write*` call into the wire format.
+Writer is simpler than Reader — no "current token" state, just "write this". The format implementation handles encoding each `Write*` call into the wire format. Buffer management is delegated to `IBufferWriter<byte>` (typically `ArrayPoolBufferWriter<byte>`).
 
 ---
 
@@ -290,17 +330,19 @@ Symmetrical: serializer calls `Write*` methods on the writer to emit tokens.
 
 ---
 
-## 8. Format Implementation
+## 8. Format Implementation (PicoHex Ecosystem)
 
-Each format provides its own `SerDeReader` / `SerDeWriter` implementation:
+The token layer (`SerDeTokenType`, `SerDeReader`, `SerDeWriter`) is the **shared base** of the PicoHex serialization ecosystem. Each format library provides its own reader/writer implementation while sharing the same token vocabulary and deserializer/serializer contracts.
 
-| Format | Reader Implementation | Writer Implementation |
-|---|---|---|
-| JSON | `JsonSerDeReader` — parses UTF-8 JSON byte stream | `JsonSerDeWriter` — emits UTF-8 JSON |
-| MessagePack | `MsgPackSerDeReader` — reads MessagePack binary | `MsgPackSerDeWriter` — writes MessagePack binary |
-| YAML | `YamlSerDeReader` (future) | `YamlSerDeWriter` (future) |
+| Library | Reader | Writer | Status |
+|---|---|---|---|
+| **PicoSerDe** (this repo) | Abstract base + shared contracts | Abstract base + shared contracts | Current |
+| **PicoJson** | `JsonSerDeReader` — UTF-8 JSON parsing | `JsonSerDeWriter` — UTF-8 JSON emission | Future |
+| **PicoProtobuf** | `ProtobufSerDeReader` — wire type decoding | `ProtobufSerDeWriter` — wire type encoding | Future |
+| **PicoYml** | `YamlSerDeReader` | `YamlSerDeWriter` | Future |
+| **PicoMsgPack** | `MsgPackSerDeReader` | `MsgPackSerDeWriter` | Future |
 
-Format implementations share the same `SerDeTokenType` enum and the same `Deserializer<T>` / `Serializer<T>`. This is the key payoff: add a format, get all converters for free.
+All format libraries share the same `Deserializer<T>` / `Serializer<T>`. This is the key payoff: add a format, get all converters for free.
 
 ---
 
@@ -319,21 +361,40 @@ Format implementations share the same `SerDeTokenType` enum and the same `Deseri
 | Risk | Mitigation |
 |---|---|
 | **Typed scalars increase enum size** | 14 value tokens is manageable. Compiler switch exhaustiveness ensures correctness. |
-| **`GetStringRaw()` may contain invalid UTF-8** | Document that validity is format-dependent. JSON guarantees valid UTF-8. MessagePack does not. Consumer validates if needed. |
+| **`GetStringRaw()` slow path allocates** | Only triggers when `\` is present (~5% of strings). Stackalloc handles short escapes; ArrayPool for the rare long ones. |
 | **Extension token is a compatibility trap** | Tag registry prevents collisions. Reserve extension tags per format. |
 | **`ref struct` limits composition** | Cannot store reader in a class field or async method. Acceptable — the hot path is synchronous and stack-local. |
 | **Forward-only means no random access** | Acceptable constraint. Random access would require buffering, violating the zero-alloc goal. |
 | **Skip validation costs O(skip size)** | Acceptable. Skipping is a non-hot path (unknown fields, optional sections). Correctness > raw throughput for this operation. |
+| **Token order validation deferred to Deserializer** | Deserializers (especially generated ones) are the natural place for semantic constraints. Reader stays format-agnostic. |
 
 ---
 
 ## 11. Resolved Design Decisions
 
-1. **`Skip()` MUST validate structural integrity.** Rationale: silent corruption from malformed skipped content is a catastrophic bug class. Performance loss is acceptable — skipping is already a non-hot-path operation (you only skip unknown fields). Cost moves from O(skip depth) to O(skip size).
+1. **Token granularity: 14 scalar types, no MessagePack fixint/fixarray exposure.** Reader normalizes wire-format encoding details. MessagePack `positive fixint(42)` and `int8(42)` both emit `Int8`. Deserializer sees unified token types.
 
-2. **Maximum depth default: 256.** Matches System.Text.Json's default. Configurable per reader instance.
+2. **Array uses single `ArrayStart`/`ArrayEnd` pair.** MessagePack's `fixarray`/`array16`/`array32` are wire-format optimizations. Reader normalizes them. Optional `ArrayLength` hint available for formats that know size upfront.
 
-3. **No `WriteRaw(ReadOnlySpan<byte>)` on Writer.** `WriteRaw` is a correctness trap. Raw bytes from one format (e.g., JSON-escaped strings like `"hello\nworld"`) are not valid raw bytes in another format (MessagePack expects literal `0x0A`, not the two-character `\n` escape sequence). Cross-format pass-through must go through proper deserialization and re-serialization. Attempting to bypass this produces format-incompliant output that fails silently or corrupts downstream consumers.
+3. **DateTime NOT a core token.** Token layer describes what the byte stream contains (`String` or `Extension`). Semantic interpretation ("this string is a datetime") belongs to the Deserializer, driven by target type metadata from Source Generators.
+
+4. **`Skip()` MUST validate structural integrity.** Silent corruption from malformed skipped content is a catastrophic bug class. Cost: O(skip size), acceptable for a non-hot-path operation.
+
+5. **Maximum depth default: 256.** Configurable per reader instance.
+
+6. **No `WriteRaw(ReadOnlySpan<byte>)` on Writer.** Raw bytes from one format are not valid raw bytes in another (e.g., JSON-escaped `\n` vs literal `0x0A`). Cross-format pass-through must go through proper deserialization and re-serialization.
+
+7. **String unescape in Reader.** Fast path (no `\`): zero-copy into source buffer. Slow path: stackalloc decode. Deserializer always receives clean decoded UTF-8 bytes regardless of source format.
+
+8. **Error model: `Read()` returns `bool` for EOF, throws on format error.** Follows S.T.J's pattern — early-return for JIT inlining friendliness. No error-code tuples.
+
+9. **Typed value accessors: `TryGet*` only.** No silent truncation. `TryGetInt32()` returns false on overflow. No bare `GetInt32()` that throws.
+
+10. **Token order NOT validated by Reader.** Semantic order (e.g., `PropertyName` must be followed by a value token) is the Deserializer's responsibility. This keeps the Reader format-agnostic.
+
+11. **Multi-document stream support.** After `Read()` returns false (EOF on current document), caller advances buffer offset and creates a new reader. Reader does not own buffer lifecycle.
+
+12. **Writer buffer: `IBufferWriter<byte>`.** Standard .NET pattern. Writer delegates buffer expansion to the caller-supplied implementation (typically `ArrayPoolBufferWriter<byte>`).
 
 ---
 
