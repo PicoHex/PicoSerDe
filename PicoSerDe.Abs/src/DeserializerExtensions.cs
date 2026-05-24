@@ -21,15 +21,17 @@ public static class DeserializerExtensions
     }
 
     public static async ValueTask<T> DeserializeFromStreamAsync<T>(
-        this IDeserializer<T> deserializer, Stream stream, CancellationToken ct = default)
+        this IDeserializer<T> deserializer,
+        Stream stream,
+        CancellationToken ct = default
+    )
     {
         using var ms = new MemoryStream();
         await stream.CopyToAsync(ms, ct);
         return deserializer.Deserialize(ms.ToArray().AsSpan());
     }
 
-    public static T DeserializeFromPipe<T>(
-        this IDeserializer<T> deserializer, PipeReader reader)
+    public static T DeserializeFromPipe<T>(this IDeserializer<T> deserializer, PipeReader reader)
     {
         ReadResult result;
         do
@@ -61,7 +63,10 @@ public static class DeserializerExtensions
     }
 
     public static async ValueTask<T> DeserializeFromPipeAsync<T>(
-        this IDeserializer<T> deserializer, PipeReader reader, CancellationToken ct = default)
+        this IDeserializer<T> deserializer,
+        PipeReader reader,
+        CancellationToken ct = default
+    )
     {
         ReadResult result;
         do
