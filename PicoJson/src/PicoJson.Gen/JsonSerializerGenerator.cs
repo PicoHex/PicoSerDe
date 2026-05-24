@@ -62,6 +62,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         if (typeArg is not INamedTypeSymbol namedType)
             return null;
 
+        // Skip nested types (e.g. test fixture inner classes)
+        if (namedType.ContainingType is not null)
+            return null;
+
         var ns = namedType.ContainingNamespace?.ToDisplayString() ?? "";
         // Roslyn returns "<global namespace>" for the global namespace — normalize to empty
         if (ns == "<global namespace>")
@@ -106,6 +110,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             SpecialType.System_Double => "float64",
             SpecialType.System_Single => "float64",
             SpecialType.System_Boolean => "boolean",
+            SpecialType.System_DateTime => "datetime",
             _ => null,
         };
 
@@ -225,6 +230,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(prop.Name);
                     sb.AppendLine(");");
                     break;
+                case "datetime":
+                    sb.Append("            var __iso = value.");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(".ToString(\"O\");");
+                    sb.AppendLine("            jw.WriteString(Encoding.UTF8.GetBytes(__iso));");
+                    break;
             }
         }
 
@@ -306,6 +317,20 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append("                    obj.");
                     sb.Append(prop.Name);
                     sb.AppendLine(" = __v;");
+                    sb.AppendLine("                }");
+                    break;
+                case "datetime":
+                    sb.AppendLine("                {");
+                    sb.AppendLine("                    var __raw = reader.GetStringRaw();");
+                    sb.AppendLine(
+                        "                    var __str = Encoding.UTF8.GetString(__raw);"
+                    );
+                    sb.AppendLine(
+                        "                    System.DateTime.TryParse(__str, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                    );
+                    sb.Append("                    obj.");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(" = __dt;");
                     sb.AppendLine("                }");
                     break;
             }

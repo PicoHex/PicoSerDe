@@ -2,6 +2,7 @@ public class Person
 {
     public string Name { get; set; } = "";
     public int Age { get; set; }
+    public DateTime CreatedAt { get; set; }
     public List<string> Tags { get; set; } = new();
 }
 
@@ -13,6 +14,7 @@ class Program
         {
             Name = "Alice",
             Age = 30,
+            CreatedAt = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc),
             Tags =  ["developer", "runner"]
         };
 
