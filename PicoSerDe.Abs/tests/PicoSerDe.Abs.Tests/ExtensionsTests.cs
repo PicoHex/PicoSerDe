@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.IO.Pipelines;
 using System.Text;
 
 namespace PicoSerDe.Abs.Tests;
@@ -76,6 +77,21 @@ public class ExtensionsTests
         var bytes = Encoding.UTF8.GetBytes("hello");
         using var stream = new MemoryStream(bytes);
         var result = deserializer.DeserializeFromStream(stream);
+        await Assert.That(result).IsEqualTo("hello");
+    }
+
+    [Test]
+    public async Task DeserializeFromPipeAsync_ReadsFromPipe()
+    {
+        var deserializer = new StringDeserializer();
+        var pipe = new Pipe();
+
+        // Write "hello" into the pipe
+        var bytes = Encoding.UTF8.GetBytes("hello");
+        await pipe.Writer.WriteAsync(bytes);
+        await pipe.Writer.CompleteAsync();
+
+        var result = await deserializer.DeserializeFromPipeAsync(pipe.Reader);
         await Assert.That(result).IsEqualTo("hello");
     }
 }

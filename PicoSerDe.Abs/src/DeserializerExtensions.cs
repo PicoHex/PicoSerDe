@@ -1,3 +1,5 @@
+using System.IO.Pipelines;
+
 namespace PicoSerDe.Abs;
 
 public static class DeserializerExtensions
@@ -18,5 +20,31 @@ public static class DeserializerExtensions
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
         return deserializer.Deserialize(ms.ToArray().AsSpan());
+    }
+
+    public static async ValueTask<T> DeserializeFromPipeAsync<T>(
+        this IDeserializer<T> deserializer, PipeReader reader, CancellationToken ct = default)
+    {
+        ReadResult result;
+        do
+        {
+            result = await reader.ReadAsync(ct);
+        } while (!result.IsCompleted && result.Buffer.Length == 0);
+
+        var buffer = result.Buffer;
+        byte[] data;
+
+        if (buffer.IsSingleSegment)
+        {
+            data = buffer.FirstSpan.ToArray();
+        }
+        else
+        {
+            data = new byte[buffer.Length];
+            buffer.CopyTo(data);
+        }
+
+        reader.AdvanceTo(buffer.End);
+        return deserializer.Deserialize(data);
     }
 }
