@@ -77,9 +77,66 @@ public class JsonSerializerTests
     [Test]
     public async Task JsonSerializerClass_Exists()
     {
-        // Verify the static class compiles (even if methods are stubs)
         var t = typeof(JsonSerializer);
         await Assert.That(t.IsAbstract).IsTrue();
         await Assert.That(t.IsSealed).IsTrue();
+    }
+
+    [Test]
+    public async Task StaticApi_WithManualRegistration_RoundTrips()
+    {
+        // Simulate what the Source Generator produces
+        JsonSerializer._serializers[typeof(Person)] = new PersonJsonSerializer();
+        JsonSerializer._deserializers[typeof(Person)] = new PersonJsonDeserializer();
+
+        var person = new Person { Name = "Charlie", Age = 35 };
+        var buf = new ArrayBufferWriter<byte>(256);
+
+        JsonSerializer.Serialize(buf, person);
+        var result = JsonSerializer.Deserialize<Person>(buf.WrittenSpan);
+
+        await Assert.That(result!.Name).IsEqualTo("Charlie");
+        await Assert.That(result.Age).IsEqualTo(35);
+    }
+
+    [Test]
+    public async Task StaticApi_SerializeToUtf8Bytes_ReturnsValidJson()
+    {
+        JsonSerializer._serializers[typeof(Person)] = new PersonJsonSerializer();
+        JsonSerializer._deserializers[typeof(Person)] = new PersonJsonDeserializer();
+
+        var person = new Person { Name = "Dave", Age = 40 };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(person);
+        var json = Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(json).Contains("\"Name\"");
+        await Assert.That(json).Contains("\"Dave\"");
+        await Assert.That(json).Contains("\"Age\"");
+        await Assert.That(json).Contains("40");
+    }
+
+    [Test]
+    public async Task StaticApi_SerializeToString_ReturnsJsonString()
+    {
+        JsonSerializer._serializers[typeof(Person)] = new PersonJsonSerializer();
+        JsonSerializer._deserializers[typeof(Person)] = new PersonJsonDeserializer();
+
+        var person = new Person { Name = "Eve", Age = 28 };
+        var json = JsonSerializer.Serialize(person);
+
+        await Assert.That(json).Contains("\"Name\"");
+        await Assert.That(json).Contains("\"Eve\"");
+        await Assert.That(json).Contains("28");
+    }
+
+    private struct UnregisteredType { }
+
+    [Test]
+    public async Task StaticApi_NoRegistration_ThrowsInvalidOperation()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => JsonSerializer.SerializeToUtf8Bytes(new UnregisteredType())
+        );
+        await Assert.That(ex.Message).Contains("UnregisteredType");
     }
 }

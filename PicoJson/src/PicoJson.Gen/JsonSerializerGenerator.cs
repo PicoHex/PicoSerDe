@@ -164,6 +164,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         // ---------- Deserializer ----------
         AppendDeserializer(sb, type);
 
+        sb.AppendLine();
+
+        // ---------- Registration ----------
+        AppendRegistration(sb, type);
+
         return sb.ToString();
     }
 
@@ -316,6 +321,33 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            return obj;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
+    }
+
+    private static void AppendRegistration(StringBuilder sb, TypeInfo type)
+    {
+        var typeName = type.Name;
+        var ns = type.Namespace;
+        var typeRef = string.IsNullOrEmpty(ns) ? typeName : $"global::{ns}.{typeName}";
+
+        sb.Append("file static class ");
+        sb.Append(typeName);
+        sb.AppendLine("SerDeRegistration");
+        sb.AppendLine("{");
+        sb.AppendLine("    [System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.AppendLine("    internal static void Register()");
+        sb.AppendLine("    {");
+        sb.Append("        global::PicoJson.JsonSerializer._serializers[typeof(");
+        sb.Append(typeRef);
+        sb.Append(")] = new ");
+        sb.Append(typeName);
+        sb.AppendLine("JsonSerializer();");
+        sb.Append("        global::PicoJson.JsonSerializer._deserializers[typeof(");
+        sb.Append(typeRef);
+        sb.Append(")] = new ");
+        sb.Append(typeName);
+        sb.AppendLine("JsonDeserializer();");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
     }
 
     internal readonly record struct TypeInfo(

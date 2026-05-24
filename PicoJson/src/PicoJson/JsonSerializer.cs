@@ -1,12 +1,20 @@
 namespace PicoJson;
 
-public static class JsonSerializer
+public static partial class JsonSerializer
 {
+    internal static readonly Dictionary<Type, object> _serializers = new();
+    internal static readonly Dictionary<Type, object> _deserializers = new();
+
     public static byte[] SerializeToUtf8Bytes<T>(T value)
     {
-        throw new NotImplementedException(
-            "Source Generator not yet built. Use ISerializer<T> implementations directly."
-        );
+        if (_serializers.TryGetValue(typeof(T), out var s))
+        {
+            var writer = new ArrayBufferWriter<byte>();
+            ((ISerializer<T>)s).Serialize(writer, value);
+            return writer.WrittenSpan.ToArray();
+        }
+        ThrowNoSerializer<T>();
+        return default;
     }
 
     public static string Serialize<T>(T value)
@@ -17,11 +25,26 @@ public static class JsonSerializer
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
     {
-        throw new NotImplementedException("Source Generator not yet built.");
+        if (_serializers.TryGetValue(typeof(T), out var s))
+            ((ISerializer<T>)s).Serialize(writer, value);
+        else
+            ThrowNoSerializer<T>();
     }
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
-        throw new NotImplementedException("Source Generator not yet built.");
+        if (_deserializers.TryGetValue(typeof(T), out var d))
+            return ((IDeserializer<T>)d).Deserialize(data);
+        ThrowNoSerializer<T>();
+        return default;
+    }
+
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+    private static void ThrowNoSerializer<T>()
+    {
+        throw new InvalidOperationException(
+            $"No serializer/deserializer registered for {typeof(T)}. "
+                + "Ensure PicoJson.Gen is referenced and the type is used with JsonSerializer methods."
+        );
     }
 }
