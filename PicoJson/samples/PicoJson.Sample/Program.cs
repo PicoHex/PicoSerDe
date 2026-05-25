@@ -1,182 +1,77 @@
-using System.Buffers;
-using System.Globalization;
-using System.Text;
-using PicoJson;
-
-// ═══════════════════════════════════════════════
-// PicoJson Sample — complex nested model demo
-// ═══════════════════════════════════════════════
-
-// ── Models ──
-
-public enum OrderStatus
-{
-    Pending,
-    Processing,
-    Shipped,
-    Delivered,
-    Cancelled
-}
-
-public class Address
-{
-    public string Street { get; set; } = "";
-    public string City { get; set; } = "";
-    public string? Zip { get; set; }
-    public string Country { get; set; } = "";
-}
-
-public class Customer
+public class Person
 {
     public string Name { get; set; } = "";
-    public DateOnly Since { get; set; }
-    public List<string> Preferences { get; set; } = new();
-    public Address? Address { get; set; }
+    public int Age { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public List<string> Tags { get; set; } = new();
 }
 
-public class OrderLine
-{
-    public string Product { get; set; } = "";
-    public int Quantity { get; set; }
-    public decimal UnitPrice { get; set; }
-    public TimeOnly? PickedAt { get; set; }
-}
-
-public class Order
+public class DemoModel
 {
     public Guid Id { get; set; }
-    public OrderStatus Status { get; set; }
-    public decimal Total { get; set; }
-    public double? Discount { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateOnly? FulfilledDate { get; set; }
-    public Dictionary<string, string> Metadata { get; set; } = new();
-    public Customer? Customer { get; set; }
-    public List<OrderLine> Lines { get; set; } = new();
+    public decimal Price { get; set; }
+    public DayOfWeek Day { get; set; }
+    public int? OptionalScore { get; set; }
+    public Dictionary<string, int> Counts { get; set; } = new();
+    public DateOnly StartDate { get; set; }
+    public TimeSpan Duration { get; set; }
 }
-
-// ── Main ──
 
 class Program
 {
     static void Main()
     {
-        var order = new Order
+        var person = new Person
         {
-            Id = Guid.NewGuid(),
-            Status = OrderStatus.Processing,
-            Total = 149.97m,
-            Discount = 10.0,
-            CreatedAt = DateTime.UtcNow,
-            FulfilledDate = null,
-            Metadata = new() { ["source"] = "web", ["channel"] = "mobile" },
-            Customer = new Customer
-            {
-                Name = "Alice",
-                Since = new DateOnly(2024, 1, 15),
-                Preferences =  ["email", "sms"],
-                Address = new Address
-                {
-                    Street = "123 Main St",
-                    City = "San Francisco",
-                    Zip = "94105",
-                    Country = "US"
-                }
-            },
-            Lines = new List<OrderLine>
-            {
-                new()
-                {
-                    Product = "Widget",
-                    Quantity = 2,
-                    UnitPrice = 49.99m,
-                    PickedAt = null
-                },
-                new()
-                {
-                    Product = "Gadget",
-                    Quantity = 1,
-                    UnitPrice = 49.99m,
-                    PickedAt = new TimeOnly(14, 30)
-                }
-            }
+            Name = "Alice",
+            Age = 30,
+            CreatedAt = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc),
+            Tags =  ["developer", "runner"]
         };
 
-        // ── Serialize (one line, Source Generator at compile time) ──
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(order);
-        Console.WriteLine("=== Serialized ===");
-        Console.WriteLine(PrettyPrint(Encoding.UTF8.GetString(bytes)));
+        // One line: Source Generator produces serializers at compile time
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(person);
+        Console.WriteLine("=== Serialized Person ===");
+        Console.WriteLine(Encoding.UTF8.GetString(bytes));
 
-        // ── Deserialize (one line) ──
-        var restored = JsonSerializer.Deserialize<Order>(bytes);
-        Console.WriteLine("\n=== Deserialized ===");
-        Console.WriteLine($"  Id:              {restored?.Id}");
-        Console.WriteLine($"  Status:          {restored?.Status}");
-        Console.WriteLine($"  Total:           {restored?.Total}");
-        Console.WriteLine($"  Discount:        {restored?.Discount}");
-        Console.WriteLine($"  CreatedAt:       {restored?.CreatedAt:O}");
-        Console.WriteLine($"  FulfilledDate:   {restored?.FulfilledDate?.ToString() ?? "null"}");
-        Console.WriteLine(
-            $"  Metadata:        [{string.Join(", ", restored?.Metadata?.Select(kv => $"{kv.Key}={kv.Value}") ?? new[] { "" })}]"
-        );
-        Console.WriteLine($"  Customer.Name:   {restored?.Customer?.Name}");
-        Console.WriteLine($"  Customer.Since:  {restored?.Customer?.Since}");
-        Console.WriteLine(
-            $"  Customer.Prefs:  [{string.Join(", ", restored?.Customer?.Preferences ?? new())}]"
-        );
-        Console.WriteLine(
-            $"  Customer.Addr:   {restored?.Customer?.Address?.Street}, {restored?.Customer?.Address?.City}"
-        );
-        foreach (var line in restored?.Lines ?? new())
+        // Deserialize back — show every property
+        var restored = JsonSerializer.Deserialize<Person>(bytes);
+        Console.WriteLine("\n=== Deserialized Person ===");
+        Console.WriteLine($"  Name:       {restored?.Name}");
+        Console.WriteLine($"  Age:        {restored?.Age}");
+        Console.WriteLine($"  CreatedAt:  {restored?.CreatedAt:O}");
+        Console.WriteLine($"  Tags:       [{string.Join(", ", restored?.Tags ?? new())}]");
+
+        // New type support demo
+        var demo = new DemoModel
         {
-            Console.WriteLine(
-                $"  Line:            {line.Product} x{line.Quantity} @ {line.UnitPrice} [{line.PickedAt}]"
-            );
-        }
+            Id = Guid.NewGuid(),
+            Price = 99.99m,
+            Day = DayOfWeek.Friday,
+            OptionalScore = 42,
+            Counts = new() { ["a"] = 1, ["b"] = 2 },
+            StartDate = new DateOnly(2026, 5, 25),
+            Duration = TimeSpan.FromHours(1.5),
+        };
+        var demoBytes = JsonSerializer.SerializeToUtf8Bytes(demo);
+        Console.WriteLine($"\n=== Serialized DemoModel ===\n{Encoding.UTF8.GetString(demoBytes)}");
+        var demoRestored = JsonSerializer.Deserialize<DemoModel>(demoBytes);
+        Console.WriteLine("\n=== Deserialized DemoModel ===");
+        Console.WriteLine($"  Id:             {demoRestored?.Id}");
+        Console.WriteLine($"  Price:          {demoRestored?.Price}");
+        Console.WriteLine($"  Day:            {demoRestored?.Day}");
+        Console.WriteLine($"  OptionalScore:  {demoRestored?.OptionalScore}");
+        Console.WriteLine($"  Counts:         {demoRestored?.Counts?.Count} entries");
+        Console.WriteLine($"  StartDate:      {demoRestored?.StartDate}");
+        Console.WriteLine($"  Duration:       {demoRestored?.Duration}");
 
-        // ── Raw JsonWriter ──
-        Console.WriteLine("\n=== Raw Writer ===");
+        // Raw JsonWriter
         var buf = new ArrayBufferWriter<byte>(128);
         var jw = new JsonWriter(buf);
         jw.WriteStartObject();
-        jw.WritePropertyName("framework"u8);
-        jw.WriteString("PicoJson"u8);
-        jw.WritePropertyName("message"u8);
-        jw.WriteString("Source Generator + AOT + zero reflection"u8);
+        jw.WritePropertyName("greeting"u8);
+        jw.WriteString("Hello from PicoJson!"u8);
         jw.WriteEndObject();
-        Console.WriteLine(Encoding.UTF8.GetString(buf.WrittenSpan));
-    }
-
-    // Quick indented formatter for readability (not part of PicoJson)
-    static string PrettyPrint(string compact)
-    {
-        var sb = new StringBuilder();
-        var indent = 0;
-        foreach (var c in compact)
-        {
-            if (c is '{' or '[')
-            {
-                sb.Append(c);
-                sb.Append('\n');
-                indent++;
-                sb.Append(' ', indent * 2);
-            }
-            else if (c is '}' or ']')
-            {
-                sb.Append('\n');
-                indent--;
-                sb.Append(' ', indent * 2);
-                sb.Append(c);
-            }
-            else if (c == ',')
-            {
-                sb.Append(c);
-                sb.Append('\n');
-                sb.Append(' ', indent * 2);
-            }
-            else
-                sb.Append(c);
-        }
-        return sb.ToString();
+        Console.WriteLine($"\n=== Raw Writer ===\n{Encoding.UTF8.GetString(buf.WrittenSpan)}");
     }
 }

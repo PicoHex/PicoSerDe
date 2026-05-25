@@ -132,7 +132,7 @@ public ref struct JsonReader
 
     public bool TryGetFloat64(out double v)
     {
-        if (_tokenType is not (TokenType.Float64 or TokenType.Int32))
+        if (_tokenType != TokenType.Float64)
         {
             v = 0;
             return false;
