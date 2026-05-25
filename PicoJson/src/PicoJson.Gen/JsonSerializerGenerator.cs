@@ -296,6 +296,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "guid" => "System.Guid",
             "decimal" => "decimal",
             "enum" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "object" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             _ => "object",
         };
 
@@ -628,6 +629,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(np.JsonName);
             sb.AppendLine("\"u8);");
 
+            var needNullableWrap = np.IsNullable && np.TypeKind != "object";
+            if (needNullableWrap)
+            {
+                sb.Append("                if (");
+                sb.Append(npAcc);
+                sb.AppendLine(".HasValue)");
+                sb.AppendLine("                {");
+                npAcc = $"{npAcc}.Value";
+            }
+
             switch (np.TypeKind)
             {
                 case "string":
@@ -699,11 +710,55 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.AppendLine("                }");
                     sb.AppendLine("                jw.WriteEndObject();");
                     break;
+                case "datetime":
+                    sb.Append("                var __dt = ");
+                    sb.Append(npAcc);
+                    sb.AppendLine(".ToString(\"O\");");
+                    sb.AppendLine("                jw.WriteString(Encoding.UTF8.GetBytes(__dt));");
+                    break;
+                case "dateonly":
+                    sb.Append("                var __d = ");
+                    sb.Append(npAcc);
+                    sb.AppendLine(".ToString(\"O\");");
+                    sb.AppendLine("                jw.WriteString(Encoding.UTF8.GetBytes(__d));");
+                    break;
+                case "timeonly":
+                    sb.Append("                var __t = ");
+                    sb.Append(npAcc);
+                    sb.AppendLine(".ToString(\"O\");");
+                    sb.AppendLine("                jw.WriteString(Encoding.UTF8.GetBytes(__t));");
+                    break;
+                case "timespan":
+                    sb.Append("                var __ts = ");
+                    sb.Append(npAcc);
+                    sb.AppendLine(".ToString();");
+                    sb.AppendLine("                jw.WriteString(Encoding.UTF8.GetBytes(__ts));");
+                    break;
+                case "guid":
+                case "enum":
+                    sb.Append("                jw.WriteString(Encoding.UTF8.GetBytes(");
+                    sb.Append(npAcc);
+                    sb.AppendLine(".ToString()));");
+                    break;
+                case "decimal":
+                    sb.Append("                jw.WriteString(Encoding.UTF8.GetBytes(");
+                    sb.Append(npAcc);
+                    sb.AppendLine(
+                        ".ToString(System.Globalization.CultureInfo.InvariantCulture)));"
+                    );
+                    break;
                 default:
                     sb.Append("                jw.WriteString(Encoding.UTF8.GetBytes(");
                     sb.Append(npAcc);
                     sb.AppendLine(".ToString()));");
                     break;
+            }
+
+            if (needNullableWrap)
+            {
+                sb.AppendLine("                }");
+                sb.AppendLine("                else");
+                sb.AppendLine("                    jw.WriteNull();");
             }
         }
     }
@@ -753,6 +808,37 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
                 sb.Append(accessor);
                 sb.AppendLine(".ToString(\"O\")));");
+                break;
+            case "dateonly":
+                sb.Append(indent);
+                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                sb.Append(accessor);
+                sb.AppendLine(".ToString(\"O\")));");
+                break;
+            case "timeonly":
+                sb.Append(indent);
+                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                sb.Append(accessor);
+                sb.AppendLine(".ToString(\"O\")));");
+                break;
+            case "timespan":
+                sb.Append(indent);
+                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                sb.Append(accessor);
+                sb.AppendLine(".ToString()));");
+                break;
+            case "guid":
+            case "enum":
+                sb.Append(indent);
+                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                sb.Append(accessor);
+                sb.AppendLine(".ToString()));");
+                break;
+            case "decimal":
+                sb.Append(indent);
+                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                sb.Append(accessor);
+                sb.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
                 break;
             case "object":
                 sb.Append(indent);
@@ -992,7 +1078,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb,
                     prop.ElementTypeKind!,
                     indent + "        ",
-                    nestedProperties: prop.NestedProperties
+                    nestedProperties: prop.NestedProperties,
+                    elementTypeName: prop.ElementTypeName
                 );
                 sb.Append(indent);
                 sb.AppendLine("    }");
@@ -1038,7 +1125,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     indent + "        ",
                     target: "__dict[__key]",
                     useAssignment: true,
-                    nestedProperties: prop.NestedProperties
+                    nestedProperties: prop.NestedProperties,
+                    elementTypeName: prop.ElementTypeName
                 );
                 sb.Append(indent);
                 sb.AppendLine("    }");
@@ -1290,6 +1378,60 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(prop.Name);
                 sb.AppendLine(" = __d;");
                 break;
+            case "dateonly":
+                sb.Append(indent);
+                sb.AppendLine("var __raw = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                sb.Append(indent);
+                sb.AppendLine("System.DateOnly.TryParse(__str, out var __dv);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __dv;");
+                break;
+            case "timeonly":
+                sb.Append(indent);
+                sb.AppendLine("var __raw = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                sb.Append(indent);
+                sb.AppendLine("System.TimeOnly.TryParse(__str, out var __tv);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __tv;");
+                break;
+            case "timespan":
+                sb.Append(indent);
+                sb.AppendLine("var __raw = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                sb.Append(indent);
+                sb.AppendLine("System.TimeSpan.TryParse(__str, out var __ts);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __ts;");
+                break;
+            case "enum":
+                sb.Append(indent);
+                sb.AppendLine("var __raw = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __es = System.Text.Encoding.UTF8.GetString(__raw);");
+                sb.Append(indent);
+                sb.Append("System.Enum.TryParse<");
+                sb.Append(prop.TypeFullName);
+                sb.AppendLine(">(__es, out var __ev);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __ev;");
+                break;
             case "list":
             case "array":
                 sb.Append(indent);
@@ -1312,7 +1454,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     prop.ElementTypeKind!,
                     indent + "        ",
                     target: "__nitems",
-                    nestedProperties: prop.NestedProperties
+                    nestedProperties: prop.NestedProperties,
+                    elementTypeName: prop.ElementTypeName
                 );
                 sb.Append(indent);
                 sb.AppendLine("    }");
@@ -1345,7 +1488,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string indent,
         string target = "__items",
         bool useAssignment = false,
-        PropertyInfo[]? nestedProperties = null
+        PropertyInfo[]? nestedProperties = null,
+        string? elementTypeName = null
     )
     {
         if (useAssignment)
@@ -1385,6 +1529,85 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(target);
                     sb.AppendLine(" = __ev;");
                     break;
+                case "datetime":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.AppendLine(
+                        "System.DateTime.TryParse(__str, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                    );
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = __dt;");
+                    break;
+                case "dateonly":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.AppendLine("System.DateOnly.TryParse(__str, out var __dv);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = __dv;");
+                    break;
+                case "timeonly":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.AppendLine("System.TimeOnly.TryParse(__str, out var __tv);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = __tv;");
+                    break;
+                case "timespan":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.AppendLine("System.TimeSpan.TryParse(__str, out var __ts);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = __ts;");
+                    break;
+                case "guid":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("System.Guid.TryParse(__raw, out var __g);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = __g;");
+                    break;
+                case "decimal":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine(
+                        "decimal.TryParse(__raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __d);"
+                    );
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = __d;");
+                    break;
+                case "enum":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __es = System.Text.Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.Append("System.Enum.TryParse<");
+                    sb.Append(elementTypeName ?? "System.Object");
+                    sb.AppendLine(">(__es, out var __ev);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = __ev;");
+                    break;
                 case "object":
                     sb.Append(indent);
                     sb.AppendLine("if (reader.TokenType == TokenType.Null)");
@@ -1397,16 +1620,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.AppendLine("{");
                     sb.Append(indent);
                     sb.Append("    var __oe = new ");
-                    if (nestedProperties is { Length: > 0 })
-                    {
-                        sb.Append(nestedProperties[0].TypeFullName);
-                        sb.Append("();");
-                    }
-                    else
-                    {
-                        sb.AppendLine("();");
-                    }
-                    sb.AppendLine();
+                    sb.Append(elementTypeName ?? "object");
+                    sb.AppendLine("();");
                     sb.Append(indent);
                     sb.AppendLine(
                         "    while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
@@ -1483,19 +1698,91 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(target);
                     sb.AppendLine(".Add(__ev);");
                     break;
+                case "datetime":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.AppendLine(
+                        "System.DateTime.TryParse(__str, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                    );
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(".Add(__dt);");
+                    break;
+                case "dateonly":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.AppendLine("System.DateOnly.TryParse(__str, out var __dv);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(".Add(__dv);");
+                    break;
+                case "timeonly":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.AppendLine("System.TimeOnly.TryParse(__str, out var __tv);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(".Add(__tv);");
+                    break;
+                case "timespan":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.AppendLine("System.TimeSpan.TryParse(__str, out var __ts);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(".Add(__ts);");
+                    break;
+                case "guid":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("System.Guid.TryParse(__raw, out var __g);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(".Add(__g);");
+                    break;
+                case "decimal":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine(
+                        "decimal.TryParse(__raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __d);"
+                    );
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(".Add(__d);");
+                    break;
+                case "enum":
+                    sb.Append(indent);
+                    sb.AppendLine("var __raw = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("var __es = System.Text.Encoding.UTF8.GetString(__raw);");
+                    sb.Append(indent);
+                    sb.Append("System.Enum.TryParse<");
+                    sb.Append(elementTypeName ?? "System.Object");
+                    sb.AppendLine(">(__es, out var __ev);");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(".Add(__ev);");
+                    break;
                 case "object":
                     sb.Append(indent);
                     sb.AppendLine("{");
                     sb.Append(indent);
                     sb.Append("    var __oe = new ");
-                    if (nestedProperties is { Length: > 0 })
-                    {
-                        sb.Append(nestedProperties[0].TypeFullName);
-                    }
-                    else
-                    {
-                        sb.Append("object");
-                    }
+                    sb.Append(elementTypeName ?? "object");
                     sb.AppendLine("();");
                     sb.Append(indent);
                     sb.AppendLine(

@@ -93,6 +93,7 @@ public ref struct JsonWriter
 
     public void WriteEndObject()
     {
+        _needsComma &= ~(1L << _depth);
         _depth--;
         if (_indented)
             WriteIndent();
@@ -108,6 +109,7 @@ public ref struct JsonWriter
 
     public void WriteEndArray()
     {
+        _needsComma &= ~(1L << _depth);
         _depth--;
         if (_indented)
             WriteIndent();
