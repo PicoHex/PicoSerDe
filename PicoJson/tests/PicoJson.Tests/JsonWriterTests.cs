@@ -153,4 +153,36 @@ public class JsonWriterTests
         w.WriteEndObject();
         await Assert.That(GetWrittenString(w, b)).IsEqualTo("{\n  \"a\": 1\n}");
     }
+
+    // === P0-1: String Escaping Tests ===
+
+    [Test]
+    public async Task WriteString_Escapes_Quote()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteString("he\"llo"u8); // contains embedded quote
+        var json = GetWrittenString(w, buf);
+        await Assert.That(json).IsEqualTo("\"he\\\"llo\"");
+    }
+
+    [Test]
+    public async Task WriteString_Escapes_Backslash()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteString("a\\b"u8);
+        var json = GetWrittenString(w, buf);
+        await Assert.That(json).IsEqualTo("\"a\\\\b\"");
+    }
+
+    [Test]
+    public async Task WriteString_Escapes_Newline()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteString("line1\nline2"u8);
+        var json = GetWrittenString(w, buf);
+        await Assert.That(json).IsEqualTo("\"line1\\nline2\"");
+    }
 }

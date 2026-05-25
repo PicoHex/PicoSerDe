@@ -66,7 +66,53 @@ public ref struct JsonWriter
     {
         BeforeWriteValue();
         WriteByte((byte)'"');
-        WriteRaw(utf8Value);
+        // Scan for escape chars
+        int escapeCount = 0;
+        foreach (var b in utf8Value)
+        {
+            if (b is (byte)'"' or (byte)'\\' or < 0x20)
+                escapeCount++;
+        }
+
+        if (escapeCount == 0)
+        {
+            WriteRaw(utf8Value);
+        }
+        else
+        {
+            var escaped = new byte[utf8Value.Length + escapeCount];
+            int di = 0;
+            foreach (var b in utf8Value)
+            {
+                switch (b)
+                {
+                    case (byte)'"':
+                        escaped[di++] = (byte)'\\';
+                        escaped[di++] = (byte)'"';
+                        break;
+                    case (byte)'\\':
+                        escaped[di++] = (byte)'\\';
+                        escaped[di++] = (byte)'\\';
+                        break;
+                    case (byte)'\n':
+                        escaped[di++] = (byte)'\\';
+                        escaped[di++] = (byte)'n';
+                        break;
+                    case (byte)'\r':
+                        escaped[di++] = (byte)'\\';
+                        escaped[di++] = (byte)'r';
+                        break;
+                    case (byte)'\t':
+                        escaped[di++] = (byte)'\\';
+                        escaped[di++] = (byte)'t';
+                        break;
+                    default:
+                        escaped[di++] = b;
+                        break;
+                }
+            }
+            WriteRaw(escaped);
+        }
         WriteByte((byte)'"');
     }
 
