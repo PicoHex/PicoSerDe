@@ -258,4 +258,21 @@ public class JsonReaderTests
         var raw = r.GetStringRaw();
         await Assert.That(Encoding.UTF8.GetString(raw)).IsEqualTo("line1\nline2");
     }
+
+    // === P1-7: Error Message Tests ===
+
+    [Test]
+    public async Task MalformedJson_ErrorHasPositionInfo()
+    {
+        try
+        {
+            var r = new JsonReader("{\n  \"a\": broken\n}"u8);
+            while (r.Read()) { }
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException ex)
+        {
+            await Assert.That(ex.Message).Contains("line");
+        }
+    }
 }

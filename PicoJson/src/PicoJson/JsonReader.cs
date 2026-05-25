@@ -7,6 +7,8 @@ public ref struct JsonReader
     private TokenType _tokenType;
     private int _depth;
     private ReadOnlySpan<byte> _valueSpan;
+    private int _line;
+    private int _column;
 
     public JsonReader(ReadOnlySpan<byte> data)
     {
@@ -15,6 +17,8 @@ public ref struct JsonReader
         _tokenType = TokenType.None;
         _depth = 0;
         _valueSpan = default;
+        _line = 1;
+        _column = 1;
     }
 
     public JsonReader(ReadOnlySequence<byte> data)
@@ -81,14 +85,18 @@ public ref struct JsonReader
             case (byte)'9':
                 return ReadNumber();
             default:
-                throw new FormatException($"Unexpected byte 0x{b:X2} at position {_position}");
+                throw new FormatException(
+                    $"Unexpected byte 0x{b:X2} at line {_line}, column {_column}"
+                );
         }
     }
 
     public void Skip()
     {
         if (!TrySkip())
-            throw new FormatException($"Failed to skip at position {_position}");
+            throw new FormatException(
+                $"Failed to skip at line {_line}, column {_column}"
+            );
     }
 
     public bool TrySkip()
@@ -157,7 +165,18 @@ public ref struct JsonReader
             _position < _data.Length
             && _data[_position] is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r'
         )
+        {
+            if (_data[_position] == (byte)'\n')
+            {
+                _line++;
+                _column = 1;
+            }
+            else
+            {
+                _column++;
+            }
             _position++;
+        }
     }
 
     private bool ReadStringOrProperty()
@@ -173,7 +192,9 @@ public ref struct JsonReader
             _position++;
         }
         if (_position >= _data.Length)
-            throw new FormatException("Unterminated string");
+            throw new FormatException(
+                $"Unterminated string at line {_line}, column {_column}"
+            );
         _valueSpan = _data[start.._position];
         _position++;
 
@@ -250,9 +271,13 @@ public ref struct JsonReader
     private bool ReadLiteral(ReadOnlySpan<byte> expected, TokenType token)
     {
         if (_position + expected.Length > _data.Length)
-            throw new FormatException("EOF");
+            throw new FormatException(
+                $"Unexpected EOF at line {_line}, column {_column}"
+            );
         if (!_data.Slice(_position, expected.Length).SequenceEqual(expected))
-            throw new FormatException("Invalid literal");
+            throw new FormatException(
+                $"Invalid literal at line {_line}, column {_column}"
+            );
         _valueSpan = _data.Slice(_position, expected.Length);
         _tokenType = token;
         _position += expected.Length;

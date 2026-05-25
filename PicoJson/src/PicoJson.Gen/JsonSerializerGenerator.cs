@@ -33,7 +33,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         };
 
         // Match both explicit generic calls (Serialize<Foo>) and inferred calls (Serialize(foo))
-        string methodName = name switch
+        string? methodName = name switch
         {
             GenericNameSyntax gn => gn.Identifier.Text,
             SimpleNameSyntax sn => sn.Identifier.Text,
