@@ -37,6 +37,25 @@ public class TemporalModel
     public TimeSpan Duration { get; set; }
 }
 
+public class NestedAddress
+{
+    public string Street { get; set; } = "";
+    public string City { get; set; } = "";
+}
+
+public class NestedCustomer
+{
+    public string Name { get; set; } = "";
+    public NestedAddress? Address { get; set; }
+}
+
+public class NestedOrder
+{
+    public int Id { get; set; }
+    public NestedCustomer? Customer { get; set; }
+    public List<string> Tags { get; set; } = new();
+}
+
 public class GeneratorTests
 {
     public class Product
@@ -650,5 +669,189 @@ public class GeneratorTests
         // Verify the SG assembly compiled by checking the type exists in loaded assemblies
         var type = typeof(PicoJson.JsonSerializer);
         await Assert.That(type.Assembly.GetName().Name).IsEqualTo("PicoJson");
+    }
+
+    // === Nested Types Test ===
+
+    // Manual structs simulating what SG should generate for NestedOrder
+    private readonly struct NestedOrderJsonSerializer : ISerializer<NestedOrder>
+    {
+        public void Serialize(IBufferWriter<byte> writer, NestedOrder value)
+        {
+            var jw = new JsonWriter(writer);
+            jw.WriteStartObject();
+            jw.WritePropertyName("Id"u8);
+            jw.WriteNumber(value.Id);
+            jw.WritePropertyName("Customer"u8);
+            if (value.Customer == null)
+            {
+                jw.WriteNull();
+            }
+            else
+            {
+                jw.WriteStartObject();
+                jw.WritePropertyName("Name"u8);
+                jw.WriteString(Encoding.UTF8.GetBytes(value.Customer.Name));
+                jw.WritePropertyName("Address"u8);
+                if (value.Customer.Address == null)
+                {
+                    jw.WriteNull();
+                }
+                else
+                {
+                    jw.WriteStartObject();
+                    jw.WritePropertyName("Street"u8);
+                    jw.WriteString(Encoding.UTF8.GetBytes(value.Customer.Address.Street));
+                    jw.WritePropertyName("City"u8);
+                    jw.WriteString(Encoding.UTF8.GetBytes(value.Customer.Address.City));
+                    jw.WriteEndObject();
+                }
+                jw.WriteEndObject();
+            }
+            jw.WritePropertyName("Tags"u8);
+            jw.WriteStartArray();
+            foreach (var t in value.Tags)
+                jw.WriteString(Encoding.UTF8.GetBytes(t));
+            jw.WriteEndArray();
+            jw.WriteEndObject();
+        }
+    }
+
+    private readonly struct NestedOrderJsonDeserializer : IDeserializer<NestedOrder>
+    {
+        public NestedOrder Deserialize(ReadOnlySpan<byte> data)
+        {
+            var reader = new JsonReader(data);
+            var obj = new NestedOrder();
+            reader.Read();
+            while (reader.Read() && reader.TokenType == TokenType.PropertyName)
+            {
+                var p = reader.GetStringRaw();
+                reader.Read();
+                if (p.SequenceEqual("Id"u8))
+                {
+                    reader.TryGetInt32(out var v);
+                    obj.Id = v;
+                }
+                else if (p.SequenceEqual("Customer"u8))
+                {
+                    if (reader.TokenType == TokenType.Null)
+                    {
+                        obj.Customer = null;
+                    }
+                    else
+                    {
+                        var cust = new NestedCustomer();
+                        while (reader.Read() && reader.TokenType == TokenType.PropertyName)
+                        {
+                            var cp = reader.GetStringRaw();
+                            reader.Read();
+                            if (cp.SequenceEqual("Name"u8))
+                                cust.Name = Encoding.UTF8.GetString(reader.GetStringRaw());
+                            else if (cp.SequenceEqual("Address"u8))
+                            {
+                                if (reader.TokenType == TokenType.Null)
+                                {
+                                    cust.Address = null;
+                                }
+                                else
+                                {
+                                    var addr = new NestedAddress();
+                                    while (
+                                        reader.Read() && reader.TokenType == TokenType.PropertyName
+                                    )
+                                    {
+                                        var ap = reader.GetStringRaw();
+                                        reader.Read();
+                                        if (ap.SequenceEqual("Street"u8))
+                                            addr.Street = Encoding
+                                                .UTF8
+                                                .GetString(reader.GetStringRaw());
+                                        else if (ap.SequenceEqual("City"u8))
+                                            addr.City = Encoding
+                                                .UTF8
+                                                .GetString(reader.GetStringRaw());
+                                        else
+                                            reader.TrySkip();
+                                    }
+                                    cust.Address = addr;
+                                }
+                            }
+                            else
+                                reader.TrySkip();
+                        }
+                        obj.Customer = cust;
+                    }
+                }
+                else if (p.SequenceEqual("Tags"u8))
+                {
+                    if (reader.TokenType == TokenType.ArrayStart)
+                    {
+                        var tags = new List<string>();
+                        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)
+                            tags.Add(Encoding.UTF8.GetString(reader.GetStringRaw()));
+                        obj.Tags = tags;
+                    }
+                }
+                else
+                    reader.TrySkip();
+            }
+            return obj;
+        }
+    }
+
+    [Test]
+    public async Task NestedObject_RoundTrip_ThreeLevels_Manual()
+    {
+        var order = new NestedOrder
+        {
+            Id = 1,
+            Customer = new NestedCustomer
+            {
+                Name = "Alice",
+                Address = new NestedAddress { Street = "123 Main", City = "SF" }
+            },
+            Tags =  ["vip"]
+        };
+        var s = new NestedOrderJsonSerializer();
+        var d = new NestedOrderJsonDeserializer();
+        var buf = new ArrayBufferWriter<byte>(512);
+        s.Serialize(buf, order);
+        var json = Encoding.UTF8.GetString(buf.WrittenSpan);
+        // Verify nested structure exists in JSON
+        await Assert.That(json).Contains("\"Customer\"");
+        await Assert.That(json).Contains("\"Address\"");
+        await Assert.That(json).Contains("\"Street\"");
+        var result = d.Deserialize(buf.WrittenSpan);
+        await Assert.That(result.Id).IsEqualTo(1);
+        await Assert.That(result.Customer?.Name).IsEqualTo("Alice");
+        await Assert.That(result.Customer?.Address?.Street).IsEqualTo("123 Main");
+        await Assert.That(result.Customer?.Address?.City).IsEqualTo("SF");
+        await Assert.That(result.Tags[0]).IsEqualTo("vip");
+    }
+
+    // SG integration test — MUST FAIL before SG is updated
+    [Test]
+    public async Task NestedObject_RoundTrip_Generated()
+    {
+        var order = new NestedOrder
+        {
+            Id = 1,
+            Customer = new NestedCustomer
+            {
+                Name = "Alice",
+                Address = new NestedAddress { Street = "123 Main", City = "SF" }
+            },
+            Tags =  ["vip"]
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(order);
+        var json = Encoding.UTF8.GetString(bytes);
+        await Assert.That(json).Contains("\"Customer\"");
+        await Assert.That(json).Contains("\"Address\"");
+        var result = JsonSerializer.Deserialize<NestedOrder>(bytes);
+        await Assert.That(result!.Id).IsEqualTo(1);
+        await Assert.That(result.Customer?.Name).IsEqualTo("Alice");
+        await Assert.That(result.Customer?.Address?.Street).IsEqualTo("123 Main");
+        await Assert.That(result.Tags[0]).IsEqualTo("vip");
     }
 }

@@ -93,6 +93,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             string? elementTypeName = null;
             string? keyTypeKind = null;
             string? keyTypeName = null;
+            PropertyInfo[] nestedProperties = [];
 
             if (typeKind is "list" or "array")
             {
@@ -104,11 +105,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 else
                     continue;
 
-                var (ek, _, _) = GetTypeKind(elementType);
+                var (ek, _, ein) = GetTypeKind(elementType);
                 if (ek is null)
                     continue;
                 elementTypeKind = ek;
                 elementTypeName = MapTypeKindToName(ek, elementType);
+                if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
+                    nestedProperties = ExtractNestedProperties(eNtsObj);
             }
             else if (typeKind is "dict")
             {
@@ -117,16 +120,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     var keyType = ntsDict.TypeArguments[0];
                     var valType = ntsDict.TypeArguments[1];
                     var (kk, _, _) = GetTypeKind(keyType);
-                    var (vk, _, _) = GetTypeKind(valType);
+                    var (vk, _, vin) = GetTypeKind(valType);
                     if (kk is null || vk is null)
                         continue;
                     keyTypeKind = kk;
                     keyTypeName = MapTypeKindToName(kk, keyType);
                     elementTypeKind = vk;
                     elementTypeName = MapTypeKindToName(vk, valType);
+                    if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
+                        nestedProperties = ExtractNestedProperties(vNtsObj);
                 }
                 else
                     continue;
+            }
+            else if (typeKind is "object" && prop.Type is INamedTypeSymbol objNts)
+            {
+                nestedProperties = ExtractNestedProperties(objNts);
             }
 
             var jsonName = GetJsonPropertyName(prop) ?? prop.Name;
@@ -141,7 +150,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     elementTypeKind,
                     elementTypeName,
                     keyTypeKind,
-                    keyTypeName
+                    keyTypeName,
+                    nestedProperties
                 )
             );
         }
@@ -241,6 +251,33 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     _ => null,
                 },
         };
+
+        // Nested complex types (classes/structs with public properties)
+        if (
+            kind is null
+            && type is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } ntsObj
+        )
+        {
+            // Check it has at least one public writable property (not just an opaque object)
+            foreach (var member in ntsObj.GetMembers())
+            {
+                if (
+                    member
+                        is IPropertySymbol
+                        {
+                            DeclaredAccessibility: Accessibility.Public,
+                            IsStatic: false,
+                            IsIndexer: false
+                        } ps
+                    && ps.GetMethod is not null
+                    && !(ps.IsReadOnly && ps.SetMethod is null)
+                )
+                {
+                    return ("object", false, null);
+                }
+            }
+        }
+
         return (kind, false, null);
     }
 
@@ -261,6 +298,95 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "enum" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             _ => "object",
         };
+
+    private static PropertyInfo[] ExtractNestedProperties(INamedTypeSymbol type)
+    {
+        var list = new List<PropertyInfo>();
+        foreach (var member in type.GetMembers())
+        {
+            if (member is not IPropertySymbol prop)
+                continue;
+            if (prop.DeclaredAccessibility != Accessibility.Public)
+                continue;
+            if (prop.IsStatic || prop.IsIndexer)
+                continue;
+            if (prop.IsReadOnly && prop.SetMethod is null)
+                continue;
+            if (prop.GetMethod is null)
+                continue;
+
+            var (typeKind, isNullable, innerTypeSymbol) = GetTypeKind(prop.Type);
+            if (typeKind is null)
+                continue;
+
+            string? elementTypeKind = null;
+            string? elementTypeName = null;
+            string? keyTypeKind = null;
+            string? keyTypeName = null;
+            PropertyInfo[] nestedProperties = [];
+
+            if (typeKind is "list" or "array")
+            {
+                ITypeSymbol? elementType;
+                if (prop.Type is IArrayTypeSymbol arrType)
+                    elementType = arrType.ElementType;
+                else if (prop.Type is INamedTypeSymbol ntsElem && ntsElem.TypeArguments.Length == 1)
+                    elementType = ntsElem.TypeArguments[0];
+                else
+                    continue;
+
+                var (ek, _, ein) = GetTypeKind(elementType);
+                if (ek is null)
+                    continue;
+                elementTypeKind = ek;
+                elementTypeName = MapTypeKindToName(ek, elementType);
+                if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
+                    nestedProperties = ExtractNestedProperties(eNtsObj);
+            }
+            else if (typeKind is "dict")
+            {
+                if (prop.Type is INamedTypeSymbol ntsDict && ntsDict.TypeArguments.Length == 2)
+                {
+                    var keyType = ntsDict.TypeArguments[0];
+                    var valType = ntsDict.TypeArguments[1];
+                    var (kk, _, _) = GetTypeKind(keyType);
+                    var (vk, _, vin) = GetTypeKind(valType);
+                    if (kk is null || vk is null)
+                        continue;
+                    keyTypeKind = kk;
+                    keyTypeName = MapTypeKindToName(kk, keyType);
+                    elementTypeKind = vk;
+                    elementTypeName = MapTypeKindToName(vk, valType);
+                    if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
+                        nestedProperties = ExtractNestedProperties(vNtsObj);
+                }
+                else
+                    continue;
+            }
+            else if (typeKind is "object" && prop.Type is INamedTypeSymbol objNts)
+            {
+                nestedProperties = ExtractNestedProperties(objNts);
+            }
+
+            var jsonName = GetJsonPropertyName(prop) ?? prop.Name;
+            var typeFullName = prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            list.Add(
+                new PropertyInfo(
+                    prop.Name,
+                    jsonName,
+                    typeKind,
+                    typeFullName,
+                    isNullable,
+                    elementTypeKind,
+                    elementTypeName,
+                    keyTypeKind,
+                    keyTypeName,
+                    nestedProperties
+                )
+            );
+        }
+        return list.ToArray();
+    }
 
     private static string? GetJsonPropertyName(IPropertySymbol prop)
     {
@@ -444,7 +570,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(accessor);
                 sb.AppendLine(")");
                 sb.AppendLine("            {");
-                AppendSerializerElementValue(sb, prop.ElementTypeKind!, indent: "                ");
+                AppendSerializerElementValue(
+                    sb,
+                    prop.ElementTypeKind!,
+                    indent: "                ",
+                    nestedProperties: prop.NestedProperties
+                );
                 sb.AppendLine("            }");
                 sb.AppendLine("            jw.WriteEndArray();");
                 break;
@@ -464,11 +595,116 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb,
                     prop.ElementTypeKind!,
                     indent: "                ",
-                    accessor: "__kvp.Value"
+                    accessor: "__kvp.Value",
+                    nestedProperties: prop.NestedProperties
                 );
                 sb.AppendLine("            }");
                 sb.AppendLine("            jw.WriteEndObject();");
                 break;
+            case "object":
+                sb.Append("            if (");
+                sb.Append(accessor);
+                sb.AppendLine(" == null) jw.WriteNull();");
+                sb.AppendLine("            else");
+                sb.AppendLine("            {");
+                sb.AppendLine("            jw.WriteStartObject();");
+                AppendNestedSerializerProperties(sb, prop.NestedProperties, accessor);
+                sb.AppendLine("            jw.WriteEndObject();");
+                sb.AppendLine("            }");
+                break;
+        }
+    }
+
+    private static void AppendNestedSerializerProperties(
+        StringBuilder sb,
+        PropertyInfo[] props,
+        string prefix
+    )
+    {
+        foreach (var np in props)
+        {
+            var npAcc = $"{prefix}.{np.Name}";
+            sb.Append("                jw.WritePropertyName(\"");
+            sb.Append(np.JsonName);
+            sb.AppendLine("\"u8);");
+
+            switch (np.TypeKind)
+            {
+                case "string":
+                    sb.Append("                jw.WriteString(Encoding.UTF8.GetBytes(");
+                    sb.Append(npAcc);
+                    sb.AppendLine("));");
+                    break;
+                case "int32":
+                case "int64":
+                case "float64":
+                    sb.Append("                jw.WriteNumber(");
+                    sb.Append(npAcc);
+                    sb.AppendLine(");");
+                    break;
+                case "boolean":
+                    sb.Append("                jw.WriteBoolean(");
+                    sb.Append(npAcc);
+                    sb.AppendLine(");");
+                    break;
+                case "object":
+                    sb.Append("                if (");
+                    sb.Append(npAcc);
+                    sb.AppendLine(" == null) jw.WriteNull();");
+                    sb.AppendLine("                else");
+                    sb.AppendLine("                {");
+                    sb.AppendLine("                jw.WriteStartObject();");
+                    AppendNestedSerializerProperties(sb, np.NestedProperties, npAcc);
+                    sb.AppendLine("                jw.WriteEndObject();");
+                    sb.AppendLine("                }");
+                    break;
+                case "list":
+                case "array":
+                    sb.AppendLine("                jw.WriteStartArray();");
+                    sb.Append("                foreach (var __ni in ");
+                    sb.Append(npAcc);
+                    sb.AppendLine(")");
+                    sb.AppendLine("                {");
+                    AppendSerializerElementValue(
+                        sb,
+                        np.ElementTypeKind!,
+                        indent: "                    ",
+                        accessor: "__ni",
+                        nestedProperties: np.NestedProperties
+                    );
+                    sb.AppendLine("                }");
+                    sb.AppendLine("                jw.WriteEndArray();");
+                    break;
+                case "dict":
+                    sb.AppendLine("                jw.WriteStartObject();");
+                    sb.Append("                foreach (var __nk in ");
+                    sb.Append(npAcc);
+                    sb.AppendLine(")");
+                    sb.AppendLine("                {");
+                    sb.Append(
+                        "                    jw.WritePropertyName(Encoding.UTF8.GetBytes(__nk.Key"
+                    );
+                    if (np.KeyTypeKind == "string")
+                        sb.AppendLine("));");
+                    else
+                        sb.AppendLine(".ToString()));");
+                    sb.Append("                    ");
+                    AppendSerializerElementValue(
+                        sb,
+                        np.ElementTypeKind!,
+                        indent: "                    ",
+                        accessor: "__nk.Value",
+                        nestedProperties: np.NestedProperties
+                    );
+                    sb.AppendLine("                }");
+                    sb.AppendLine("                jw.WriteEndObject();");
+                    break;
+                default:
+                    sb.Append("                jw.WriteString(Encoding.UTF8.GetBytes(");
+                    sb.Append(npAcc);
+                    sb.AppendLine(".ToString()));");
+                    break;
+            }
         }
     }
 
@@ -476,7 +712,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         StringBuilder sb,
         string elementKind,
         string indent,
-        string accessor = "__item"
+        string accessor = "__item",
+        PropertyInfo[]? nestedProperties = null
     )
     {
         switch (elementKind)
@@ -516,6 +753,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
                 sb.Append(accessor);
                 sb.AppendLine(".ToString(\"O\")));");
+                break;
+            case "object":
+                sb.Append(indent);
+                sb.Append("jw.WriteStartObject();");
+                sb.AppendLine();
+                AppendNestedSerializerProperties(sb, nestedProperties!, accessor);
+                sb.Append(indent);
+                sb.AppendLine("jw.WriteEndObject();");
                 break;
             default:
                 sb.Append(indent);
@@ -743,7 +988,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("    {");
                 sb.Append(indent);
-                AppendDeserializerElementValue(sb, prop.ElementTypeKind!, indent + "        ");
+                AppendDeserializerElementValue(
+                    sb,
+                    prop.ElementTypeKind!,
+                    indent + "        ",
+                    nestedProperties: prop.NestedProperties
+                );
                 sb.Append(indent);
                 sb.AppendLine("    }");
                 sb.Append(indent);
@@ -787,7 +1037,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     prop.ElementTypeKind!,
                     indent + "        ",
                     target: "__dict[__key]",
-                    useAssignment: true
+                    useAssignment: true,
+                    nestedProperties: prop.NestedProperties
                 );
                 sb.Append(indent);
                 sb.AppendLine("    }");
@@ -798,6 +1049,293 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(prop.Name);
                 sb.AppendLine(" = __dict;");
                 break;
+            case "object":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.Append("    obj.");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = null;");
+                sb.Append(indent);
+                sb.AppendLine("else");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.Append("    var __o = new ");
+                sb.Append(prop.TypeFullName);
+                sb.AppendLine("();");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    {");
+                sb.Append(indent);
+                sb.AppendLine("        var __op = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("        reader.Read();");
+                AppendNestedDeserializerProperties(
+                    sb,
+                    prop.NestedProperties,
+                    "__o",
+                    indent + "        "
+                );
+                sb.Append(indent);
+                sb.AppendLine("        else reader.TrySkip();");
+                sb.Append(indent);
+                sb.AppendLine("    }");
+                sb.Append(indent);
+                sb.Append("    obj.");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __o;");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                break;
+        }
+    }
+
+    private static void AppendNestedDeserializerProperties(
+        StringBuilder sb,
+        PropertyInfo[] props,
+        string target,
+        string indent,
+        string propVar = "__op"
+    )
+    {
+        for (var i = 0; i < props.Length; i++)
+        {
+            var np = props[i];
+            var keyword = i == 0 ? "if" : "else if";
+            sb.Append(indent);
+            sb.Append(keyword);
+            sb.Append(" (");
+            sb.Append(propVar);
+            sb.Append(".SequenceEqual(\"");
+            sb.Append(np.JsonName);
+            sb.AppendLine("\"u8))");
+
+            if (np.IsNullable && np.TypeKind != "object")
+            {
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.Append("        ");
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(np.Name);
+                sb.AppendLine(" = null;");
+                sb.Append(indent);
+                sb.AppendLine("    else");
+                sb.Append(indent);
+                sb.AppendLine("    {");
+                AppendDeserializerNestedValue(sb, np, target, indent + "        ");
+                sb.Append(indent);
+                sb.AppendLine("    }");
+                sb.Append(indent);
+                sb.AppendLine("}");
+            }
+            else if (np.TypeKind == "object")
+            {
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.Append("        ");
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(np.Name);
+                sb.AppendLine(" = null;");
+                sb.Append(indent);
+                sb.AppendLine("    else");
+                sb.Append(indent);
+                sb.AppendLine("    {");
+                sb.Append(indent);
+                sb.Append("        var __no = new ");
+                sb.Append(np.TypeFullName);
+                sb.AppendLine("();");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
+                );
+                sb.Append(indent);
+                sb.AppendLine("        {");
+                sb.Append(indent);
+                sb.AppendLine("            var __np = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("            reader.Read();");
+                AppendNestedDeserializerProperties(
+                    sb,
+                    np.NestedProperties,
+                    "__no",
+                    indent + "            ",
+                    propVar: "__np"
+                );
+                sb.Append(indent);
+                sb.AppendLine("            else reader.TrySkip();");
+                sb.Append(indent);
+                sb.AppendLine("        }");
+                sb.Append(indent);
+                sb.Append("        ");
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(np.Name);
+                sb.AppendLine(" = __no;");
+                sb.Append(indent);
+                sb.AppendLine("    }");
+                sb.Append(indent);
+                sb.AppendLine("}");
+            }
+            else
+            {
+                sb.Append(indent);
+                sb.AppendLine("{");
+                AppendDeserializerNestedValue(sb, np, target, indent + "    ");
+                sb.Append(indent);
+                sb.AppendLine("}");
+            }
+        }
+    }
+
+    private static void AppendDeserializerNestedValue(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string target,
+        string indent
+    )
+    {
+        switch (prop.TypeKind)
+        {
+            case "string":
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                break;
+            case "int32":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetInt32(out var __v);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __v;");
+                break;
+            case "int64":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetInt64(out var __v);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __v;");
+                break;
+            case "float64":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetFloat64(out var __v);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __v;");
+                break;
+            case "boolean":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetBool(out var __v);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __v;");
+                break;
+            case "datetime":
+                sb.Append(indent);
+                sb.AppendLine("var __raw = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __str = Encoding.UTF8.GetString(__raw);");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "System.DateTime.TryParse(__str, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                );
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __dt;");
+                break;
+            case "guid":
+                sb.Append(indent);
+                sb.AppendLine("var __raw = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("System.Guid.TryParse(__raw, out var __g);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __g;");
+                break;
+            case "decimal":
+                sb.Append(indent);
+                sb.AppendLine("var __raw = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "decimal.TryParse(__raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __d);"
+                );
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __d;");
+                break;
+            case "list":
+            case "array":
+                sb.Append(indent);
+                sb.Append("var __nitems = new System.Collections.Generic.List<");
+                sb.Append(prop.ElementTypeName);
+                sb.AppendLine(">();");
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    {");
+                sb.Append(indent);
+                AppendDeserializerElementValue(
+                    sb,
+                    prop.ElementTypeKind!,
+                    indent + "        ",
+                    target: "__nitems",
+                    nestedProperties: prop.NestedProperties
+                );
+                sb.Append(indent);
+                sb.AppendLine("    }");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.Append(" = ");
+                if (prop.TypeKind == "array")
+                    sb.Append("__nitems.ToArray()");
+                else
+                    sb.Append("__nitems");
+                sb.AppendLine(";");
+                break;
+            default:
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                break;
         }
     }
 
@@ -806,7 +1344,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string elementKind,
         string indent,
         string target = "__items",
-        bool useAssignment = false
+        bool useAssignment = false,
+        PropertyInfo[]? nestedProperties = null
     )
     {
         if (useAssignment)
@@ -845,6 +1384,55 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(indent);
                     sb.Append(target);
                     sb.AppendLine(" = __ev;");
+                    break;
+                case "object":
+                    sb.Append(indent);
+                    sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = default!;");
+                    sb.Append(indent);
+                    sb.AppendLine("else");
+                    sb.Append(indent);
+                    sb.AppendLine("{");
+                    sb.Append(indent);
+                    sb.Append("    var __oe = new ");
+                    if (nestedProperties is { Length: > 0 })
+                    {
+                        sb.Append(nestedProperties[0].TypeFullName);
+                        sb.Append("();");
+                    }
+                    else
+                    {
+                        sb.AppendLine("();");
+                    }
+                    sb.AppendLine();
+                    sb.Append(indent);
+                    sb.AppendLine(
+                        "    while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
+                    );
+                    sb.Append(indent);
+                    sb.AppendLine("    {");
+                    sb.Append(indent);
+                    sb.AppendLine("        var __oep = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("        reader.Read();");
+                    AppendNestedDeserializerProperties(
+                        sb,
+                        nestedProperties ?? [],
+                        "__oe",
+                        indent + "        ",
+                        propVar: "__oep"
+                    );
+                    sb.Append(indent);
+                    sb.AppendLine("        else reader.TrySkip();");
+                    sb.Append(indent);
+                    sb.AppendLine("    }");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = __oe;");
+                    sb.Append(indent);
+                    sb.AppendLine("}");
                     break;
                 default:
                     sb.Append(indent);
@@ -894,6 +1482,47 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(indent);
                     sb.Append(target);
                     sb.AppendLine(".Add(__ev);");
+                    break;
+                case "object":
+                    sb.Append(indent);
+                    sb.AppendLine("{");
+                    sb.Append(indent);
+                    sb.Append("    var __oe = new ");
+                    if (nestedProperties is { Length: > 0 })
+                    {
+                        sb.Append(nestedProperties[0].TypeFullName);
+                    }
+                    else
+                    {
+                        sb.Append("object");
+                    }
+                    sb.AppendLine("();");
+                    sb.Append(indent);
+                    sb.AppendLine(
+                        "    while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
+                    );
+                    sb.Append(indent);
+                    sb.AppendLine("    {");
+                    sb.Append(indent);
+                    sb.AppendLine("        var __oep = reader.GetStringRaw();");
+                    sb.Append(indent);
+                    sb.AppendLine("        reader.Read();");
+                    AppendNestedDeserializerProperties(
+                        sb,
+                        nestedProperties ?? [],
+                        "__oe",
+                        indent + "        ",
+                        propVar: "__oep"
+                    );
+                    sb.Append(indent);
+                    sb.AppendLine("        else reader.TrySkip();");
+                    sb.Append(indent);
+                    sb.AppendLine("    }");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(".Add(__oe);");
+                    sb.Append(indent);
+                    sb.AppendLine("}");
                     break;
                 default:
                     sb.Append(indent);
@@ -966,6 +1595,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string? ElementTypeKind,
         string? ElementTypeName,
         string? KeyTypeKind,
-        string? KeyTypeName
+        string? KeyTypeName,
+        PropertyInfo[] NestedProperties
     );
 }
