@@ -32,10 +32,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             _ => null,
         };
 
-        if (name is not GenericNameSyntax { TypeArgumentList.Arguments.Count: 1 } gn)
-            return false;
+        // Match both explicit generic calls (Serialize<Foo>) and inferred calls (Serialize(foo))
+        string methodName = name switch
+        {
+            GenericNameSyntax gn => gn.Identifier.Text,
+            SimpleNameSyntax sn => sn.Identifier.Text,
+            _ => null,
+        };
 
-        return gn.Identifier.Text is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
+        return methodName is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
     }
 
     private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
@@ -83,6 +88,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (prop.IsReadOnly && prop.SetMethod is null)
                 continue;
             if (prop.GetMethod is null)
+                continue;
+            if (HasJsonIgnore(prop))
                 continue;
 
             var (typeKind, isNullable, innerTypeSymbol) = GetTypeKind(prop.Type);
@@ -316,6 +323,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (prop.GetMethod is null)
                 continue;
 
+            if (HasJsonIgnore(prop))
+                continue;
+
             var (typeKind, isNullable, innerTypeSymbol) = GetTypeKind(prop.Type);
             if (typeKind is null)
                 continue;
@@ -402,6 +412,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 return name;
         }
         return null;
+    }
+
+    private static bool HasJsonIgnore(IPropertySymbol prop)
+    {
+        foreach (var attr in prop.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "JsonIgnoreAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoJson"
+            )
+                return true;
+        }
+        return false;
     }
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
