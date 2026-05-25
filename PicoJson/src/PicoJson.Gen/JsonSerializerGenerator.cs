@@ -69,6 +69,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var ns = namedType.ContainingNamespace?.ToDisplayString() ?? "";
         if (ns == "<global namespace>")
             ns = "";
+        var useCamelCase = HasJsonCamelCase(namedType);
         var properties = new List<PropertyInfo>();
 
         foreach (var member in namedType.GetMembers())
@@ -112,7 +113,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
                 if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
-                    nestedProperties = ExtractNestedProperties(eNtsObj);
+                    nestedProperties = ExtractNestedProperties(eNtsObj, useCamelCase);
             }
             else if (typeKind is "dict")
             {
@@ -142,7 +143,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             properties.Add(
                 new PropertyInfo(
                     prop.Name,
-                    GetJsonPropertyName(prop) ?? prop.Name,
+                    GetJsonPropertyName(prop) ?? (useCamelCase ? ToCamelCase(prop.Name) : prop.Name),
                     typeKind,
                     prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     isNullable,
@@ -167,7 +168,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     // ── Nested property extraction ──
 
-    private static ImmutableArray<PropertyInfo> ExtractNestedProperties(INamedTypeSymbol type)
+    private static ImmutableArray<PropertyInfo> ExtractNestedProperties(INamedTypeSymbol type, bool useCamelCase = false)
     {
         var list = new List<PropertyInfo>();
         foreach (var member in type.GetMembers())
@@ -211,7 +212,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
                 if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
-                    nestedProperties = ExtractNestedProperties(eNtsObj);
+                    nestedProperties = ExtractNestedProperties(eNtsObj, useCamelCase);
             }
             else if (typeKind is "dict")
             {
@@ -241,7 +242,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             list.Add(
                 new PropertyInfo(
                     prop.Name,
-                    GetJsonPropertyName(prop) ?? prop.Name,
+                    GetJsonPropertyName(prop) ?? (useCamelCase ? ToCamelCase(prop.Name) : prop.Name),
                     typeKind,
                     prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     isNullable,
@@ -315,6 +316,20 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
         return null;
     }
+
+    private static bool HasJsonCamelCase(INamedTypeSymbol type)
+    {
+        foreach (var attr in type.GetAttributes())
+        {
+            if (attr.AttributeClass?.Name == "JsonCamelCaseAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoJson")
+                return true;
+        }
+        return false;
+    }
+
+    private static string ToCamelCase(string name) =>
+        name.Length > 0 ? char.ToLowerInvariant(name[0]) + name.Substring(1) : name;
 
     // ── Source generation ──
 
