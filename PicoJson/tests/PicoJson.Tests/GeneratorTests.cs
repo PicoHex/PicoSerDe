@@ -6,6 +6,37 @@ public class PersonWithDate
     public DateTime CreatedAt { get; set; }
 }
 
+public class PrimitiveModel
+{
+    public Guid Id { get; set; }
+    public decimal Price { get; set; }
+    public DayOfWeek Day { get; set; }
+}
+
+public class NullableModel
+{
+    public int? OptionalAge { get; set; }
+    public string? Nickname { get; set; }
+}
+
+public class ListModel
+{
+    public List<string> Tags { get; set; } = new();
+    public int[] Scores { get; set; } = [];
+}
+
+public class DictionaryModel
+{
+    public Dictionary<string, int> Counts { get; set; } = new();
+}
+
+public class TemporalModel
+{
+    public DateOnly Date { get; set; }
+    public TimeOnly Time { get; set; }
+    public TimeSpan Duration { get; set; }
+}
+
 public class GeneratorTests
 {
     public class Product
@@ -158,6 +189,459 @@ public class GeneratorTests
         await Assert.That(result!.Name).IsEqualTo("Event");
         await Assert.That(result.CreatedAt.Year).IsEqualTo(2024);
         await Assert.That(result.CreatedAt.Hour).IsEqualTo(10);
+    }
+
+    // ---------- PrimitiveModel manual structs (golden reference) ----------
+
+    private readonly struct PrimitiveModelJsonSerializer : ISerializer<PrimitiveModel>
+    {
+        public void Serialize(IBufferWriter<byte> writer, PrimitiveModel value)
+        {
+            var jw = new JsonWriter(writer);
+            jw.WriteStartObject();
+            jw.WritePropertyName("Id"u8);
+            jw.WriteString(Encoding.UTF8.GetBytes(value.Id.ToString()));
+            jw.WritePropertyName("Price"u8);
+            jw.WriteString(
+                Encoding
+                    .UTF8
+                    .GetBytes(
+                        value.Price.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    )
+            );
+            jw.WritePropertyName("Day"u8);
+            jw.WriteString(Encoding.UTF8.GetBytes(value.Day.ToString()));
+            jw.WriteEndObject();
+        }
+    }
+
+    private readonly struct PrimitiveModelJsonDeserializer : IDeserializer<PrimitiveModel>
+    {
+        public PrimitiveModel Deserialize(ReadOnlySpan<byte> data)
+        {
+            var reader = new JsonReader(data);
+            var obj = new PrimitiveModel();
+            reader.Read();
+            while (reader.Read() && reader.TokenType == TokenType.PropertyName)
+            {
+                var p = reader.GetStringRaw();
+                reader.Read();
+                if (p.SequenceEqual("Id"u8))
+                {
+                    var raw = reader.GetStringRaw();
+                    Guid.TryParse(raw, out var g);
+                    obj.Id = g;
+                }
+                else if (p.SequenceEqual("Price"u8))
+                {
+                    var raw = reader.GetStringRaw();
+                    decimal.TryParse(
+                        raw,
+                        System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var d
+                    );
+                    obj.Price = d;
+                }
+                else if (p.SequenceEqual("Day"u8))
+                {
+                    var raw = reader.GetStringRaw();
+                    Enum.TryParse<DayOfWeek>(Encoding.UTF8.GetString(raw), out var day);
+                    obj.Day = day;
+                }
+                else
+                    reader.TrySkip();
+            }
+            return obj;
+        }
+    }
+
+    [Test]
+    public async Task GuidDecimalEnum_RoundTrip_Manual()
+    {
+        var model = new PrimitiveModel
+        {
+            Id = Guid.NewGuid(),
+            Price = 99.99m,
+            Day = DayOfWeek.Friday
+        };
+        var s = new PrimitiveModelJsonSerializer();
+        var d = new PrimitiveModelJsonDeserializer();
+        var buf = new ArrayBufferWriter<byte>(256);
+        s.Serialize(buf, model);
+        var result = d.Deserialize(buf.WrittenSpan);
+        await Assert.That(result.Id).IsEqualTo(model.Id);
+        await Assert.That(result.Price).IsEqualTo(99.99m);
+        await Assert.That(result.Day).IsEqualTo(DayOfWeek.Friday);
+    }
+
+    [Test]
+    public async Task GuidDecimalEnum_RoundTrip_Generated()
+    {
+        var model = new PrimitiveModel
+        {
+            Id = Guid.NewGuid(),
+            Price = 99.99m,
+            Day = DayOfWeek.Friday
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var result = JsonSerializer.Deserialize<PrimitiveModel>(bytes);
+        await Assert.That(result!.Id).IsEqualTo(model.Id);
+        await Assert.That(result.Price).IsEqualTo(99.99m);
+        await Assert.That(result.Day).IsEqualTo(DayOfWeek.Friday);
+    }
+
+    // ---------- NullableModel manual structs ----------
+
+    private readonly struct NullableModelJsonSerializer : ISerializer<NullableModel>
+    {
+        public void Serialize(IBufferWriter<byte> writer, NullableModel value)
+        {
+            var jw = new JsonWriter(writer);
+            jw.WriteStartObject();
+            jw.WritePropertyName("OptionalAge"u8);
+            if (value.OptionalAge.HasValue)
+                jw.WriteNumber(value.OptionalAge.Value);
+            else
+                jw.WriteNull();
+            jw.WritePropertyName("Nickname"u8);
+            if (value.Nickname != null)
+                jw.WriteString(Encoding.UTF8.GetBytes(value.Nickname));
+            else
+                jw.WriteNull();
+            jw.WriteEndObject();
+        }
+    }
+
+    private readonly struct NullableModelJsonDeserializer : IDeserializer<NullableModel>
+    {
+        public NullableModel Deserialize(ReadOnlySpan<byte> data)
+        {
+            var reader = new JsonReader(data);
+            var obj = new NullableModel();
+            reader.Read();
+            while (reader.Read() && reader.TokenType == TokenType.PropertyName)
+            {
+                var p = reader.GetStringRaw();
+                reader.Read();
+                if (p.SequenceEqual("OptionalAge"u8))
+                {
+                    if (reader.TokenType == TokenType.Null)
+                        obj.OptionalAge = null;
+                    else
+                    {
+                        reader.TryGetInt32(out var v);
+                        obj.OptionalAge = v;
+                    }
+                }
+                else if (p.SequenceEqual("Nickname"u8))
+                {
+                    if (reader.TokenType == TokenType.Null)
+                        obj.Nickname = null;
+                    else
+                        obj.Nickname = Encoding.UTF8.GetString(reader.GetStringRaw());
+                }
+                else
+                    reader.TrySkip();
+            }
+            return obj;
+        }
+    }
+
+    [Test]
+    public async Task Nullable_RoundTrip_WithValues_Manual()
+    {
+        var model = new NullableModel { OptionalAge = 42, Nickname = "Test" };
+        var s = new NullableModelJsonSerializer();
+        var d = new NullableModelJsonDeserializer();
+        var buf = new ArrayBufferWriter<byte>(256);
+        s.Serialize(buf, model);
+        var result = d.Deserialize(buf.WrittenSpan);
+        await Assert.That(result.OptionalAge).IsEqualTo(42);
+        await Assert.That(result.Nickname).IsEqualTo("Test");
+    }
+
+    [Test]
+    public async Task Nullable_RoundTrip_WithNulls_Manual()
+    {
+        var model = new NullableModel { OptionalAge = null, Nickname = null };
+        var s = new NullableModelJsonSerializer();
+        var d = new NullableModelJsonDeserializer();
+        var buf = new ArrayBufferWriter<byte>(256);
+        s.Serialize(buf, model);
+        var result = d.Deserialize(buf.WrittenSpan);
+        await Assert.That(result.OptionalAge).IsNull();
+        await Assert.That(result.Nickname).IsNull();
+    }
+
+    [Test]
+    public async Task Nullable_RoundTrip_Generated()
+    {
+        var model = new NullableModel { OptionalAge = 42, Nickname = "Test" };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var result = JsonSerializer.Deserialize<NullableModel>(bytes);
+        await Assert.That(result!.OptionalAge).IsEqualTo(42);
+        await Assert.That(result.Nickname).IsEqualTo("Test");
+    }
+
+    // ---------- ListModel manual structs ----------
+
+    private readonly struct ListModelJsonSerializer : ISerializer<ListModel>
+    {
+        public void Serialize(IBufferWriter<byte> writer, ListModel value)
+        {
+            var jw = new JsonWriter(writer);
+            jw.WriteStartObject();
+            jw.WritePropertyName("Tags"u8);
+            jw.WriteStartArray();
+            foreach (var tag in value.Tags)
+                jw.WriteString(Encoding.UTF8.GetBytes(tag));
+            jw.WriteEndArray();
+            jw.WritePropertyName("Scores"u8);
+            jw.WriteStartArray();
+            foreach (var score in value.Scores)
+                jw.WriteNumber(score);
+            jw.WriteEndArray();
+            jw.WriteEndObject();
+        }
+    }
+
+    private readonly struct ListModelJsonDeserializer : IDeserializer<ListModel>
+    {
+        public ListModel Deserialize(ReadOnlySpan<byte> data)
+        {
+            var reader = new JsonReader(data);
+            var obj = new ListModel();
+            reader.Read();
+            while (reader.Read() && reader.TokenType == TokenType.PropertyName)
+            {
+                var p = reader.GetStringRaw();
+                reader.Read();
+                if (p.SequenceEqual("Tags"u8))
+                {
+                    var tags = new List<string>();
+                    if (reader.TokenType == TokenType.ArrayStart)
+                    {
+                        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)
+                            tags.Add(Encoding.UTF8.GetString(reader.GetStringRaw()));
+                    }
+                    obj.Tags = tags;
+                }
+                else if (p.SequenceEqual("Scores"u8))
+                {
+                    var scores = new List<int>();
+                    if (reader.TokenType == TokenType.ArrayStart)
+                    {
+                        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)
+                        {
+                            reader.TryGetInt32(out var v);
+                            scores.Add(v);
+                        }
+                    }
+                    obj.Scores = scores.ToArray();
+                }
+                else
+                    reader.TrySkip();
+            }
+            return obj;
+        }
+    }
+
+    [Test]
+    public async Task ListModel_RoundTrip_Manual()
+    {
+        var model = new ListModel { Tags =  ["dev", "runner"], Scores =  [10, 20, 30] };
+        var s = new ListModelJsonSerializer();
+        var d = new ListModelJsonDeserializer();
+        var buf = new ArrayBufferWriter<byte>(256);
+        s.Serialize(buf, model);
+        var result = d.Deserialize(buf.WrittenSpan);
+        await Assert.That(result.Tags).IsEquivalentTo(["dev", "runner"]);
+        await Assert.That(result.Scores).IsEquivalentTo([10, 20, 30]);
+    }
+
+    [Test]
+    public async Task ListModel_RoundTrip_Generated()
+    {
+        var model = new ListModel { Tags =  ["dev", "runner"], Scores =  [10, 20, 30] };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var result = JsonSerializer.Deserialize<ListModel>(bytes);
+        await Assert.That(result!.Tags).IsEquivalentTo(["dev", "runner"]);
+        await Assert.That(result.Scores).IsEquivalentTo([10, 20, 30]);
+    }
+
+    // ---------- DictionaryModel manual structs ----------
+
+    private readonly struct DictionaryModelJsonSerializer : ISerializer<DictionaryModel>
+    {
+        public void Serialize(IBufferWriter<byte> writer, DictionaryModel value)
+        {
+            var jw = new JsonWriter(writer);
+            jw.WriteStartObject();
+            jw.WritePropertyName("Counts"u8);
+            jw.WriteStartObject();
+            foreach (var kvp in value.Counts)
+            {
+                jw.WritePropertyName(Encoding.UTF8.GetBytes(kvp.Key));
+                jw.WriteNumber(kvp.Value);
+            }
+            jw.WriteEndObject();
+            jw.WriteEndObject();
+        }
+    }
+
+    private readonly struct DictionaryModelJsonDeserializer : IDeserializer<DictionaryModel>
+    {
+        public DictionaryModel Deserialize(ReadOnlySpan<byte> data)
+        {
+            var reader = new JsonReader(data);
+            var obj = new DictionaryModel();
+            reader.Read();
+            while (reader.Read() && reader.TokenType == TokenType.PropertyName)
+            {
+                var p = reader.GetStringRaw();
+                reader.Read();
+                if (p.SequenceEqual("Counts"u8))
+                {
+                    var dict = new Dictionary<string, int>();
+                    if (reader.TokenType == TokenType.ObjectStart)
+                    {
+                        while (reader.Read() && reader.TokenType == TokenType.PropertyName)
+                        {
+                            var key = Encoding.UTF8.GetString(reader.GetStringRaw());
+                            reader.Read();
+                            reader.TryGetInt32(out var v);
+                            dict[key] = v;
+                        }
+                    }
+                    obj.Counts = dict;
+                }
+                else
+                    reader.TrySkip();
+            }
+            return obj;
+        }
+    }
+
+    [Test]
+    public async Task Dictionary_RoundTrip_Manual()
+    {
+        var model = new DictionaryModel
+        {
+            Counts = new() { ["a"] = 1, ["b"] = 2 }
+        };
+        var s = new DictionaryModelJsonSerializer();
+        var d = new DictionaryModelJsonDeserializer();
+        var buf = new ArrayBufferWriter<byte>(256);
+        s.Serialize(buf, model);
+        var result = d.Deserialize(buf.WrittenSpan);
+        await Assert.That(result.Counts["a"]).IsEqualTo(1);
+        await Assert.That(result.Counts["b"]).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Dictionary_RoundTrip_Generated()
+    {
+        var model = new DictionaryModel
+        {
+            Counts = new() { ["a"] = 1, ["b"] = 2 }
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var result = JsonSerializer.Deserialize<DictionaryModel>(bytes);
+        await Assert.That(result!.Counts["a"]).IsEqualTo(1);
+        await Assert.That(result.Counts["b"]).IsEqualTo(2);
+    }
+
+    // ---------- TemporalModel manual structs ----------
+
+    private readonly struct TemporalModelJsonSerializer : ISerializer<TemporalModel>
+    {
+        public void Serialize(IBufferWriter<byte> writer, TemporalModel value)
+        {
+            var jw = new JsonWriter(writer);
+            jw.WriteStartObject();
+            jw.WritePropertyName("Date"u8);
+            jw.WriteString(Encoding.UTF8.GetBytes(value.Date.ToString("O")));
+            jw.WritePropertyName("Time"u8);
+            jw.WriteString(Encoding.UTF8.GetBytes(value.Time.ToString("O")));
+            jw.WritePropertyName("Duration"u8);
+            jw.WriteString(Encoding.UTF8.GetBytes(value.Duration.ToString()));
+            jw.WriteEndObject();
+        }
+    }
+
+    private readonly struct TemporalModelJsonDeserializer : IDeserializer<TemporalModel>
+    {
+        public TemporalModel Deserialize(ReadOnlySpan<byte> data)
+        {
+            var reader = new JsonReader(data);
+            var obj = new TemporalModel();
+            reader.Read();
+            while (reader.Read() && reader.TokenType == TokenType.PropertyName)
+            {
+                var p = reader.GetStringRaw();
+                reader.Read();
+                if (p.SequenceEqual("Date"u8))
+                {
+                    var raw = reader.GetStringRaw();
+                    var s = Encoding.UTF8.GetString(raw);
+                    DateOnly.TryParse(s, out var d);
+                    obj.Date = d;
+                }
+                else if (p.SequenceEqual("Time"u8))
+                {
+                    var raw = reader.GetStringRaw();
+                    var s = Encoding.UTF8.GetString(raw);
+                    TimeOnly.TryParse(s, out var t);
+                    obj.Time = t;
+                }
+                else if (p.SequenceEqual("Duration"u8))
+                {
+                    var raw = reader.GetStringRaw();
+                    var s = Encoding.UTF8.GetString(raw);
+                    TimeSpan.TryParse(s, out var ts);
+                    obj.Duration = ts;
+                }
+                else
+                    reader.TrySkip();
+            }
+            return obj;
+        }
+    }
+
+    [Test]
+    public async Task Temporal_RoundTrip_Manual()
+    {
+        var model = new TemporalModel
+        {
+            Date = new DateOnly(2024, 6, 15),
+            Time = new TimeOnly(10, 30, 0),
+            Duration = TimeSpan.FromHours(1.5),
+        };
+        var s = new TemporalModelJsonSerializer();
+        var d = new TemporalModelJsonDeserializer();
+        var buf = new ArrayBufferWriter<byte>(256);
+        s.Serialize(buf, model);
+        var result = d.Deserialize(buf.WrittenSpan);
+        await Assert.That(result.Date).IsEqualTo(new DateOnly(2024, 6, 15));
+        await Assert.That(result.Time).IsEqualTo(new TimeOnly(10, 30, 0));
+        await Assert.That(result.Duration).IsEqualTo(TimeSpan.FromHours(1.5));
+    }
+
+    [Test]
+    public async Task Temporal_RoundTrip_Generated()
+    {
+        var model = new TemporalModel
+        {
+            Date = new DateOnly(2024, 6, 15),
+            Time = new TimeOnly(10, 30, 0),
+            Duration = TimeSpan.FromHours(1.5),
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var result = JsonSerializer.Deserialize<TemporalModel>(bytes);
+        await Assert.That(result!.Date).IsEqualTo(new DateOnly(2024, 6, 15));
+        await Assert.That(result.Time).IsEqualTo(new TimeOnly(10, 30, 0));
+        await Assert.That(result.Duration).IsEqualTo(TimeSpan.FromHours(1.5));
     }
 
     [Test]
