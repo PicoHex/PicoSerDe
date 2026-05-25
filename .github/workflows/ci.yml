@@ -44,6 +44,7 @@ jobs:
       - run: dotnet restore -p:UseProjectReferences=true
       - run: dotnet build --configuration Release --no-restore -p:UseProjectReferences=true
       - run: dotnet test --configuration Release --no-build --verbosity normal
+      - run: dotnet build PicoJson/benchmarks/PicoJson.Benchmarks/PicoJson.Benchmarks.csproj -c Release --no-restore
 
   aot-validation:
     needs: build-and-test
