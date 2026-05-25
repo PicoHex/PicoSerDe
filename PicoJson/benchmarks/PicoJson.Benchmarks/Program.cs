@@ -1,20 +1,18 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using PicoBench;
 using PicoBench.Formatters;
 using PicoJson;
 
 using StjJson = System.Text.Json.JsonSerializer;
-using StjOptions = System.Text.Json.JsonSerializerOptions;
-
-// ═══ S.T.J Serializer Options ═══
-
-var stjOptions = new StjOptions { IncludeFields = false };
 
 // ═══ Test Data ═══
 
+var ctx = StjContext.Default;
+
 var simple = new SimplePoco { Name = "Hello World", Age = 42 };
 var simpleBytesPico = JsonSerializer.SerializeToUtf8Bytes(simple);
-var simpleBytesStj = StjJson.SerializeToUtf8Bytes(simple, stjOptions);
+var simpleBytesStj = StjJson.SerializeToUtf8Bytes(simple, ctx.SimplePoco);
 
 var complex = new ComplexPoco
 {
@@ -27,7 +25,7 @@ var complex = new ComplexPoco
     IsActive = true
 };
 var complexBytesPico = JsonSerializer.SerializeToUtf8Bytes(complex);
-var complexBytesStj = StjJson.SerializeToUtf8Bytes(complex, stjOptions);
+var complexBytesStj = StjJson.SerializeToUtf8Bytes(complex, ctx.ComplexPoco);
 
 var nested = new NestedPoco
 {
@@ -37,7 +35,7 @@ var nested = new NestedPoco
     Tags = ["dev", "runner", "benchmark"]
 };
 var nestedBytesPico = JsonSerializer.SerializeToUtf8Bytes(nested);
-var nestedBytesStj = StjJson.SerializeToUtf8Bytes(nested, stjOptions);
+var nestedBytesStj = StjJson.SerializeToUtf8Bytes(nested, ctx.NestedPoco);
 
 var collection = new CollectionPoco
 {
@@ -45,7 +43,7 @@ var collection = new CollectionPoco
     Metadata = new() { ["source"] = "benchmark", ["mode"] = "comparison" }
 };
 var collectionBytesPico = JsonSerializer.SerializeToUtf8Bytes(collection);
-var collectionBytesStj = StjJson.SerializeToUtf8Bytes(collection, stjOptions);
+var collectionBytesStj = StjJson.SerializeToUtf8Bytes(collection, ctx.CollectionPoco);
 
 // ═══ Benchmark Suite ═══
 
@@ -59,7 +57,7 @@ Console.WriteLine();
 var serSimple = Benchmark.Compare(
     "Simple POCO — Serialize",
     "PicoJson", () => JsonSerializer.SerializeToUtf8Bytes(simple),
-    "System.Text.Json", () => StjJson.SerializeToUtf8Bytes(simple, stjOptions)
+    "System.Text.Json", () => StjJson.SerializeToUtf8Bytes(simple, ctx.SimplePoco)
 );
 PrintComparison(serSimple);
 
@@ -67,7 +65,7 @@ PrintComparison(serSimple);
 var deserSimple = Benchmark.Compare(
     "Simple POCO — Deserialize",
     "PicoJson", () => JsonSerializer.Deserialize<SimplePoco>(simpleBytesPico),
-    "System.Text.Json", () => StjJson.Deserialize<SimplePoco>(simpleBytesStj, stjOptions)
+    "System.Text.Json", () => StjJson.Deserialize(simpleBytesStj, ctx.SimplePoco)
 );
 PrintComparison(deserSimple);
 
@@ -75,7 +73,7 @@ PrintComparison(deserSimple);
 var serComplex = Benchmark.Compare(
     "Complex POCO — Serialize",
     "PicoJson", () => JsonSerializer.SerializeToUtf8Bytes(complex),
-    "System.Text.Json", () => StjJson.SerializeToUtf8Bytes(complex, stjOptions)
+    "System.Text.Json", () => StjJson.SerializeToUtf8Bytes(complex, ctx.ComplexPoco)
 );
 PrintComparison(serComplex);
 
@@ -83,7 +81,7 @@ PrintComparison(serComplex);
 var deserComplex = Benchmark.Compare(
     "Complex POCO — Deserialize",
     "PicoJson", () => JsonSerializer.Deserialize<ComplexPoco>(complexBytesPico),
-    "System.Text.Json", () => StjJson.Deserialize<ComplexPoco>(complexBytesStj, stjOptions)
+    "System.Text.Json", () => StjJson.Deserialize(complexBytesStj, ctx.ComplexPoco)
 );
 PrintComparison(deserComplex);
 
@@ -91,7 +89,7 @@ PrintComparison(deserComplex);
 var serNested = Benchmark.Compare(
     "Nested POCO — Serialize",
     "PicoJson", () => JsonSerializer.SerializeToUtf8Bytes(nested),
-    "System.Text.Json", () => StjJson.SerializeToUtf8Bytes(nested, stjOptions)
+    "System.Text.Json", () => StjJson.SerializeToUtf8Bytes(nested, ctx.NestedPoco)
 );
 PrintComparison(serNested);
 
@@ -99,7 +97,7 @@ PrintComparison(serNested);
 var deserNested = Benchmark.Compare(
     "Nested POCO — Deserialize",
     "PicoJson", () => JsonSerializer.Deserialize<NestedPoco>(nestedBytesPico),
-    "System.Text.Json", () => StjJson.Deserialize<NestedPoco>(nestedBytesStj, stjOptions)
+    "System.Text.Json", () => StjJson.Deserialize(nestedBytesStj, ctx.NestedPoco)
 );
 PrintComparison(deserNested);
 
@@ -107,7 +105,7 @@ PrintComparison(deserNested);
 var serCol = Benchmark.Compare(
     "Collection POCO — Serialize",
     "PicoJson", () => JsonSerializer.SerializeToUtf8Bytes(collection),
-    "System.Text.Json", () => StjJson.SerializeToUtf8Bytes(collection, stjOptions)
+    "System.Text.Json", () => StjJson.SerializeToUtf8Bytes(collection, ctx.CollectionPoco)
 );
 PrintComparison(serCol);
 
@@ -115,7 +113,7 @@ PrintComparison(serCol);
 var deserCol = Benchmark.Compare(
     "Collection POCO — Deserialize",
     "PicoJson", () => JsonSerializer.Deserialize<CollectionPoco>(collectionBytesPico),
-    "System.Text.Json", () => StjJson.Deserialize<CollectionPoco>(collectionBytesStj, stjOptions)
+    "System.Text.Json", () => StjJson.Deserialize(collectionBytesStj, ctx.CollectionPoco)
 );
 PrintComparison(deserCol);
 
@@ -180,3 +178,13 @@ public class CollectionPoco
     public List<int> Scores { get; set; } = new();
     public Dictionary<string, string> Metadata { get; set; } = new();
 }
+
+// ═══ S.T.J AOT Context ═══
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.Unspecified)]
+[JsonSerializable(typeof(SimplePoco))]
+[JsonSerializable(typeof(ComplexPoco))]
+[JsonSerializable(typeof(NestedPoco))]
+[JsonSerializable(typeof(NestedAddress))]
+[JsonSerializable(typeof(CollectionPoco))]
+internal partial class StjContext : JsonSerializerContext { }
