@@ -1,3 +1,7 @@
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
+
 namespace PicoJson;
 
 public ref struct JsonReader
@@ -215,6 +219,36 @@ public ref struct JsonReader
 
     private void SkipWhitespaceSpan()
     {
+        // SIMD: process 16 bytes at a time
+        if (Vector128.IsHardwareAccelerated)
+        {
+            var spaceVec = Vector128.Create((byte)0x20);
+            var tabVec = Vector128.Create((byte)0x09);
+            var newlineVec = Vector128.Create((byte)0x0A);
+            var crVec = Vector128.Create((byte)0x0D);
+
+            while (_position + 16 <= _data.Length)
+            {
+                ref readonly var src = ref _data[_position];
+                var chunk = Vector128.LoadUnsafe(in src);
+                var isWs = Vector128.Equals(chunk, spaceVec)
+                    | Vector128.Equals(chunk, tabVec)
+                    | Vector128.Equals(chunk, newlineVec)
+                    | Vector128.Equals(chunk, crVec);
+                var bits = isWs.ExtractMostSignificantBits();
+
+                if (bits == 0xFFFF)
+                {
+                    _position += 16;
+                    continue;
+                }
+
+                _position += BitOperations.TrailingZeroCount(~bits);
+                return;
+            }
+        }
+
+        // Scalar fallback: remaining bytes or no SIMD
         while (
             _position < _data.Length
             && _data[_position] is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r'
