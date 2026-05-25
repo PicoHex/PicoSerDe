@@ -2,6 +2,12 @@ using System.Buffers;
 using System.Text;
 using PicoJson;
 
+public class Person
+{
+    public string Name { get; set; } = "";
+    public int Age { get; set; }
+}
+
 public enum OrderStatus
 {
     Pending,
@@ -41,17 +47,40 @@ public class Order
     public OrderStatus Status { get; set; }
     public decimal Total { get; set; }
     public double? Discount { get; set; }
+
+    [JsonConverter(typeof(ShortDateConverter))]
     public DateTime CreatedAt { get; set; }
+
     public DateOnly? FulfilledDate { get; set; }
     public Dictionary<string, string> Metadata { get; set; } = new();
     public Customer? Customer { get; set; }
     public List<OrderLine> Lines { get; set; } = new();
+
+    [JsonIgnore]
+    public string InternalNote { get; set; } = "";
+}
+
+// Custom converter: date as "yyyy-MM-dd" instead of ISO 8601
+public class ShortDateConverter : IJsonConverter<DateTime>
+{
+    public void Write(IBufferWriter<byte> writer, DateTime value)
+    {
+        var jw = new JsonWriter(writer);
+        jw.WriteString(Encoding.UTF8.GetBytes(value.ToString("yyyy-MM-dd")));
+    }
+
+    public DateTime Read(ReadOnlySpan<byte> data)
+    {
+        DateTime.TryParse(Encoding.UTF8.GetString(data), null, out var dt);
+        return dt;
+    }
 }
 
 class Program
 {
     static void Main()
     {
+        // ═══ 1. Complex Model (all types, nested, collections) ═══
         var order = new Order
         {
             Id = Guid.NewGuid(),
@@ -60,6 +89,7 @@ class Program
             Discount = 10.0,
             CreatedAt = DateTime.UtcNow,
             Metadata = new() { ["source"] = "web", ["channel"] = "mobile" },
+            InternalNote = "this should NOT appear in JSON",
             Customer = new Customer
             {
                 Name = "Alice",
@@ -77,13 +107,13 @@ class Program
             {
                 new()
                 {
-                    Product = "Widget",
+                    Product = "He said \"hello\"",
                     Quantity = 2,
                     UnitPrice = 49.99m
                 },
                 new()
                 {
-                    Product = "Gadget",
+                    Product = "Path: C:\\data",
                     Quantity = 1,
                     UnitPrice = 49.99m,
                     PickedAt = new TimeOnly(14, 30)
@@ -92,27 +122,48 @@ class Program
         };
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(order);
-        Console.WriteLine("=== Serialized Order ===");
+        Console.WriteLine("=== 1. Complex Model ===");
         Console.WriteLine(Encoding.UTF8.GetString(bytes));
+        Console.WriteLine(
+            $"  (InternalNote [JsonIgnore] excluded: {!Encoding.UTF8.GetString(bytes).Contains("InternalNote")})"
+        );
+        Console.WriteLine(
+            $"  (CreatedAt uses custom format: {Encoding.UTF8.GetString(bytes).Contains("\"CreatedAt\":\"202")})"
+        );
 
         var restored = JsonSerializer.Deserialize<Order>(bytes);
-        Console.WriteLine("\n=== Deserialized Order ===");
-        Console.WriteLine($"  Id:        {restored?.Id}");
-        Console.WriteLine($"  Status:    {restored?.Status}");
-        Console.WriteLine($"  Total:     {restored?.Total}");
-        Console.WriteLine($"  Discount:  {restored?.Discount}");
+        Console.WriteLine($"  Round-trip OK: {restored?.Id == order.Id}");
+
+        // ═══ 2. Case-Insensitive Deserialization ═══
+        Console.WriteLine("\n=== 2. Case-Insensitive ===");
+        var camelJson = "{\"name\":\"Bob\",\"age\":25}"u8;
+        var person = JsonSerializer.Deserialize<Person>(camelJson);
+        Console.WriteLine($"  \"name\"→Name: {person?.Name}");
+
+        // ═══ 3. String Escaping ═══
+        Console.WriteLine("\n=== 3. String Escaping ===");
+        var productName = order.Lines[0].Product; // "He said \"hello\""
+        Console.WriteLine($"  Original:  {productName}");
+        Console.WriteLine($"  Round-trip: {restored?.Lines.FirstOrDefault()?.Product}");
+
+        // ═══ 4. NaN / Infinity Handling ═══
+        var nanBuf = new ArrayBufferWriter<byte>(64);
+        var nanWriter = new JsonWriter(nanBuf);
+        nanWriter.WriteNumber(double.NaN);
         Console.WriteLine(
-            $"  Metadata:  [{string.Join(",", restored?.Metadata?.Select(kv => $"{kv.Key}={kv.Value}") ?? new[] { "" })}]"
+            $"\n=== 4. NaN → null: {Encoding.UTF8.GetString(nanBuf.WrittenSpan)} ==="
         );
-        Console.WriteLine(
-            $"  Customer:  {restored?.Customer?.Name} (since {restored?.Customer?.Since})"
-        );
-        Console.WriteLine(
-            $"  Address:   {restored?.Customer?.Address?.Street}, {restored?.Customer?.Address?.City}"
-        );
-        foreach (var line in restored?.Lines ?? new())
-            Console.WriteLine(
-                $"  Line:      {line.Product} x{line.Quantity} @ {line.UnitPrice} [{line.PickedAt}]"
-            );
+
+        // ═══ 5. Error Messages with Line/Column ═══
+        Console.WriteLine("\n=== 5. Error Messages ===");
+        try
+        {
+            var r = new JsonReader("{\n  \"a\": broken\n}"u8);
+            while (r.Read()) { }
+        }
+        catch (FormatException ex)
+        {
+            Console.WriteLine($"  {ex.Message}");
+        }
     }
 }
