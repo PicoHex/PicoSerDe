@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace PicoJson.Tests;
 
 public class CustomDateConverter : IJsonConverter<DateTime>

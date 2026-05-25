@@ -1,5 +1,3 @@
-using System.Buffers;
-
 namespace PicoJson.Tests;
 
 public class JsonSerializerTests
