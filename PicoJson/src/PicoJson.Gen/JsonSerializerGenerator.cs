@@ -151,7 +151,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     keyTypeKind,
                     keyTypeName,
                     nestedProperties,
-                    GetJsonConverterType(prop)
+                    GetJsonConverterType(prop),
+                    GetDateTimeFormat(prop)
                 )
             );
         }
@@ -249,7 +250,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     keyTypeKind,
                     keyTypeName,
                     nestedProperties,
-                    GetJsonConverterType(prop)
+                    GetJsonConverterType(prop),
+                    GetDateTimeFormat(prop)
                 )
             );
         }
@@ -297,6 +299,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 && attr.ConstructorArguments[0].Value is INamedTypeSymbol converterType
             )
                 return converterType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        }
+        return null;
+    }
+
+    private static string? GetDateTimeFormat(IPropertySymbol prop)
+    {
+        foreach (var attr in prop.GetAttributes())
+        {
+            if (attr.AttributeClass?.Name == "DateTimeFormatAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoJson"
+                && attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Value is string format)
+                return format;
         }
         return null;
     }
@@ -434,11 +449,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "datetime":
                 sb.Append(indent);
-                sb.Append("var __iso = ");
+                sb.Append("var __iso_");
+                sb.Append(prop.Name);
+                sb.Append(" = ");
                 sb.Append(effectiveAccessor);
-                sb.AppendLine(".ToString(\"O\");");
+                if (prop.DateTimeFormat is not null)
+                {
+                    sb.Append(".ToString(\"");
+                    sb.Append(prop.DateTimeFormat);
+                    sb.AppendLine("\");");
+                }
+                else
+                    sb.AppendLine(".ToString(\"O\");");
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__iso));");
+                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(__iso_");
+                sb.Append(prop.Name);
+                sb.AppendLine("));");
                 break;
             case "dateonly":
                 sb.Append(indent);
@@ -806,14 +832,27 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.AppendLine(
-                    "System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dateTimeValue);"
-                );
+                if (prop.DateTimeFormat is not null)
+                {
+                    sb.Append("System.DateTime.TryParseExact(__strValue, \"");
+                    sb.Append(prop.DateTimeFormat);
+                    sb.Append("\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __dt_");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(");");
+                }
+                else
+                {
+                    sb.Append("System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt_");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(");");
+                }
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
                 sb.Append(prop.Name);
-                sb.AppendLine(" = __dateTimeValue;");
+                sb.Append(" = __dt_");
+                sb.Append(prop.Name);
+                sb.AppendLine(";");
                 break;
             case "guid":
                 sb.Append(indent);
@@ -1112,9 +1151,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.AppendLine(
-                    "System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dateTimeValue);"
-                );
+                sb.AppendLine("System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dateTimeValue);");
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__dateTimeValue);");
@@ -1574,6 +1611,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string? KeyTypeKind,
         string? KeyTypeName,
         ImmutableArray<PropertyInfo> NestedProperties,
-        string? ConverterTypeFullName
+        string? ConverterTypeFullName,
+        string? DateTimeFormat = null
     );
 }
