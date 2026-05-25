@@ -146,6 +146,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             }
 
             var jsonName = GetJsonPropertyName(prop) ?? prop.Name;
+            var converterTypeFullName = GetJsonConverterType(prop);
             var typeFullName = prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             properties.Add(
                 new PropertyInfo(
@@ -158,7 +159,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     elementTypeName,
                     keyTypeKind,
                     keyTypeName,
-                    nestedProperties
+                    nestedProperties,
+                    converterTypeFullName
                 )
             );
         }
@@ -380,6 +382,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             }
 
             var jsonName = GetJsonPropertyName(prop) ?? prop.Name;
+            var converterTypeFullName = GetJsonConverterType(prop);
             var typeFullName = prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             list.Add(
                 new PropertyInfo(
@@ -392,7 +395,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     elementTypeName,
                     keyTypeKind,
                     keyTypeName,
-                    nestedProperties
+                    nestedProperties,
+                    converterTypeFullName
                 )
             );
         }
@@ -425,6 +429,21 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 return true;
         }
         return false;
+    }
+
+    private static string? GetJsonConverterType(IPropertySymbol prop)
+    {
+        foreach (var attr in prop.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "JsonConverterAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoJson"
+                && attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Value is INamedTypeSymbol converterType
+            )
+                return converterType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        }
+        return null;
     }
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
@@ -531,6 +550,18 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     )
     {
         var accessor = isNullableAccess ? $"value.{prop.Name}.Value" : $"value.{prop.Name}";
+
+        // Check for custom converter
+        if (prop.ConverterTypeFullName is not null)
+        {
+            sb.Append("            var __conv = new ");
+            sb.Append(prop.ConverterTypeFullName);
+            sb.AppendLine("();");
+            sb.Append("            __conv.Write(writer, ");
+            sb.Append(accessor);
+            sb.AppendLine(");");
+            return;
+        }
 
         switch (prop.TypeKind)
         {
@@ -660,6 +691,23 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(".HasValue)");
                 sb.AppendLine("                {");
                 npAcc = $"{npAcc}.Value";
+            }
+
+            if (np.ConverterTypeFullName is not null)
+            {
+                sb.Append("                var __nc = new ");
+                sb.Append(np.ConverterTypeFullName);
+                sb.AppendLine("();");
+                sb.Append("                __nc.Write(writer, ");
+                sb.Append(npAcc);
+                sb.AppendLine(");");
+                if (needNullableWrap)
+                {
+                    sb.AppendLine("                }");
+                    sb.AppendLine("                else");
+                    sb.AppendLine("                    jw.WriteNull();");
+                }
+                continue;
             }
 
             switch (np.TypeKind)
@@ -954,6 +1002,21 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     private static void AppendDeserializerValue(StringBuilder sb, PropertyInfo prop, string indent)
     {
+        if (prop.ConverterTypeFullName is not null)
+        {
+            sb.Append(indent);
+            sb.AppendLine("var __converter = new ");
+            sb.Append(prop.ConverterTypeFullName);
+            sb.AppendLine("();");
+            sb.Append(indent);
+            sb.AppendLine("var __craw = reader.GetStringRaw();");
+            sb.Append(indent);
+            sb.Append("obj.");
+            sb.Append(prop.Name);
+            sb.AppendLine(" = __converter.Read(__craw);");
+            return;
+        }
+
         switch (prop.TypeKind)
         {
             case "string":
@@ -1317,6 +1380,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string indent
     )
     {
+        if (prop.ConverterTypeFullName is not null)
+        {
+            sb.Append(indent);
+            sb.AppendLine("var __nconverter = new ");
+            sb.Append(prop.ConverterTypeFullName);
+            sb.AppendLine("();");
+            sb.Append(indent);
+            sb.AppendLine("var __nraw = reader.GetStringRaw();");
+            sb.Append(indent);
+            sb.Append(target);
+            sb.Append(".");
+            sb.Append(prop.Name);
+            sb.AppendLine(" = __nconverter.Read(__nraw);");
+            return;
+        }
+
         switch (prop.TypeKind)
         {
             case "string":
@@ -1906,6 +1985,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string? ElementTypeName,
         string? KeyTypeKind,
         string? KeyTypeName,
-        PropertyInfo[] NestedProperties
+        PropertyInfo[] NestedProperties,
+        string? ConverterTypeFullName
     );
 }
