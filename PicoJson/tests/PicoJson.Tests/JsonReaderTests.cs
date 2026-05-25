@@ -229,4 +229,33 @@ public class JsonReaderTests
         var str = Encoding.UTF8.GetString(r.ValueSpan);
         await Assert.That(str).IsEqualTo("42");
     }
+
+    // === P0-2: String Unescaping Tests ===
+
+    [Test]
+    public async Task GetStringRaw_Unescapes_Quote()
+    {
+        var r = new JsonReader("\"he\\\"llo\""u8);
+        r.Read();
+        var raw = r.GetStringRaw();
+        await Assert.That(Encoding.UTF8.GetString(raw)).IsEqualTo("he\"llo");
+    }
+
+    [Test]
+    public async Task GetStringRaw_Unescapes_Backslash()
+    {
+        var r = new JsonReader("\"a\\\\b\""u8);
+        r.Read();
+        var raw = r.GetStringRaw();
+        await Assert.That(Encoding.UTF8.GetString(raw)).IsEqualTo("a\\b");
+    }
+
+    [Test]
+    public async Task GetStringRaw_Unescapes_Newline()
+    {
+        var r = new JsonReader("\"line1\\nline2\""u8);
+        r.Read();
+        var raw = r.GetStringRaw();
+        await Assert.That(Encoding.UTF8.GetString(raw)).IsEqualTo("line1\nline2");
+    }
 }

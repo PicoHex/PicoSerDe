@@ -164,12 +164,44 @@ public ref struct JsonReader
     {
         _position++;
         var start = _position;
-        while (_position < _data.Length && _data[_position] != (byte)'"')
+        while (_position < _data.Length)
+        {
+            if (_data[_position] == (byte)'"')
+                break;
+            if (_data[_position] == (byte)'\\' && _position + 1 < _data.Length)
+                _position++; // skip escaped char
             _position++;
+        }
         if (_position >= _data.Length)
             throw new FormatException("Unterminated string");
         _valueSpan = _data[start.._position];
         _position++;
+
+        // Unescape if needed
+        if (_valueSpan.IndexOf((byte)'\\') >= 0)
+        {
+            var decoded = new byte[_valueSpan.Length];
+            int di = 0;
+            for (int si = 0; si < _valueSpan.Length; si++)
+            {
+                if (_valueSpan[si] == (byte)'\\' && si + 1 < _valueSpan.Length)
+                {
+                    si++;
+                    decoded[di++] = _valueSpan[si] switch
+                    {
+                        (byte)'"' => (byte)'"',
+                        (byte)'\\' => (byte)'\\',
+                        (byte)'n' => (byte)'\n',
+                        (byte)'r' => (byte)'\r',
+                        (byte)'t' => (byte)'\t',
+                        _ => _valueSpan[si]
+                    };
+                }
+                else
+                    decoded[di++] = _valueSpan[si];
+            }
+            _valueSpan = decoded.AsSpan(0, di);
+        }
 
         var saved = _position;
         SkipWhitespace();
