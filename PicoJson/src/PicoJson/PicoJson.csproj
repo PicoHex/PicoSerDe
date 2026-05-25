@@ -2,9 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>PicoJson</PackageId>
+    <Description>PicoJson — high-performance, AOT-first JSON serializer with zero-reflection source generation for the PicoHex ecosystem</Description>
+    <PackageTags>PicoHex;JSON;AOT;Serialization</PackageTags>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
   </PropertyGroup>
 
   <ItemGroup>

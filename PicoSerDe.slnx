@@ -5,4 +5,5 @@
   <Project Path="PicoJson\src\PicoJson.Gen\PicoJson.Gen.csproj" />
   <Project Path="PicoJson\tests\PicoJson.Tests\PicoJson.Tests.csproj" />
   <Project Path="PicoJson\samples\PicoJson.Sample\PicoJson.Sample.csproj" />
+  <Project Path="PicoJson\benchmarks\PicoJson.Benchmarks\PicoJson.Benchmarks.csproj" />
 </Solution>

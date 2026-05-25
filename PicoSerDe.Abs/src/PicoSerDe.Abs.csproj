@@ -2,9 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>PicoSerDe.Abs</PackageId>
+    <Description>PicoSerDe abstractions — shared serialization contracts and token layer for the PicoHex ecosystem</Description>
+    <PackageTags>PicoHex;Serialization;AOT;Serialization Injection;Abstractions</PackageTags>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
   </PropertyGroup>
 
   <ItemGroup>
