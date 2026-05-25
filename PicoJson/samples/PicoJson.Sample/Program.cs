@@ -1,81 +1,3 @@
-using System.Buffers;
-using System.Text;
-using PicoJson;
-
-public class Person
-{
-    public string Name { get; set; } = "";
-    public int Age { get; set; }
-}
-
-public enum OrderStatus
-{
-    Pending,
-    Processing,
-    Shipped,
-    Delivered,
-    Cancelled
-}
-
-public class Address
-{
-    public string Street { get; set; } = "";
-    public string City { get; set; } = "";
-    public string? Zip { get; set; }
-    public string Country { get; set; } = "";
-}
-
-public class Customer
-{
-    public string Name { get; set; } = "";
-    public DateOnly Since { get; set; }
-    public List<string> Preferences { get; set; } = new();
-    public Address? Address { get; set; }
-}
-
-public class OrderLine
-{
-    public string Product { get; set; } = "";
-    public int Quantity { get; set; }
-    public decimal UnitPrice { get; set; }
-    public TimeOnly? PickedAt { get; set; }
-}
-
-public class Order
-{
-    public Guid Id { get; set; }
-    public OrderStatus Status { get; set; }
-    public decimal Total { get; set; }
-    public double? Discount { get; set; }
-
-    [JsonConverter(typeof(ShortDateConverter))]
-    public DateTime CreatedAt { get; set; }
-
-    public DateOnly? FulfilledDate { get; set; }
-    public Dictionary<string, string> Metadata { get; set; } = new();
-    public Customer? Customer { get; set; }
-    public List<OrderLine> Lines { get; set; } = new();
-
-    [JsonIgnore]
-    public string InternalNote { get; set; } = "";
-}
-
-// Custom converter: date as "yyyy-MM-dd" instead of ISO 8601
-public class ShortDateConverter : IJsonConverter<DateTime>
-{
-    public void Write(IBufferWriter<byte> writer, DateTime value)
-    {
-        var jw = new JsonWriter(writer);
-        jw.WriteString(Encoding.UTF8.GetBytes(value.ToString("yyyy-MM-dd")));
-    }
-
-    public DateTime Read(ReadOnlySpan<byte> data)
-    {
-        DateTime.TryParse(Encoding.UTF8.GetString(data), null, out var dt);
-        return dt;
-    }
-}
-
 class Program
 {
     static void Main()
@@ -142,7 +64,7 @@ class Program
 
         // ═══ 3. String Escaping ═══
         Console.WriteLine("\n=== 3. String Escaping ===");
-        var productName = order.Lines[0].Product; // "He said \"hello\""
+        var productName = order.Lines[0].Product;
         Console.WriteLine($"  Original:  {productName}");
         Console.WriteLine($"  Round-trip: {restored?.Lines.FirstOrDefault()?.Product}");
 
@@ -165,5 +87,80 @@ class Program
         {
             Console.WriteLine($"  {ex.Message}");
         }
+    }
+}
+
+// ═══ Models ═══
+
+public class Person
+{
+    public string Name { get; set; } = "";
+    public int Age { get; set; }
+}
+
+public enum OrderStatus
+{
+    Pending,
+    Processing,
+    Shipped,
+    Delivered,
+    Cancelled
+}
+
+public class Address
+{
+    public string Street { get; set; } = "";
+    public string City { get; set; } = "";
+    public string? Zip { get; set; }
+    public string Country { get; set; } = "";
+}
+
+public class Customer
+{
+    public string Name { get; set; } = "";
+    public DateOnly Since { get; set; }
+    public List<string> Preferences { get; set; } = new();
+    public Address? Address { get; set; }
+}
+
+public class OrderLine
+{
+    public string Product { get; set; } = "";
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public TimeOnly? PickedAt { get; set; }
+}
+
+public class Order
+{
+    public Guid Id { get; set; }
+    public OrderStatus Status { get; set; }
+    public decimal Total { get; set; }
+    public double? Discount { get; set; }
+
+    [JsonConverter(typeof(ShortDateConverter))]
+    public DateTime CreatedAt { get; set; }
+
+    public DateOnly? FulfilledDate { get; set; }
+    public Dictionary<string, string> Metadata { get; set; } = new();
+    public Customer? Customer { get; set; }
+    public List<OrderLine> Lines { get; set; } = new();
+
+    [JsonIgnore]
+    public string InternalNote { get; set; } = "";
+}
+
+public class ShortDateConverter : IJsonConverter<DateTime>
+{
+    public void Write(IBufferWriter<byte> writer, DateTime value)
+    {
+        var jw = new JsonWriter(writer);
+        jw.WriteString(Encoding.UTF8.GetBytes(value.ToString("yyyy-MM-dd")));
+    }
+
+    public DateTime Read(ReadOnlySpan<byte> data)
+    {
+        DateTime.TryParse(Encoding.UTF8.GetString(data), null, out var dt);
+        return dt;
     }
 }
