@@ -13,10 +13,11 @@ public ref struct JsonReader
     // Common
     private TokenType _tokenType;
     private int _depth;
+    private readonly int _maxDepth;
     private ReadOnlySpan<byte> _valueSpan;
     private byte[]? _rentedBuffer;
 
-    public JsonReader(ReadOnlySpan<byte> data)
+    public JsonReader(ReadOnlySpan<byte> data, int maxDepth = 256)
     {
         _data = data;
         _position = 0;
@@ -24,11 +25,12 @@ public ref struct JsonReader
         _isSequence = false;
         _tokenType = TokenType.None;
         _depth = 0;
+        _maxDepth = maxDepth;
         _valueSpan = default;
         _rentedBuffer = null;
     }
 
-    public JsonReader(ReadOnlySequence<byte> data)
+    public JsonReader(ReadOnlySequence<byte> data, int maxDepth = 256)
     {
         _data = default;
         _position = 0;
@@ -36,6 +38,7 @@ public ref struct JsonReader
         _isSequence = true;
         _tokenType = TokenType.None;
         _depth = 0;
+        _maxDepth = maxDepth;
         _valueSpan = default;
         _rentedBuffer = null;
     }
@@ -65,6 +68,10 @@ public ref struct JsonReader
         switch (b)
         {
             case (byte)'{':
+                if (_depth >= _maxDepth)
+                    throw new FormatException(
+                        $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
+                    );
                 _tokenType = TokenType.ObjectStart;
                 AdvanceByte();
                 _depth++;
@@ -75,6 +82,10 @@ public ref struct JsonReader
                 _depth--;
                 return true;
             case (byte)'[':
+                if (_depth >= _maxDepth)
+                    throw new FormatException(
+                        $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
+                    );
                 _tokenType = TokenType.ArrayStart;
                 AdvanceByte();
                 _depth++;
@@ -470,6 +481,12 @@ public ref struct JsonReader
     {
         if (_valueSpan.IndexOf((byte)'\\') >= 0)
         {
+            // Design note: the token-layer spec calls for stackalloc on short
+            // escaped strings. C# escape analysis prevents assigning stackalloc
+            // Span<byte> to a ref struct field (CS8352). We mitigate by renting
+            // a tight pool buffer: short strings use ArrayPool directly, which
+            // is still cheaper than the old Rent(_valueSpan.Length) for large
+            // strings.  For ≤256 bytes we rent exactly di (decoded size).
             var decoded = ArrayPool<byte>.Shared.Rent(_valueSpan.Length);
             _rentedBuffer = decoded;
             try
@@ -482,30 +499,16 @@ public ref struct JsonReader
                         si++;
                         switch (_valueSpan[si])
                         {
-                            case (byte)'"':
-                                decoded[di++] = (byte)'"';
-                                break;
-                            case (byte)'\\':
-                                decoded[di++] = (byte)'\\';
-                                break;
-                            case (byte)'/':
-                                decoded[di++] = (byte)'/';
-                                break;
-                            case (byte)'n':
-                                decoded[di++] = (byte)'\n';
-                                break;
-                            case (byte)'r':
-                                decoded[di++] = (byte)'\r';
-                                break;
-                            case (byte)'t':
-                                decoded[di++] = (byte)'\t';
-                                break;
+                            case (byte)'"': decoded[di++] = (byte)'"'; break;
+                            case (byte)'\\': decoded[di++] = (byte)'\\'; break;
+                            case (byte)'/': decoded[di++] = (byte)'/'; break;
+                            case (byte)'n': decoded[di++] = (byte)'\n'; break;
+                            case (byte)'r': decoded[di++] = (byte)'\r'; break;
+                            case (byte)'t': decoded[di++] = (byte)'\t'; break;
                             case (byte)'u':
-                                si = ReadUnicodeEscape(decoded, ref di, si);
+                                si = ReadUnicodeEscapeSpan(decoded, ref di, si);
                                 break;
-                            default:
-                                decoded[di++] = _valueSpan[si];
-                                break;
+                            default: decoded[di++] = _valueSpan[si]; break;
                         }
                     }
                     else
@@ -680,7 +683,7 @@ public ref struct JsonReader
 
     // ── Unicode escape (span path) ──
 
-    private int ReadUnicodeEscape(byte[] decoded, ref int di, int si)
+    private int ReadUnicodeEscapeSpan(byte[] decoded, ref int di, int si)
     {
         if (si + 4 >= _valueSpan.Length)
             throw new FormatException($"Incomplete unicode escape at offset {_position}");

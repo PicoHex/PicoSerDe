@@ -423,4 +423,31 @@ public class JsonReaderTests
             return seg;
         }
     }
+
+    // === MaxDepth defense ===
+
+    [Test]
+    public async Task Depth_WithinLimit_ParsesSuccessfully()
+    {
+        var json = new string('{', 10) + "\"a\":" + new string('}', 10);
+        var r = new JsonReader(Encoding.UTF8.GetBytes(json));
+        while (r.Read()) { }
+        await Assert.That(r.Depth).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Depth_ExceedsDefault_Throws()
+    {
+        var json = new string('[', 260) + new string(']', 260);
+        var r = new JsonReader(Encoding.UTF8.GetBytes(json));
+        try
+        {
+            while (r.Read()) { }
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException ex)
+        {
+            await Assert.That(ex.Message).Contains("depth");
+        }
+    }
 }
