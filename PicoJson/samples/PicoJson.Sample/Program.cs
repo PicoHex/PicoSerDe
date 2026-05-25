@@ -34,11 +34,13 @@ class Program
         Console.WriteLine("=== Serialized Person ===");
         Console.WriteLine(Encoding.UTF8.GetString(bytes));
 
-        // One line: deserialize back
+        // Deserialize back — show every property
         var restored = JsonSerializer.Deserialize<Person>(bytes);
-        Console.WriteLine(
-            $"\n=== Deserialized Person ===\nName: {restored?.Name}, Age: {restored?.Age}"
-        );
+        Console.WriteLine("\n=== Deserialized Person ===");
+        Console.WriteLine($"  Name:       {restored?.Name}");
+        Console.WriteLine($"  Age:        {restored?.Age}");
+        Console.WriteLine($"  CreatedAt:  {restored?.CreatedAt:O}");
+        Console.WriteLine($"  Tags:       [{string.Join(", ", restored?.Tags ?? new())}]");
 
         // New type support demo
         var demo = new DemoModel
@@ -54,9 +56,14 @@ class Program
         var demoBytes = JsonSerializer.SerializeToUtf8Bytes(demo);
         Console.WriteLine($"\n=== Serialized DemoModel ===\n{Encoding.UTF8.GetString(demoBytes)}");
         var demoRestored = JsonSerializer.Deserialize<DemoModel>(demoBytes);
-        Console.WriteLine(
-            $"\n=== Deserialized DemoModel ===\nId: {demoRestored?.Id}\nPrice: {demoRestored?.Price}\nDay: {demoRestored?.Day}\nOptionalScore: {demoRestored?.OptionalScore}\nCounts: {demoRestored?.Counts?.Count} entries\nStartDate: {demoRestored?.StartDate}\nDuration: {demoRestored?.Duration}"
-        );
+        Console.WriteLine("\n=== Deserialized DemoModel ===");
+        Console.WriteLine($"  Id:             {demoRestored?.Id}");
+        Console.WriteLine($"  Price:          {demoRestored?.Price}");
+        Console.WriteLine($"  Day:            {demoRestored?.Day}");
+        Console.WriteLine($"  OptionalScore:  {demoRestored?.OptionalScore}");
+        Console.WriteLine($"  Counts:         {demoRestored?.Counts?.Count} entries");
+        Console.WriteLine($"  StartDate:      {demoRestored?.StartDate}");
+        Console.WriteLine($"  Duration:       {demoRestored?.Duration}");
 
         // Raw JsonWriter
         var buf = new ArrayBufferWriter<byte>(128);
