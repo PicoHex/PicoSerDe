@@ -89,6 +89,7 @@ public ref struct JsonWriter
         BeforeWriteValue();
         WriteByte((byte)'{');
         _depth++;
+        _needsComma &= ~(1L << _depth);
     }
 
     public void WriteEndObject()
@@ -104,6 +105,7 @@ public ref struct JsonWriter
         BeforeWriteValue();
         WriteByte((byte)'[');
         _depth++;
+        _needsComma &= ~(1L << _depth);
     }
 
     public void WriteEndArray()
