@@ -50,6 +50,21 @@ internal static class TypeKindResolver
                 return ("list", false, null);
         }
 
+        // IReadOnlyList<T>, IReadOnlyCollection<T>, IEnumerable<T> → list
+        if (type is INamedTypeSymbol ntsRoList && ntsRoList.TypeArguments.Length == 1)
+        {
+            var roName = ntsRoList.Name;
+            var roNs = ntsRoList.ContainingNamespace?.ToDisplayString() ?? "";
+            if ((roName is "IReadOnlyList" or "IReadOnlyCollection" or "IEnumerable")
+                && roNs == "System.Collections.Generic")
+            {
+                var elementType = ntsRoList.TypeArguments[0];
+                var (ek, _, _) = Resolve(elementType);
+                if (ek is null) return (null, false, null);
+                return ("list", false, null);
+            }
+        }
+
         // Dictionary<K,V>
         if (type is INamedTypeSymbol ntsDict && ntsDict.TypeArguments.Length == 2)
         {
