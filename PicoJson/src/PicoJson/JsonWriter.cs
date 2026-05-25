@@ -56,6 +56,11 @@ public ref struct JsonWriter
     public void WriteNumber(double value)
     {
         BeforeWriteValue();
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            WriteRaw("null"u8);
+            return;
+        }
         Span<byte> buf = stackalloc byte[32];
         value.TryFormat(buf, out var w);
         _buffer.Write(buf[..w]);

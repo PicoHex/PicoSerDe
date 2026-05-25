@@ -185,4 +185,26 @@ public class JsonWriterTests
         var json = GetWrittenString(w, buf);
         await Assert.That(json).IsEqualTo("\"line1\\nline2\"");
     }
+
+    // === P0-3: NaN/Infinity Tests ===
+
+    [Test]
+    public async Task WriteNumber_NaN_WritesNull()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteNumber(double.NaN);
+        var json = GetWrittenString(w, buf);
+        await Assert.That(json).IsEqualTo("null");
+    }
+
+    [Test]
+    public async Task WriteNumber_Infinity_WritesNull()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteNumber(double.PositiveInfinity);
+        var json = GetWrittenString(w, buf);
+        await Assert.That(json).IsEqualTo("null");
+    }
 }
