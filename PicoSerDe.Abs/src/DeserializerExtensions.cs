@@ -31,37 +31,6 @@ public static class DeserializerExtensions
         return deserializer.Deserialize(ms.ToArray().AsSpan());
     }
 
-    public static T DeserializeFromPipe<T>(this IDeserializer<T> deserializer, PipeReader reader)
-    {
-        ReadResult result;
-        do
-        {
-            if (!reader.TryRead(out result))
-            {
-                // TryRead returns false when no data is available yet.
-                // For sync usage, spin-wait is acceptable for convenience.
-                Thread.SpinWait(1);
-                continue;
-            }
-        } while (!result.IsCompleted && result.Buffer.Length == 0);
-
-        var buffer = result.Buffer;
-        byte[] data;
-
-        if (buffer.IsSingleSegment)
-        {
-            data = buffer.FirstSpan.ToArray();
-        }
-        else
-        {
-            data = new byte[buffer.Length];
-            buffer.CopyTo(data);
-        }
-
-        reader.AdvanceTo(buffer.End);
-        return deserializer.Deserialize(data);
-    }
-
     public static async ValueTask<T> DeserializeFromPipeAsync<T>(
         this IDeserializer<T> deserializer,
         PipeReader reader,

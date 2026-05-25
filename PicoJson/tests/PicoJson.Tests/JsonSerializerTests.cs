@@ -86,8 +86,7 @@ public class JsonSerializerTests
     public async Task StaticApi_WithManualRegistration_RoundTrips()
     {
         // Simulate what the Source Generator produces
-        JsonSerializer._serializers[typeof(Person)] = new PersonJsonSerializer();
-        JsonSerializer._deserializers[typeof(Person)] = new PersonJsonDeserializer();
+JsonSerializer.Register(new PersonJsonSerializer(), new PersonJsonDeserializer());
 
         var person = new Person { Name = "Charlie", Age = 35 };
         var buf = new ArrayBufferWriter<byte>(256);
@@ -102,8 +101,7 @@ public class JsonSerializerTests
     [Test]
     public async Task StaticApi_SerializeToUtf8Bytes_ReturnsValidJson()
     {
-        JsonSerializer._serializers[typeof(Person)] = new PersonJsonSerializer();
-        JsonSerializer._deserializers[typeof(Person)] = new PersonJsonDeserializer();
+JsonSerializer.Register(new PersonJsonSerializer(), new PersonJsonDeserializer());
 
         var person = new Person { Name = "Dave", Age = 40 };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(person);
@@ -118,8 +116,7 @@ public class JsonSerializerTests
     [Test]
     public async Task StaticApi_SerializeToString_ReturnsJsonString()
     {
-        JsonSerializer._serializers[typeof(Person)] = new PersonJsonSerializer();
-        JsonSerializer._deserializers[typeof(Person)] = new PersonJsonDeserializer();
+JsonSerializer.Register(new PersonJsonSerializer(), new PersonJsonDeserializer());
 
         var person = new Person { Name = "Eve", Age = 28 };
         var json = JsonSerializer.Serialize(person);

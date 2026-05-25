@@ -21,8 +21,6 @@ public ref struct JsonWriter
         _afterPropertyName = false;
     }
 
-    public void Flush() { }
-
     public void WriteNull()
     {
         BeforeWriteValue();
@@ -56,11 +54,10 @@ public ref struct JsonWriter
     public void WriteNumber(double value)
     {
         BeforeWriteValue();
-        if (double.IsNaN(value) || double.IsInfinity(value))
-        {
-            WriteRaw("null"u8);
-            return;
-        }
+        if (double.IsNaN(value))
+            throw new ArgumentException("NaN cannot be written as JSON. Consider handling NaN before serialization.", nameof(value));
+        if (double.IsInfinity(value))
+            throw new ArgumentException("Infinity cannot be written as JSON. Consider handling Infinity before serialization.", nameof(value));
         Span<byte> buf = stackalloc byte[32];
         value.TryFormat(buf, out var w);
         _buffer.Write(buf[..w]);

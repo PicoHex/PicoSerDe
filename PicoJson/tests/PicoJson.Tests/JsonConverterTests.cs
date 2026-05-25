@@ -10,9 +10,9 @@ public class CustomDateConverter : IJsonConverter<DateTime>
         jw.WriteString(Encoding.UTF8.GetBytes(value.ToString("yyyy-MM-dd")));
     }
 
-    public DateTime Read(ReadOnlySpan<byte> data)
+    public DateTime Read(ref JsonReader reader)
     {
-        var str = Encoding.UTF8.GetString(data);
+        var str = Encoding.UTF8.GetString(reader.GetStringRaw());
         return DateTime.Parse(str);
     }
 }

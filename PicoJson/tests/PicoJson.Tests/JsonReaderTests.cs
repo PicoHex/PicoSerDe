@@ -259,10 +259,83 @@ public class JsonReaderTests
         await Assert.That(Encoding.UTF8.GetString(raw)).IsEqualTo("line1\nline2");
     }
 
+    // === Unicode escape tests ===
+
+    [Test]
+    public async Task GetStringRaw_Unescapes_Unicode_BMP()
+    {
+        // \u00e9 = é (U+00E9 → UTF-8: 0xC3 0xA9)
+        var r = new JsonReader("\"caf\\u00e9\""u8);
+        r.Read();
+        var raw = r.GetStringRaw();
+        await Assert.That(Encoding.UTF8.GetString(raw)).IsEqualTo("café");
+    }
+
+    [Test]
+    public async Task GetStringRaw_Unescapes_Unicode_ASCII()
+    {
+        // \u0041 = 'A'
+        var r = new JsonReader("\"\\u0041BC\""u8);
+        r.Read();
+        var raw = r.GetStringRaw();
+        await Assert.That(Encoding.UTF8.GetString(raw)).IsEqualTo("ABC");
+    }
+
+    [Test]
+    public async Task GetStringRaw_Unescapes_Unicode_SurrogatePair()
+    {
+        // \uD83D\uDE00 = 😀 (U+1F600 → UTF-8: 0xF0 0x9F 0x98 0x80)
+        var r = new JsonReader("\"\\uD83D\\uDE00\""u8);
+        r.Read();
+        var raw = r.GetStringRaw();
+        await Assert.That(Encoding.UTF8.GetString(raw)).IsEqualTo("😀");
+    }
+
+    [Test]
+    public async Task GetStringRaw_Unescapes_MixedEscapes()
+    {
+        // \u00e9 = é, \n = newline
+        var r = new JsonReader("\"caf\\u00e9\\nlatte\""u8);
+        r.Read();
+        var raw = r.GetStringRaw();
+        await Assert.That(Encoding.UTF8.GetString(raw)).IsEqualTo("café\nlatte");
+    }
+
+    [Test]
+    public async Task InvalidUnicodeEscape_NonHex_Throws()
+    {
+        var r = new JsonReader("\"\\u00ZZ\""u8);
+        try
+        {
+            r.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task InvalidUnicodeEscape_LoneSurrogate_Throws()
+    {
+        // \uD800 without matching low surrogate
+        var r = new JsonReader("\"\\uD800\""u8);
+        try
+        {
+            r.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
     // === P1-7: Error Message Tests ===
 
     [Test]
-    public async Task MalformedJson_ErrorHasPositionInfo()
+    public async Task MalformedJson_ErrorHasOffsetInfo()
     {
         try
         {
@@ -272,7 +345,70 @@ public class JsonReaderTests
         }
         catch (FormatException ex)
         {
-            await Assert.That(ex.Message).Contains("line");
+            await Assert.That(ex.Message).Contains("offset");
+        }
+    }
+
+    // === P2: ReadOnlySequence support ===
+
+    [Test]
+    public async Task SequenceReader_ParsesSimpleJson()
+    {
+        // Wrap in non-async scope to avoid ref struct crossing await boundary
+        TokenType tt1, tt2, tt3, tt4;
+        bool ok1, ok2, ok3, ok4;
+        {
+            var json = "{\"a\":1}"u8.ToArray();
+            var seq = new ReadOnlySequence<byte>(json);
+            var r = new JsonReader(seq);
+            ok1 = r.Read(); tt1 = r.TokenType;
+            ok2 = r.Read(); tt2 = r.TokenType;
+            ok3 = r.Read(); tt3 = r.TokenType;
+            ok4 = r.Read(); tt4 = r.TokenType;
+        }
+        await Assert.That(ok1).IsTrue();
+        await Assert.That(tt1).IsEqualTo(TokenType.ObjectStart);
+        await Assert.That(ok2).IsTrue();
+        await Assert.That(tt2).IsEqualTo(TokenType.PropertyName);
+        await Assert.That(ok3).IsTrue();
+        await Assert.That(tt3).IsEqualTo(TokenType.Int32);
+        await Assert.That(ok4).IsTrue();
+        await Assert.That(tt4).IsEqualTo(TokenType.ObjectEnd);
+    }
+
+    [Test]
+    public async Task SequenceReader_MultiSegment()
+    {
+        string rawName, rawValue;
+        {
+            var part1 = "{\"nam"u8.ToArray();
+            var part2 = "e\":\"alice\"}"u8.ToArray();
+            var seg1 = new ReadOnlySequenceSegment<byte>(new ReadOnlyMemory<byte>(part1), 0);
+            var seg2 = seg1.Append(new ReadOnlyMemory<byte>(part2));
+            var seq = new ReadOnlySequence<byte>(seg1, 0, seg2, part2.Length);
+            var r = new JsonReader(seq);
+            r.Read(); r.Read();
+            rawName = Encoding.UTF8.GetString(r.GetStringRaw());
+            r.Read();
+            rawValue = Encoding.UTF8.GetString(r.GetStringRaw());
+        }
+        await Assert.That(rawName).IsEqualTo("name");
+        await Assert.That(rawValue).IsEqualTo("alice");
+    }
+
+    private sealed class ReadOnlySequenceSegment<T> : System.Buffers.ReadOnlySequenceSegment<T>
+    {
+        public ReadOnlySequenceSegment(ReadOnlyMemory<T> memory, long runningIndex)
+        {
+            Memory = memory;
+            RunningIndex = runningIndex;
+        }
+
+        public ReadOnlySequenceSegment<T> Append(ReadOnlyMemory<T> memory)
+        {
+            var seg = new ReadOnlySequenceSegment<T>(memory, RunningIndex + Memory.Length);
+            Next = seg;
+            return seg;
         }
     }
 }

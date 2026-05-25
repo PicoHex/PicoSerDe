@@ -99,20 +99,6 @@ public class ExtensionsTests
     }
 
     [Test]
-    public async Task DeserializeFromPipe_ReadsFromPipe()
-    {
-        var deserializer = new StringDeserializer();
-        var pipe = new Pipe();
-
-        var bytes = Encoding.UTF8.GetBytes("hello");
-        await pipe.Writer.WriteAsync(bytes);
-        await pipe.Writer.CompleteAsync();
-
-        var result = deserializer.DeserializeFromPipe(pipe.Reader);
-        await Assert.That(result).IsEqualTo("hello");
-    }
-
-    [Test]
     public async Task DeserializeFromPipeAsync_ReadsFromPipe()
     {
         var deserializer = new StringDeserializer();

@@ -69,12 +69,29 @@ class Program
         Console.WriteLine($"  Round-trip: {restored?.Lines.FirstOrDefault()?.Product}");
 
         // ═══ 4. NaN / Infinity Handling ═══
-        var nanBuf = new ArrayBufferWriter<byte>(64);
-        var nanWriter = new JsonWriter(nanBuf);
-        nanWriter.WriteNumber(double.NaN);
-        Console.WriteLine(
-            $"\n=== 4. NaN → null: {Encoding.UTF8.GetString(nanBuf.WrittenSpan)} ==="
-        );
+        Console.WriteLine("\n=== 4. NaN / Infinity → throws ===");
+        Console.Write("  NaN: ");
+        try
+        {
+            var nanBuf = new ArrayBufferWriter<byte>(64);
+            var nanWriter = new JsonWriter(nanBuf);
+            nanWriter.WriteNumber(double.NaN);
+        }
+        catch (ArgumentException ex)
+        {
+            Console.WriteLine(ex.Message.Split('.')[0]);
+        }
+        Console.Write("  Infinity: ");
+        try
+        {
+            var infBuf = new ArrayBufferWriter<byte>(64);
+            var infWriter = new JsonWriter(infBuf);
+            infWriter.WriteNumber(double.PositiveInfinity);
+        }
+        catch (ArgumentException ex)
+        {
+            Console.WriteLine(ex.Message.Split('.')[0]);
+        }
 
         // ═══ 5. Error Messages with Line/Column ═══
         Console.WriteLine("\n=== 5. Error Messages ===");
@@ -158,9 +175,9 @@ public class ShortDateConverter : IJsonConverter<DateTime>
         jw.WriteString(Encoding.UTF8.GetBytes(value.ToString("yyyy-MM-dd")));
     }
 
-    public DateTime Read(ReadOnlySpan<byte> data)
+    public DateTime Read(ref JsonReader reader)
     {
-        DateTime.TryParse(Encoding.UTF8.GetString(data), null, out var dt);
+        DateTime.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), null, out var dt);
         return dt;
     }
 }

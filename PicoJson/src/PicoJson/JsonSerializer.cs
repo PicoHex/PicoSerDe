@@ -1,9 +1,17 @@
+using System.Collections.Concurrent;
+
 namespace PicoJson;
 
 public static partial class JsonSerializer
 {
-    public static readonly Dictionary<Type, object> _serializers = new();
-    public static readonly Dictionary<Type, object> _deserializers = new();
+    private static readonly ConcurrentDictionary<Type, object> _serializers = new();
+    private static readonly ConcurrentDictionary<Type, object> _deserializers = new();
+
+    public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
+    {
+        _serializers[typeof(T)] = serializer;
+        _deserializers[typeof(T)] = deserializer;
+    }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
     {
