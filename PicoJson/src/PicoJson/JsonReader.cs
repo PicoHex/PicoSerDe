@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 
 namespace PicoJson;
@@ -555,9 +556,27 @@ public ref struct JsonReader
         return di;
     }
 
+    private static bool ContainsBackslash(ReadOnlySpan<byte> span)
+    {
+        if (Vector128.IsHardwareAccelerated && span.Length >= 16)
+        {
+            var slash = Vector128.Create((byte)'\\');
+            ref var ptr = ref MemoryMarshal.GetReference(span);
+            int i = 0;
+            for (; i + 16 <= span.Length; i += 16)
+            {
+                var chunk = Vector128.LoadUnsafe(ref Unsafe.Add(ref ptr, i));
+                if (Vector128.Equals(chunk, slash) != Vector128<byte>.Zero)
+                    return true;
+            }
+            span = span[i..];
+        }
+        return span.IndexOf((byte)'\\') >= 0;
+    }
+
     private void UnescapeIfNeeded()
     {
-        if (_valueSpan.IndexOf((byte)'\\') >= 0)
+        if (ContainsBackslash(_valueSpan))
         {
             // Design note: the token-layer spec calls for stackalloc on short
             // escaped strings. C# escape analysis prevents assigning stackalloc
