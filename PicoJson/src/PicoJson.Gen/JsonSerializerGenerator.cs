@@ -903,15 +903,30 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
                 sb.Append(indent);
                 sb.AppendLine("{");
-                sb.Append(indent);
-                sb.AppendLine(
-                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-                );
-                sb.Append(indent);
-                sb.AppendLine("    {");
-                EmitDeserializeElementAdd(sb, prop, "__list", indent + "        ", nestLevel);
-                sb.Append(indent);
-                sb.AppendLine("    }");
+
+                if (prop.ElementTypeKind == "int32")
+                {
+                    sb.Append(indent);
+                    sb.AppendLine("    while (reader.TryReadNextInt32(out var __elementValue))");
+                    sb.Append(indent);
+                    sb.AppendLine("    {");
+                    sb.Append(indent);
+                    sb.Append("        __list");
+                    sb.AppendLine(".Add(__elementValue);");
+                    sb.Append(indent);
+                    sb.AppendLine("    }");
+                }
+                else
+                {
+                    sb.Append(indent);
+                    sb.AppendLine("    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)");
+                    sb.Append(indent);
+                    sb.AppendLine("    {");
+                    EmitDeserializeElementAdd(sb, prop, "__list", indent + "        ", nestLevel);
+                    sb.Append(indent);
+                    sb.AppendLine("    }");
+                }
+
                 sb.Append(indent);
                 sb.AppendLine("}");
                 sb.Append(indent);

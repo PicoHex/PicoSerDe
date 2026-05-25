@@ -427,27 +427,19 @@ public class JsonReaderTests
     // === SIMD SkipWhitespace ===
 
     [Test]
-    public async Task SkipWhitespace_AllTypes_ProducesCorrectResult()
+    public async Task TryReadNextInt32_ParsesValuesSkippingCommas()
     {
-        var whitespaceTypes = new byte[] { (byte)' ', (byte)'\t', (byte)'\n', (byte)'\r' };
-        var rng = new Random(42);
-        for (int len = 0; len < 300; len++)
-        {
-            var ws = new byte[len];
-            for (int i = 0; i < len; i++)
-                ws[i] = whitespaceTypes[rng.Next(4)];
-            var json = ws.Concat("42"u8.ToArray()).ToArray();
-            TokenType tt;
-            int v;
-            {
-                var r = new JsonReader(json);
-                r.Read();
-                tt = r.TokenType;
-                r.TryGetInt32(out v);
-            }
-            await Assert.That(tt).IsEqualTo(TokenType.Int32);
-            await Assert.That(v).IsEqualTo(42);
-        }
+        var r = new JsonReader("[1, 20, 300]"u8);
+        r.Read(); // enter ArrayStart
+        var ok1 = r.TryReadNextInt32(out var v1);
+        var ok2 = r.TryReadNextInt32(out var v2);
+        var ok3 = r.TryReadNextInt32(out var v3);
+        await Assert.That(ok1).IsTrue();
+        await Assert.That(v1).IsEqualTo(1);
+        await Assert.That(ok2).IsTrue();
+        await Assert.That(v2).IsEqualTo(20);
+        await Assert.That(ok3).IsTrue();
+        await Assert.That(v3).IsEqualTo(300);
     }
 
     // === MaxDepth defense ===

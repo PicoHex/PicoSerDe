@@ -163,6 +163,13 @@ public ref struct JsonReader
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
+    public bool TryReadNextInt32(out int v)
+    {
+        if (_isSequence)
+            return TryReadNextInt32Seq(out v);
+        return TryReadNextInt32Span(out v);
+    }
+
     public bool TryGetInt64(out long v)
     {
         if (_tokenType is not (TokenType.Int32 or TokenType.Int64))
@@ -192,6 +199,43 @@ public ref struct JsonReader
         }
         v = _valueSpan[0] == (byte)'t';
         return true;
+    }
+
+    private bool TryReadNextInt32Span(out int v)
+    {
+        SkipWhitespaceSpan();
+        if (_position >= _data.Length) { v = 0; return false; }
+        if (_data[_position] == (byte)']' || _data[_position] == (byte)'}') { v = 0; return false; }
+        if (_data[_position] == (byte)',') { _position++; SkipWhitespaceSpan(); }
+        if (_position >= _data.Length) { v = 0; return false; }
+        var start = _position;
+        if (_data[_position] == (byte)'-') _position++;
+        while (_position < _data.Length && IsDigit(_data[_position])) _position++;
+        _valueSpan = _data[start.._position];
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+    }
+
+    private bool TryReadNextInt32Seq(out int v)
+    {
+        SkipWhitespaceSeq();
+        if (_seqReader.End) { v = 0; return false; }
+        if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)',')
+        {
+            _seqReader.Advance(1);
+            SkipWhitespaceSeq();
+        }
+        if (_seqReader.End) { v = 0; return false; }
+        if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'-')
+            _seqReader.Advance(1);
+        var buf = ArrayPool<byte>.Shared.Rent(16);
+        _rentedBuffer = buf;
+        int di = 0;
+        while (!_seqReader.End && IsDigit(_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex]))
+        {
+            buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+            _seqReader.Advance(1);
+        }
+        return Utf8Parser.TryParse(buf.AsSpan(0, di), out v, out _);
     }
 
     // ── Mode-agnostic helpers ──
