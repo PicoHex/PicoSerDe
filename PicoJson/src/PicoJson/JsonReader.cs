@@ -204,14 +204,17 @@ public ref struct JsonReader
 
     private bool TryReadNextInt32Span(out int v)
     {
-        SkipWhitespaceSpan();
+        // Fast scalar comma-skip — avoids SIMD for compact JSON (common case)
         if (_position >= _data.Length) { v = 0; return false; }
-        if (_data[_position] == (byte)']' || _data[_position] == (byte)'}') { v = 0; return false; }
-        if (_data[_position] == (byte)',') { _position++; SkipWhitespaceSpan(); }
+        if (_data[_position] == (byte)',') _position++;
+        // Scalar whitespace check: only call SIMD when whitespace is present
+        if (_position < _data.Length && _data[_position] <= 32) SkipWhitespaceSpan();
         if (_position >= _data.Length) { v = 0; return false; }
+        if (_data[_position] is (byte)']' or (byte)'}') { v = 0; return false; }
         var start = _position;
         if (_data[_position] == (byte)'-') _position++;
         while (_position < _data.Length && IsDigit(_data[_position])) _position++;
+        if (start == _position) { v = 0; return false; }
         _valueSpan = _data[start.._position];
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
