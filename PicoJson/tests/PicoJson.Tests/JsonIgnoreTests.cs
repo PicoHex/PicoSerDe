@@ -32,7 +32,12 @@ public class JsonIgnoreTests
     [Test]
     public async Task JsonIgnore_SkipsProperty_Manual()
     {
-        var m = new IgnoreModel { Name = "Alice", Secret = "secret123", Age = 30 };
+        var m = new IgnoreModel
+        {
+            Name = "Alice",
+            Secret = "secret123",
+            Age = 30
+        };
         var s = new IgnoreModelJsonSerializer();
         var bytes = s.SerializeToBytes(m);
         var json = Encoding.UTF8.GetString(bytes);
@@ -44,7 +49,12 @@ public class JsonIgnoreTests
     [Test]
     public async Task JsonIgnore_SkipsProperty_Generated()
     {
-        var m = new IgnoreModel { Name = "Alice", Secret = "secret123", Age = 30 };
+        var m = new IgnoreModel
+        {
+            Name = "Alice",
+            Secret = "secret123",
+            Age = 30
+        };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(m);
         var json = Encoding.UTF8.GetString(bytes);
         await Assert.That(json).DoesNotContain("Secret");

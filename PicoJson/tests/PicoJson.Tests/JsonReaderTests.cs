@@ -355,16 +355,26 @@ public class JsonReaderTests
     public async Task SequenceReader_ParsesSimpleJson()
     {
         // Wrap in non-async scope to avoid ref struct crossing await boundary
-        TokenType tt1, tt2, tt3, tt4;
-        bool ok1, ok2, ok3, ok4;
+        TokenType tt1,
+            tt2,
+            tt3,
+            tt4;
+        bool ok1,
+            ok2,
+            ok3,
+            ok4;
         {
             var json = "{\"a\":1}"u8.ToArray();
             var seq = new ReadOnlySequence<byte>(json);
             var r = new JsonReader(seq);
-            ok1 = r.Read(); tt1 = r.TokenType;
-            ok2 = r.Read(); tt2 = r.TokenType;
-            ok3 = r.Read(); tt3 = r.TokenType;
-            ok4 = r.Read(); tt4 = r.TokenType;
+            ok1 = r.Read();
+            tt1 = r.TokenType;
+            ok2 = r.Read();
+            tt2 = r.TokenType;
+            ok3 = r.Read();
+            tt3 = r.TokenType;
+            ok4 = r.Read();
+            tt4 = r.TokenType;
         }
         await Assert.That(ok1).IsTrue();
         await Assert.That(tt1).IsEqualTo(TokenType.ObjectStart);
@@ -379,7 +389,8 @@ public class JsonReaderTests
     [Test]
     public async Task SequenceReader_MultiSegment()
     {
-        string rawName, rawValue;
+        string rawName,
+            rawValue;
         {
             var part1 = "{\"nam"u8.ToArray();
             var part2 = "e\":\"alice\"}"u8.ToArray();
@@ -387,7 +398,8 @@ public class JsonReaderTests
             var seg2 = seg1.Append(new ReadOnlyMemory<byte>(part2));
             var seq = new ReadOnlySequence<byte>(seg1, 0, seg2, part2.Length);
             var r = new JsonReader(seq);
-            r.Read(); r.Read();
+            r.Read();
+            r.Read();
             rawName = Encoding.UTF8.GetString(r.GetStringRaw());
             r.Read();
             rawValue = Encoding.UTF8.GetString(r.GetStringRaw());

@@ -46,11 +46,7 @@ public class JsonConverterTests
     [Test]
     public async Task JsonConverter_CustomDateFormat_Manual()
     {
-        var model = new ConverterModel
-        {
-            Name = "Event",
-            Date = new DateTime(2024, 6, 15)
-        };
+        var model = new ConverterModel { Name = "Event", Date = new DateTime(2024, 6, 15) };
         var s = new ConverterModelJsonSerializer();
         var bytes = s.SerializeToBytes(model);
         var json = Encoding.UTF8.GetString(bytes);
@@ -60,11 +56,7 @@ public class JsonConverterTests
     [Test]
     public async Task JsonConverter_CustomDateFormat_Generated()
     {
-        var model = new ConverterModel
-        {
-            Name = "Event",
-            Date = new DateTime(2024, 6, 15)
-        };
+        var model = new ConverterModel { Name = "Event", Date = new DateTime(2024, 6, 15) };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var json = Encoding.UTF8.GetString(bytes);
         await Assert.That(json).Contains("\"2024-06-15\"");
