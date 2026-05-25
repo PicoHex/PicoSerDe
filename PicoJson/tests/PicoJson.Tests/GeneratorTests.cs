@@ -56,6 +56,12 @@ public class NestedOrder
     public List<string> Tags { get; set; } = new();
 }
 
+public class CaseModel
+{
+    public string Title { get; set; } = "";
+    public double Price { get; set; }
+}
+
 public class GeneratorTests
 {
     public class Product
@@ -853,5 +859,16 @@ public class GeneratorTests
         await Assert.That(result.Customer?.Name).IsEqualTo("Alice");
         await Assert.That(result.Customer?.Address?.Street).IsEqualTo("123 Main");
         await Assert.That(result.Tags[0]).IsEqualTo("vip");
+    }
+
+    // === P1-5: Case-Insensitive Deserialization ===
+
+    [Test]
+    public async Task CaseInsensitive_Deserialization_Generated()
+    {
+        var json = "{\"title\":\"Widget\",\"PRICE\":30.5}"u8;
+        var result = JsonSerializer.Deserialize<CaseModel>(json);
+        await Assert.That(result!.Title).IsEqualTo("Widget");
+        await Assert.That(result.Price).IsEqualTo(30.5);
     }
 }

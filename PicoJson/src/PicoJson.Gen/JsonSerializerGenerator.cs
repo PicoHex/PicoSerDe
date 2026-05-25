@@ -903,18 +903,18 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            {");
         sb.AppendLine("                var p = reader.GetStringRaw();");
         sb.AppendLine("                reader.Read();");
+        sb.AppendLine("                var __pn = Encoding.UTF8.GetString(p);");
 
         for (var i = 0; i < type.Properties.Length; i++)
         {
             var prop = type.Properties[i];
             var keyword = i == 0 ? "if" : "else if";
-            var u8Name = $"\"{prop.JsonName}\"u8";
 
             sb.Append("                ");
             sb.Append(keyword);
-            sb.Append(" (p.SequenceEqual(");
-            sb.Append(u8Name);
-            sb.AppendLine("))");
+            sb.Append(" (__pn.Equals(\"");
+            sb.Append(prop.JsonName);
+            sb.AppendLine("\", StringComparison.OrdinalIgnoreCase))");
 
             if (prop.IsNullable)
             {
@@ -1219,11 +1219,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var keyword = i == 0 ? "if" : "else if";
             sb.Append(indent);
             sb.Append(keyword);
-            sb.Append(" (");
+            sb.Append(" (Encoding.UTF8.GetString(");
             sb.Append(propVar);
-            sb.Append(".SequenceEqual(\"");
+            sb.Append(").Equals(\"");
             sb.Append(np.JsonName);
-            sb.AppendLine("\"u8))");
+            sb.AppendLine("\", StringComparison.OrdinalIgnoreCase))");
 
             if (np.IsNullable && np.TypeKind != "object")
             {
