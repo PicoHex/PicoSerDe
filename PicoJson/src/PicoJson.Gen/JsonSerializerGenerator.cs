@@ -3,7 +3,7 @@ namespace PicoJson.Gen;
 [Generator(LanguageNames.CSharp)]
 public sealed class JsonSerializerGenerator : IIncrementalGenerator
 {
-    private const int DefaultListCapacity = 16;
+    private const int DefaultListCapacity = 128;
     private const int DefaultDictionaryCapacity = 4;
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -962,17 +962,18 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("{");
 
-                if (prop.ElementTypeKind == "int32")
+                if (prop.ElementTypeKind is "int32" or "int64" or "float64" or "string")
                 {
                     sb.Append(indent);
-                    sb.AppendLine("    while (reader.TryReadNextInt32(out var __elementValue))");
-                    sb.Append(indent);
-                    sb.AppendLine("    {");
-                    sb.Append(indent);
-                    sb.Append("        __list");
-                    sb.AppendLine(".Add(__elementValue);");
-                    sb.Append(indent);
-                    sb.AppendLine("    }");
+                    sb.Append("    reader.");
+                    sb.Append(prop.ElementTypeKind switch
+                    {
+                        "int32" => "ReadInt32Array",
+                        "int64" => "ReadInt64Array",
+                        "float64" => "ReadFloat64Array",
+                        _ => "ReadStringArray",
+                    });
+                    sb.AppendLine("(__list);");
                 }
                 else
                 {
@@ -1007,6 +1008,23 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(">(");
                 sb.Append(DefaultDictionaryCapacity);
                 sb.AppendLine(");");
+                if (prop.KeyTypeKind == "string" && prop.ElementTypeKind == "string")
+                {
+                    sb.Append(indent);
+                    sb.AppendLine("if (reader.TokenType == TokenType.ObjectStart)");
+                    sb.Append(indent);
+                    sb.AppendLine("{");
+                    sb.Append(indent);
+                    sb.AppendLine("    reader.ReadStringStringDictionary(__dict);");
+                    sb.Append(indent);
+                    sb.AppendLine("}");
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.Append(".");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(" = __dict;");
+                    break;
+                }
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ObjectStart)");
                 sb.Append(indent);
