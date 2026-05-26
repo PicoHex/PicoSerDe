@@ -442,6 +442,24 @@ public class JsonReaderTests
         await Assert.That(v3).IsEqualTo(300);
     }
 
+    [Test]
+    public async Task TryReadNextInt32_CompactArray()
+    {
+        int v1, v2, v3;
+        bool ok1, ok2, ok3;
+        {
+            var r = new JsonReader("[100,200,300]"u8);
+            r.Read();
+            ok1 = r.TryReadNextInt32(out v1);
+            ok2 = r.TryReadNextInt32(out v2);
+            ok3 = r.TryReadNextInt32(out v3);
+        }
+        await Assert.That(ok1).IsTrue();
+        await Assert.That(v1).IsEqualTo(100);
+        await Assert.That(v2).IsEqualTo(200);
+        await Assert.That(v3).IsEqualTo(300);
+    }
+
     // === MaxDepth defense ===
 
     [Test]

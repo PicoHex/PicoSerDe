@@ -55,6 +55,14 @@ public ref struct JsonReader
 
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
 
+    /// <summary>Direct buffer access for optimized generated code (span mode only).</summary>
+    public ReadOnlySpan<byte> RawBuffer => _isSequence ? default : _data;
+
+    /// <summary>Direct position access for optimized generated code (span mode only).</summary>
+    public int RawPos => _isSequence ? -1 : _position;
+
+    public void SetRawPos(int pos) { _position = pos; }
+
     public bool Read()
     {
         SkipWhitespace();
@@ -204,16 +212,24 @@ public ref struct JsonReader
 
     private bool TryReadNextInt32Span(out int v)
     {
-        SkipWhitespaceSpan();
-        if (_position >= _data.Length) { v = 0; return false; }
-        if (_data[_position] == (byte)']' || _data[_position] == (byte)'}') { v = 0; return false; }
-        if (_data[_position] == (byte)',') { _position++; SkipWhitespaceSpan(); }
-        if (_position >= _data.Length) { v = 0; return false; }
-        var start = _position;
-        if (_data[_position] == (byte)'-') _position++;
-        while (_position < _data.Length && IsDigit(_data[_position])) _position++;
-        _valueSpan = _data[start.._position];
-        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+        var len = _data.Length;
+        if (_position >= len) { v = 0; return false; }
+        if (_data[_position] == (byte)',') _position++;
+        if (_position < len && _data[_position] <= 32) SkipWhitespaceSpan();
+        if (_position >= len || _data[_position] is (byte)']' or (byte)'}') { v = 0; return false; }
+
+        bool neg = false;
+        if (_data[_position] == (byte)'-') { neg = true; _position++; }
+        if (_position >= len || !IsDigit(_data[_position])) { v = 0; return false; }
+
+        int result = 0;
+        do
+        {
+            result = result * 10 + (_data[_position] - (byte)'0');
+            _position++;
+        } while (_position < len && IsDigit(_data[_position]));
+        v = neg ? -result : result;
+        return true;
     }
 
     private bool TryReadNextInt32Seq(out int v)
