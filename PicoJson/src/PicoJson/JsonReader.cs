@@ -206,75 +206,26 @@ public ref struct JsonReader
     {
         SkipWhitespaceSpan();
         if (_position >= _data.Length) { v = 0; return false; }
-        if (_data[_position] == (byte)']')
-        {
-            _tokenType = TokenType.ArrayEnd;
-            _position++;
-            _depth--;
-            v = 0;
-            return false;
-        }
-        if (_data[_position] == (byte)'}') { v = 0; return false; }
+        if (_data[_position] == (byte)']' || _data[_position] == (byte)'}') { v = 0; return false; }
         if (_data[_position] == (byte)',') { _position++; SkipWhitespaceSpan(); }
         if (_position >= _data.Length) { v = 0; return false; }
         var start = _position;
-        var negative = false;
-        if (_data[_position] == (byte)'-')
-        {
-            negative = true;
-            _position++;
-        }
-        if (_position >= _data.Length || !IsDigit(_data[_position]))
-        {
-            v = 0;
-            return false;
-        }
-        var limit = negative ? 2147483648u : 2147483647u;
-        uint acc = 0;
-        var overflow = false;
-        while (_position < _data.Length && IsDigit(_data[_position]))
-        {
-            var digit = (uint)(_data[_position] - (byte)'0');
-            if (acc > (limit - digit) / 10)
-                overflow = true;
-            else
-                acc = acc * 10 + digit;
-            _position++;
-        }
+        if (_data[_position] == (byte)'-') _position++;
+        while (_position < _data.Length && IsDigit(_data[_position])) _position++;
         _valueSpan = _data[start.._position];
-        _tokenType = TokenType.Int32;
-        if (overflow)
-            return Utf8Parser.TryParse(_valueSpan, out v, out _);
-        v = negative ? (acc == 2147483648u ? int.MinValue : -(int)acc) : (int)acc;
-        return true;
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
     private bool TryReadNextInt32Seq(out int v)
     {
         SkipWhitespaceSeq();
         if (_seqReader.End) { v = 0; return false; }
-        if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)']')
-        {
-            _tokenType = TokenType.ArrayEnd;
-            _seqReader.Advance(1);
-            _depth--;
-            v = 0;
-            return false;
-        }
         if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)',')
         {
             _seqReader.Advance(1);
             SkipWhitespaceSeq();
         }
         if (_seqReader.End) { v = 0; return false; }
-        if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)']')
-        {
-            _tokenType = TokenType.ArrayEnd;
-            _seqReader.Advance(1);
-            _depth--;
-            v = 0;
-            return false;
-        }
         if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'-')
             _seqReader.Advance(1);
         var buf = ArrayPool<byte>.Shared.Rent(16);
@@ -313,12 +264,6 @@ public ref struct JsonReader
 
     private void SkipWhitespaceSpan()
     {
-        if (
-            _position >= _data.Length
-            || _data[_position] is not ((byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r')
-        )
-            return;
-
         // SIMD: process 16 bytes at a time
         if (Vector128.IsHardwareAccelerated)
         {
