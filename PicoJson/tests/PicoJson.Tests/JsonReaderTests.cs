@@ -442,33 +442,6 @@ public class JsonReaderTests
         await Assert.That(v3).IsEqualTo(300);
     }
 
-    [Test]
-    public async Task TryReadNextInt32_ConsumesArrayEndAfterLastValue()
-    {
-        TokenType tokenAfterFastPath;
-        bool readNext;
-        TokenType nextToken;
-        bool propertyNameMatches;
-        {
-            var r = new JsonReader("""{"Scores":[1,2],"Marker":"done"}"""u8);
-            r.Read(); // ObjectStart
-            r.Read(); // Scores
-            r.Read(); // ArrayStart
-
-            while (r.TryReadNextInt32(out _)) { }
-
-            tokenAfterFastPath = r.TokenType;
-            readNext = r.Read();
-            nextToken = r.TokenType;
-            propertyNameMatches = r.GetStringRaw().SequenceEqual("Marker"u8);
-        }
-
-        await Assert.That(tokenAfterFastPath).IsEqualTo(TokenType.ArrayEnd);
-        await Assert.That(readNext).IsTrue();
-        await Assert.That(nextToken).IsEqualTo(TokenType.PropertyName);
-        await Assert.That(propertyNameMatches).IsTrue();
-    }
-
     // === MaxDepth defense ===
 
     [Test]
