@@ -25,6 +25,12 @@ public class ListModel
     public int[] Scores { get; set; } = [];
 }
 
+public class IntArrayThenTailModel
+{
+    public int[] Scores { get; set; } = [];
+    public string Marker { get; set; } = "";
+}
+
 public class DictionaryModel
 {
     public Dictionary<string, int> Counts { get; set; } = new();
@@ -493,6 +499,15 @@ public class GeneratorTests
         var result = JsonSerializer.Deserialize<ListModel>(bytes);
         await Assert.That(result!.Tags).IsEquivalentTo(["dev", "runner"]);
         await Assert.That(result.Scores).IsEquivalentTo([10, 20, 30]);
+    }
+
+    [Test]
+    public async Task IntArrayFastPath_ContinuesParsingFollowingProperty_Generated()
+    {
+        var json = """{"Scores":[10,20,30],"Marker":"done"}"""u8;
+        var result = JsonSerializer.Deserialize<IntArrayThenTailModel>(json);
+        await Assert.That(result!.Scores).IsEquivalentTo([10, 20, 30]);
+        await Assert.That(result.Marker).IsEqualTo("done");
     }
 
     // ---------- DictionaryModel manual structs ----------
