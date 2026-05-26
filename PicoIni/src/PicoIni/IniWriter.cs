@@ -99,6 +99,14 @@ public ref struct IniWriter
         WriteNewLine();
     }
 
+    public void WriteKeyValue(string key, ReadOnlySpan<byte> utf8Value)
+    {
+        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = "u8);
+        WriteValue(utf8Value);
+        WriteNewLine();
+    }
+
     public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, ReadOnlySpan<byte> utf8Value)
     {
         WriteKey(utf8Key);

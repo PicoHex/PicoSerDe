@@ -69,6 +69,9 @@ public ref struct IniReader
         return true;
     }
 
+    public bool SectionNameEquals(string name) =>
+        SectionNameEquals(Encoding.UTF8.GetBytes(name));
+
     public bool TryGetInt32(out int v)
     {
         if (_tokenType != IniTokenType.Key) { v = 0; return false; }
