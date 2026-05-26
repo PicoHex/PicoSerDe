@@ -975,7 +975,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(prop.Name);
                     sb.AppendLine(" ??= new System.Collections.Generic.List<");
                     sb.Append(prop.ElementTypeName);
-                    sb.AppendLine(">();");
+                    sb.AppendLine(">(16);");
                 }
                 else
                 {

@@ -204,19 +204,24 @@ public ref struct JsonReader
 
     private bool TryReadNextInt32Span(out int v)
     {
-        // Fast scalar comma-skip — avoids SIMD for compact JSON (common case)
-        if (_position >= _data.Length) { v = 0; return false; }
+        var len = _data.Length;
+        if (_position >= len) { v = 0; return false; }
         if (_data[_position] == (byte)',') _position++;
-        // Scalar whitespace check: only call SIMD when whitespace is present
-        if (_position < _data.Length && _data[_position] <= 32) SkipWhitespaceSpan();
-        if (_position >= _data.Length) { v = 0; return false; }
-        if (_data[_position] is (byte)']' or (byte)'}') { v = 0; return false; }
-        var start = _position;
-        if (_data[_position] == (byte)'-') _position++;
-        while (_position < _data.Length && IsDigit(_data[_position])) _position++;
-        if (start == _position) { v = 0; return false; }
-        _valueSpan = _data[start.._position];
-        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+        if (_position < len && _data[_position] <= 32) SkipWhitespaceSpan();
+        if (_position >= len || _data[_position] is (byte)']' or (byte)'}') { v = 0; return false; }
+
+        bool neg = false;
+        if (_data[_position] == (byte)'-') { neg = true; _position++; }
+        if (_position >= len || !IsDigit(_data[_position])) { v = 0; return false; }
+
+        int result = 0;
+        do
+        {
+            result = result * 10 + (_data[_position] - (byte)'0');
+            _position++;
+        } while (_position < len && IsDigit(_data[_position]));
+        v = neg ? -result : result;
+        return true;
     }
 
     private bool TryReadNextInt32Seq(out int v)
