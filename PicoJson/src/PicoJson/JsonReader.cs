@@ -7,8 +7,8 @@ namespace PicoJson;
 
 public ref struct JsonReader
 {
-    private const uint Int32MaxValueAsUInt = int.MaxValue;
-    private const uint Int32MinMagnitudeAsUInt = Int32MaxValueAsUInt + 1u;
+    private const uint MaxPositiveInt32Magnitude = int.MaxValue;
+    private const uint MaxNegativeInt32Magnitude = MaxPositiveInt32Magnitude + 1u;
 
     // Span mode fields
     private ReadOnlySpan<byte> _data;
@@ -247,29 +247,23 @@ public ref struct JsonReader
             v = 0;
             return false;
         }
-        var limit = negative ? Int32MinMagnitudeAsUInt : Int32MaxValueAsUInt;
+        var limit = negative ? MaxNegativeInt32Magnitude : MaxPositiveInt32Magnitude;
         uint acc = 0;
         var overflow = false;
         while (_position < _data.Length && IsDigit(_data[_position]))
         {
             var digit = (uint)(_data[_position] - (byte)'0');
-            if (!overflow)
-            {
-                if (acc > (limit - digit) / 10)
-                    overflow = true;
-                else
-                    acc = acc * 10 + digit;
-            }
+            if (acc > (limit - digit) / 10)
+                overflow = true;
+            else
+                acc = acc * 10 + digit;
             _position++;
         }
         _valueSpan = _data[start.._position];
         _tokenType = TokenType.Int32;
         if (overflow)
             return Utf8Parser.TryParse(_valueSpan, out v, out _);
-        if (negative)
-            v = acc == Int32MinMagnitudeAsUInt ? int.MinValue : -(int)acc;
-        else
-            v = (int)acc;
+        v = negative ? (acc == MaxNegativeInt32Magnitude ? int.MinValue : -(int)acc) : (int)acc;
         return true;
     }
 

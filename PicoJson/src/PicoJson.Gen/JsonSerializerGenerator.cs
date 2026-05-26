@@ -3,9 +3,6 @@ namespace PicoJson.Gen;
 [Generator(LanguageNames.CSharp)]
 public sealed class JsonSerializerGenerator : IIncrementalGenerator
 {
-    private const int DefaultListCapacity = 16;
-    private const int DefaultDictionaryCapacity = 4;
-
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var typeProviders = context
@@ -954,9 +951,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.Append("var __list = new System.Collections.Generic.List<");
                 sb.Append(prop.ElementTypeName);
-                sb.Append(">(");
-                sb.Append(DefaultListCapacity);
-                sb.AppendLine(");");
+                sb.AppendLine(">(16);");
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
                 sb.Append(indent);
@@ -1004,9 +999,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(prop.KeyTypeName);
                 sb.Append(", ");
                 sb.Append(prop.ElementTypeName);
-                sb.Append(">(");
-                sb.Append(DefaultDictionaryCapacity);
-                sb.AppendLine(");");
+                sb.AppendLine(">(4);");
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ObjectStart)");
                 sb.Append(indent);
