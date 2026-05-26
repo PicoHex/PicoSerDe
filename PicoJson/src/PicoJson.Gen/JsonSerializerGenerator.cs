@@ -367,12 +367,31 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
 
         sb.AppendLine();
+        EmitHelpers(sb);
         EmitSerializer(sb, type);
         sb.AppendLine();
         EmitDeserializer(sb, type);
         sb.AppendLine();
         EmitRegistration(sb, type);
         return sb.ToString();
+    }
+
+    private static void EmitHelpers(StringBuilder sb)
+    {
+        sb.AppendLine("file static class __PicoJsonHelp");
+        sb.AppendLine("{");
+        sb.AppendLine("    internal static bool Eq(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (a.Length != b.Length) return false;");
+        sb.AppendLine("        for (int i = 0; i < a.Length; i++)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            byte x = a[i], y = b[i];");
+        sb.AppendLine("            if (x != y && (x | 0x20) != (y | 0x20)) return false;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        return true;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        sb.AppendLine();
     }
 
     // ── Serializer emission ──
@@ -713,7 +732,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            {");
         sb.AppendLine("                var propNameSpan = reader.GetStringRaw();");
         sb.AppendLine("                reader.Read();");
-        sb.AppendLine("                var __propName = Encoding.UTF8.GetString(propNameSpan);");
         sb.AppendLine();
 
         for (var i = 0; i < type.Properties.Length; i++)
@@ -722,9 +740,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var keyword = i == 0 ? "if" : "else if";
             sb.Append("                ");
             sb.Append(keyword);
-            sb.Append(" (__propName.Equals(\"");
+            sb.Append(" (__PicoJsonHelp.Eq(propNameSpan, \"");
             sb.Append(prop.JsonName);
-            sb.AppendLine("\", StringComparison.OrdinalIgnoreCase))");
+            sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
             EmitDeserializeProperty(sb, prop, "obj", "                    ");
             sb.AppendLine("                }");
@@ -949,14 +967,31 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
-                sb.Append(indent);
-                sb.Append("var __list = new System.Collections.Generic.List<");
-                sb.Append(prop.ElementTypeName);
-                sb.AppendLine(">();");
+                if (prop.TypeKind == "list")
+                {
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.Append(".");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(" ??= new System.Collections.Generic.List<");
+                    sb.Append(prop.ElementTypeName);
+                    sb.AppendLine(">();");
+                }
+                else
+                {
+                    sb.Append(indent);
+                    sb.Append("var __list_");
+                    sb.Append(prop.Name);
+                    sb.Append(" = new System.Collections.Generic.List<");
+                    sb.Append(prop.ElementTypeName);
+                    sb.AppendLine(">();");
+                }
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
                 sb.Append(indent);
                 sb.AppendLine("{");
+
+                var listAcc = prop.TypeKind == "list" ? $"{target}.{prop.Name}" : $"__list_{prop.Name}";
 
                 if (prop.ElementTypeKind == "int32")
                 {
@@ -965,7 +1000,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(indent);
                     sb.AppendLine("    {");
                     sb.Append(indent);
-                    sb.Append("        __list");
+                    sb.Append("        ");
+                    sb.Append(listAcc);
                     sb.AppendLine(".Add(__elementValue);");
                     sb.Append(indent);
                     sb.AppendLine("    }");
@@ -976,27 +1012,30 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.AppendLine("    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)");
                     sb.Append(indent);
                     sb.AppendLine("    {");
-                    EmitDeserializeElementAdd(sb, prop, "__list", indent + "        ", nestLevel);
+                    EmitDeserializeElementAdd(sb, prop, listAcc, indent + "        ", nestLevel);
                     sb.Append(indent);
                     sb.AppendLine("    }");
                 }
 
                 sb.Append(indent);
                 sb.AppendLine("}");
+                if (prop.TypeKind == "array")
+                {
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.Append(".");
+                    sb.Append(prop.Name);
+                    sb.Append(" = __list_");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(".ToArray();");
+                }
+                break;
+            case "dict":
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
                 sb.Append(prop.Name);
-                sb.Append(" = ");
-                if (prop.TypeKind == "array")
-                    sb.Append("__list.ToArray()");
-                else
-                    sb.Append("__list");
-                sb.AppendLine(";");
-                break;
-            case "dict":
-                sb.Append(indent);
-                sb.Append("var __dict = new System.Collections.Generic.Dictionary<");
+                sb.AppendLine(" ??= new System.Collections.Generic.Dictionary<");
                 sb.Append(prop.KeyTypeName);
                 sb.Append(", ");
                 sb.Append(prop.ElementTypeName);
@@ -1006,18 +1045,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("{");
                 sb.Append(indent);
-                sb.AppendLine(
-                    "    while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
-                );
+                sb.AppendLine("    while (reader.Read() && reader.TokenType == TokenType.PropertyName)");
                 sb.Append(indent);
                 sb.AppendLine("    {");
-                EmitDeserializeDictKey(sb, prop, "__dict", indent + "        ");
+                var dictAcc = $"{target}.{prop.Name}";
+                EmitDeserializeDictKey(sb, prop, dictAcc, indent + "        ");
                 sb.Append(indent);
                 sb.AppendLine("        reader.Read();");
                 EmitDeserializeElementAssign(
                     sb,
                     prop,
-                    "__dict",
+                    dictAcc,
                     "__dictKey",
                     indent + "        ",
                     nestLevel
@@ -1026,11 +1064,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("    }");
                 sb.Append(indent);
                 sb.AppendLine("}");
-                sb.Append(indent);
-                sb.Append(target);
-                sb.Append(".");
-                sb.Append(prop.Name);
-                sb.AppendLine(" = __dict;");
                 break;
             case "object":
                 sb.Append(indent);
@@ -1104,11 +1137,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var keyword = i == 0 ? "if" : "else if";
             sb.Append(indent);
             sb.Append(keyword);
-            sb.Append(" (Encoding.UTF8.GetString(");
-            sb.Append(propVarName);
-            sb.Append(").Equals(\"");
+            sb.Append(" (__PicoJsonHelp.Eq(");
+            sb.Append(propVarName); sb.Append(", \"");
             sb.Append(np.JsonName);
-            sb.AppendLine("\", StringComparison.OrdinalIgnoreCase))");
+            sb.AppendLine("\"u8))");
             sb.Append(indent);
             sb.AppendLine("{");
             EmitDeserializeProperty(sb, np, target, indent + "    ", nestLevel);
