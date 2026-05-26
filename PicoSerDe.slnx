@@ -6,4 +6,9 @@
   <Project Path="PicoJson\tests\PicoJson.Tests\PicoJson.Tests.csproj" />
   <Project Path="PicoJson\samples\PicoJson.Sample\PicoJson.Sample.csproj" />
   <Project Path="PicoJson\benchmarks\PicoJson.Benchmarks\PicoJson.Benchmarks.csproj" />
+  <Project Path="PicoIni\src\PicoIni\PicoIni.csproj" />
+  <Project Path="PicoIni\src\PicoIni.Gen\PicoIni.Gen.csproj" />
+  <Project Path="PicoIni\tests\PicoIni.Tests\PicoIni.Tests.csproj" />
+  <Project Path="PicoIni\benchmarks\PicoIni.Benchmarks\PicoIni.Benchmarks.csproj" />
+  <Project Path="PicoIni\samples\PicoIni.Sample\PicoIni.Sample.csproj" />
 </Solution>

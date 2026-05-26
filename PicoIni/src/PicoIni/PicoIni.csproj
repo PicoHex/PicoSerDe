@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>PicoIni</PackageId>
+    <Description>PicoIni — high-performance, AOT-first INI serializer with zero-reflection source generation for the PicoHex ecosystem</Description>
+    <PackageTags>PicoHex;INI;AOT;Serialization;Configuration</PackageTags>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\PicoSerDe.Abs\src\PicoSerDe.Abs.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PicoIni.Tests" />
+  </ItemGroup>
+
+</Project>
