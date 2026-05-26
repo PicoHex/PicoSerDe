@@ -995,16 +995,45 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
                 if (prop.ElementTypeKind == "int32")
                 {
+                    // Inline loop: directly access raw buffer, skip all Reader overhead
                     sb.Append(indent);
-                    sb.AppendLine("    while (reader.TryReadNextInt32(out var __elementValue))");
+                    sb.AppendLine("    var __d = reader.RawBuffer;");
+                    sb.Append(indent);
+                    sb.AppendLine("    var __p = reader.RawPos;");
+                    sb.Append(indent);
+                    sb.AppendLine("    var __e = __d.Length;");
+                    sb.Append(indent);
+                    sb.AppendLine("    while (__p < __e)");
                     sb.Append(indent);
                     sb.AppendLine("    {");
                     sb.Append(indent);
+                    sb.AppendLine("        byte __b = __d[__p];");
+                    sb.Append(indent);
+                    sb.AppendLine("        if (__b <= 32) { __p++; continue; }");
+                    sb.Append(indent);
+                    sb.AppendLine("        if (__b == (byte)']') { __p++; break; }");
+                    sb.Append(indent);
+                    sb.AppendLine("        if (__b == (byte)',') { __p++; continue; }");
+                    sb.Append(indent);
+                    sb.AppendLine("        bool __neg = false;");
+                    sb.Append(indent);
+                    sb.AppendLine("        if (__b == (byte)'-') { __neg = true; __p++; __b = __d[__p]; }");
+                    sb.Append(indent);
+                    sb.AppendLine("        if (__b < (byte)'0' || __b > (byte)'9') { __p++; continue; }");
+                    sb.Append(indent);
+                    sb.AppendLine("        int __v = 0;");
+                    sb.Append(indent);
+                    sb.AppendLine("        do { __v = __v * 10 + (__b - (byte)'0'); __p++; if (__p >= __e) break; __b = __d[__p]; } while (__b >= (byte)'0' && __b <= (byte)'9');");
+                    sb.Append(indent);
+                    sb.AppendLine("        if (__neg) __v = -__v;");
+                    sb.Append(indent);
                     sb.Append("        ");
                     sb.Append(listAcc);
-                    sb.AppendLine(".Add(__elementValue);");
+                    sb.AppendLine(".Add(__v);");
                     sb.Append(indent);
                     sb.AppendLine("    }");
+                    sb.Append(indent);
+                    sb.AppendLine("    reader.SetRawPos(__p);");
                 }
                 else
                 {
