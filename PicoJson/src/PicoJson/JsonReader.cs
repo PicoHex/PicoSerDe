@@ -198,7 +198,8 @@ public ref struct JsonReader
             return;
         }
 
-        ReadInt32ArraySpan(values);
+        while (TryReadNextInt32Span(out var value))
+            values.Add(value);
     }
 
     public void ReadInt64Array(System.Collections.Generic.List<long> values)
@@ -347,145 +348,6 @@ public ref struct JsonReader
         return true;
     }
 
-    private void ReadInt32ArraySpan(System.Collections.Generic.List<int> values)
-    {
-        var count = CountPrimitiveArrayElementsSpan();
-        if (count > 0)
-        {
-            var startIndex = values.Count;
-            values.EnsureCapacity(startIndex + count);
-            CollectionsMarshal.SetCount(values, startIndex + count);
-            var target = CollectionsMarshal.AsSpan(values).Slice(startIndex, count);
-            var index = 0;
-            while (ReadNextInt32Span(out var value))
-                target[index++] = value;
-            return;
-        }
-
-        while (true)
-        {
-            SkipWhitespaceSpan();
-            if (_position >= _data.Length)
-                return;
-
-            var b = _data[_position];
-            if (b == (byte)']')
-            {
-                _tokenType = TokenType.ArrayEnd;
-                _position++;
-                _depth--;
-                return;
-            }
-
-            if (b == (byte)',')
-            {
-                _position++;
-                SkipWhitespaceSpan();
-            }
-
-            var start = _position;
-            var negative = false;
-            if (_position < _data.Length && _data[_position] == (byte)'-')
-            {
-                negative = true;
-                _position++;
-            }
-
-            var limit = negative ? Int32MinMagnitudeAsUInt : Int32MaxValueAsUInt;
-            uint acc = 0;
-            var overflow = false;
-            while (_position < _data.Length && IsDigit(_data[_position]))
-            {
-                var digit = (uint)(_data[_position] - (byte)'0');
-                if (!overflow)
-                {
-                    if (acc > (limit - digit) / 10)
-                        overflow = true;
-                    else
-                        acc = acc * 10 + digit;
-                }
-                _position++;
-            }
-
-            if (overflow)
-            {
-                Utf8Parser.TryParse(_data[start.._position], out int parsed, out _);
-                values.Add(parsed);
-            }
-            else if (negative)
-            {
-                values.Add(acc == Int32MinMagnitudeAsUInt ? int.MinValue : -(int)acc);
-            }
-            else
-            {
-                values.Add((int)acc);
-            }
-        }
-    }
-
-    private bool ReadNextInt32Span(out int value)
-    {
-        SkipWhitespaceSpan();
-        if (_position >= _data.Length)
-        {
-            value = 0;
-            return false;
-        }
-
-        var b = _data[_position];
-        if (b == (byte)']')
-        {
-            _tokenType = TokenType.ArrayEnd;
-            _position++;
-            _depth--;
-            value = 0;
-            return false;
-        }
-
-        if (b == (byte)',')
-        {
-            _position++;
-            SkipWhitespaceSpan();
-        }
-
-        var negative = false;
-        if (_data[_position] == (byte)'-')
-        {
-            negative = true;
-            _position++;
-        }
-
-        uint acc = 0;
-        while (_position < _data.Length && IsDigit(_data[_position]))
-        {
-            acc = acc * 10 + (uint)(_data[_position] - (byte)'0');
-            _position++;
-        }
-
-        value = negative ? -(int)acc : (int)acc;
-        return true;
-    }
-
-    private int CountPrimitiveArrayElementsSpan()
-    {
-        var pos = _position;
-        while (pos < _data.Length && _data[pos] is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r')
-            pos++;
-        if (pos >= _data.Length || _data[pos] == (byte)']')
-            return 0;
-
-        var count = 1;
-        while (pos < _data.Length)
-        {
-            var b = _data[pos++];
-            if (b == (byte)',')
-                count++;
-            else if (b == (byte)']')
-                break;
-        }
-        return count;
-    }
-
     private bool TryReadNextNumberSpan(out ReadOnlySpan<byte> raw)
     {
         SkipWhitespaceSpan();
@@ -559,7 +421,8 @@ public ref struct JsonReader
                 SkipWhitespaceSpan();
             }
 
-            var key = ReadPropertyNameAsStringSpan();
+            ReadStringOrPropertySpan();
+            var key = Encoding.UTF8.GetString(GetStringRaw());
 
             SkipWhitespaceSpan();
             if (_position < _data.Length && _data[_position] == (byte)'n')
@@ -569,52 +432,10 @@ public ref struct JsonReader
             }
             else
             {
-                values[key] = ReadStringValueAsStringSpan();
+                ReadStringOrPropertySpan();
+                values[key] = Encoding.UTF8.GetString(GetStringRaw());
             }
         }
-    }
-
-    private string ReadPropertyNameAsStringSpan()
-    {
-        var value = ReadStringValueAsStringSpan();
-        SkipWhitespaceSpan();
-        if (_position < _data.Length && _data[_position] == (byte)':')
-        {
-            _tokenType = TokenType.PropertyName;
-            _position++;
-        }
-        return value;
-    }
-
-    private string ReadStringValueAsStringSpan()
-    {
-        _position++;
-        var start = _position;
-        var hasEscape = false;
-        while (_position < _data.Length)
-        {
-            var b = _data[_position];
-            if (b == (byte)'"')
-                break;
-            if (b == (byte)'\\' && _position + 1 < _data.Length)
-            {
-                hasEscape = true;
-                _position++;
-            }
-            _position++;
-        }
-        if (_position >= _data.Length)
-            throw new FormatException($"Unterminated string at offset {_position}");
-
-        var raw = _data[start.._position];
-        _position++;
-        _tokenType = TokenType.String;
-        if (!hasEscape)
-            return Encoding.UTF8.GetString(raw);
-
-        _valueSpan = raw;
-        UnescapeIfNeeded();
-        return Encoding.UTF8.GetString(_valueSpan);
     }
 
     private bool TryReadNextInt32Seq(out int v)
