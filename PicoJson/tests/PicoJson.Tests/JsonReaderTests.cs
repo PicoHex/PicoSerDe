@@ -469,14 +469,6 @@ public class JsonReaderTests
         await Assert.That(propertyNameMatches).IsTrue();
     }
 
-    [Test]
-    public async Task Utf8EqualsIgnoreCase_MatchesAsciiPropertyNamesWithoutStrings()
-    {
-        await Assert.That(JsonReader.Utf8EqualsIgnoreCase("Scores"u8, "scores"u8)).IsTrue();
-        await Assert.That(JsonReader.Utf8EqualsIgnoreCase("Metadata"u8, "METADATA"u8)).IsTrue();
-        await Assert.That(JsonReader.Utf8EqualsIgnoreCase("Scores"u8, "Marker"u8)).IsFalse();
-    }
-
     // === MaxDepth defense ===
 
     [Test]

@@ -713,6 +713,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            {");
         sb.AppendLine("                var propNameSpan = reader.GetStringRaw();");
         sb.AppendLine("                reader.Read();");
+        sb.AppendLine("                var __propName = Encoding.UTF8.GetString(propNameSpan);");
         sb.AppendLine();
 
         for (var i = 0; i < type.Properties.Length; i++)
@@ -721,9 +722,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var keyword = i == 0 ? "if" : "else if";
             sb.Append("                ");
             sb.Append(keyword);
-            sb.Append(" (JsonReader.Utf8EqualsIgnoreCase(propNameSpan, \"");
+            sb.Append(" (__propName.Equals(\"");
             sb.Append(prop.JsonName);
-            sb.AppendLine("\"u8))");
+            sb.AppendLine("\", StringComparison.OrdinalIgnoreCase))");
             sb.AppendLine("                {");
             EmitDeserializeProperty(sb, prop, "obj", "                    ");
             sb.AppendLine("                }");
@@ -951,7 +952,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.Append("var __list = new System.Collections.Generic.List<");
                 sb.Append(prop.ElementTypeName);
-                sb.AppendLine(">(16);");
+                sb.AppendLine(">();");
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
                 sb.Append(indent);
@@ -999,7 +1000,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(prop.KeyTypeName);
                 sb.Append(", ");
                 sb.Append(prop.ElementTypeName);
-                sb.AppendLine(">(4);");
+                sb.AppendLine(">();");
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ObjectStart)");
                 sb.Append(indent);
@@ -1103,11 +1104,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var keyword = i == 0 ? "if" : "else if";
             sb.Append(indent);
             sb.Append(keyword);
-            sb.Append(" (JsonReader.Utf8EqualsIgnoreCase(");
+            sb.Append(" (Encoding.UTF8.GetString(");
             sb.Append(propVarName);
-            sb.Append(", \"");
+            sb.Append(").Equals(\"");
             sb.Append(np.JsonName);
-            sb.AppendLine("\"u8))");
+            sb.AppendLine("\", StringComparison.OrdinalIgnoreCase))");
             sb.Append(indent);
             sb.AppendLine("{");
             EmitDeserializeProperty(sb, np, target, indent + "    ", nestLevel);
