@@ -154,6 +154,21 @@ public ref struct JsonReader
     /// </summary>
     public ReadOnlySpan<byte> GetStringRaw() => _valueSpan;
 
+    public static bool Utf8EqualsIgnoreCase(ReadOnlySpan<byte> value, ReadOnlySpan<byte> expected)
+    {
+        if (value.Length != expected.Length)
+            return false;
+        if (value.SequenceEqual(expected))
+            return true;
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (ToLowerAscii(value[i]) != ToLowerAscii(expected[i]))
+                return false;
+        }
+        return true;
+    }
+
     public bool TryGetInt32(out int v)
     {
         if (_tokenType != TokenType.Int32)
@@ -941,4 +956,8 @@ public ref struct JsonReader
     }
 
     private static bool IsDigit(byte b) => b is >= (byte)'0' and <= (byte)'9';
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte ToLowerAscii(byte b) =>
+        b is >= (byte)'A' and <= (byte)'Z' ? (byte)(b | 0x20) : b;
 }
