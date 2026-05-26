@@ -448,6 +448,7 @@ public ref struct JsonReader
             SkipWhitespaceSpan();
         }
 
+        var start = _position;
         var negative = false;
         if (_data[_position] == (byte)'-')
         {
@@ -455,14 +456,28 @@ public ref struct JsonReader
             _position++;
         }
 
+        var limit = negative ? Int32MinMagnitudeAsUInt : Int32MaxValueAsUInt;
         uint acc = 0;
+        var overflow = false;
         while (_position < _data.Length && IsDigit(_data[_position]))
         {
-            acc = acc * 10 + (uint)(_data[_position] - (byte)'0');
+            var digit = (uint)(_data[_position] - (byte)'0');
+            if (!overflow)
+            {
+                if (acc > (limit - digit) / 10)
+                    overflow = true;
+                else
+                    acc = acc * 10 + digit;
+            }
             _position++;
         }
 
-        value = negative ? -(int)acc : (int)acc;
+        if (overflow)
+            return Utf8Parser.TryParse(_data[start.._position], out value, out _);
+
+        value = negative
+            ? acc == Int32MinMagnitudeAsUInt ? int.MinValue : -(int)acc
+            : (int)acc;
         return true;
     }
 
