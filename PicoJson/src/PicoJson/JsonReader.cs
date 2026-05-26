@@ -322,23 +322,18 @@ public ref struct JsonReader
             return false;
         }
         var limit = negative ? Int32MinMagnitudeAsUInt : Int32MaxValueAsUInt;
-        uint acc = 0;
-        var overflow = false;
+        ulong acc = 0;
+        var digitCount = 0;
         while (_position < _data.Length && IsDigit(_data[_position]))
         {
             var digit = (uint)(_data[_position] - (byte)'0');
-            if (!overflow)
-            {
-                if (acc > (limit - digit) / 10)
-                    overflow = true;
-                else
-                    acc = acc * 10 + digit;
-            }
+            acc = acc * 10 + digit;
+            digitCount++;
             _position++;
         }
         _valueSpan = _data[start.._position];
         _tokenType = TokenType.Int32;
-        if (overflow)
+        if (digitCount > 10 || acc > limit)
             return Utf8Parser.TryParse(_valueSpan, out v, out _);
         if (negative)
             v = acc == Int32MinMagnitudeAsUInt ? int.MinValue : -(int)acc;
@@ -392,22 +387,17 @@ public ref struct JsonReader
             }
 
             var limit = negative ? Int32MinMagnitudeAsUInt : Int32MaxValueAsUInt;
-            uint acc = 0;
-            var overflow = false;
+            ulong acc = 0;
+            var digitCount = 0;
             while (_position < _data.Length && IsDigit(_data[_position]))
             {
                 var digit = (uint)(_data[_position] - (byte)'0');
-                if (!overflow)
-                {
-                    if (acc > (limit - digit) / 10)
-                        overflow = true;
-                    else
-                        acc = acc * 10 + digit;
-                }
+                acc = acc * 10 + digit;
+                digitCount++;
                 _position++;
             }
 
-            if (overflow)
+            if (digitCount > 10 || acc > limit)
             {
                 Utf8Parser.TryParse(_data[start.._position], out int parsed, out _);
                 values.Add(parsed);
@@ -457,22 +447,17 @@ public ref struct JsonReader
         }
 
         var limit = negative ? Int32MinMagnitudeAsUInt : Int32MaxValueAsUInt;
-        uint acc = 0;
-        var overflow = false;
+        ulong acc = 0;
+        var digitCount = 0;
         while (_position < _data.Length && IsDigit(_data[_position]))
         {
             var digit = (uint)(_data[_position] - (byte)'0');
-            if (!overflow)
-            {
-                if (acc > (limit - digit) / 10)
-                    overflow = true;
-                else
-                    acc = acc * 10 + digit;
-            }
+            acc = acc * 10 + digit;
+            digitCount++;
             _position++;
         }
 
-        if (overflow)
+        if (digitCount > 10 || acc > limit)
             return Utf8Parser.TryParse(_data[start.._position], out value, out _);
 
         value = negative
