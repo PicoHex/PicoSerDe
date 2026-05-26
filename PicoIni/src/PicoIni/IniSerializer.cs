@@ -3,11 +3,14 @@ using System.Runtime.CompilerServices;
 
 namespace PicoIni;
 
+/// <summary>High-level INI serialization facade. Uses source-generated serializers
+/// registered via <see cref="Register{T}"/> (auto-registered by PicoIni.Gen).</summary>
 public static partial class IniSerializer
 {
     private static readonly ConcurrentDictionary<Type, object> _serializers = new();
     private static readonly ConcurrentDictionary<Type, object> _deserializers = new();
 
+    /// <summary>Registers a manual serializer/deserializer pair for a type.</summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
         _serializers[typeof(T)] = serializer;
