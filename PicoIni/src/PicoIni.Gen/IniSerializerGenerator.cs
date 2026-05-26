@@ -205,19 +205,19 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    } }");
         s.AppendLine();
 
+        var top = new List<PropInfo>();
+        foreach (var p in type.Properties) if (p.TypeKind != "object") top.Add(p);
+        var sec = new List<PropInfo>();
+        foreach (var p in type.Properties) if (p.TypeKind == "object") sec.Add(p);
+
         // Deserializer
         s.Append("file readonly struct "); s.Append(type.Name); s.Append("IniDeserializer : IDeserializer<"); s.Append(type.Name); s.AppendLine("> {");
         s.Append("    public "); s.Append(type.Name); s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
         s.AppendLine("        var reader = new IniReader(data);");
         s.Append("        var obj = new "); s.Append(type.Name); s.AppendLine("();");
-        s.AppendLine("        int __sec = -1;");
+        if (sec.Count > 0) s.AppendLine("        int __sec = -1;");
         s.AppendLine("        while (reader.Read()) {");
         s.AppendLine("            if (reader.TokenType == IniTokenType.Key) {");
-
-        var top = new List<PropInfo>();
-        foreach (var p in type.Properties) if (p.TypeKind != "object") top.Add(p);
-        var sec = new List<PropInfo>();
-        foreach (var p in type.Properties) if (p.TypeKind == "object") sec.Add(p);
 
         // Top-level key matching
         if (top.Count > 0)
@@ -225,40 +225,48 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             for (int i = 0; i < top.Count; i++)
             {
                 s.Append(i == 0 ? "                if" : "                else if");
-                s.Append(" (__sec < 0 && __IniHelp.Eq(reader.Key, \"");
+                s.Append(" (");
+                if (sec.Count > 0) s.Append("__sec < 0 && ");
+                s.Append("__IniHelp.Eq(reader.Key, \"");
                 s.Append(top[i].JsonName); s.AppendLine("\"u8)) {");
                 EmitRead(s, top[i], "obj", "                    ");
                 s.AppendLine("                }");
             }
         }
-        // Section key matching (when inside a section)
-        for (int si = 0; si < sec.Count; si++)
+        if (sec.Count > 0)
         {
-            foreach (var np in sec[si].NestedProperties)
+            // Section key matching (when inside a section)
+            for (int si = 0; si < sec.Count; si++)
             {
-                s.Append("                else if (__sec == "); s.Append(si); s.Append(" && __IniHelp.Eq(reader.Key, \"");
-                s.Append(np.JsonName); s.Append("\"u8)) { ");
-                EmitRead(s, np, $"obj.{sec[si].Name}", "");
-                s.AppendLine(" }");
+                foreach (var np in sec[si].NestedProperties)
+                {
+                    s.Append("                else if (__sec == "); s.Append(si); s.Append(" && __IniHelp.Eq(reader.Key, \"");
+                    s.Append(np.JsonName); s.Append("\"u8)) { ");
+                    EmitRead(s, np, $"obj.{sec[si].Name}", "");
+                    s.AppendLine(" }");
+                }
             }
         }
         s.AppendLine("            }");
-        s.AppendLine("            else if (reader.TokenType == IniTokenType.SectionStart) {");
-        s.AppendLine("                __sec = -1;");
-
-        for (int i = 0; i < sec.Count; i++)
+        if (sec.Count > 0)
         {
-            var sn = sec[i].SectionName ?? sec[i].JsonName;
-            s.Append("                ");
-            s.Append(i == 0 ? "if" : "else if");
-            s.Append(" (__IniHelp.Eq(reader.SectionName, \"");
-            s.Append(sn); s.AppendLine("\"u8)) {");
-            s.Append("                    obj."); s.Append(sec[i].Name); s.Append(" ??= new ");
-            s.Append(sec[i].TypeFullName); s.AppendLine("();");
-            s.Append("                    __sec = "); s.Append(i); s.AppendLine(";");
-            s.AppendLine("                }");
+            s.AppendLine("            else if (reader.TokenType == IniTokenType.SectionStart) {");
+            s.AppendLine("                __sec = -1;");
+
+            for (int i = 0; i < sec.Count; i++)
+            {
+                var sn = sec[i].SectionName ?? sec[i].JsonName;
+                s.Append("                ");
+                s.Append(i == 0 ? "if" : "else if");
+                s.Append(" (__IniHelp.Eq(reader.SectionName, \"");
+                s.Append(sn); s.AppendLine("\"u8)) {");
+                s.Append("                    obj."); s.Append(sec[i].Name); s.Append(" ??= new ");
+                s.Append(sec[i].TypeFullName); s.AppendLine("();");
+                s.Append("                    __sec = "); s.Append(i); s.AppendLine(";");
+                s.AppendLine("                }");
+            }
+            s.AppendLine("            }");
         }
-        s.AppendLine("            }");
         s.AppendLine("        }");
         s.AppendLine("        return obj;");
         s.AppendLine("    } }");

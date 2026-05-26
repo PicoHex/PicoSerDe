@@ -22,12 +22,11 @@ internal static class TypeKindResolver
         if (type.SpecialType == SpecialType.System_Boolean) return ("boolean", isNullable, innerType);
         if (type.SpecialType == SpecialType.System_Decimal) return ("decimal", isNullable, innerType);
 
-        var fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        if (fullName == "System.DateTime") return ("datetime", isNullable, innerType);
-        if (fullName == "System.DateOnly") return ("dateonly", isNullable, innerType);
-        if (fullName == "System.TimeOnly") return ("timeonly", isNullable, innerType);
-        if (fullName == "System.TimeSpan") return ("timespan", isNullable, innerType);
-        if (fullName == "System.Guid") return ("guid", isNullable, innerType);
+        if (IsSystemType(type, "DateTime")) return ("datetime", isNullable, innerType);
+        if (IsSystemType(type, "DateOnly")) return ("dateonly", isNullable, innerType);
+        if (IsSystemType(type, "TimeOnly")) return ("timeonly", isNullable, innerType);
+        if (IsSystemType(type, "TimeSpan")) return ("timespan", isNullable, innerType);
+        if (IsSystemType(type, "Guid")) return ("guid", isNullable, innerType);
 
         if (type.TypeKind == TypeKind.Enum) return ("enum", isNullable, innerType);
 
@@ -64,4 +63,7 @@ internal static class TypeKindResolver
     {
         return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
     }
+
+    private static bool IsSystemType(ITypeSymbol type, string name) =>
+        type.Name == name && type.ContainingNamespace?.ToDisplayString() == "System";
 }
