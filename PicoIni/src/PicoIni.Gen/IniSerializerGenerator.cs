@@ -193,7 +193,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             if (p.TypeKind != "object") continue;
             if (!first) s.AppendLine("        iw.WriteBlankLine();");
             var sn = p.SectionName ?? p.JsonName;
-            s.Append("        iw.WriteSection(\""); s.Append(sn); s.AppendLine("\");");
+            s.Append("        iw.WriteSection(\""); s.Append(sn); s.AppendLine("\"u8);");
             foreach (var np in p.NestedProperties)
             {
                 s.Append("        iw.WriteKeyValue(\""); s.Append(np.JsonName); s.Append("\", ");
@@ -326,11 +326,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad); s.Append(target); s.Append('.'); s.Append(p.Name);
                 s.AppendLine(" = decimal.Parse(Encoding.UTF8.GetString(reader.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"); break;
             case "datetime":
-                s.Append(pad); s.Append(target); s.Append('.'); s.Append(p.Name);
-                s.AppendLine(" = DateTime.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"); break;
+                s.Append(pad); s.AppendLine("System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out DateTime __v, out _);");
+                s.Append(pad); s.Append(target); s.Append('.'); s.Append(p.Name); s.AppendLine(" = __v;"); break;
             case "guid":
-                s.Append(pad); s.Append(target); s.Append('.'); s.Append(p.Name);
-                s.AppendLine(" = Guid.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"); break;
+                s.Append(pad); s.AppendLine("System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out Guid __v, out _, 'D');");
+                s.Append(pad); s.Append(target); s.Append('.'); s.Append(p.Name); s.AppendLine(" = __v;"); break;
             case "enum":
                 s.Append(pad); s.Append(target); s.Append('.'); s.Append(p.Name);
                 s.Append(" = Enum.Parse<"); s.Append(p.TypeFullName); s.AppendLine(">(Encoding.UTF8.GetString(reader.ValueSpan));"); break;

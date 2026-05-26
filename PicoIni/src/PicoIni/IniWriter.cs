@@ -115,6 +115,36 @@ public ref struct IniWriter
         WriteNewLine();
     }
 
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, int value)
+    {
+        WriteKey(utf8Key);
+        WriteRaw(" = "u8);
+        Span<byte> buf = _buffer.GetSpan(16);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, long value)
+    {
+        WriteKey(utf8Key);
+        WriteRaw(" = "u8);
+        Span<byte> buf = _buffer.GetSpan(32);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, bool value)
+    {
+        WriteKey(utf8Key);
+        WriteRaw(" = "u8);
+        WriteRaw(value ? "true"u8 : "false"u8);
+        WriteNewLine();
+    }
+
     public void WriteBlankLine()
     {
         WriteNewLine();

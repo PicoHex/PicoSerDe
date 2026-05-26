@@ -72,22 +72,19 @@ public ref struct IniReader
     public bool TryGetInt32(out int v)
     {
         if (_tokenType != IniTokenType.Key) { v = 0; return false; }
-        return int.TryParse(Encoding.UTF8.GetString(_valueSpan), out v);
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
     public bool TryGetInt64(out long v)
     {
         if (_tokenType != IniTokenType.Key) { v = 0; return false; }
-        return long.TryParse(Encoding.UTF8.GetString(_valueSpan), out v);
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
     public bool TryGetFloat64(out double v)
     {
         if (_tokenType != IniTokenType.Key) { v = 0; return false; }
-        return double.TryParse(Encoding.UTF8.GetString(_valueSpan),
-            System.Globalization.NumberStyles.Any,
-            System.Globalization.CultureInfo.InvariantCulture,
-            out v);
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
     public bool TryGetBool(out bool v)
@@ -95,8 +92,7 @@ public ref struct IniReader
         if (_tokenType != IniTokenType.Key) { v = false; return false; }
         if (_valueSpan.SequenceEqual("true"u8)) { v = true; return true; }
         if (_valueSpan.SequenceEqual("false"u8)) { v = false; return true; }
-        v = false;
-        return bool.TryParse(Encoding.UTF8.GetString(_valueSpan), out v);
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
     public void Dispose()
