@@ -12,7 +12,6 @@ public ref struct IniReader
     private ReadOnlySpan<byte> _valueSpan;
     private ReadOnlySpan<byte> _commentText;
     private byte[]? _rentedBuffer;
-    private bool _skipNewLine;
 
     public IniReader(ReadOnlySpan<byte> data)
     {
@@ -26,7 +25,6 @@ public ref struct IniReader
         _valueSpan = default;
         _commentText = default;
         _rentedBuffer = null;
-        _skipNewLine = false;
     }
 
     public IniReader(ReadOnlySequence<byte> data)
@@ -41,7 +39,6 @@ public ref struct IniReader
         _valueSpan = default;
         _commentText = default;
         _rentedBuffer = null;
-        _skipNewLine = false;
     }
 
     public IniTokenType TokenType => _tokenType;
