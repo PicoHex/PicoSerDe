@@ -954,16 +954,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.Append("var __list = new System.Collections.Generic.List<");
                 sb.Append(prop.ElementTypeName);
-                if (prop.ElementTypeKind is "int32" or "int64" or "float64" or "string")
-                {
-                    sb.AppendLine(">();");
-                }
-                else
-                {
-                    sb.Append(">(");
-                    sb.Append(DefaultListCapacity);
-                    sb.AppendLine(");");
-                }
+                sb.Append(">(");
+                sb.Append(DefaultListCapacity);
+                sb.AppendLine(");");
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
                 sb.Append(indent);
