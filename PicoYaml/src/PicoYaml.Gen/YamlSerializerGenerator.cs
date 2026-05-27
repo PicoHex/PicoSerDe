@@ -235,6 +235,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(p.Name);
                 s.AppendLine(" = __v;");
                 break;
+            case "int64":
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = long.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                break;
+            case "float64":
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = double.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                break;
             case "boolean":
                 s.Append(pad);
                 s.Append(tgt);

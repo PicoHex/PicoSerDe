@@ -121,6 +121,22 @@ public ref struct YamlWriter
         _depth--;
     }
 
+    public void WriteSequenceItem(ReadOnlySpan<byte> utf8Value)
+    {
+        for (var i = 0; i < _depth; i++)
+            WriteRaw("  "u8);
+        WriteRaw("- "u8);
+        if (NeedsQuoting(utf8Value))
+        {
+            WriteByte((byte)'"');
+            WriteRaw(utf8Value);
+            WriteByte((byte)'"');
+        }
+        else
+            WriteRaw(utf8Value);
+        WriteNewLine();
+    }
+
     private void WriteRaw(ReadOnlySpan<byte> utf8)
     {
         _buffer.Write(utf8);

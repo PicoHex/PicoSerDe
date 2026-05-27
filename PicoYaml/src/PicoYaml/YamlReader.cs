@@ -153,16 +153,33 @@ public ref struct YamlReader
             return true;
         }
 
-        // Scalar value
-        int vs2 = _position;
-        while (
+        // Scalar value — check for quoted string first
+        if (
             _position < _data.Length
-            && _data[_position] != (byte)'\n'
-            && _data[_position] != (byte)'\r'
+            && (_data[_position] == (byte)'"' || _data[_position] == (byte)'\'')
         )
+        {
+            var q = _data[_position];
             _position++;
-        _valueSpan = Trim(_data[vs2.._position]);
-        SkipNewline();
+            int vs2 = _position;
+            while (_position < _data.Length && _data[_position] != q)
+                _position++;
+            _valueSpan = _data[vs2.._position];
+            _position++; // skip closing quote
+            SkipNewline();
+        }
+        else
+        {
+            int vs2 = _position;
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)'\n'
+                && _data[_position] != (byte)'\r'
+            )
+                _position++;
+            _valueSpan = Trim(_data[vs2.._position]);
+            SkipNewline();
+        }
         _tokenType = TokenType.PropertyName;
         return true;
     }

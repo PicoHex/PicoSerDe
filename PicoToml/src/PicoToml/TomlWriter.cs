@@ -30,7 +30,7 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, string value)
     {
-        WriteRaw(Encoding.UTF8.GetBytes(key));
+        WriteKey(Encoding.UTF8.GetBytes(key));
         WriteRaw(" = \""u8);
         WriteRaw(Encoding.UTF8.GetBytes(value));
         WriteByte((byte)'"');
@@ -39,7 +39,7 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, int value)
     {
-        WriteRaw(Encoding.UTF8.GetBytes(key));
+        WriteKey(Encoding.UTF8.GetBytes(key));
         WriteRaw(" = "u8);
         Span<byte> buf = _buffer.GetSpan(16);
         value.TryFormat(buf, out var w);
@@ -50,7 +50,7 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, bool value)
     {
-        WriteRaw(Encoding.UTF8.GetBytes(key));
+        WriteKey(Encoding.UTF8.GetBytes(key));
         WriteRaw(" = "u8);
         WriteRaw(value ? "true"u8 : "false"u8);
         WriteNewLine();
@@ -58,13 +58,64 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, long value)
     {
-        WriteRaw(Encoding.UTF8.GetBytes(key));
+        WriteKey(Encoding.UTF8.GetBytes(key));
         WriteRaw(" = "u8);
         Span<byte> buf = _buffer.GetSpan(32);
         value.TryFormat(buf, out var w);
         _buffer.Advance(w);
         _bytesWritten += w;
         WriteNewLine();
+    }
+
+    public void WriteKeyValue(string key, double value)
+    {
+        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = "u8);
+        Span<byte> buf = _buffer.GetSpan(32);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteBlankLine()
+    {
+        WriteNewLine();
+    }
+
+    private void WriteKey(ReadOnlySpan<byte> utf8)
+    {
+        if (NeedsKeyQuoting(utf8))
+        {
+            WriteByte((byte)'"');
+            WriteRaw(utf8);
+            WriteByte((byte)'"');
+        }
+        else
+            WriteRaw(utf8);
+    }
+
+    private static bool NeedsKeyQuoting(ReadOnlySpan<byte> u)
+    {
+        if (u.IsEmpty)
+            return true;
+        for (int i = 0; i < u.Length; i++)
+        {
+            var b = u[i];
+            if (
+                b
+                is (byte)' '
+                    or (byte)'\t'
+                    or (byte)'='
+                    or (byte)'['
+                    or (byte)']'
+                    or (byte)'.'
+                    or (byte)'#'
+                    or (byte)'"'
+            )
+                return true;
+        }
+        return false;
     }
 
     private void WriteRaw(ReadOnlySpan<byte> utf8)

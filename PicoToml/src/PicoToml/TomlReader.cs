@@ -106,11 +106,40 @@ public ref struct TomlReader
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
             _position++; // skip opening "
-            int valStart = _position;
-            while (_position < _data.Length && _data[_position] != (byte)'"')
-                _position++;
-            _valueSpan = _data[valStart.._position];
-            _position++; // skip closing "
+            // Multiline basic string: """..."""
+            if (
+                _position + 1 < _data.Length
+                && _data[_position] == (byte)'"'
+                && _data[_position + 1] == (byte)'"'
+            )
+            {
+                _position += 2; // skip the two extra "
+                if (_position < _data.Length && _data[_position] == (byte)'\n')
+                    _position++; // skip leading newline
+                int ms = _position;
+                while (_position + 2 < _data.Length)
+                {
+                    if (
+                        _data[_position] == (byte)'"'
+                        && _data[_position + 1] == (byte)'"'
+                        && _data[_position + 2] == (byte)'"'
+                    )
+                    {
+                        _valueSpan = _data[ms.._position];
+                        _position += 3;
+                        break;
+                    }
+                    _position++;
+                }
+            }
+            else
+            {
+                int valStart = _position;
+                while (_position < _data.Length && _data[_position] != (byte)'"')
+                    _position++;
+                _valueSpan = _data[valStart.._position];
+                _position++; // skip closing "
+            }
         }
         // Read unquoted value (number, bool, date, etc.)
         else
