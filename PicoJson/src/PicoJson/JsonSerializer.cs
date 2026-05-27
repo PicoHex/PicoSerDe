@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-
 namespace PicoJson;
 
 public static partial class JsonSerializer

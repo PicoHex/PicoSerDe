@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-
 namespace PicoYaml;
 
 public static partial class YamlSerializer

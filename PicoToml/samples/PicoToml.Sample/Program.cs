@@ -1,6 +1,3 @@
-using System.Text;
-using PicoToml;
-
 // ═══ Demo: TOML config serialization (V1: simple types) ═══
 var config = new AppConfig
 {

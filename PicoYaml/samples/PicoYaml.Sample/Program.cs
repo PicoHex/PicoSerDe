@@ -1,6 +1,3 @@
-using System.Text;
-using PicoYaml;
-
 // ═══ Demo: YAML config serialization (V1: simple types) ═══
 var config = new AppConfig
 {

@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-
 namespace PicoToml;
 
 public static partial class TomlSerializer

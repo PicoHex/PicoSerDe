@@ -1,6 +1,3 @@
-using System.Text;
-using PicoYaml;
-
 // ═══ Benchmark: PicoYaml Serialize/Deserialize ═══
 var config = new BenchModel
 {

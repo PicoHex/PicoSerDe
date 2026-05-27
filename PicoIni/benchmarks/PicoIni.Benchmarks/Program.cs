@@ -1,7 +1,3 @@
-using System.Diagnostics;
-using System.Text;
-using PicoIni;
-
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("=== PicoIni Performance Benchmarks ===");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
