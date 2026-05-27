@@ -48,6 +48,25 @@ public ref struct TomlWriter
         WriteNewLine();
     }
 
+    public void WriteKeyValue(string key, bool value)
+    {
+        WriteRaw(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = "u8);
+        WriteRaw(value ? "true"u8 : "false"u8);
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(string key, long value)
+    {
+        WriteRaw(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = "u8);
+        Span<byte> buf = _buffer.GetSpan(32);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
     private void WriteRaw(ReadOnlySpan<byte> utf8)
     {
         _buffer.Write(utf8);

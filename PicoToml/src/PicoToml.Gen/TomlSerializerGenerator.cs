@@ -5,9 +5,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        var providers = context.SyntaxProvider.CreateSyntaxProvider(
-            predicate: static (n, _) => IsCandidate(n),
-            transform: static (ctx, _) => Transform(ctx))
+        var providers = context
+            .SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (n, _) => IsCandidate(n),
+                transform: static (ctx, _) => Transform(ctx)
+            )
             .Where(static t => t.HasValue)
             .Select(static (t, _) => t!.Value);
         context.RegisterSourceOutput(providers.Collect(), GenerateAll);
@@ -15,81 +18,153 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
     private static bool IsCandidate(SyntaxNode n)
     {
-        if (n is not InvocationExpressionSyntax { Expression: var e }) return false;
-        var nm = e switch { MemberAccessExpressionSyntax { Name: var nn } => nn, _ => null };
-        var txt = nm switch { GenericNameSyntax g => g.Identifier.Text, SimpleNameSyntax s => s.Identifier.Text, _ => null };
+        if (n is not InvocationExpressionSyntax { Expression: var e })
+            return false;
+        var nm = e switch
+        {
+            MemberAccessExpressionSyntax { Name: var nn } => nn,
+            _ => null
+        };
+        var txt = nm switch
+        {
+            GenericNameSyntax g => g.Identifier.Text,
+            SimpleNameSyntax s => s.Identifier.Text,
+            _ => null
+        };
         return txt is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
     }
 
     private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
     {
-        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m) return null;
-        if (m.ContainingType.Name != "TomlSerializer" || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoToml") return null;
-        if (m.TypeArguments.Length != 1) return null;
+        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
+            return null;
+        if (
+            m.ContainingType.Name != "TomlSerializer"
+            || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoToml"
+        )
+            return null;
+        if (m.TypeArguments.Length != 1)
+            return null;
         var t = m.TypeArguments[0];
-        if (t.SpecialType != SpecialType.None) return null;
-        if (t is not INamedTypeSymbol nt) return null;
-        if (nt.ContainingType is not null) return null; // no nested types
+        if (t.SpecialType != SpecialType.None)
+            return null;
+        if (t is not INamedTypeSymbol nt)
+            return null;
+        if (nt.ContainingType is not null)
+            return null; // no nested types
         var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
-        if (ns == "<global namespace>") ns = "";
+        if (ns == "<global namespace>")
+            ns = "";
         var props = new List<PropInfo>();
         foreach (var member in nt.GetMembers())
         {
-            if (member is not IPropertySymbol p) continue;
-            if (p.DeclaredAccessibility != Accessibility.Public) continue;
-            if (p.IsStatic || p.IsIndexer) continue;
-            if (p.IsReadOnly && p.SetMethod is null) continue;
-            if (p.GetMethod is null) continue;
+            if (member is not IPropertySymbol p)
+                continue;
+            if (p.DeclaredAccessibility != Accessibility.Public)
+                continue;
+            if (p.IsStatic || p.IsIndexer)
+                continue;
+            if (p.IsReadOnly && p.SetMethod is null)
+                continue;
+            if (p.GetMethod is null)
+                continue;
             var (k, _, _) = TypeKindResolver.Resolve(p.Type);
-            if (k is null) continue;
-            props.Add(new PropInfo(p.Name, p.Name, k,
-                p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+            if (k is null)
+                continue;
+            props.Add(
+                new PropInfo(
+                    p.Name,
+                    p.Name,
+                    k,
+                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                )
+            );
         }
-        return new TypeInfo(nt.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ns, nt.Name,
-            props.ToImmutableArray());
+        return new TypeInfo(
+            nt.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            ns,
+            nt.Name,
+            props.ToImmutableArray()
+        );
     }
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
         var seen = new HashSet<string>();
         foreach (var t in types)
-        { if (seen.Add(t.Fqn)) spc.AddSource($"{t.Name}_TomlSerializer.g.cs", SourceText.From(Gen(t), Encoding.UTF8)); }
+        {
+            if (seen.Add(t.Fqn))
+                spc.AddSource(
+                    $"{t.Name}_TomlSerializer.g.cs",
+                    SourceText.From(Gen(t), Encoding.UTF8)
+                );
+        }
     }
 
     private static string Gen(TypeInfo t)
     {
         var s = new StringBuilder();
         s.AppendLine("// <auto-generated/>\n#nullable enable");
-        s.AppendLine("using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;");
+        s.AppendLine(
+            "using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;"
+        );
         s.AppendLine("using PicoSerDe.Abs; using PicoToml;");
-        if (!string.IsNullOrEmpty(t.Ns)) { s.AppendLine(); s.Append("namespace "); s.Append(t.Ns); s.AppendLine(";"); }
+        if (!string.IsNullOrEmpty(t.Ns))
+        {
+            s.AppendLine();
+            s.Append("namespace ");
+            s.Append(t.Ns);
+            s.AppendLine(";");
+        }
         s.AppendLine();
         // Helper (must come before serializer/deserializer that use it)
         s.AppendLine("file static class __T {");
-        s.AppendLine("    internal static bool __Tk(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if ((a[i] | 0x20) != (b[i] | 0x20)) return false; return true; }");
+        s.AppendLine(
+            "    internal static bool __Tk(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if ((a[i] | 0x20) != (b[i] | 0x20)) return false; return true; }"
+        );
         s.AppendLine("}");
         s.AppendLine();
         // Serializer
-        s.Append("file sealed class "); s.Append(t.Name); s.Append("_TomlSer : ISerializer<"); s.Append(t.Name); s.AppendLine("> {");
-        s.Append("    public void Serialize(IBufferWriter<byte> w, "); s.Append(t.Name); s.AppendLine(" v) {");
+        s.Append("file sealed class ");
+        s.Append(t.Name);
+        s.Append("_TomlSer : ISerializer<");
+        s.Append(t.Name);
+        s.AppendLine("> {");
+        s.Append("    public void Serialize(IBufferWriter<byte> w, ");
+        s.Append(t.Name);
+        s.AppendLine(" v) {");
         s.AppendLine("        var tw = new TomlWriter(w);");
         foreach (var p in t.Props)
         {
-            s.Append("        tw.WriteKeyValue(\""); s.Append(p.Jn); s.Append("\", ");
-            WriteVal(s, p, $"v.{p.Name}"); s.AppendLine(");");
+            s.Append("        tw.WriteKeyValue(\"");
+            s.Append(p.Jn);
+            s.Append("\", ");
+            WriteVal(s, p, $"v.{p.Name}");
+            s.AppendLine(");");
         }
         s.AppendLine("    } }");
         // Deserializer
-        s.Append("file sealed class "); s.Append(t.Name); s.Append("_TomlDes : IDeserializer<"); s.Append(t.Name); s.AppendLine("> {");
-        s.Append("    public "); s.Append(t.Name); s.AppendLine(" Deserialize(ReadOnlySpan<byte> d) {");
+        s.Append("file sealed class ");
+        s.Append(t.Name);
+        s.Append("_TomlDes : IDeserializer<");
+        s.Append(t.Name);
+        s.AppendLine("> {");
+        s.Append("    public ");
+        s.Append(t.Name);
+        s.AppendLine(" Deserialize(ReadOnlySpan<byte> d) {");
         s.AppendLine("        var r = new TomlReader(d);");
-        s.Append("        var o = new "); s.Append(t.Name); s.AppendLine("();");
+        s.Append("        var o = new ");
+        s.Append(t.Name);
+        s.AppendLine("();");
         s.AppendLine("        while (r.Read()) {");
         s.AppendLine("            var k = r.KeySpan;");
         for (int i = 0; i < t.Props.Length; i++)
         {
-            s.Append("            "); s.Append(i == 0 ? "if" : "else if");
-            s.Append(" (__T.__Tk(k, \""); s.Append(t.Props[i].Jn); s.AppendLine("\"u8)) {");
+            s.Append("            ");
+            s.Append(i == 0 ? "if" : "else if");
+            s.Append(" (__T.__Tk(k, \"");
+            s.Append(t.Props[i].Jn);
+            s.AppendLine("\"u8)) {");
             EmitRead(s, t.Props[i], "o", "                ");
             s.AppendLine("            }");
         }
@@ -97,8 +172,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        return o;");
         s.AppendLine("    } }");
         // Registration
-        s.Append("file static class "); s.Append(t.Name); s.Append("_Reg { [ModuleInitializer] internal static void R() { TomlSerializer.Register<");
-        s.Append(t.Name); s.Append(">(new "); s.Append(t.Name); s.Append("_TomlSer(), new "); s.Append(t.Name); s.AppendLine("_TomlDes()); } }");
+        s.Append("file static class ");
+        s.Append(t.Name);
+        s.Append("_Reg { [ModuleInitializer] internal static void R() { TomlSerializer.Register<");
+        s.Append(t.Name);
+        s.Append(">(new ");
+        s.Append(t.Name);
+        s.Append("_TomlSer(), new ");
+        s.Append(t.Name);
+        s.AppendLine("_TomlDes()); } }");
         return s.ToString();
     }
 
@@ -106,9 +188,19 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     {
         switch (p.Tk)
         {
-            case "string": s.Append(acc); break;
-            case "int32": case "int64": case "float64": case "boolean": s.Append(acc); break;
-            default: s.Append(acc); s.Append(".ToString()"); break;
+            case "string":
+                s.Append(acc);
+                break;
+            case "int32":
+            case "int64":
+            case "float64":
+            case "boolean":
+                s.Append(acc);
+                break;
+            default:
+                s.Append(acc);
+                s.Append(".ToString()");
+                break;
         }
     }
 
@@ -116,15 +208,74 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     {
         switch (p.Tk)
         {
-            case "string": s.Append(pad); s.Append(tgt); s.Append('.'); s.Append(p.Name); s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);"); break;
-            case "int32": s.Append(pad); s.AppendLine("r.TryGetInt32(out var __v);"); s.Append(pad); s.Append(tgt); s.Append('.'); s.Append(p.Name); s.AppendLine(" = __v;"); break;
-            case "int64": s.Append(pad); s.AppendLine("r.TryGetInt64(out var __v);"); s.Append(pad); s.Append(tgt); s.Append('.'); s.Append(p.Name); s.AppendLine(" = __v;"); break;
-            case "float64": s.Append(pad); s.AppendLine("r.TryGetFloat64(out var __v);"); s.Append(pad); s.Append(tgt); s.Append('.'); s.Append(p.Name); s.AppendLine(" = __v;"); break;
-            case "boolean": s.Append(pad); s.AppendLine("r.TryGetBool(out var __v);"); s.Append(pad); s.Append(tgt); s.Append('.'); s.Append(p.Name); s.AppendLine(" = __v;"); break;
-            default: s.Append(pad); s.Append(tgt); s.Append('.'); s.Append(p.Name); s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);"); break;
+            case "string":
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                break;
+            case "int32":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt32(out var __v);");
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = __v;");
+                break;
+            case "int64":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt64(out var __v);");
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = __v;");
+                break;
+            case "float64":
+                s.Append(pad);
+                s.AppendLine("r.TryGetFloat64(out var __v);");
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = __v;");
+                break;
+            case "boolean":
+                s.Append(pad);
+                s.AppendLine("r.TryGetBool(out var __v);");
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = __v;");
+                break;
+            case "object":
+            case "list":
+            case "array":
+                s.Append(pad);
+                s.Append("// V2: ");
+                s.Append(p.Tk);
+                s.Append(' ');
+                s.AppendLine(p.Name);
+                break;
+            default:
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                break;
         }
     }
 
-    internal readonly record struct TypeInfo(string Fqn, string Ns, string Name, ImmutableArray<PropInfo> Props);
+    internal readonly record struct TypeInfo(
+        string Fqn,
+        string Ns,
+        string Name,
+        ImmutableArray<PropInfo> Props
+    );
+
     internal readonly record struct PropInfo(string Name, string Jn, string Tk, string Tf);
 }

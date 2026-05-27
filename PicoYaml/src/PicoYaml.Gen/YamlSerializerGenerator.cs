@@ -5,78 +5,153 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext ctx)
     {
-        var p = ctx.SyntaxProvider.CreateSyntaxProvider(
-            predicate: static (n, _) => IsC(n),
-            transform: static (c, _) => Tf(c))
-            .Where(static t => t.HasValue).Select(static (t, _) => t!.Value);
+        var p = ctx.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (n, _) => IsC(n),
+                transform: static (c, _) => Tf(c)
+            )
+            .Where(static t => t.HasValue)
+            .Select(static (t, _) => t!.Value);
         ctx.RegisterSourceOutput(p.Collect(), GenerateAll);
     }
 
     private static bool IsC(SyntaxNode n)
     {
-        if (n is not InvocationExpressionSyntax { Expression: var e }) return false;
-        var nm = e switch { MemberAccessExpressionSyntax { Name: var nn } => nn, _ => null };
-        var t = nm switch { GenericNameSyntax g => g.Identifier.Text, SimpleNameSyntax s => s.Identifier.Text, _ => null };
+        if (n is not InvocationExpressionSyntax { Expression: var e })
+            return false;
+        var nm = e switch
+        {
+            MemberAccessExpressionSyntax { Name: var nn } => nn,
+            _ => null
+        };
+        var t = nm switch
+        {
+            GenericNameSyntax g => g.Identifier.Text,
+            SimpleNameSyntax s => s.Identifier.Text,
+            _ => null
+        };
         return t is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
     }
 
     private static TypeInfo? Tf(GeneratorSyntaxContext ctx)
     {
-        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m) return null;
-        if (m.ContainingType.Name != "YamlSerializer" || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoYaml") return null;
-        if (m.TypeArguments.Length != 1) return null;
+        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
+            return null;
+        if (
+            m.ContainingType.Name != "YamlSerializer"
+            || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoYaml"
+        )
+            return null;
+        if (m.TypeArguments.Length != 1)
+            return null;
         var t = m.TypeArguments[0];
-        if (t.SpecialType != SpecialType.None) return null;
-        if (t is not INamedTypeSymbol nt) return null;
-        if (nt.ContainingType is not null) return null;
-        var ns = nt.ContainingNamespace?.ToDisplayString() ?? ""; if (ns == "<global namespace>") ns = "";
+        if (t.SpecialType != SpecialType.None)
+            return null;
+        if (t is not INamedTypeSymbol nt)
+            return null;
+        if (nt.ContainingType is not null)
+            return null;
+        var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
+        if (ns == "<global namespace>")
+            ns = "";
         var props = new List<PropInfo>();
         foreach (var mem in nt.GetMembers())
         {
-            if (mem is not IPropertySymbol p) continue;
-            if (p.DeclaredAccessibility != Accessibility.Public || p.IsStatic || p.IsIndexer) continue;
-            if (p.GetMethod is null || (p.IsReadOnly && p.SetMethod is null)) continue;
-            var (k, _, _) = TypeKindResolver.Resolve(p.Type); if (k is null) continue;
-            props.Add(new PropInfo(p.Name, p.Name, k, p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+            if (mem is not IPropertySymbol p)
+                continue;
+            if (p.DeclaredAccessibility != Accessibility.Public || p.IsStatic || p.IsIndexer)
+                continue;
+            if (p.GetMethod is null || (p.IsReadOnly && p.SetMethod is null))
+                continue;
+            var (k, _, _) = TypeKindResolver.Resolve(p.Type);
+            if (k is null)
+                continue;
+            props.Add(
+                new PropInfo(
+                    p.Name,
+                    p.Name,
+                    k,
+                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                )
+            );
         }
-        return new TypeInfo(nt.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ns, nt.Name, props.ToImmutableArray());
+        return new TypeInfo(
+            nt.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            ns,
+            nt.Name,
+            props.ToImmutableArray()
+        );
     }
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> ts)
-    { var s = new HashSet<string>(); foreach (var t in ts) if (s.Add(t.Fqn)) spc.AddSource($"{t.Name}_Yaml.g.cs", SourceText.From(Gen(t), Encoding.UTF8)); }
+    {
+        var s = new HashSet<string>();
+        foreach (var t in ts)
+            if (s.Add(t.Fqn))
+                spc.AddSource($"{t.Name}_Yaml.g.cs", SourceText.From(Gen(t), Encoding.UTF8));
+    }
 
     private static string Gen(TypeInfo t)
     {
         var sb = new StringBuilder();
         sb.AppendLine("// <auto-generated/>\n#nullable enable");
-        sb.AppendLine("using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;");
+        sb.AppendLine(
+            "using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;"
+        );
         sb.AppendLine("using PicoSerDe.Abs; using PicoYaml;");
-        if (!string.IsNullOrEmpty(t.Ns)) { sb.AppendLine(); sb.Append("namespace "); sb.Append(t.Ns); sb.AppendLine(";"); }
+        if (!string.IsNullOrEmpty(t.Ns))
+        {
+            sb.AppendLine();
+            sb.Append("namespace ");
+            sb.Append(t.Ns);
+            sb.AppendLine(";");
+        }
         sb.AppendLine();
-        sb.AppendLine("file static class __Y { internal static bool Eq(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false; return true; } }");
+        sb.AppendLine(
+            "file static class __Y { internal static bool Eq(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false; return true; } }"
+        );
         sb.AppendLine();
         // Serializer
-        sb.Append("file sealed class "); sb.Append(t.Name); sb.Append("_YS : ISerializer<"); sb.Append(t.Name); sb.AppendLine("> {");
-        sb.Append("    public void Serialize(IBufferWriter<byte> w, "); sb.Append(t.Name); sb.AppendLine(" v) {");
+        sb.Append("file sealed class ");
+        sb.Append(t.Name);
+        sb.Append("_YS : ISerializer<");
+        sb.Append(t.Name);
+        sb.AppendLine("> {");
+        sb.Append("    public void Serialize(IBufferWriter<byte> w, ");
+        sb.Append(t.Name);
+        sb.AppendLine(" v) {");
         sb.AppendLine("        var yw = new YamlWriter(w);");
         foreach (var p in t.Props)
         {
-            sb.Append("        yw.WritePropertyName(\""); sb.Append(p.Jn); sb.AppendLine("\"u8);");
+            sb.Append("        yw.WritePropertyName(\"");
+            sb.Append(p.Jn);
+            sb.AppendLine("\"u8);");
             WriteVal(sb, p, $"v.{p.Name}", "        ");
         }
         sb.AppendLine("    } }");
         // Deserializer
-        sb.Append("file sealed class "); sb.Append(t.Name); sb.Append("_YD : IDeserializer<"); sb.Append(t.Name); sb.AppendLine("> {");
-        sb.Append("    public "); sb.Append(t.Name); sb.AppendLine(" Deserialize(ReadOnlySpan<byte> d) {");
+        sb.Append("file sealed class ");
+        sb.Append(t.Name);
+        sb.Append("_YD : IDeserializer<");
+        sb.Append(t.Name);
+        sb.AppendLine("> {");
+        sb.Append("    public ");
+        sb.Append(t.Name);
+        sb.AppendLine(" Deserialize(ReadOnlySpan<byte> d) {");
         sb.AppendLine("        var r = new YamlReader(d);");
-        sb.Append("        var o = new "); sb.Append(t.Name); sb.AppendLine("();");
+        sb.Append("        var o = new ");
+        sb.Append(t.Name);
+        sb.AppendLine("();");
         sb.AppendLine("        while (r.Read()) {");
         sb.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         sb.AppendLine("                var k = r.KeySpan;");
         for (int i = 0; i < t.Props.Length; i++)
         {
-            sb.Append("                "); sb.Append(i == 0 ? "if" : "else if");
-            sb.Append(" (__Y.Eq(k, \""); sb.Append(t.Props[i].Jn); sb.AppendLine("\"u8)) {");
+            sb.Append("                ");
+            sb.Append(i == 0 ? "if" : "else if");
+            sb.Append(" (__Y.Eq(k, \"");
+            sb.Append(t.Props[i].Jn);
+            sb.AppendLine("\"u8)) {");
             EmitRead(sb, t.Props[i], "o", "                    ");
             sb.AppendLine("                }");
         }
@@ -85,8 +160,15 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        return o;");
         sb.AppendLine("    } }");
         // Registration
-        sb.Append("file static class "); sb.Append(t.Name); sb.Append("_YR { [ModuleInitializer] internal static void R() { YamlSerializer.Register<");
-        sb.Append(t.Name); sb.Append(">(new "); sb.Append(t.Name); sb.Append("_YS(), new "); sb.Append(t.Name); sb.AppendLine("_YD()); } }");
+        sb.Append("file static class ");
+        sb.Append(t.Name);
+        sb.Append("_YR { [ModuleInitializer] internal static void R() { YamlSerializer.Register<");
+        sb.Append(t.Name);
+        sb.Append(">(new ");
+        sb.Append(t.Name);
+        sb.Append("_YS(), new ");
+        sb.Append(t.Name);
+        sb.AppendLine("_YD()); } }");
         return sb.ToString();
     }
 
@@ -94,12 +176,42 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     {
         switch (p.Tk)
         {
-            case "string": s.Append(ind); s.Append("yw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine("));"); break;
-            case "int32": s.Append(ind); s.Append("yw.WriteNumber("); s.Append(a); s.AppendLine(");"); break;
-            case "int64": s.Append(ind); s.Append("yw.WriteInt64("); s.Append(a); s.AppendLine(");"); break;
-            case "float64": s.Append(ind); s.Append("yw.WriteDouble("); s.Append(a); s.AppendLine(");"); break;
-            case "boolean": s.Append(ind); s.Append("yw.WriteBoolean("); s.Append(a); s.AppendLine(");"); break;
-            default: s.Append(ind); s.Append("yw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine(".ToString()));"); break;
+            case "string":
+                s.Append(ind);
+                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine("));");
+                break;
+            case "int32":
+                s.Append(ind);
+                s.Append("yw.WriteNumber(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            case "int64":
+                s.Append(ind);
+                s.Append("yw.WriteInt64(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            case "float64":
+                s.Append(ind);
+                s.Append("yw.WriteDouble(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            case "boolean":
+                s.Append(ind);
+                s.Append("yw.WriteBoolean(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            default:
+                s.Append(ind);
+                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(".ToString()));");
+                break;
         }
     }
 
@@ -107,12 +219,54 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     {
         switch (p.Tk)
         {
-            case "string": s.Append(pad); s.Append(tgt); s.Append('.'); s.Append(p.Name); s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);"); break;
-            case "int32": s.Append(pad); s.AppendLine("r.TryGetInt32(out var __v);"); s.Append(pad); s.Append(tgt); s.Append('.'); s.Append(p.Name); s.AppendLine(" = __v;"); break;
-            default: s.Append(pad); s.Append(tgt); s.Append('.'); s.Append(p.Name); s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);"); break;
+            case "string":
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                break;
+            case "int32":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt32(out var __v);");
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = __v;");
+                break;
+            case "boolean":
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = r.ValueSpan.Length > 0 && r.ValueSpan[0] == (byte)'t';");
+                break;
+            case "object":
+            case "list":
+            case "array":
+                s.Append(pad);
+                s.Append("// V2: ");
+                s.Append(p.Tk);
+                s.Append(' ');
+                s.AppendLine(p.Name);
+                break;
+            default:
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                break;
         }
     }
 
-    internal readonly record struct TypeInfo(string Fqn, string Ns, string Name, ImmutableArray<PropInfo> Props);
+    internal readonly record struct TypeInfo(
+        string Fqn,
+        string Ns,
+        string Name,
+        ImmutableArray<PropInfo> Props
+    );
+
     internal readonly record struct PropInfo(string Name, string Jn, string Tk, string Tf);
 }
