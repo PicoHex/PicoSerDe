@@ -445,8 +445,12 @@ public class JsonReaderTests
     [Test]
     public async Task TryReadNextInt32_CompactArray()
     {
-        int v1, v2, v3;
-        bool ok1, ok2, ok3;
+        int v1,
+            v2,
+            v3;
+        bool ok1,
+            ok2,
+            ok3;
         {
             var r = new JsonReader("[100,200,300]"u8);
             r.Read();

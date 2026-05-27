@@ -54,6 +54,7 @@ public static partial class IniSerializer
     [System.Diagnostics.CodeAnalysis.DoesNotReturn]
     private static void ThrowNoSerializer<T>() =>
         throw new InvalidOperationException(
-            $"No serializer/deserializer registered for {typeof(T)}. " +
-            "Ensure PicoIni.Gen is referenced and the type is used with IniSerializer methods.");
+            $"No serializer/deserializer registered for {typeof(T)}. "
+                + "Ensure PicoIni.Gen is referenced and the type is used with IniSerializer methods."
+        );
 }

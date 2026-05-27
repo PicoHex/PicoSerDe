@@ -1,6 +1,10 @@
 namespace PicoYaml.Tests;
 
-public class YamlSerModel { public string Name { get; set; } = ""; public int Age { get; set; } }
+public class YamlSerModel
+{
+    public string Name { get; set; } = "";
+    public int Age { get; set; }
+}
 
 public class YamlSerializerTests
 {

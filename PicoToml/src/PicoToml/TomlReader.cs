@@ -30,15 +30,24 @@ public ref struct TomlReader
 
     public bool Read()
     {
-    Start:
+        Start:
         // Skip blank lines and comments
         while (_position < _data.Length)
         {
-            if (_data[_position] == (byte)'\n' || _data[_position] == (byte)'\r') { _position++; continue; }
-            if (_data[_position] == (byte)'#') { SkipLine(); goto Start; }
+            if (_data[_position] == (byte)'\n' || _data[_position] == (byte)'\r')
+            {
+                _position++;
+                continue;
+            }
+            if (_data[_position] == (byte)'#')
+            {
+                SkipLine();
+                goto Start;
+            }
             break;
         }
-        if (_position >= _data.Length) return false;
+        if (_position >= _data.Length)
+            return false;
 
         // Table header: [name] or [[name]]
         if (_data[_position] == (byte)'[')
@@ -109,7 +118,11 @@ public ref struct TomlReader
         else
         {
             int valStart = _position;
-            while (_position < _data.Length && _data[_position] != (byte)'\n' && _data[_position] != (byte)'\r')
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)'\n'
+                && _data[_position] != (byte)'\r'
+            )
                 _position++;
             _valueSpan = _data[valStart.._position];
         }
@@ -123,26 +136,42 @@ public ref struct TomlReader
 
     public bool TryGetInt32(out int v)
     {
-        if (_tokenType != TokenType.PropertyName) { v = 0; return false; }
+        if (_tokenType != TokenType.PropertyName)
+        {
+            v = 0;
+            return false;
+        }
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
     public bool TryGetInt64(out long v)
     {
-        if (_tokenType != TokenType.PropertyName) { v = 0; return false; }
+        if (_tokenType != TokenType.PropertyName)
+        {
+            v = 0;
+            return false;
+        }
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
     public bool TryGetBool(out bool v)
     {
-        if (_tokenType != TokenType.PropertyName) { v = false; return false; }
+        if (_tokenType != TokenType.PropertyName)
+        {
+            v = false;
+            return false;
+        }
         v = _valueSpan[0] == (byte)'t';
         return true;
     }
 
     public bool TryGetFloat64(out double v)
     {
-        if (_tokenType != TokenType.PropertyName) { v = 0; return false; }
+        if (_tokenType != TokenType.PropertyName)
+        {
+            v = 0;
+            return false;
+        }
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
@@ -158,9 +187,15 @@ public ref struct TomlReader
 
     private void SkipLine()
     {
-        while (_position < _data.Length && _data[_position] != (byte)'\n' && _data[_position] != (byte)'\r')
+        while (
+            _position < _data.Length
+            && _data[_position] != (byte)'\n'
+            && _data[_position] != (byte)'\r'
+        )
             _position++;
-        if (_position < _data.Length && _data[_position] == (byte)'\r') _position++;
-        if (_position < _data.Length && _data[_position] == (byte)'\n') _position++;
+        if (_position < _data.Length && _data[_position] == (byte)'\r')
+            _position++;
+        if (_position < _data.Length && _data[_position] == (byte)'\n')
+            _position++;
     }
 }

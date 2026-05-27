@@ -61,7 +61,10 @@ public ref struct JsonReader
     /// <summary>Direct position access for optimized generated code (span mode only).</summary>
     public int RawPos => _isSequence ? -1 : _position;
 
-    public void SetRawPos(int pos) { _position = pos; }
+    public void SetRawPos(int pos)
+    {
+        _position = pos;
+    }
 
     public bool Read()
     {
@@ -213,14 +216,32 @@ public ref struct JsonReader
     private bool TryReadNextInt32Span(out int v)
     {
         var len = _data.Length;
-        if (_position >= len) { v = 0; return false; }
-        if (_data[_position] == (byte)',') _position++;
-        if (_position < len && _data[_position] <= 32) SkipWhitespaceSpan();
-        if (_position >= len || _data[_position] is (byte)']' or (byte)'}') { v = 0; return false; }
+        if (_position >= len)
+        {
+            v = 0;
+            return false;
+        }
+        if (_data[_position] == (byte)',')
+            _position++;
+        if (_position < len && _data[_position] <= 32)
+            SkipWhitespaceSpan();
+        if (_position >= len || _data[_position] is (byte)']' or (byte)'}')
+        {
+            v = 0;
+            return false;
+        }
 
         bool neg = false;
-        if (_data[_position] == (byte)'-') { neg = true; _position++; }
-        if (_position >= len || !IsDigit(_data[_position])) { v = 0; return false; }
+        if (_data[_position] == (byte)'-')
+        {
+            neg = true;
+            _position++;
+        }
+        if (_position >= len || !IsDigit(_data[_position]))
+        {
+            v = 0;
+            return false;
+        }
 
         int result = 0;
         do
@@ -235,13 +256,21 @@ public ref struct JsonReader
     private bool TryReadNextInt32Seq(out int v)
     {
         SkipWhitespaceSeq();
-        if (_seqReader.End) { v = 0; return false; }
+        if (_seqReader.End)
+        {
+            v = 0;
+            return false;
+        }
         if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)',')
         {
             _seqReader.Advance(1);
             SkipWhitespaceSeq();
         }
-        if (_seqReader.End) { v = 0; return false; }
+        if (_seqReader.End)
+        {
+            v = 0;
+            return false;
+        }
         if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'-')
             _seqReader.Advance(1);
         var buf = ArrayPool<byte>.Shared.Rent(16);
@@ -292,7 +321,8 @@ public ref struct JsonReader
             {
                 ref readonly var src = ref _data[_position];
                 var chunk = Vector128.LoadUnsafe(in src);
-                var isWs = Vector128.Equals(chunk, spaceVec)
+                var isWs =
+                    Vector128.Equals(chunk, spaceVec)
                     | Vector128.Equals(chunk, tabVec)
                     | Vector128.Equals(chunk, newlineVec)
                     | Vector128.Equals(chunk, crVec);
@@ -612,16 +642,30 @@ public ref struct JsonReader
                         si++;
                         switch (_valueSpan[si])
                         {
-                            case (byte)'"': decoded[di++] = (byte)'"'; break;
-                            case (byte)'\\': decoded[di++] = (byte)'\\'; break;
-                            case (byte)'/': decoded[di++] = (byte)'/'; break;
-                            case (byte)'n': decoded[di++] = (byte)'\n'; break;
-                            case (byte)'r': decoded[di++] = (byte)'\r'; break;
-                            case (byte)'t': decoded[di++] = (byte)'\t'; break;
+                            case (byte)'"':
+                                decoded[di++] = (byte)'"';
+                                break;
+                            case (byte)'\\':
+                                decoded[di++] = (byte)'\\';
+                                break;
+                            case (byte)'/':
+                                decoded[di++] = (byte)'/';
+                                break;
+                            case (byte)'n':
+                                decoded[di++] = (byte)'\n';
+                                break;
+                            case (byte)'r':
+                                decoded[di++] = (byte)'\r';
+                                break;
+                            case (byte)'t':
+                                decoded[di++] = (byte)'\t';
+                                break;
                             case (byte)'u':
                                 si = ReadUnicodeEscapeSpan(decoded, ref di, si);
                                 break;
-                            default: decoded[di++] = _valueSpan[si]; break;
+                            default:
+                                decoded[di++] = _valueSpan[si];
+                                break;
                         }
                     }
                     else

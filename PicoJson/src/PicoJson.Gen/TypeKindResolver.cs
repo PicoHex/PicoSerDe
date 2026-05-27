@@ -55,12 +55,15 @@ internal static class TypeKindResolver
         {
             var roName = ntsRoList.Name;
             var roNs = ntsRoList.ContainingNamespace?.ToDisplayString() ?? "";
-            if ((roName is "IReadOnlyList" or "IReadOnlyCollection" or "IEnumerable")
-                && roNs == "System.Collections.Generic")
+            if (
+                (roName is "IReadOnlyList" or "IReadOnlyCollection" or "IEnumerable")
+                && roNs == "System.Collections.Generic"
+            )
             {
                 var elementType = ntsRoList.TypeArguments[0];
                 var (ek, _, _) = Resolve(elementType);
-                if (ek is null) return (null, false, null);
+                if (ek is null)
+                    return (null, false, null);
                 return ("list", false, null);
             }
         }

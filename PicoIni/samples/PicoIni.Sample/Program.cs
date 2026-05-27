@@ -9,7 +9,12 @@ public class Program
         {
             Title = "My Application",
             Version = 2,
-            Server = new ServerConfig { Host = "prod.example.com", Port = 443, Enabled = true },
+            Server = new ServerConfig
+            {
+                Host = "prod.example.com",
+                Port = 443,
+                Enabled = true
+            },
             Database = new DatabaseConfig
             {
                 ConnectionString = "server=db.internal;database=app",
@@ -28,7 +33,9 @@ public class Program
         Console.WriteLine($"\n=== Round-trip ===");
         Console.WriteLine($"Title: {restored?.Title}");
         Console.WriteLine($"Version: {restored?.Version}");
-        Console.WriteLine($"Server: {restored?.Server.Host}:{restored?.Server.Port} (enabled={restored?.Server.Enabled})");
+        Console.WriteLine(
+            $"Server: {restored?.Server.Host}:{restored?.Server.Port} (enabled={restored?.Server.Enabled})"
+        );
         Console.WriteLine($"DB: {restored?.Database.ConnectionString}");
         Console.WriteLine($"MaxPool: {restored?.Database.MaxPoolSize}");
         Console.WriteLine($"Timeout: {restored?.Database.Timeout}");
@@ -40,7 +47,9 @@ public class Program
         while (r.Read())
         {
             if (r.TokenType == IniTokenType.Key)
-                Console.WriteLine($"  KEY: {Encoding.UTF8.GetString(r.Key)} = {Encoding.UTF8.GetString(r.ValueSpan)}");
+                Console.WriteLine(
+                    $"  KEY: {Encoding.UTF8.GetString(r.Key)} = {Encoding.UTF8.GetString(r.ValueSpan)}"
+                );
             else if (r.TokenType == IniTokenType.SectionStart)
                 Console.WriteLine($"  SECTION: {Encoding.UTF8.GetString(r.SectionName)}");
             else if (r.TokenType == IniTokenType.Comment)
@@ -49,7 +58,8 @@ public class Program
                 Console.WriteLine($"  BLANK");
         }
 
-        var ok = restored?.Title == config.Title
+        var ok =
+            restored?.Title == config.Title
             && restored?.Server.Host == config.Server.Host
             && restored?.Server.Port == config.Server.Port
             && restored?.Tags?.Count == 3;

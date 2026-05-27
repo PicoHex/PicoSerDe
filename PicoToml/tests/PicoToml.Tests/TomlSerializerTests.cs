@@ -1,6 +1,10 @@
 namespace PicoToml.Tests;
 
-public class SimplePoco { public string Name { get; set; } = ""; public int Age { get; set; } }
+public class SimplePoco
+{
+    public string Name { get; set; } = "";
+    public int Age { get; set; }
+}
 
 public class TomlSerializerTests
 {

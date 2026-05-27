@@ -9,6 +9,7 @@ public class SectionAttributedProps
     [IniSection("ServerConfig")]
     public ServerSettings Server { get; set; } = new();
 }
+
 public class ServerSettings
 {
     public string Host { get; set; } = "";
@@ -47,6 +48,7 @@ public class ConverterAttributedModel
 public class TestConverter : IIniConverter<string>
 {
     public void Write(IBufferWriter<byte> writer, string value) { }
+
     public string Read(ReadOnlySpan<byte> value) => "";
 }
 
@@ -62,7 +64,10 @@ public class AttributeTests
     [Test]
     public async Task IniSectionAttribute_CanBeAppliedToClass()
     {
-        var attrs = typeof(SectionAttributedClass).GetCustomAttributes(typeof(IniSectionAttribute), false);
+        var attrs = typeof(SectionAttributedClass).GetCustomAttributes(
+            typeof(IniSectionAttribute),
+            false
+        );
         await Assert.That(attrs).Count().IsEqualTo(1);
         await Assert.That(((IniSectionAttribute)attrs[0]).Name).IsEqualTo("CustomName");
     }
@@ -113,7 +118,10 @@ public class AttributeTests
     [Test]
     public async Task IniCommentAttribute_CanBeAppliedToClass()
     {
-        var attrs = typeof(CommentAttributedClass).GetCustomAttributes(typeof(IniCommentAttribute), false);
+        var attrs = typeof(CommentAttributedClass).GetCustomAttributes(
+            typeof(IniCommentAttribute),
+            false
+        );
         await Assert.That(attrs).Count().IsEqualTo(1);
         await Assert.That(((IniCommentAttribute)attrs[0]).Text).IsEqualTo("Top-level config");
     }

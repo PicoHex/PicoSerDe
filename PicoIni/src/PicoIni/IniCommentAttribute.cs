@@ -6,6 +6,7 @@ public sealed class IniCommentAttribute : Attribute
 {
     /// <summary>The comment text (without the ; or # prefix).</summary>
     public string Text { get; }
+
     /// <param name="text">The comment text.</param>
     public IniCommentAttribute(string text) => Text = text;
 }

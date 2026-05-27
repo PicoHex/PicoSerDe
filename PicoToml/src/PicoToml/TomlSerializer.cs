@@ -42,5 +42,6 @@ public static partial class TomlSerializer
     [System.Diagnostics.CodeAnalysis.DoesNotReturn]
     private static void ThrowNoSerializer<T>() =>
         throw new InvalidOperationException(
-            $"No serializer registered for {typeof(T)}. Ensure PicoToml.Gen is referenced.");
+            $"No serializer registered for {typeof(T)}. Ensure PicoToml.Gen is referenced."
+        );
 }

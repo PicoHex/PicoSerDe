@@ -11,4 +11,14 @@
   <Project Path="PicoIni\tests\PicoIni.Tests\PicoIni.Tests.csproj" />
   <Project Path="PicoIni\benchmarks\PicoIni.Benchmarks\PicoIni.Benchmarks.csproj" />
   <Project Path="PicoIni\samples\PicoIni.Sample\PicoIni.Sample.csproj" />
+  <Project Path="PicoToml\src\PicoToml\PicoToml.csproj" />
+  <Project Path="PicoToml\src\PicoToml.Gen\PicoToml.Gen.csproj" />
+  <Project Path="PicoToml\tests\PicoToml.Tests\PicoToml.Tests.csproj" />
+  <Project Path="PicoToml\samples\PicoToml.Sample\PicoToml.Sample.csproj" />
+  <Project Path="PicoToml\benchmarks\PicoToml.Benchmarks\PicoToml.Benchmarks.csproj" />
+  <Project Path="PicoYaml\src\PicoYaml\PicoYaml.csproj" />
+  <Project Path="PicoYaml\src\PicoYaml.Gen\PicoYaml.Gen.csproj" />
+  <Project Path="PicoYaml\tests\PicoYaml.Tests\PicoYaml.Tests.csproj" />
+  <Project Path="PicoYaml\samples\PicoYaml.Sample\PicoYaml.Sample.csproj" />
+  <Project Path="PicoYaml\benchmarks\PicoYaml.Benchmarks\PicoYaml.Benchmarks.csproj" />
 </Solution>

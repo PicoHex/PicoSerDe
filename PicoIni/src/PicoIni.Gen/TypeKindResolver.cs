@@ -7,42 +7,59 @@ internal static class TypeKindResolver
         bool isNullable = false;
         ITypeSymbol innerType = type;
 
-        if (type is INamedTypeSymbol { IsGenericType: true } nts
-            && nts.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T)
+        if (
+            type is INamedTypeSymbol { IsGenericType: true } nts
+            && nts.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T
+        )
         {
             isNullable = true;
             innerType = nts.TypeArguments[0];
             type = innerType;
         }
 
-        if (type.SpecialType == SpecialType.System_String) return ("string", isNullable, innerType);
-        if (type.SpecialType == SpecialType.System_Int32) return ("int32", isNullable, innerType);
-        if (type.SpecialType == SpecialType.System_Int64) return ("int64", isNullable, innerType);
-        if (type.SpecialType == SpecialType.System_Double) return ("float64", isNullable, innerType);
-        if (type.SpecialType == SpecialType.System_Boolean) return ("boolean", isNullable, innerType);
-        if (type.SpecialType == SpecialType.System_Decimal) return ("decimal", isNullable, innerType);
+        if (type.SpecialType == SpecialType.System_String)
+            return ("string", isNullable, innerType);
+        if (type.SpecialType == SpecialType.System_Int32)
+            return ("int32", isNullable, innerType);
+        if (type.SpecialType == SpecialType.System_Int64)
+            return ("int64", isNullable, innerType);
+        if (type.SpecialType == SpecialType.System_Double)
+            return ("float64", isNullable, innerType);
+        if (type.SpecialType == SpecialType.System_Boolean)
+            return ("boolean", isNullable, innerType);
+        if (type.SpecialType == SpecialType.System_Decimal)
+            return ("decimal", isNullable, innerType);
 
-        if (IsSystemType(type, "DateTime")) return ("datetime", isNullable, innerType);
-        if (IsSystemType(type, "DateOnly")) return ("dateonly", isNullable, innerType);
-        if (IsSystemType(type, "TimeOnly")) return ("timeonly", isNullable, innerType);
-        if (IsSystemType(type, "TimeSpan")) return ("timespan", isNullable, innerType);
-        if (IsSystemType(type, "Guid")) return ("guid", isNullable, innerType);
+        if (IsSystemType(type, "DateTime"))
+            return ("datetime", isNullable, innerType);
+        if (IsSystemType(type, "DateOnly"))
+            return ("dateonly", isNullable, innerType);
+        if (IsSystemType(type, "TimeOnly"))
+            return ("timeonly", isNullable, innerType);
+        if (IsSystemType(type, "TimeSpan"))
+            return ("timespan", isNullable, innerType);
+        if (IsSystemType(type, "Guid"))
+            return ("guid", isNullable, innerType);
 
-        if (type.TypeKind == TypeKind.Enum) return ("enum", isNullable, innerType);
+        if (type.TypeKind == TypeKind.Enum)
+            return ("enum", isNullable, innerType);
 
-        if (type is IArrayTypeSymbol) return ("array", isNullable, innerType);
+        if (type is IArrayTypeSymbol)
+            return ("array", isNullable, innerType);
 
         if (type is INamedTypeSymbol named)
         {
             if (named.TypeArguments.Length == 1)
             {
                 var typeName = named.ConstructedFrom.ToDisplayString();
-                if (typeName.StartsWith("System.Collections.Generic.List<")
+                if (
+                    typeName.StartsWith("System.Collections.Generic.List<")
                     || typeName.StartsWith("System.Collections.Generic.IList<")
                     || typeName.StartsWith("System.Collections.Generic.ICollection<")
                     || typeName.StartsWith("System.Collections.Generic.IEnumerable<")
                     || typeName.StartsWith("System.Collections.Generic.IReadOnlyList<")
-                    || typeName.StartsWith("System.Collections.Generic.IReadOnlyCollection<"))
+                    || typeName.StartsWith("System.Collections.Generic.IReadOnlyCollection<")
+                )
                     return ("list", isNullable, innerType);
             }
             if (named.TypeArguments.Length == 2)

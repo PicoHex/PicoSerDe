@@ -7,10 +7,25 @@ public class FuzzingTests
     {
         var inputs = new[]
         {
-            "null", "true", "false", "42", "-17", "3.14", "1.5e10", "-2.0E-3",
-            "\"hello\"", "\"\"", "\"escaped\\nstring\"", "\"unicode\\u0041\"",
-            "{}", "{\"a\":1}", "{\"a\":1,\"b\":\"x\"}", "[]", "[1,2,3]",
-            "[true, false, null]", "{\"nested\":{\"deep\":[1,2]}}",
+            "null",
+            "true",
+            "false",
+            "42",
+            "-17",
+            "3.14",
+            "1.5e10",
+            "-2.0E-3",
+            "\"hello\"",
+            "\"\"",
+            "\"escaped\\nstring\"",
+            "\"unicode\\u0041\"",
+            "{}",
+            "{\"a\":1}",
+            "{\"a\":1,\"b\":\"x\"}",
+            "[]",
+            "[1,2,3]",
+            "[true, false, null]",
+            "{\"nested\":{\"deep\":[1,2]}}",
             "{\"a\":[],\"b\":{}}"
         };
         foreach (var input in inputs)
@@ -30,8 +45,13 @@ public class FuzzingTests
     {
         var inputs = new[]
         {
-            "{broken", "{1:2}",
-            "\"unterminated", "tru", "fals", "nul", "\"\\u00ZZ\""
+            "{broken",
+            "{1:2}",
+            "\"unterminated",
+            "tru",
+            "fals",
+            "nul",
+            "\"\\u00ZZ\""
         };
         foreach (var input in inputs)
         {
@@ -40,7 +60,10 @@ public class FuzzingTests
                 var r = new JsonReader(Encoding.UTF8.GetBytes(input));
                 while (r.Read()) { }
             }
-            catch (FormatException) { continue; }
+            catch (FormatException)
+            {
+                continue;
+            }
             throw new Exception($"Expected FormatException for input: {input}");
         }
         await Assert.That(true).IsTrue();
@@ -77,13 +100,14 @@ public class FuzzingTests
         };
     }
 
-    private static string GetRandomValue(Random rng) => rng.Next(6) switch
-    {
-        0 => "\"string\"",
-        1 => rng.Next(1000).ToString(),
-        2 => rng.NextDouble().ToString("F2"),
-        3 => "true",
-        4 => "false",
-        _ => "null"
-    };
+    private static string GetRandomValue(Random rng) =>
+        rng.Next(6) switch
+        {
+            0 => "\"string\"",
+            1 => rng.Next(1000).ToString(),
+            2 => rng.NextDouble().ToString("F2"),
+            3 => "true",
+            4 => "false",
+            _ => "null"
+        };
 }

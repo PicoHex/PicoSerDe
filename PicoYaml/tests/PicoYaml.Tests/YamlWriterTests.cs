@@ -26,8 +26,7 @@ public class YamlWriterTests
         w.WriteNumber(8080);
         w.WriteEndMapping();
         var result = Encoding.UTF8.GetString(buf.WrittenSpan);
-        await Assert.That(result).IsEqualTo(
-            "server:\n  host: localhost\n  port: 8080\n");
+        await Assert.That(result).IsEqualTo("server:\n  host: localhost\n  port: 8080\n");
     }
 
     [Test]

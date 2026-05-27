@@ -40,16 +40,23 @@ public class IniSerializerTests
                     if (reader.Key.SequenceEqual("Title"u8))
                         cfg.Title = Encoding.UTF8.GetString(reader.ValueSpan);
                 }
-                else if (reader.TokenType == IniTokenType.SectionStart && reader.SectionNameEquals("Server"))
+                else if (
+                    reader.TokenType == IniTokenType.SectionStart
+                    && reader.SectionNameEquals("Server")
+                )
                 {
                     cfg.Server = new ServerConfig();
                     while (reader.Read() && reader.TokenType != IniTokenType.SectionStart)
                     {
-                        if (reader.TokenType != IniTokenType.Key) continue;
+                        if (reader.TokenType != IniTokenType.Key)
+                            continue;
                         if (reader.Key.SequenceEqual("Host"u8))
                             cfg.Server.Host = Encoding.UTF8.GetString(reader.ValueSpan);
                         else if (reader.Key.SequenceEqual("Port"u8))
-                        { reader.TryGetInt32(out var p); cfg.Server.Port = p; }
+                        {
+                            reader.TryGetInt32(out var p);
+                            cfg.Server.Port = p;
+                        }
                     }
                 }
             }
@@ -60,7 +67,11 @@ public class IniSerializerTests
     [Test]
     public async Task Manual_RoundTrip_Works()
     {
-        var config = new AppConfig { Title = "MyApp", Server = new ServerConfig { Host = "localhost", Port = 8080 } };
+        var config = new AppConfig
+        {
+            Title = "MyApp",
+            Server = new ServerConfig { Host = "localhost", Port = 8080 }
+        };
         var ser = new AppConfigIniSerializer();
         var deser = new AppConfigIniDeserializer();
         var buf = new ArrayBufferWriter<byte>(256);
@@ -75,7 +86,11 @@ public class IniSerializerTests
     public async Task SerializeToUtf8Bytes_ProducesValidIni()
     {
         IniSerializer.Register(new AppConfigIniSerializer(), new AppConfigIniDeserializer());
-        var config = new AppConfig { Title = "Test", Server = new ServerConfig { Host = "h", Port = 1 } };
+        var config = new AppConfig
+        {
+            Title = "Test",
+            Server = new ServerConfig { Host = "h", Port = 1 }
+        };
         var bytes = IniSerializer.SerializeToUtf8Bytes(config);
         var ini = Encoding.UTF8.GetString(bytes);
         await Assert.That(ini).Contains("Title = Test");
@@ -86,7 +101,11 @@ public class IniSerializerTests
     [Test]
     public async Task GeneratedSerializer_RoundTrip()
     {
-        var config = new AppConfig { Title = "MyApp", Server = new ServerConfig { Host = "localhost", Port = 8080 } };
+        var config = new AppConfig
+        {
+            Title = "MyApp",
+            Server = new ServerConfig { Host = "localhost", Port = 8080 }
+        };
         var ini = IniSerializer.Serialize(config);
         var bytes = Encoding.UTF8.GetBytes(ini);
         var result = IniSerializer.Deserialize<AppConfig>(bytes);

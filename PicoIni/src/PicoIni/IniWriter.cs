@@ -171,7 +171,8 @@ public ref struct IniWriter
 
     private static bool NeedsQuoting(ReadOnlySpan<byte> utf8)
     {
-        if (utf8.IsEmpty) return false;
+        if (utf8.IsEmpty)
+            return false;
         for (int i = 0; i < utf8.Length; i++)
         {
             var b = utf8[i];
