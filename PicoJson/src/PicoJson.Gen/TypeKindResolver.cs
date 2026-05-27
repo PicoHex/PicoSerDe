@@ -1,5 +1,3 @@
-using Microsoft.CodeAnalysis;
-
 namespace PicoJson.Gen;
 
 internal static class TypeKindResolver

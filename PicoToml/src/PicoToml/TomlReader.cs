@@ -1,5 +1,3 @@
-using System.Buffers;
-
 namespace PicoToml;
 
 public ref struct TomlReader

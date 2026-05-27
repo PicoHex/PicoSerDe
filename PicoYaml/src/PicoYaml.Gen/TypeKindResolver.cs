@@ -1,5 +1,3 @@
-using Microsoft.CodeAnalysis;
-
 namespace PicoYaml.Gen;
 
 internal static class TypeKindResolver

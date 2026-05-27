@@ -1,5 +1,3 @@
-using Microsoft.CodeAnalysis;
-
 namespace PicoToml.Gen;
 
 internal static class TypeKindResolver
