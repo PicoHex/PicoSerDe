@@ -85,3 +85,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang zlib1g-dev binutils-aarch64-linux-gnu
       - run: dotnet publish PicoJson/samples/PicoJson.Sample/PicoJson.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
+      - run: dotnet publish PicoIni/samples/PicoIni.Sample/PicoIni.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
+      - run: dotnet publish PicoToml/samples/PicoToml.Sample/PicoToml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
+      - run: dotnet publish PicoYaml/samples/PicoYaml.Sample/PicoYaml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained

@@ -125,3 +125,60 @@ public class YamlAttributeTests
         await Assert.That(result.Secret).IsEqualTo("");
     }
 }
+
+[YamlCamelCase]
+public class YamlCamelPoco
+{
+    public string FirstName { get; set; } = "";
+    public int UserAge { get; set; }
+}
+
+public class YamlCamelCaseTests
+{
+    [Test]
+    public async Task YamlCamelCase_Serialize_UsesCamelCaseKeys()
+    {
+        var obj = new YamlCamelPoco { FirstName = "Alice", UserAge = 30 };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(obj);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).Contains("firstName");
+        await Assert.That(text).Contains("userAge");
+        await Assert.That(text).DoesNotContain("FirstName");
+        await Assert.That(text).DoesNotContain("UserAge");
+    }
+
+    [Test]
+    public async Task YamlCamelCase_RoundTrip_Works()
+    {
+        var original = new YamlCamelPoco { FirstName = "Bob", UserAge = 25 };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var result = YamlSerializer.Deserialize<YamlCamelPoco>(bytes);
+
+        await Assert.That(result!.FirstName).IsEqualTo("Bob");
+        await Assert.That(result.UserAge).IsEqualTo(25);
+    }
+}
+
+public class YamlDateTimePoco
+{
+    [YamlDateTimeFormat("yyyy-MM-dd")]
+    public DateTime Date { get; set; }
+}
+
+public class YamlDateTimeFormatTests
+{
+    [Test]
+    public async Task YamlDateTimeFormat_RoundTrip_UsesCustomFormat()
+    {
+        var original = new YamlDateTimePoco { Date = new DateTime(2024, 6, 15) };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).Contains("2024-06-15");
+        await Assert.That(text).DoesNotContain("2024-06-15T");
+
+        var result = YamlSerializer.Deserialize<YamlDateTimePoco>(bytes);
+        await Assert.That(result!.Date).IsEqualTo(new DateTime(2024, 6, 15));
+    }
+}

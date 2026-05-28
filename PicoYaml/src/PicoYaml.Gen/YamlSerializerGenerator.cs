@@ -54,6 +54,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
         if (ns == "<global namespace>")
             ns = "";
+        var useCamelCase = HasYamlCamelCase(nt);
         var props = new List<PropInfo>();
         foreach (var mem in nt.GetMembers())
         {
@@ -71,7 +72,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 k = "string";
             if (k is null)
                 continue;
-            var jsonName = GetYamlKey(p) ?? p.Name;
+            var jsonName = GetYamlKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name);
 
             string? elemTk = null;
             string? elemTf = null;
@@ -123,7 +124,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     nestedProps,
                     keyTk,
                     keyTf,
-                    converterType
+                    converterType,
+                    GetYamlDateTimeFormat(p)
                 )
             );
         }
@@ -174,6 +176,37 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 && attr.ConstructorArguments[0].Value is INamedTypeSymbol nts
             )
                 return nts.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        }
+        return null;
+    }
+
+    private static bool HasYamlCamelCase(INamedTypeSymbol type)
+    {
+        foreach (var attr in type.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "YamlCamelCaseAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoYaml"
+            )
+                return true;
+        }
+        return false;
+    }
+
+    private static string ToCamelCase(string name) =>
+        name.Length > 0 ? char.ToLowerInvariant(name[0]) + name.Substring(1) : name;
+
+    private static string? GetYamlDateTimeFormat(IPropertySymbol p)
+    {
+        foreach (var attr in p.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "YamlDateTimeFormatAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoYaml"
+                && attr.ConstructorArguments.Length >= 1
+                && attr.ConstructorArguments[0].Value is string fmt
+            )
+                return fmt;
         }
         return null;
     }
@@ -500,7 +533,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(ind);
                     s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
                     s.Append(valAccessor);
-                    s.AppendLine(".ToString(\"O\")));");
+                    if (p.DateTimeFormat is not null)
+                    {
+                        s.Append(".ToString(\"");
+                        s.Append(p.DateTimeFormat);
+                        s.Append("\")));");
+                        s.AppendLine();
+                    }
+                    else
+                    {
+                        s.AppendLine(".ToString(\"O\")));");
+                    }
                     break;
                 case "guid":
                 case "enum":
@@ -581,7 +624,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(target);
                     s.Append('.');
                     s.Append(p.Name);
-                    s.AppendLine(".ToString(\"O\")));");
+                    if (p.DateTimeFormat is not null)
+                    {
+                        s.Append(".ToString(\"");
+                        s.Append(p.DateTimeFormat);
+                        s.Append("\")));");
+                        s.AppendLine();
+                    }
+                    else
+                    {
+                        s.AppendLine(".ToString(\"O\")));");
+                    }
                     break;
                 case "guid":
                 case "enum":
@@ -829,9 +882,19 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(pad);
                     s.AppendLine("var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
                     s.Append(pad);
-                    s.AppendLine(
-                        "System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
-                    );
+                    if (p.DateTimeFormat is not null)
+                    {
+                        s.Append("System.DateTime.TryParseExact(__raw, \"");
+                        s.Append(p.DateTimeFormat);
+                        s.Append(
+                            "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __dt);"
+                        );
+                        s.AppendLine();
+                    }
+                    else
+                        s.AppendLine(
+                            "System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                        );
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
@@ -974,6 +1037,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         ImmutableArray<PropInfo> NestedProps = default,
         string? KeyTk = null,
         string? KeyTf = null,
-        string? ConverterType = null
+        string? ConverterType = null,
+        string? DateTimeFormat = null
     );
 }

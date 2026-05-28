@@ -48,6 +48,19 @@ public class ConverterPoco
     public TagWrapper Tag { get; set; } = new();
 }
 
+[TomlCamelCase]
+public class CamelCasePoco
+{
+    public string FirstName { get; set; } = "";
+    public int UserAge { get; set; }
+}
+
+public class DateTimeFormatPoco
+{
+    [TomlDateTimeFormat("yyyy-MM-dd")]
+    public DateTime Date { get; set; }
+}
+
 public class TomlAttributeTests
 {
     [Test]
@@ -66,6 +79,44 @@ public class TomlAttributeTests
         var result = TomlSerializer.Deserialize<ConverterPoco>(bytes);
         await Assert.That(result!.Name).IsEqualTo("Test");
         await Assert.That(result.Tag.Value).IsEqualTo("hello");
+    }
+
+    [Test]
+    public async Task TomlCamelCase_Serialize_UsesCamelCaseKeys()
+    {
+        var obj = new CamelCasePoco { FirstName = "Alice", UserAge = 30 };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(obj);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).Contains("firstName");
+        await Assert.That(text).Contains("userAge");
+        await Assert.That(text).DoesNotContain("FirstName");
+        await Assert.That(text).DoesNotContain("UserAge");
+    }
+
+    [Test]
+    public async Task TomlCamelCase_RoundTrip_Works()
+    {
+        var original = new CamelCasePoco { FirstName = "Bob", UserAge = 25 };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<CamelCasePoco>(bytes);
+
+        await Assert.That(result!.FirstName).IsEqualTo("Bob");
+        await Assert.That(result.UserAge).IsEqualTo(25);
+    }
+
+    [Test]
+    public async Task TomlDateTimeFormat_RoundTrip_UsesCustomFormat()
+    {
+        var original = new DateTimeFormatPoco { Date = new DateTime(2024, 6, 15) };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).Contains("2024-06-15");
+        await Assert.That(text).DoesNotContain("2024-06-15T"); // Not ISO format
+
+        var result = TomlSerializer.Deserialize<DateTimeFormatPoco>(bytes);
+        await Assert.That(result!.Date).IsEqualTo(new DateTime(2024, 6, 15));
     }
 
     [Test]

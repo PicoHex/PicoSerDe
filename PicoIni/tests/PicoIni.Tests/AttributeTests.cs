@@ -149,3 +149,59 @@ public class AttributeTests
         await Assert.That(t.IsInterface).IsTrue();
     }
 }
+
+[IniCamelCase]
+public class CamelCaseIniPoco
+{
+    public string FullName { get; set; } = "";
+    public int UserAge { get; set; }
+}
+
+public class IniCamelCaseTests
+{
+    [Test]
+    public async Task IniCamelCase_Serialize_UsesCamelCaseKeys()
+    {
+        var obj = new CamelCaseIniPoco { FullName = "Alice", UserAge = 30 };
+        var ini = IniSerializer.Serialize(obj);
+
+        await Assert.That(ini).Contains("fullName");
+        await Assert.That(ini).Contains("userAge");
+        await Assert.That(ini).DoesNotContain("FullName");
+        await Assert.That(ini).DoesNotContain("UserAge");
+    }
+
+    [Test]
+    public async Task IniCamelCase_RoundTrip_Works()
+    {
+        var original = new CamelCaseIniPoco { FullName = "Bob", UserAge = 25 };
+        var ini = IniSerializer.Serialize(original);
+        var bytes = Encoding.UTF8.GetBytes(ini);
+        var result = IniSerializer.Deserialize<CamelCaseIniPoco>(bytes);
+
+        await Assert.That(result!.FullName).IsEqualTo("Bob");
+        await Assert.That(result.UserAge).IsEqualTo(25);
+    }
+}
+
+public class IniDateTimeFormatPoco
+{
+    [IniDateTimeFormat("yyyy-MM-dd")]
+    public DateTime Date { get; set; }
+}
+
+public class IniDateTimeFormatTests
+{
+    [Test]
+    public async Task IniDateTimeFormat_RoundTrip_UsesCustomFormat()
+    {
+        var original = new IniDateTimeFormatPoco { Date = new DateTime(2024, 6, 15) };
+        var ini = IniSerializer.Serialize(original);
+        await Assert.That(ini).Contains("2024-06-15");
+        await Assert.That(ini).DoesNotContain("2024-06-15T");
+
+        var bytes = Encoding.UTF8.GetBytes(ini);
+        var result = IniSerializer.Deserialize<IniDateTimeFormatPoco>(bytes);
+        await Assert.That(result!.Date).IsEqualTo(new DateTime(2024, 6, 15));
+    }
+}

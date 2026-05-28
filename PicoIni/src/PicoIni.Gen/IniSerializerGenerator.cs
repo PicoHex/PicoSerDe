@@ -62,6 +62,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
         if (ns == "<global namespace>")
             ns = "";
+        var useCamelCase = HasIniCamelCase(nt);
         var props = new List<PropInfo>();
 
         foreach (var member in nt.GetMembers())
@@ -131,7 +132,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             props.Add(
                 new PropInfo(
                     p.Name,
-                    GetKey(p) ?? p.Name,
+                    GetKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name),
                     kind,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     nullable,
@@ -141,7 +142,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     keyName,
                     GetSection(p),
                     GetConv(p),
-                    nested
+                    nested,
+                    GetIniDateTimeFormat(p)
                 )
             );
         }
@@ -157,6 +159,37 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     private static string? GetKey(IPropertySymbol p) => GetStrAttr(p, "IniKeyAttribute");
 
     private static string? GetSection(IPropertySymbol p) => GetStrAttr(p, "IniSectionAttribute");
+
+    private static bool HasIniCamelCase(INamedTypeSymbol type)
+    {
+        foreach (var attr in type.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "IniCamelCaseAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
+            )
+                return true;
+        }
+        return false;
+    }
+
+    private static string ToCamelCase(string name) =>
+        name.Length > 0 ? char.ToLowerInvariant(name[0]) + name.Substring(1) : name;
+
+    private static string? GetIniDateTimeFormat(IPropertySymbol p)
+    {
+        foreach (var attr in p.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "IniDateTimeFormatAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
+                && attr.ConstructorArguments.Length >= 1
+                && attr.ConstructorArguments[0].Value is string fmt
+            )
+                return fmt;
+        }
+        return null;
+    }
 
     private static string? GetStrAttr(IPropertySymbol p, string attrName)
     {
@@ -450,6 +483,19 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(".ToString(System.Globalization.CultureInfo.InvariantCulture)");
                 break;
             case "datetime":
+                if (p.DateTimeFormat is not null)
+                {
+                    s.Append(acc);
+                    s.Append(".ToString(\"");
+                    s.Append(p.DateTimeFormat);
+                    s.Append("\")");
+                }
+                else
+                {
+                    s.Append(acc);
+                    s.Append(".ToString(\"O\")");
+                }
+                break;
             case "dateonly":
             case "timeonly":
                 s.Append(acc);
@@ -547,10 +593,24 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 );
                 break;
             case "datetime":
-                s.Append(pad);
-                s.AppendLine(
-                    "System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out DateTime __v, out _);"
-                );
+                if (p.DateTimeFormat is not null)
+                {
+                    s.Append(pad);
+                    s.AppendLine("var __dtStr = Encoding.UTF8.GetString(reader.ValueSpan);");
+                    s.Append(pad);
+                    s.Append("System.DateTime.TryParseExact(__dtStr, \"");
+                    s.Append(p.DateTimeFormat);
+                    s.AppendLine(
+                        "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime __v);"
+                    );
+                }
+                else
+                {
+                    s.Append(pad);
+                    s.AppendLine(
+                        "System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out DateTime __v, out _);"
+                    );
+                }
                 s.Append(pad);
                 s.Append(target);
                 s.Append('.');
@@ -674,5 +734,6 @@ internal readonly record struct PropInfo(
     string? KeyTypeName,
     string? SectionName,
     string? ConverterTypeFullName,
-    ImmutableArray<PropInfo> NestedProperties
+    ImmutableArray<PropInfo> NestedProperties,
+    string? DateTimeFormat = null
 );

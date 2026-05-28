@@ -55,6 +55,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
         if (ns == "<global namespace>")
             ns = "";
+        var useCamelCase = HasTomlCamelCase(nt);
         var props = new List<PropInfo>();
         foreach (var member in nt.GetMembers())
         {
@@ -77,7 +78,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 k = "string";
             if (k is null)
                 continue;
-            var jsonName = GetTomlKey(p) ?? p.Name;
+            var jsonName = GetTomlKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name);
 
             string? elemTk = null;
             string? elemTf = null;
@@ -129,7 +130,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     nestedProps,
                     keyTk,
                     keyTf,
-                    converterType
+                    converterType,
+                    GetTomlDateTimeFormat(p)
                 )
             );
         }
@@ -189,6 +191,37 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                         .TypeArguments[0]
                         .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             }
+        }
+        return null;
+    }
+
+    private static bool HasTomlCamelCase(INamedTypeSymbol type)
+    {
+        foreach (var attr in type.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "TomlCamelCaseAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
+            )
+                return true;
+        }
+        return false;
+    }
+
+    private static string ToCamelCase(string name) =>
+        name.Length > 0 ? char.ToLowerInvariant(name[0]) + name.Substring(1) : name;
+
+    private static string? GetTomlDateTimeFormat(IPropertySymbol p)
+    {
+        foreach (var attr in p.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "TomlDateTimeFormatAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
+                && attr.ConstructorArguments.Length >= 1
+                && attr.ConstructorArguments[0].Value is string fmt
+            )
+                return fmt;
         }
         return null;
     }
@@ -588,7 +621,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             case "datetime":
                 s.Append(accessor);
-                s.Append(".ToString(\"O\")");
+                if (p.DateTimeFormat is not null)
+                {
+                    s.Append(".ToString(\"");
+                    s.Append(p.DateTimeFormat);
+                    s.Append("\")");
+                }
+                else
+                    s.Append(".ToString(\"O\")");
                 break;
             case "dateonly":
                 s.Append(accessor);
@@ -743,9 +783,19 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append(pad);
                     s.AppendLine("var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
                     s.Append(pad);
-                    s.AppendLine(
-                        "System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
-                    );
+                    if (p.DateTimeFormat is not null)
+                    {
+                        s.Append("System.DateTime.TryParseExact(__raw, \"");
+                        s.Append(p.DateTimeFormat);
+                        s.Append(
+                            "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __dt);"
+                        );
+                    }
+                    else
+                        s.AppendLine(
+                            "System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                        );
+                    s.AppendLine();
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
@@ -931,6 +981,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         ImmutableArray<PropInfo> NestedProps,
         string? KeyTk,
         string? KeyTf,
-        string? ConverterType = null
+        string? ConverterType = null,
+        string? DateTimeFormat = null
     );
 }
