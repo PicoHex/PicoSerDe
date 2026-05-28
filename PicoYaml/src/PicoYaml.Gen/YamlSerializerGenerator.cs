@@ -686,7 +686,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(pad);
             s.Append("var __tmpList = new System.Collections.Generic.List<");
             s.Append(p.ElemTf ?? "object");
-            s.AppendLine(">();");
+            s.AppendLine(">(16);");
             s.Append(pad);
             s.AppendLine("while (r.Read() && r.TokenType == TokenType.String) {");
             EmitDeserializeListElementTemp(s, p, pad + "    ");

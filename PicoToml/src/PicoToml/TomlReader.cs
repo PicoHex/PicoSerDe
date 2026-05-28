@@ -23,6 +23,8 @@ public ref struct TomlReader
     private int _inlineTableDepth;
     private bool _inlineStartEmitted;
     private byte[]? _rentedBuffer;
+    private int _depth;
+    private readonly int _maxDepth;
 
     public TomlReader(ReadOnlySpan<byte> data)
     {
@@ -42,6 +44,8 @@ public ref struct TomlReader
         _inlineTableDepth = 0;
         _inlineStartEmitted = false;
         _rentedBuffer = null;
+        _depth = 0;
+        _maxDepth = 256;
     }
 
     public TomlReader(ReadOnlySequence<byte> data)
@@ -62,6 +66,8 @@ public ref struct TomlReader
         _inlineTableDepth = 0;
         _inlineStartEmitted = false;
         _rentedBuffer = null;
+        _depth = 0;
+        _maxDepth = 256;
     }
 
     public TokenType TokenType => _tokenType;
@@ -69,6 +75,8 @@ public ref struct TomlReader
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
     public ReadOnlySpan<byte> TablePath => _tablePath;
     public bool IsArrayTable => _isArrayTable;
+    public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
+    public int Depth => _depth;
 
     public bool Read() => _isSequence ? ReadSeq() : ReadSpan();
 
@@ -205,6 +213,10 @@ public ref struct TomlReader
         if (_isArrayTable && _position < _data.Length && _data[_position] == (byte)']')
             _position++;
         SkipLineSpan();
+        if (++_depth >= _maxDepth)
+            throw new FormatException(
+                $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
+            );
         _tokenType = _isArrayTable ? TokenType.ArrayStart : TokenType.ObjectStart;
         return true;
     }
@@ -542,6 +554,10 @@ public ref struct TomlReader
         )
             _seqReader.Advance(1);
         SkipLineSeq();
+        if (++_depth >= _maxDepth)
+            throw new FormatException(
+                $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
+            );
         _tokenType = _isArrayTable ? TokenType.ArrayStart : TokenType.ObjectStart;
         return true;
     }

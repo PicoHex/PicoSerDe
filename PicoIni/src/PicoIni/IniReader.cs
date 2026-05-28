@@ -46,6 +46,7 @@ public ref struct IniReader
     public ReadOnlySpan<byte> Key => _key;
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
     public ReadOnlySpan<byte> CommentText => _commentText;
+    public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
 
     public bool Read()
     {
@@ -118,6 +119,24 @@ public ref struct IniReader
             return true;
         }
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
+    }
+
+    public void Skip()
+    {
+        // INI has no nested structures; skip just consumes current token
+    }
+
+    public bool TrySkip()
+    {
+        try
+        {
+            Skip();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public void Dispose()

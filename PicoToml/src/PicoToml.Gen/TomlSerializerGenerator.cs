@@ -707,7 +707,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(pad);
             s.Append("var __tmpList = new System.Collections.Generic.List<");
             s.Append(p.ElemTf ?? "object");
-            s.AppendLine(">();");
+            s.AppendLine(">(16);");
             // Read array tokens
             s.Append(pad);
             s.AppendLine("if (r.Read() && r.TokenType == TokenType.ArrayStart)");

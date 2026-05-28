@@ -15,6 +15,7 @@ public ref struct YamlReader
     private ReadOnlySpan<byte> _keySpan;
     private ReadOnlySpan<byte> _valueSpan;
     private int _depth;
+    private readonly int _maxDepth;
     private int[] _indentStack;
     private int _stackCount;
     private bool _inFlow;
@@ -36,6 +37,7 @@ public ref struct YamlReader
         _inFlow = false;
         _flowStartEmitted = false;
         _rentedBuffer = null;
+        _maxDepth = 256;
     }
 
     public YamlReader(ReadOnlySequence<byte> data)
@@ -53,12 +55,14 @@ public ref struct YamlReader
         _inFlow = false;
         _flowStartEmitted = false;
         _rentedBuffer = null;
+        _maxDepth = 256;
     }
 
     public TokenType TokenType => _tokenType;
     public ReadOnlySpan<byte> KeySpan => _keySpan;
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
     public int Depth => _depth;
+    public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
 
     public bool Read() => _isSequence ? ReadSeq() : ReadSpan();
 
@@ -187,6 +191,8 @@ public ref struct YamlReader
             _position = lineStart;
             PushIndent(0);
             PushIndent(lineIndent);
+            if (_depth >= _maxDepth)
+                throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
             _tokenType = TokenType.ObjectStart;
             _depth++;
             return true;
@@ -203,6 +209,8 @@ public ref struct YamlReader
         {
             _position = lineStart;
             PushIndent(lineIndent);
+            if (_depth >= _maxDepth)
+                throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
             _tokenType = TokenType.ObjectStart;
             _depth++;
             return true;
@@ -410,6 +418,8 @@ public ref struct YamlReader
         {
             PushIndent(0);
             PushIndent(lineIndent);
+            if (_depth >= _maxDepth)
+                throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
             _tokenType = TokenType.ObjectStart;
             _depth++;
             return true;
@@ -424,6 +434,8 @@ public ref struct YamlReader
         if (_stackCount > 0 && lineIndent > _indentStack[_stackCount - 1])
         {
             PushIndent(lineIndent);
+            if (_depth >= _maxDepth)
+                throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
             _tokenType = TokenType.ObjectStart;
             _depth++;
             return true;

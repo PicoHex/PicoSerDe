@@ -665,7 +665,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(p.Name);
                 s.Append(" ??= new System.Collections.Generic.List<");
                 s.Append(p.ElementTypeName);
-                s.AppendLine(">();");
+                s.AppendLine(">(16);");
                 s.Append(pad);
                 s.Append(
                     "foreach (var __s in Encoding.UTF8.GetString(reader.ValueSpan).Split(',')) "
