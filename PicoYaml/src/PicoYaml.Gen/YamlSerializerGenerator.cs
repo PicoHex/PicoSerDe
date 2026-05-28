@@ -69,6 +69,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
             string? elemTk = null;
             string? elemTf = null;
+            string? keyTk = null;
+            string? keyTf = null;
+            ImmutableArray<PropInfo> nestedProps = default;
             if (k is "list" or "array")
             {
                 if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
@@ -86,6 +89,21 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     elemTf = TypeKindResolver.MapTypeName(ek ?? "string", et);
                 }
             }
+            else if (k is "object" && p.Type is INamedTypeSymbol objNts)
+            {
+                nestedProps = ExtractNested(objNts);
+            }
+            else if (k is "dict" && p.Type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2)
+            {
+                var kt = nd.TypeArguments[0];
+                var vt = nd.TypeArguments[1];
+                var (ktk, _, _) = TypeKindResolver.Resolve(kt);
+                var (vtk, _, _) = TypeKindResolver.Resolve(vt);
+                keyTk = ktk;
+                keyTf = TypeKindResolver.MapTypeName(ktk ?? "string", kt);
+                elemTk = vtk;
+                elemTf = TypeKindResolver.MapTypeName(vtk ?? "string", vt);
+            }
 
             props.Add(
                 new PropInfo(
@@ -95,7 +113,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     elemTk,
                     elemTf,
-                    isNullable
+                    isNullable,
+                    nestedProps,
+                    keyTk,
+                    keyTf
                 )
             );
         }
@@ -105,6 +126,33 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             nt.Name,
             props.ToImmutableArray()
         );
+    }
+
+    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol type)
+    {
+        var list = new List<PropInfo>();
+        foreach (var m in type.GetMembers())
+        {
+            if (m is not IPropertySymbol p) continue;
+            if (p.DeclaredAccessibility != Accessibility.Public || p.IsStatic || p.IsIndexer) continue;
+            if (p.GetMethod is null || (p.IsReadOnly && p.SetMethod is null)) continue;
+            var (k, isNullable, _) = TypeKindResolver.Resolve(p.Type);
+            if (k is null) continue;
+            string? ekt = null, etf = null;
+            ImmutableArray<PropInfo> np2 = default;
+            if (k is "list" or "array")
+            {
+                if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
+                { var et = nts.TypeArguments[0]; var (ek, _, _) = TypeKindResolver.Resolve(et); ekt = ek; etf = TypeKindResolver.MapTypeName(ek ?? "string", et); }
+                else if (p.Type is IArrayTypeSymbol ats)
+                { var et = ats.ElementType; var (ek, _, _) = TypeKindResolver.Resolve(et); ekt = ek; etf = TypeKindResolver.MapTypeName(ek ?? "string", et); }
+            }
+            else if (k is "object" && p.Type is INamedTypeSymbol o2) { np2 = ExtractNested(o2); }
+            list.Add(new PropInfo(p.Name, p.Name, k,
+                p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                ekt, etf, isNullable));
+        }
+        return list.ToImmutableArray();
     }
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> ts)
@@ -218,6 +266,84 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             EmitSerializeListElement(s, p, ind + "    ");
             s.Append(ind);
             s.AppendLine("}");
+        }
+        else if (p.Tk is "object")
+        {
+            s.Append(ind);
+            s.Append("yw.WritePropertyName(\"");
+            s.Append(p.Jn);
+            s.AppendLine("\"u8);");
+            s.Append(ind);
+            s.AppendLine("yw.WriteStartMapping();");
+            foreach (var np in p.NestedProps)
+            {
+                s.Append(ind);
+                s.Append("yw.WritePropertyName(\"");
+                s.Append(np.Jn);
+                s.AppendLine("\"u8);");
+                switch (np.Tk)
+                {
+                    case "string":
+                        s.Append(ind);
+                        s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                        s.Append(target);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.Append('.');
+                        s.Append(np.Name);
+                        s.AppendLine("));");
+                        break;
+                    case "int32":
+                        s.Append(ind);
+                        s.Append("yw.WriteNumber(");
+                        s.Append(target);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.Append('.');
+                        s.Append(np.Name);
+                        s.AppendLine(");");
+                        break;
+                    default:
+                        s.Append(ind);
+                        s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                        s.Append(target);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.Append('.');
+                        s.Append(np.Name);
+                        s.AppendLine(".ToString()));");
+                        break;
+                }
+            }
+            s.Append(ind);
+            s.AppendLine("yw.WriteEndMapping();");
+        }
+        else if (p.Tk is "dict")
+        {
+            s.Append(ind);
+            s.Append("yw.WritePropertyName(\"");
+            s.Append(p.Jn);
+            s.AppendLine("\"u8);");
+            s.Append(ind);
+            s.AppendLine("yw.WriteStartMapping();");
+            s.Append(ind);
+            s.Append("foreach (var __kvp in ");
+            s.Append(target);
+            s.Append('.');
+            s.Append(p.Name);
+            s.AppendLine(")");
+            s.Append(ind);
+            s.AppendLine("{");
+            s.Append(ind);
+            s.AppendLine("    yw.WritePropertyName(Encoding.UTF8.GetBytes(__kvp.Key));");
+            if (p.ElemTk == "int32")
+                { s.Append(ind); s.AppendLine("    yw.WriteNumber(__kvp.Value);"); }
+            else
+                { s.Append(ind); s.AppendLine("    yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));"); }
+            s.Append(ind);
+            s.AppendLine("}");
+            s.Append(ind);
+            s.AppendLine("yw.WriteEndMapping();");
         }
         else if (p.IsNullable)
         {
@@ -414,6 +540,114 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(pad);
             s.AppendLine("}");
         }
+        else if (p.Tk is "object" && p.NestedProps.Length > 0)
+        {
+            s.Append(pad);
+            s.Append(tgt);
+            s.Append('.');
+            s.Append(p.Name);
+            s.Append(" = new ");
+            s.Append(p.Tf);
+            s.AppendLine("();");
+            s.Append(pad);
+            s.AppendLine("if (r.Read() && r.TokenType == TokenType.ObjectStart) {");
+            s.Append(pad);
+            s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName) {");
+            s.Append(pad);
+            s.AppendLine("        var nk = r.KeySpan;");
+            for (int j = 0; j < p.NestedProps.Length; j++)
+            {
+                var np = p.NestedProps[j];
+                s.Append(pad);
+                s.Append(j == 0 ? "        if" : "        else if");
+                s.Append(" (__Y.Eq(nk, \"");
+                s.Append(np.Jn);
+                s.AppendLine("\"u8)) {");
+                switch (np.Tk)
+                {
+                    case "string":
+                        s.Append(pad);
+                        s.Append("            ");
+                        s.Append(tgt);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.Append('.');
+                        s.Append(np.Name);
+                        s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                        break;
+                    case "int32":
+                        s.Append(pad);
+                        s.AppendLine("            r.TryGetInt32(out var __nv);");
+                        s.Append(pad);
+                        s.Append("            ");
+                        s.Append(tgt);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.Append('.');
+                        s.Append(np.Name);
+                        s.AppendLine(" = __nv;");
+                        break;
+                    default:
+                        s.Append(pad);
+                        s.Append("            ");
+                        s.Append(tgt);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.Append('.');
+                        s.Append(np.Name);
+                        s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                        break;
+                }
+                s.Append(pad);
+                s.AppendLine("        }");
+            }
+            s.Append(pad);
+            s.AppendLine("    }");
+            s.Append(pad);
+            s.AppendLine("} // exits at ObjectEnd");
+        }
+        else if (p.Tk is "dict")
+        {
+            s.Append(pad);
+            s.Append(tgt);
+            s.Append('.');
+            s.Append(p.Name);
+            s.Append(" ??= new System.Collections.Generic.Dictionary<");
+            s.Append(p.KeyTf ?? "string");
+            s.Append(", ");
+            s.Append(p.ElemTf ?? "int");
+            s.AppendLine(">();");
+            s.Append(pad);
+            s.AppendLine("if (r.Read() && r.TokenType == TokenType.ObjectStart) {");
+            s.Append(pad);
+            s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName) {");
+            s.Append(pad);
+            s.AppendLine("        var __dk = Encoding.UTF8.GetString(r.KeySpan);");
+            if (p.ElemTk == "int32")
+            {
+                s.Append(pad);
+                s.AppendLine("        r.TryGetInt32(out var __dv);");
+                s.Append(pad);
+                s.Append("        ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine("[__dk] = __dv;");
+            }
+            else
+            {
+                s.Append(pad);
+                s.Append("        ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine("[__dk] = Encoding.UTF8.GetString(r.ValueSpan);");
+            }
+            s.Append(pad);
+            s.AppendLine("    }");
+            s.Append(pad);
+            s.AppendLine("} // exits at ObjectEnd");
+        }
         else
         {
             switch (p.Tk)
@@ -537,6 +771,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         string Tf,
         string? ElemTk,
         string? ElemTf,
-        bool IsNullable
+        bool IsNullable,
+        ImmutableArray<PropInfo> NestedProps = default,
+        string? KeyTk = null,
+        string? KeyTf = null
     );
 }

@@ -32,6 +32,24 @@ public class GuidPoco
     public Guid Id { get; set; }
 }
 
+public class Address
+{
+    public string Street { get; set; } = "";
+    public string City { get; set; } = "";
+}
+
+public class NestedPoco
+{
+    public string Name { get; set; } = "";
+    public Address Address { get; set; } = new();
+}
+
+public class DictPoco
+{
+    public string Name { get; set; } = "";
+    public Dictionary<string, int> Scores { get; set; } = new();
+}
+
 public class TomlSerializerTests
 {
     [Test]
@@ -133,5 +151,37 @@ public class TomlSerializerTests
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<GuidPoco>(bytes);
         await Assert.That(result!.Id).IsEqualTo(g);
+    }
+
+    [Test]
+    public async Task RoundTrip_NestedObject()
+    {
+        var original = new NestedPoco
+        {
+            Name = "Home",
+            Address = new Address { Street = "123 Main", City = "NYC" }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<NestedPoco>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Home");
+        await Assert.That(result.Address).IsNotNull();
+        await Assert.That(result.Address.Street).IsEqualTo("123 Main");
+        await Assert.That(result.Address.City).IsEqualTo("NYC");
+    }
+
+    [Test]
+    public async Task RoundTrip_Dictionary()
+    {
+        var original = new DictPoco
+        {
+            Name = "D",
+            Scores = new Dictionary<string, int> { ["alice"] = 10, ["bob"] = 20 }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<DictPoco>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("D");
+        await Assert.That(result.Scores.Count).IsEqualTo(2);
+        await Assert.That(result.Scores["alice"]).IsEqualTo(10);
+        await Assert.That(result.Scores["bob"]).IsEqualTo(20);
     }
 }

@@ -36,6 +36,11 @@ internal static class TypeKindResolver
         };
         if (kk is null && type is INamedTypeSymbol { TypeKind: TypeKind.Enum })
             kk = "enum";
+        if (kk is null && type is INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" })
+            kk = "guid";
+        if (kk is null && type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2
+            && nd.Name == "Dictionary" && nd.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic")
+            kk = "dict";
         if (
             kk is null
             && type is INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" }

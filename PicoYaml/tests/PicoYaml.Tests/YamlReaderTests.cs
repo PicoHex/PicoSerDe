@@ -114,4 +114,23 @@ public class YamlReaderTests
         await Assert.That(ok).IsTrue();
         await Assert.That(v).IsEqualTo(9999999999L);
     }
+
+    [Test]
+    public async Task FlowMapping_ParsesInline()
+    {
+        var r = new YamlReader("point: {x: 1, y: 2}\n"u8);
+        var tokens = new List<(TokenType Type, string? Key, string? Value)>();
+        while (r.Read())
+        {
+            var v = r.ValueSpan.Length > 0 ? Encoding.UTF8.GetString(r.ValueSpan) : null;
+            var k = r.KeySpan.Length > 0 ? Encoding.UTF8.GetString(r.KeySpan) : null;
+            tokens.Add((r.TokenType, k, v));
+        }
+        await Assert.That(tokens.Count).IsGreaterThanOrEqualTo(3);
+        await Assert.That(tokens[0].Type).IsEqualTo(TokenType.PropertyName);
+        await Assert.That(tokens[0].Key).IsEqualTo("point");
+        await Assert.That(tokens[1].Type).IsEqualTo(TokenType.ObjectStart);
+        await Assert.That(tokens[2].Type).IsEqualTo(TokenType.PropertyName);
+        await Assert.That(tokens[2].Key).IsEqualTo("x");
+    }
 }

@@ -215,4 +215,39 @@ public class TomlReaderTests
         await Assert.That(tokens[8].Type).IsEqualTo(TokenType.ArrayEnd);
         await Assert.That(tokens[9].Type).IsEqualTo(TokenType.ArrayEnd);
     }
+
+    [Test]
+    public async Task InlineTable_EmitsObjectTokens()
+    {
+        var r = new TomlReader("point = { x = 1, y = 2 }\n"u8);
+        var tokens = new List<(TokenType Type, string? Key, string? Value)>();
+        while (r.Read())
+        {
+            var val = r.ValueSpan.Length > 0 ? Encoding.UTF8.GetString(r.ValueSpan) : null;
+            var key = r.KeySpan.Length > 0 ? Encoding.UTF8.GetString(r.KeySpan) : null;
+            tokens.Add((r.TokenType, key, val));
+        }
+        await Assert.That(tokens.Count).IsEqualTo(5);
+        await Assert.That(tokens[0].Type).IsEqualTo(TokenType.PropertyName);
+        await Assert.That(tokens[0].Key).IsEqualTo("point");
+        await Assert.That(tokens[1].Type).IsEqualTo(TokenType.ObjectStart);
+        await Assert.That(tokens[2].Type).IsEqualTo(TokenType.PropertyName);
+        await Assert.That(tokens[2].Key).IsEqualTo("x");
+        await Assert.That(tokens[2].Value).IsEqualTo("1");
+        await Assert.That(tokens[3].Type).IsEqualTo(TokenType.PropertyName);
+        await Assert.That(tokens[3].Key).IsEqualTo("y");
+        await Assert.That(tokens[3].Value).IsEqualTo("2");
+        await Assert.That(tokens[4].Type).IsEqualTo(TokenType.ObjectEnd);
+    }
+
+    [Test]
+    public async Task DottedKey_ParsesAsSingleKey()
+    {
+        var r = new TomlReader("a.b.c = 1\n"u8);
+        r.Read();
+        var key = Encoding.UTF8.GetString(r.KeySpan);
+        var val = Encoding.UTF8.GetString(r.ValueSpan);
+        await Assert.That(key).IsEqualTo("a.b.c");
+        await Assert.That(val).IsEqualTo("1");
+    }
 }

@@ -10,6 +10,8 @@ public ref struct YamlReader
     private int _depth;
     private int[] _indentStack;
     private int _stackCount;
+    private bool _inFlow;
+    private bool _flowStartEmitted;
 
     public YamlReader(ReadOnlySpan<byte> data)
     {
@@ -30,6 +32,10 @@ public ref struct YamlReader
 
     public bool Read()
     {
+        // ── Flow style mode ──
+        if (_inFlow)
+            return ReadFlow();
+
         Retry:
         if (_position >= _data.Length)
         {
@@ -153,6 +159,16 @@ public ref struct YamlReader
             return true;
         }
 
+        // Flow mapping: { key: val, ... }
+        if (_position < _data.Length && _data[_position] == (byte)'{')
+        {
+            _position++; // skip '{'
+            _inFlow = true;
+            _flowStartEmitted = false;
+            _tokenType = TokenType.PropertyName;
+            return true;
+        }
+
         // Scalar value — check for quoted string first
         if (
             _position < _data.Length
@@ -179,6 +195,69 @@ public ref struct YamlReader
                 _position++;
             _valueSpan = Trim(_data[vs2.._position]);
             SkipNewline();
+        }
+        _tokenType = TokenType.PropertyName;
+        return true;
+    }
+
+    private bool ReadFlow()
+    {
+        // Emit ObjectStart on first entry
+        if (!_flowStartEmitted)
+        {
+            _flowStartEmitted = true;
+            _tokenType = TokenType.ObjectStart;
+            return true;
+        }
+
+        // Skip whitespace and commas
+        while (_position < _data.Length)
+        {
+            var b = _data[_position];
+            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r' or (byte)',')
+                _position++;
+            else
+                break;
+        }
+
+        if (_position >= _data.Length)
+            return false;
+
+        // End of flow mapping
+        if (_data[_position] == (byte)'}')
+        {
+            _position++;
+            _inFlow = false;
+            SkipNewline();
+            _tokenType = TokenType.ObjectEnd;
+            return true;
+        }
+
+        // Read key: value
+        int ks = _position;
+        while (_position < _data.Length && _data[_position] != (byte)':')
+            _position++;
+        _keySpan = TrimEnd(_data[ks.._position]);
+        _position++; // skip ':'
+        if (_position < _data.Length && _data[_position] == (byte)' ') _position++;
+
+        // Read value
+        if (_position < _data.Length && (_data[_position] == (byte)'"' || _data[_position] == (byte)'\''))
+        {
+            var q = _data[_position];
+            _position++;
+            int vs = _position;
+            while (_position < _data.Length && _data[_position] != q) _position++;
+            _valueSpan = _data[vs.._position];
+            _position++;
+        }
+        else
+        {
+            int vs = _position;
+            while (_position < _data.Length && _data[_position] != (byte)','
+                && _data[_position] != (byte)'}' && _data[_position] != (byte)'\n')
+                _position++;
+            _valueSpan = Trim(_data[vs.._position]);
         }
         _tokenType = TokenType.PropertyName;
         return true;

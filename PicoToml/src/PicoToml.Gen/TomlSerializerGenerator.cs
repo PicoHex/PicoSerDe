@@ -74,6 +74,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
             string? elemTk = null;
             string? elemTf = null;
+            string? keyTk = null;
+            string? keyTf = null;
+            ImmutableArray<PropInfo> nestedProps = default;
             if (k is "list" or "array")
             {
                 if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
@@ -91,6 +94,21 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     elemTf = TypeKindResolver.MapTypeName(ek ?? "string", et);
                 }
             }
+            else if (k is "object" && p.Type is INamedTypeSymbol objNts)
+            {
+                nestedProps = ExtractNested(objNts);
+            }
+            else if (k is "dict" && p.Type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2)
+            {
+                var kt = nd.TypeArguments[0];
+                var vt = nd.TypeArguments[1];
+                var (ktk, _, _) = TypeKindResolver.Resolve(kt);
+                var (vtk, _, _) = TypeKindResolver.Resolve(vt);
+                keyTk = ktk;
+                keyTf = TypeKindResolver.MapTypeName(ktk ?? "string", kt);
+                elemTk = vtk;
+                elemTf = TypeKindResolver.MapTypeName(vtk ?? "string", vt);
+            }
 
             props.Add(
                 new PropInfo(
@@ -100,7 +118,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     elemTk,
                     elemTf,
-                    isNullable
+                    isNullable,
+                    nestedProps,
+                    keyTk,
+                    keyTf
                 )
             );
         }
@@ -110,6 +131,54 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             nt.Name,
             props.ToImmutableArray()
         );
+    }
+
+    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol type)
+    {
+        var list = new List<PropInfo>();
+        foreach (var member in type.GetMembers())
+        {
+            if (member is not IPropertySymbol p)
+                continue;
+            if (p.DeclaredAccessibility != Accessibility.Public)
+                continue;
+            if (p.IsStatic || p.IsIndexer)
+                continue;
+            if (p.IsReadOnly && p.SetMethod is null)
+                continue;
+            if (p.GetMethod is null)
+                continue;
+            var (k, isNullable, _) = TypeKindResolver.Resolve(p.Type);
+            if (k is null)
+                continue;
+            string? elemTk2 = null, elemTf2 = null;
+            ImmutableArray<PropInfo> nested2 = default;
+            if (k is "list" or "array")
+            {
+                if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
+                {
+                    var et = nts.TypeArguments[0];
+                    var (ek, _, _) = TypeKindResolver.Resolve(et);
+                    elemTk2 = ek;
+                    elemTf2 = TypeKindResolver.MapTypeName(ek ?? "string", et);
+                }
+                else if (p.Type is IArrayTypeSymbol ats)
+                {
+                    var et = ats.ElementType;
+                    var (ek, _, _) = TypeKindResolver.Resolve(et);
+                    elemTk2 = ek;
+                    elemTf2 = TypeKindResolver.MapTypeName(ek ?? "string", et);
+                }
+            }
+            else if (k is "object" && p.Type is INamedTypeSymbol objNts2)
+            {
+                nested2 = ExtractNested(objNts2);
+            }
+            list.Add(new PropInfo(p.Name, p.Name, k,
+                p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                elemTk2, elemTf2, isNullable, nested2, null, null));
+        }
+        return list.ToImmutableArray();
     }
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
@@ -178,15 +247,51 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(t.Name);
         s.AppendLine("();");
         s.AppendLine("        while (r.Read()) {");
-        s.AppendLine("            var k = r.KeySpan;");
-        for (int i = 0; i < t.Props.Length; i++)
+        s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
+        s.AppendLine("                var k = r.KeySpan;");
+        var scalarProps = t.Props.Where(x => x.Tk != "object" && x.Tk != "dict").ToImmutableArray();
+        for (int i = 0; i < scalarProps.Length; i++)
         {
-            s.Append("            ");
+            s.Append("                ");
             s.Append(i == 0 ? "if" : "else if");
             s.Append(" (__T.__Tk(k, \"");
-            s.Append(t.Props[i].Jn);
+            s.Append(scalarProps[i].Jn);
             s.AppendLine("\"u8)) {");
-            EmitDeserializeProp(s, t.Props[i], "o", "                ");
+            EmitDeserializeProp(s, scalarProps[i], "o", "                    ");
+            s.AppendLine("                }");
+        }
+        if (scalarProps.Length > 0)
+            s.AppendLine("                else { }");
+        s.AppendLine("            }");
+        // Handle table headers (nested objects + dicts)
+        var objProps = t.Props.Where(x => x.Tk == "object").ToImmutableArray();
+        var dictProps = t.Props.Where(x => x.Tk == "dict").ToImmutableArray();
+        if (objProps.Length > 0 || dictProps.Length > 0)
+        {
+            s.AppendLine("            else if (r.TokenType == TokenType.ObjectStart) {");
+            s.AppendLine("                var tbl = r.TablePath;");
+            // Object table headers
+            for (int i = 0; i < objProps.Length; i++)
+            {
+                s.Append("                ");
+                s.Append(i == 0 && dictProps.Length == 0 ? "if" : "else if");
+                s.Append(" (__T.__Tk(tbl, \"");
+                s.Append(objProps[i].Jn);
+                s.AppendLine("\"u8)) {");
+                EmitNestedObjectRead(s, objProps[i], "o", "                    ");
+                s.AppendLine("                }");
+            }
+            // Dict table headers
+            for (int i = 0; i < dictProps.Length; i++)
+            {
+                s.Append("                ");
+                s.Append(i == 0 && objProps.Length == 0 ? "if" : "else if");
+                s.Append(" (__T.__Tk(tbl, \"");
+                s.Append(dictProps[i].Jn);
+                s.AppendLine("\"u8)) {");
+                EmitDictRead(s, dictProps[i], "o", "                    ");
+                s.AppendLine("                }");
+            }
             s.AppendLine("            }");
         }
         s.AppendLine("        }");
@@ -229,6 +334,43 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(indent);
             s.AppendLine("tw.WriteEndArray();");
         }
+        else if (p.Tk is "dict")
+        {
+            s.Append(indent);
+            s.Append("tw.WriteTable(\"");
+            s.Append(p.Jn);
+            s.AppendLine("\");");
+            s.Append(indent);
+            s.Append("foreach (var __kvp in ");
+            s.Append(target);
+            s.Append('.');
+            s.Append(p.Name);
+            s.AppendLine(")");
+            s.Append(indent);
+            s.AppendLine("{");
+            s.Append(indent);
+            s.Append("    tw.WriteKeyValue(__kvp.Key, ");
+            EmitValueAccessor(s, new PropInfo("", "", p.ElemTk ?? "string", "", null, null, false, default, null, null), "__kvp.Value");
+            s.AppendLine(");");
+            s.Append(indent);
+            s.AppendLine("}");
+        }
+        else if (p.Tk is "object")
+        {
+            s.Append(indent);
+            s.Append("tw.WriteTable(\"");
+            s.Append(p.Jn);
+            s.AppendLine("\");");
+            foreach (var np in p.NestedProps)
+            {
+                s.Append(indent);
+                s.Append("tw.WriteKeyValue(\"");
+                s.Append(np.Jn);
+                s.Append("\", ");
+                EmitValueAccessor(s, np, target + "." + p.Name + "." + np.Name);
+                s.AppendLine(");");
+            }
+        }
         else if (p.IsNullable)
         {
             s.Append(indent);
@@ -257,6 +399,76 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             EmitValueAccessor(s, p, target + "." + p.Name);
             s.AppendLine(");");
         }
+    }
+
+    private static void EmitNestedObjectRead(StringBuilder s, PropInfo op, string tgt, string pad)
+    {
+        s.Append(pad);
+        s.Append(tgt);
+        s.Append('.');
+        s.Append(op.Name);
+        s.Append(" = new ");
+        s.Append(op.Tf);
+        s.AppendLine("();");
+        s.Append(pad);
+        s.AppendLine("while (r.Read() && r.TokenType == TokenType.PropertyName) {");
+        s.Append(pad);
+        s.AppendLine("    var nk = r.KeySpan;");
+        for (int j = 0; j < op.NestedProps.Length; j++)
+        {
+            var np = op.NestedProps[j];
+            s.Append(pad);
+            s.Append(j == 0 ? "    if" : "    else if");
+            s.Append(" (__T.__Tk(nk, \"");
+            s.Append(np.Jn);
+            s.AppendLine("\"u8)) {");
+            EmitDeserializeProp(s, np, tgt + "." + op.Name, pad + "        ");
+            s.Append(pad);
+            s.AppendLine("    }");
+        }
+        s.Append(pad);
+        s.AppendLine("}");
+    }
+
+    private static void EmitDictRead(StringBuilder s, PropInfo dp, string tgt, string pad)
+    {
+        s.Append(pad);
+        s.Append(tgt);
+        s.Append('.');
+        s.Append(dp.Name);
+        s.Append(" ??= new System.Collections.Generic.Dictionary<");
+        s.Append(dp.KeyTf ?? "string");
+        s.Append(", ");
+        s.Append(dp.ElemTf ?? "int");
+        s.AppendLine(">();");
+        s.Append(pad);
+        s.AppendLine("while (r.Read() && r.TokenType == TokenType.PropertyName) {");
+        s.Append(pad);
+        s.Append("    var __dk = Encoding.UTF8.GetString(r.KeySpan);");
+        if (dp.ElemTk == "int32")
+        {
+            s.AppendLine();
+            s.Append(pad);
+            s.AppendLine("    r.TryGetInt32(out var __dv);");
+            s.Append(pad);
+            s.Append("    ");
+            s.Append(tgt);
+            s.Append('.');
+            s.Append(dp.Name);
+            s.AppendLine("[__dk] = __dv;");
+        }
+        else
+        {
+            s.AppendLine();
+            s.Append(pad);
+            s.Append("    ");
+            s.Append(tgt);
+            s.Append('.');
+            s.Append(dp.Name);
+            s.AppendLine("[__dk] = Encoding.UTF8.GetString(r.ValueSpan);");
+        }
+        s.Append(pad);
+        s.AppendLine("}");
     }
 
     private static void EmitValueAccessor(StringBuilder s, PropInfo p, string accessor)
@@ -500,6 +712,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         string Tf,
         string? ElemTk,
         string? ElemTf,
-        bool IsNullable
+        bool IsNullable,
+        ImmutableArray<PropInfo> NestedProps,
+        string? KeyTk,
+        string? KeyTf
     );
 }

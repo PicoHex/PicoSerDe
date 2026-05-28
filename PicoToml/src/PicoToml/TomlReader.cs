@@ -13,6 +13,9 @@ public ref struct TomlReader
     private bool _inArray;
     private int _arrayDepth;
     private bool _arrayStartEmitted;
+    private bool _inInlineTable;
+    private int _inlineTableDepth;
+    private bool _inlineStartEmitted;
 
     public TomlReader(ReadOnlySpan<byte> data)
     {
@@ -31,6 +34,10 @@ public ref struct TomlReader
 
     public bool Read()
     {
+        // ── Inline table mode ──
+        if (_inInlineTable)
+            return ReadInlineTable();
+
         // ── Array mode: parse array elements ──
         if (_inArray)
             return ReadArray();
@@ -120,6 +127,17 @@ public ref struct TomlReader
             return true;
         }
 
+        // ── Inline table: key = { a = 1, b = 2 } ──
+        if (_position < _data.Length && _data[_position] == (byte)'{')
+        {
+            _position++; // skip '{'
+            _inInlineTable = true;
+            _inlineTableDepth = 1;
+            _inlineStartEmitted = false;
+            _tokenType = TokenType.PropertyName;
+            return true;
+        }
+
         // Read quoted string value
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
@@ -175,6 +193,74 @@ public ref struct TomlReader
         // Skip trailing newline
         SkipLine();
 
+        _tokenType = TokenType.PropertyName;
+        return true;
+    }
+
+    private bool ReadInlineTable()
+    {
+        // Emit ObjectStart on first entry
+        if (!_inlineStartEmitted)
+        {
+            _inlineStartEmitted = true;
+            _tokenType = TokenType.ObjectStart;
+            return true;
+        }
+
+        // Skip whitespace and commas
+        while (_position < _data.Length)
+        {
+            var b = _data[_position];
+            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r' or (byte)',')
+                _position++;
+            else
+                break;
+        }
+
+        if (_position >= _data.Length)
+            return false;
+
+        // End of inline table
+        if (_data[_position] == (byte)'}')
+        {
+            _position++;
+            _inlineTableDepth--;
+            if (_inlineTableDepth == 0)
+            {
+                _inInlineTable = false;
+                if (_position < _data.Length && _data[_position] == (byte)'\r') _position++;
+                if (_position < _data.Length && _data[_position] == (byte)'\n') _position++;
+            }
+            _tokenType = TokenType.ObjectEnd;
+            return true;
+        }
+
+        // Read key = value pair
+        int keyStart = _position;
+        while (_position < _data.Length && _data[_position] != (byte)'=')
+            _position++;
+        _keySpan = TrimEnd(_data[keyStart.._position]);
+        _position++; // skip '='
+        while (_position < _data.Length && _data[_position] == (byte)' ')
+            _position++;
+
+        // Read value
+        if (_position < _data.Length && _data[_position] == (byte)'"')
+        {
+            _position++;
+            int vs = _position;
+            while (_position < _data.Length && _data[_position] != (byte)'"') _position++;
+            _valueSpan = _data[vs.._position];
+            _position++;
+        }
+        else
+        {
+            int vs = _position;
+            while (_position < _data.Length && _data[_position] != (byte)','
+                && _data[_position] != (byte)'}' && _data[_position] != (byte)'\n')
+                _position++;
+            _valueSpan = Trim(_data[vs.._position]);
+        }
         _tokenType = TokenType.PropertyName;
         return true;
     }

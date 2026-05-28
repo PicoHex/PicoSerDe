@@ -31,6 +31,24 @@ public class YamlGuidModel
     public Guid Id { get; set; }
 }
 
+public class YamlAddress
+{
+    public string Street { get; set; } = "";
+    public string City { get; set; } = "";
+}
+
+public class YamlNestedModel
+{
+    public string Name { get; set; } = "";
+    public YamlAddress Address { get; set; } = new();
+}
+
+public class YamlDictModel
+{
+    public string Name { get; set; } = "";
+    public Dictionary<string, int> Scores { get; set; } = new();
+}
+
 public class YamlSerializerTests
 {
     [Test]
@@ -128,5 +146,37 @@ public class YamlSerializerTests
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlGuidModel>(bytes);
         await Assert.That(result!.Id).IsEqualTo(g);
+    }
+
+    [Test]
+    public async Task RoundTrip_NestedObject()
+    {
+        var original = new YamlNestedModel
+        {
+            Name = "Home",
+            Address = new YamlAddress { Street = "123 Main", City = "NYC" }
+        };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var result = YamlSerializer.Deserialize<YamlNestedModel>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Home");
+        await Assert.That(result.Address).IsNotNull();
+        await Assert.That(result.Address.Street).IsEqualTo("123 Main");
+        await Assert.That(result.Address.City).IsEqualTo("NYC");
+    }
+
+    [Test]
+    public async Task RoundTrip_Dict()
+    {
+        var original = new YamlDictModel
+        {
+            Name = "D",
+            Scores = new Dictionary<string, int> { ["alice"] = 10, ["bob"] = 20 }
+        };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var result = YamlSerializer.Deserialize<YamlDictModel>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("D");
+        await Assert.That(result.Scores.Count).IsEqualTo(2);
+        await Assert.That(result.Scores["alice"]).IsEqualTo(10);
+        await Assert.That(result.Scores["bob"]).IsEqualTo(20);
     }
 }
