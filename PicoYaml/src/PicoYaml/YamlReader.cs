@@ -103,6 +103,38 @@ public ref struct YamlReader
         return true;
     }
 
+    public void Skip()
+    {
+        if (_tokenType is TokenType.ObjectStart or TokenType.ArrayStart)
+        {
+            int targetDepth = 1;
+            while (Read())
+            {
+                if (_tokenType is TokenType.ObjectStart or TokenType.ArrayStart)
+                    targetDepth++;
+                else if (_tokenType is TokenType.ObjectEnd or TokenType.ArrayEnd)
+                {
+                    targetDepth--;
+                    if (targetDepth == 0)
+                        return;
+                }
+            }
+        }
+    }
+
+    public bool TrySkip()
+    {
+        try
+        {
+            Skip();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public void Dispose()
     {
         if (_rentedBuffer is not null)
