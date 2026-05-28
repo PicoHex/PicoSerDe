@@ -63,6 +63,14 @@ var pb = new ArrayBufferWriter<byte>(64);
 IniSerializer.Serialize(pb, new AppConfig { Title = "X" });
 Console.WriteLine($"  Bytes: {pb.WrittenSpan.Length}");
 
+// ═══ 6. File I/O ═══
+Console.WriteLine("\n─── 6. File I/O ───");
+var f = Path.Combine(Path.GetTempPath(), "sample.ini");
+File.WriteAllText(f, IniSerializer.Serialize(cfg));
+Console.WriteLine($"  Written: {f} ({new FileInfo(f).Length} bytes)");
+var fr = IniSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(File.ReadAllText(f)));
+Console.WriteLine($"  Read back: {fr?.Title} v{fr?.Version}");
+
 Console.WriteLine("\nAll samples passed.");
 
 public class ServerCfg

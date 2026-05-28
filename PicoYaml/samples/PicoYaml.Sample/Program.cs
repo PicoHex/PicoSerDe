@@ -109,6 +109,14 @@ catch (ArgumentException ex)
     Console.WriteLine($"  {ex.Message}");
 }
 
+// ═══ 6. File I/O ═══
+Console.WriteLine("\n─── 6. File I/O ───");
+var yf = Path.Combine(Path.GetTempPath(), "sample.yaml");
+File.WriteAllBytes(yf, YamlSerializer.SerializeToUtf8Bytes(cfg));
+Console.WriteLine($"  Written: {yf} ({new FileInfo(yf).Length} bytes)");
+var yfr = YamlSerializer.Deserialize<YamlConfig>(File.ReadAllBytes(yf));
+Console.WriteLine($"  Read back: {yfr?.Name} v{yfr?.Version}");
+
 Console.WriteLine("\nAll samples passed.");
 
 // ═══ Models ═══

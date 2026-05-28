@@ -93,7 +93,20 @@ var pb = new ArrayBufferWriter<byte>(64);
 TomlSerializer.Serialize(pb, new TomlConfig { Name = "X" });
 Console.WriteLine($"  Bytes: {pb.WrittenSpan.Length}");
 
-// ═══ 6. NaN guard ═══
+// ═══ 6. File I/O ═══
+Console.WriteLine("\n─── 6. File I/O ───");
+var filePath = Path.Combine(Path.GetTempPath(), "sample.toml");
+
+// Serialize to file
+File.WriteAllBytes(filePath, TomlSerializer.SerializeToUtf8Bytes(cfg));
+Console.WriteLine($"  Written: {filePath} ({new FileInfo(filePath).Length} bytes)");
+
+// Deserialize from file
+var fileBytes = File.ReadAllBytes(filePath);
+var fileRst = TomlSerializer.Deserialize<TomlConfig>(fileBytes);
+Console.WriteLine($"  Read back: {fileRst?.Name} v{fileRst?.Version}");
+
+// ═══ 7. NaN guard ═══
 Console.WriteLine("\n─── 6. NaN Guard ───");
 try
 {

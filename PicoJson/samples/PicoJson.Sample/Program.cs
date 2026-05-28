@@ -104,6 +104,15 @@ class Program
         {
             Console.WriteLine($"  {ex.Message}");
         }
+
+        // ═══ 6. File I/O ═══
+        Console.WriteLine("\n=== 6. File I/O ===");
+        var filePath = Path.Combine(Path.GetTempPath(), "sample.json");
+        File.WriteAllBytes(filePath, JsonSerializer.SerializeToUtf8Bytes(order));
+        Console.WriteLine($"  Written: {filePath} ({new FileInfo(filePath).Length} bytes)");
+        var fileBytes = File.ReadAllBytes(filePath);
+        var fileOrder = JsonSerializer.Deserialize<Order>(fileBytes);
+        Console.WriteLine($"  Read back: Order {fileOrder?.Id}");
     }
 }
 
