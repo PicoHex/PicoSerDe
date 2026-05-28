@@ -2,7 +2,7 @@ using PicoIni;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-// ═══ 1. Sectioned model ═══
+// ═══ 1. Sectioned model with nested objects ═══
 Console.WriteLine("─── 1. Complex Model ───");
 var cfg = new AppConfig
 {
@@ -39,7 +39,7 @@ Console.WriteLine(
 Console.WriteLine("  [IniDateTimeFormat]:");
 Console.WriteLine(IniSerializer.Serialize(new DtCfg { Date = new DateTime(2024, 6, 15) }));
 
-// ═══ 3. Raw Reader ═══
+// ═══ 3. Raw Reader ───
 Console.WriteLine("\n─── 3. Raw Reader ───");
 var r = new IniReader(";config\n[server]\nhost = localhost\nport = 8080\n"u8);
 while (r.Read())
@@ -47,7 +47,7 @@ while (r.Read())
         $"  {r.TokenType, -12} {Encoding.UTF8.GetString(r.SectionName)}{Encoding.UTF8.GetString(r.Key)} = {Encoding.UTF8.GetString(r.ValueSpan)}"
     );
 
-// ═══ 4. Raw Writer ═══
+// ═══ 4. Raw Writer ───
 Console.WriteLine("\n─── 4. Raw Writer ───");
 var buf = new ArrayBufferWriter<byte>(256);
 var w = new IniWriter(buf);
@@ -57,7 +57,7 @@ w.WriteKeyValue("name", "demo");
 w.WriteKeyValue("port", 8080);
 Console.WriteLine(Encoding.UTF8.GetString(buf.WrittenSpan));
 
-// ═══ 5. IBufferWriter overload ═══
+// ═══ 5. IBufferWriter overload ───
 Console.WriteLine("─── 5. Serialize<T>(IBufferWriter) ───");
 var pb = new ArrayBufferWriter<byte>(64);
 IniSerializer.Serialize(pb, new AppConfig { Title = "X" });
@@ -65,7 +65,6 @@ Console.WriteLine($"  Bytes: {pb.WrittenSpan.Length}");
 
 Console.WriteLine("\nAll samples passed.");
 
-// ═══ Models ═══
 public class ServerCfg
 {
     public string Host { get; set; } = "";
