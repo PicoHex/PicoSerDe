@@ -27,6 +27,13 @@ public class TemporalPoco
     public DateTime CreatedAt { get; set; }
 }
 
+public class TemporalExPoco
+{
+    public DateOnly Date { get; set; }
+    public TimeOnly Time { get; set; }
+    public TimeSpan Duration { get; set; }
+}
+
 public class GuidPoco
 {
     public Guid Id { get; set; }
@@ -48,6 +55,16 @@ public class DictPoco
 {
     public string Name { get; set; } = "";
     public Dictionary<string, int> Scores { get; set; } = new();
+}
+
+public class DecimalPoco
+{
+    public decimal Price { get; set; }
+}
+
+public class ReadOnlyListPoco
+{
+    public IReadOnlyList<int> Scores { get; set; } = new List<int>();
 }
 
 public class TomlSerializerTests
@@ -183,5 +200,44 @@ public class TomlSerializerTests
         await Assert.That(result.Scores.Count).IsEqualTo(2);
         await Assert.That(result.Scores["alice"]).IsEqualTo(10);
         await Assert.That(result.Scores["bob"]).IsEqualTo(20);
+    }
+
+    [Test]
+    public async Task RoundTrip_TemporalEx()
+    {
+        var original = new TemporalExPoco
+        {
+            Date = new DateOnly(2024, 6, 15),
+            Time = new TimeOnly(12, 30, 0),
+            Duration = TimeSpan.FromMinutes(90)
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<TemporalExPoco>(bytes);
+        await Assert.That(result!.Date).IsEqualTo(new DateOnly(2024, 6, 15));
+        await Assert.That(result.Time).IsEqualTo(new TimeOnly(12, 30, 0));
+        await Assert.That(result.Duration).IsEqualTo(TimeSpan.FromMinutes(90));
+    }
+
+    [Test]
+    public async Task RoundTrip_Decimal()
+    {
+        var original = new DecimalPoco { Price = 149.99m };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<DecimalPoco>(bytes);
+        await Assert.That(result!.Price).IsEqualTo(149.99m);
+    }
+
+    [Test]
+    public async Task RoundTrip_ReadOnlyList()
+    {
+        var original = new ReadOnlyListPoco
+        {
+            Scores = new List<int> { 10, 20, 30 }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<ReadOnlyListPoco>(bytes);
+        await Assert.That(result!.Scores).IsNotNull();
+        await Assert.That(result.Scores.Count).IsEqualTo(3);
+        await Assert.That(result.Scores[0]).IsEqualTo(10);
     }
 }

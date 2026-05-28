@@ -49,6 +49,23 @@ public class YamlDictModel
     public Dictionary<string, int> Scores { get; set; } = new();
 }
 
+public class TemporalExYaml
+{
+    public DateOnly Date { get; set; }
+    public TimeOnly Time { get; set; }
+    public TimeSpan Duration { get; set; }
+}
+
+public class YamlDecimalModel
+{
+    public decimal Price { get; set; }
+}
+
+public class YamlReadOnlyListModel
+{
+    public IReadOnlyList<int> Scores { get; set; } = new List<int>();
+}
+
 public class YamlSerializerTests
 {
     [Test]
@@ -162,6 +179,45 @@ public class YamlSerializerTests
         await Assert.That(result.Address).IsNotNull();
         await Assert.That(result.Address.Street).IsEqualTo("123 Main");
         await Assert.That(result.Address.City).IsEqualTo("NYC");
+    }
+
+    [Test]
+    public async Task RoundTrip_TemporalEx()
+    {
+        var original = new TemporalExYaml
+        {
+            Date = new DateOnly(2024, 6, 15),
+            Time = new TimeOnly(12, 30, 0),
+            Duration = TimeSpan.FromMinutes(90)
+        };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var result = YamlSerializer.Deserialize<TemporalExYaml>(bytes);
+        await Assert.That(result!.Date).IsEqualTo(new DateOnly(2024, 6, 15));
+        await Assert.That(result.Time).IsEqualTo(new TimeOnly(12, 30, 0));
+        await Assert.That(result.Duration).IsEqualTo(TimeSpan.FromMinutes(90));
+    }
+
+    [Test]
+    public async Task RoundTrip_Decimal()
+    {
+        var original = new YamlDecimalModel { Price = 149.99m };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var result = YamlSerializer.Deserialize<YamlDecimalModel>(bytes);
+        await Assert.That(result!.Price).IsEqualTo(149.99m);
+    }
+
+    [Test]
+    public async Task RoundTrip_ReadOnlyList()
+    {
+        var original = new YamlReadOnlyListModel
+        {
+            Scores = new List<int> { 10, 20, 30 }
+        };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var result = YamlSerializer.Deserialize<YamlReadOnlyListModel>(bytes);
+        await Assert.That(result!.Scores).IsNotNull();
+        await Assert.That(result.Scores.Count).IsEqualTo(3);
+        await Assert.That(result.Scores[0]).IsEqualTo(10);
     }
 
     [Test]

@@ -70,6 +70,34 @@ jobs:
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
             -p:RestoreSources=./artifacts/nupkg
+
+          dotnet pack PicoToml/src/PicoToml.Gen/PicoToml.Gen.csproj \
+            --configuration Release \
+            --output ./artifacts/nupkg \
+            -p:Version=${{ steps.version.outputs.VERSION }} \
+            -p:UseProjectReferences=false \
+            -p:RestoreAdditionalProjectSources=./artifacts/nupkg
+
+          dotnet pack PicoToml/src/PicoToml/PicoToml.csproj \
+            --configuration Release \
+            --output ./artifacts/nupkg \
+            -p:Version=${{ steps.version.outputs.VERSION }} \
+            -p:UseProjectReferences=false \
+            -p:RestoreSources=./artifacts/nupkg
+
+          dotnet pack PicoYaml/src/PicoYaml.Gen/PicoYaml.Gen.csproj \
+            --configuration Release \
+            --output ./artifacts/nupkg \
+            -p:Version=${{ steps.version.outputs.VERSION }} \
+            -p:UseProjectReferences=false \
+            -p:RestoreAdditionalProjectSources=./artifacts/nupkg
+
+          dotnet pack PicoYaml/src/PicoYaml/PicoYaml.csproj \
+            --configuration Release \
+            --output ./artifacts/nupkg \
+            -p:Version=${{ steps.version.outputs.VERSION }} \
+            -p:UseProjectReferences=false \
+            -p:RestoreSources=./artifacts/nupkg
       - uses: actions/upload-artifact@v4
         with:
           name: nupkg

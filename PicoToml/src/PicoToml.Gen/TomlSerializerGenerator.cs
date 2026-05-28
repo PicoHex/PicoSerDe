@@ -68,9 +68,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 continue;
             if (p.GetMethod is null)
                 continue;
+            if (HasTomlIgnore(p))
+                continue;
+            var converterType = GetTomlConverter(p);
             var (k, isNullable, _) = TypeKindResolver.Resolve(p.Type);
+            // If converter is present, override type kind to avoid object/table serialization
+            if (converterType is not null)
+                k = "string";
             if (k is null)
                 continue;
+            var jsonName = GetTomlKey(p) ?? p.Name;
 
             string? elemTk = null;
             string? elemTf = null;
@@ -113,7 +120,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             props.Add(
                 new PropInfo(
                     p.Name,
-                    p.Name,
+                    jsonName,
                     k,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     elemTk,
@@ -121,7 +128,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     isNullable,
                     nestedProps,
                     keyTk,
-                    keyTf
+                    keyTf,
+                    converterType
                 )
             );
         }
@@ -131,6 +139,58 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             nt.Name,
             props.ToImmutableArray()
         );
+    }
+
+    private static string? GetTomlKey(IPropertySymbol p)
+    {
+        foreach (var attr in p.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "TomlKeyAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
+                && attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Value is string key
+            )
+                return key;
+        }
+        return null;
+    }
+
+    private static bool HasTomlIgnore(IPropertySymbol p)
+    {
+        foreach (var attr in p.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "TomlIgnoreAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
+            )
+                return true;
+        }
+        return false;
+    }
+
+    private static string? GetTomlConverter(IPropertySymbol p)
+    {
+        foreach (var attr in p.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "TomlConverterAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
+            )
+            {
+                if (
+                    attr.ConstructorArguments.Length >= 1
+                    && attr.ConstructorArguments[0].Value is INamedTypeSymbol nts
+                )
+                    return nts.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                // Fallback: try to get type from AttributeData
+                if (attr.AttributeClass?.TypeArguments.Length == 1)
+                    return attr.AttributeClass
+                        .TypeArguments[0]
+                        .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            }
+        }
+        return null;
     }
 
     private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol type)
@@ -148,10 +208,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 continue;
             if (p.GetMethod is null)
                 continue;
+            if (HasTomlIgnore(p))
+                continue;
             var (k, isNullable, _) = TypeKindResolver.Resolve(p.Type);
             if (k is null)
                 continue;
-            string? elemTk2 = null, elemTf2 = null;
+            string? elemTk2 = null,
+                elemTf2 = null;
             ImmutableArray<PropInfo> nested2 = default;
             if (k is "list" or "array")
             {
@@ -174,9 +237,20 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             {
                 nested2 = ExtractNested(objNts2);
             }
-            list.Add(new PropInfo(p.Name, p.Name, k,
-                p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                elemTk2, elemTf2, isNullable, nested2, null, null));
+            list.Add(
+                new PropInfo(
+                    p.Name,
+                    p.Name,
+                    k,
+                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    elemTk2,
+                    elemTf2,
+                    isNullable,
+                    nested2,
+                    null,
+                    null
+                )
+            );
         }
         return list.ToImmutableArray();
     }
@@ -313,6 +387,28 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
     private static void EmitSerializeProp(StringBuilder s, PropInfo p, string target, string indent)
     {
+        if (p.ConverterType is not null)
+        {
+            s.Append(indent);
+            s.Append("var __cnv = new ");
+            s.Append(p.ConverterType);
+            s.AppendLine("();");
+            s.Append(indent);
+            s.AppendLine("var __bw = new System.Buffers.ArrayBufferWriter<byte>();");
+            s.Append(indent);
+            s.Append("__cnv.Write(__bw, ");
+            s.Append(target);
+            s.Append('.');
+            s.Append(p.Name);
+            s.AppendLine(");");
+            s.Append(indent);
+            s.Append("tw.WriteKeyValue(\"");
+            s.Append(p.Jn);
+            s.Append("\", System.Text.Encoding.UTF8.GetString(__bw.WrittenSpan));");
+            s.AppendLine();
+            return;
+        }
+
         if (p.Tk is "list" or "array")
         {
             var ename = p.Name;
@@ -350,7 +446,22 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("{");
             s.Append(indent);
             s.Append("    tw.WriteKeyValue(__kvp.Key, ");
-            EmitValueAccessor(s, new PropInfo("", "", p.ElemTk ?? "string", "", null, null, false, default, null, null), "__kvp.Value");
+            EmitValueAccessor(
+                s,
+                new PropInfo(
+                    "",
+                    "",
+                    p.ElemTk ?? "string",
+                    "",
+                    null,
+                    null,
+                    false,
+                    default,
+                    null,
+                    null
+                ),
+                "__kvp.Value"
+            );
             s.AppendLine(");");
             s.Append(indent);
             s.AppendLine("}");
@@ -479,6 +590,18 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(accessor);
                 s.Append(".ToString(\"O\")");
                 break;
+            case "dateonly":
+                s.Append(accessor);
+                s.Append(".ToString(\"O\")");
+                break;
+            case "timeonly":
+                s.Append(accessor);
+                s.Append(".ToString(\"O\")");
+                break;
+            case "timespan":
+                s.Append(accessor);
+                s.Append(".ToString()");
+                break;
             case "guid":
             case "decimal":
             case "enum":
@@ -524,14 +647,25 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
     private static void EmitDeserializeProp(StringBuilder s, PropInfo p, string tgt, string pad)
     {
-        if (p.Tk is "list" or "array")
+        if (p.ConverterType is not null)
         {
-            // Initialize list
+            s.Append(pad);
+            s.Append("var __cnv = new ");
+            s.Append(p.ConverterType);
+            s.AppendLine("();");
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
             s.Append(p.Name);
-            s.Append(" ??= new System.Collections.Generic.List<");
+            s.AppendLine(" = __cnv.Read(ref r);");
+            return;
+        }
+
+        if (p.Tk is "list" or "array")
+        {
+            // Use temp List<T> for all list types (interfaces like IReadOnlyList don't have Add)
+            s.Append(pad);
+            s.Append("var __tmpList = new System.Collections.Generic.List<");
             s.Append(p.ElemTf ?? "object");
             s.AppendLine(">();");
             // Read array tokens
@@ -543,11 +677,20 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("    while (r.Read() && r.TokenType != TokenType.ArrayEnd)");
             s.Append(pad);
             s.AppendLine("    {");
-            EmitDeserializeListElement(s, p, tgt, pad + "        ");
+            EmitDeserializeListElementTemp(s, p, pad + "        ");
             s.Append(pad);
             s.AppendLine("    }");
             s.Append(pad);
             s.AppendLine("}");
+            // Assign back
+            s.Append(pad);
+            s.Append(tgt);
+            s.Append('.');
+            s.Append(p.Name);
+            s.Append(" = __tmpList");
+            if (p.Tk == "array")
+                s.Append(".ToArray()");
+            s.AppendLine(";");
         }
         else
         {
@@ -615,6 +758,39 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append('.');
                     s.Append(p.Name);
                     s.AppendLine(" = System.Guid.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                    break;
+                case "dateonly":
+                    s.Append(pad);
+                    s.AppendLine("var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                    s.Append(pad);
+                    s.AppendLine("System.DateOnly.TryParse(__raw, out var __dateOnly);");
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = __dateOnly;");
+                    break;
+                case "timeonly":
+                    s.Append(pad);
+                    s.AppendLine("var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                    s.Append(pad);
+                    s.AppendLine("System.TimeOnly.TryParse(__raw, out var __timeOnly);");
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = __timeOnly;");
+                    break;
+                case "timespan":
+                    s.Append(pad);
+                    s.AppendLine("var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                    s.Append(pad);
+                    s.AppendLine("System.TimeSpan.TryParse(__raw, out var __timeSpan);");
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = __timeSpan;");
                     break;
                 case "decimal":
                     s.Append(pad);
@@ -698,6 +874,45 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    private static void EmitDeserializeListElementTemp(StringBuilder s, PropInfo p, string pad)
+    {
+        switch (p.ElemTk)
+        {
+            case "string":
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(Encoding.UTF8.GetString(r.ValueSpan));");
+                break;
+            case "int32":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt32(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__ev);");
+                break;
+            case "int64":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt64(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__ev);");
+                break;
+            case "float64":
+                s.Append(pad);
+                s.AppendLine("r.TryGetFloat64(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__ev);");
+                break;
+            case "boolean":
+                s.Append(pad);
+                s.AppendLine("r.TryGetBool(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__ev);");
+                break;
+            default:
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(Encoding.UTF8.GetString(r.ValueSpan));");
+                break;
+        }
+    }
+
     internal readonly record struct TypeInfo(
         string Fqn,
         string Ns,
@@ -715,6 +930,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         bool IsNullable,
         ImmutableArray<PropInfo> NestedProps,
         string? KeyTk,
-        string? KeyTf
+        string? KeyTf,
+        string? ConverterType = null
     );
 }

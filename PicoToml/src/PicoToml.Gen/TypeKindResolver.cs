@@ -24,6 +24,19 @@ internal static class TypeKindResolver
         )
             return ("list", false, null);
         if (
+            type is INamedTypeSymbol nrl
+            && nrl.TypeArguments.Length == 1
+            && (
+                nrl.Name == "IList"
+                || nrl.Name == "ICollection"
+                || nrl.Name == "IEnumerable"
+                || nrl.Name == "IReadOnlyList"
+                || nrl.Name == "IReadOnlyCollection"
+            )
+            && nrl.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic"
+        )
+            return ("list", false, null);
+        if (
             type is INamedTypeSymbol nd
             && nd.TypeArguments.Length == 2
             && nd.Name == "Dictionary"
@@ -43,8 +56,26 @@ internal static class TypeKindResolver
         };
         if (kk is null && type is INamedTypeSymbol { TypeKind: TypeKind.Enum })
             kk = "enum";
-        if (kk is null && type is INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" })
+        if (
+            kk is null
+            && type is INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" }
+        )
             kk = "guid";
+        if (
+            kk is null
+            && type is INamedTypeSymbol { Name: "DateOnly", ContainingNamespace.Name: "System" }
+        )
+            kk = "dateonly";
+        if (
+            kk is null
+            && type is INamedTypeSymbol { Name: "TimeOnly", ContainingNamespace.Name: "System" }
+        )
+            kk = "timeonly";
+        if (
+            kk is null
+            && type is INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace.Name: "System" }
+        )
+            kk = "timespan";
         if (
             kk is null
             && type is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } o
@@ -76,6 +107,9 @@ internal static class TypeKindResolver
             "datetime" => "System.DateTime",
             "guid" => "System.Guid",
             "decimal" => "decimal",
+            "dateonly" => "System.DateOnly",
+            "timeonly" => "System.TimeOnly",
+            "timespan" => "System.TimeSpan",
             "enum" => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "object" => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             _ => "object"
