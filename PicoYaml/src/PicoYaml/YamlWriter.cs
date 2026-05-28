@@ -94,6 +94,11 @@ public ref struct YamlWriter
 
     public void WriteDouble(double value)
     {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+            throw new ArgumentException(
+                "NaN and Infinity cannot be written as YAML",
+                nameof(value)
+            );
         if (_afterKey)
         {
             WriteByte((byte)' ');

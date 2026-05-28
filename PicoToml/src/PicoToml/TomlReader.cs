@@ -121,6 +121,81 @@ public ref struct TomlReader
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
+    public bool TryReadNextInt32(out int v)
+    {
+        if (_isSequence)
+            return TryReadNextInt32Seq(out v);
+        return TryReadNextInt32Span(out v);
+    }
+
+    private bool TryReadNextInt32Span(out int v)
+    {
+        v = 0;
+        if (_position >= _data.Length)
+            return false;
+        // Skip whitespace and commas
+        while (_position < _data.Length)
+        {
+            var b = _data[_position];
+            if (b <= 32 || b == (byte)',')
+                _position++;
+            else
+                break;
+        }
+        if (_position >= _data.Length || _data[_position] == (byte)']')
+            return false;
+
+        bool neg = false;
+        if (_data[_position] == (byte)'-')
+        {
+            neg = true;
+            _position++;
+        }
+        if (
+            _position >= _data.Length
+            || _data[_position] < (byte)'0'
+            || _data[_position] > (byte)'9'
+        )
+            return false;
+
+        int result = 0;
+        do
+        {
+            result = result * 10 + (_data[_position] - (byte)'0');
+            _position++;
+        } while (
+            _position < _data.Length
+            && _data[_position] >= (byte)'0'
+            && _data[_position] <= (byte)'9'
+        );
+        v = neg ? -result : result;
+        return true;
+    }
+
+    private bool TryReadNextInt32Seq(out int v)
+    {
+        v = 0;
+        while (!_seqReader.End)
+        {
+            var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+            if (b <= 32 || b == (byte)',')
+                _seqReader.Advance(1);
+            else
+                break;
+        }
+        if (_seqReader.End || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)']')
+            return false;
+
+        var buf = RentBuf(16);
+        int di = 0;
+        while (!_seqReader.End && IsDigit(_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex]))
+        {
+            buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+            _seqReader.Advance(1);
+        }
+        return Utf8Parser.TryParse(buf.AsSpan(0, di), out v, out _);
+    }
+
     public void Skip()
     {
         if (_tokenType is TokenType.ObjectStart or TokenType.ArrayStart)

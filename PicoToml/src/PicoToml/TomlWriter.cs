@@ -73,6 +73,11 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, double value)
     {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+            throw new ArgumentException(
+                "NaN and Infinity cannot be written as TOML",
+                nameof(value)
+            );
         WriteKey(Encoding.UTF8.GetBytes(key));
         WriteRaw(" = "u8);
         Span<byte> buf = _buffer.GetSpan(32);
@@ -145,6 +150,11 @@ public ref struct TomlWriter
 
     public void WriteArrayValue(double value)
     {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+            throw new ArgumentException(
+                "NaN and Infinity cannot be written as TOML",
+                nameof(value)
+            );
         ArrayBeforeValue();
         Span<byte> buf = _buffer.GetSpan(32);
         value.TryFormat(buf, out var w);
