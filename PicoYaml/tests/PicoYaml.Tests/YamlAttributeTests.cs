@@ -182,3 +182,83 @@ public class YamlDateTimeFormatTests
         await Assert.That(result!.Date).IsEqualTo(new DateTime(2024, 6, 15));
     }
 }
+
+[YamlCamelCase]
+public class YamlNestedCamelAddr
+{
+    public string StreetName { get; set; } = "";
+    public int ZipCode { get; set; }
+}
+
+[YamlCamelCase]
+public class YamlNestedCamelParent
+{
+    public string FullName { get; set; } = "";
+    public YamlNestedCamelAddr Address { get; set; } = new();
+}
+
+public class YamlNestedConverterAddr
+{
+    [YamlConverter(typeof(YamlTagConverter))]
+    public YamlTagWrapper Tag { get; set; } = new();
+}
+
+public class YamlNestedConverterParent
+{
+    public string Name { get; set; } = "";
+    public YamlNestedConverterAddr Address { get; set; } = new();
+}
+
+public class YamlNestedAdvancedTests
+{
+    [Test]
+    public async Task YamlCamelCase_NestedObject_UsesCamelCaseKeys()
+    {
+        var obj = new YamlNestedCamelParent
+        {
+            FullName = "Alice",
+            Address = new YamlNestedCamelAddr { StreetName = "Main St", ZipCode = 12345 }
+        };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(obj);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).Contains("streetName");
+        await Assert.That(text).Contains("zipCode");
+        await Assert.That(text).DoesNotContain("StreetName");
+        await Assert.That(text).DoesNotContain("ZipCode");
+    }
+
+    [Test]
+    public async Task YamlCamelCase_NestedObject_RoundTrip_Works()
+    {
+        var original = new YamlNestedCamelParent
+        {
+            FullName = "Bob",
+            Address = new YamlNestedCamelAddr { StreetName = "Main St", ZipCode = 12345 }
+        };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var result = YamlSerializer.Deserialize<YamlNestedCamelParent>(bytes);
+
+        await Assert.That(result!.FullName).IsEqualTo("Bob");
+        await Assert.That(result.Address.StreetName).IsEqualTo("Main St");
+        await Assert.That(result.Address.ZipCode).IsEqualTo(12345);
+    }
+
+    [Test]
+    public async Task YamlConverter_NestedObject_UsesConverter()
+    {
+        var obj = new YamlNestedConverterParent
+        {
+            Name = "Test",
+            Address = new YamlNestedConverterAddr { Tag = new YamlTagWrapper { Value = "hello" } }
+        };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(obj);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).Contains("[hello]");
+
+        var result = YamlSerializer.Deserialize<YamlNestedConverterParent>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Test");
+        await Assert.That(result.Address.Tag.Value).IsEqualTo("hello");
+    }
+}

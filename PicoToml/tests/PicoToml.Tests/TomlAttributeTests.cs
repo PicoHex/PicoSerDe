@@ -193,6 +193,18 @@ public class NestedKeyParent
     public NestedKeyAddress Address { get; set; } = new();
 }
 
+public class NestedConverterAddr
+{
+    [TomlConverter(typeof(TagWrapperConverter))]
+    public TagWrapper Tag { get; set; } = new();
+}
+
+public class NestedConverterParent
+{
+    public string Name { get; set; } = "";
+    public NestedConverterAddr Address { get; set; } = new();
+}
+
 public class TomlNestedKeyTests
 {
     [Test]
@@ -227,5 +239,78 @@ public class TomlNestedKeyTests
         await Assert.That(result.Address).IsNotNull();
         await Assert.That(result.Address.Street).IsEqualTo("123 Main");
         await Assert.That(result.Address.City).IsEqualTo("NYC");
+    }
+}
+
+[TomlCamelCase]
+public class CamelCaseNestedAddr
+{
+    public string StreetName { get; set; } = "";
+    public int ZipCode { get; set; }
+}
+
+[TomlCamelCase]
+public class CamelCaseNestedParent
+{
+    public string FullName { get; set; } = "";
+    public CamelCaseNestedAddr Address { get; set; } = new();
+}
+
+public class TomlNestedCamelCaseTests
+{
+    [Test]
+    public async Task TomlCamelCase_NestedObject_UsesCamelCaseKeys()
+    {
+        var obj = new CamelCaseNestedParent
+        {
+            FullName = "Alice",
+            Address = new CamelCaseNestedAddr { StreetName = "Main St", ZipCode = 12345 }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(obj);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).Contains("streetName");
+        await Assert.That(text).Contains("zipCode");
+        await Assert.That(text).DoesNotContain("StreetName");
+        await Assert.That(text).DoesNotContain("ZipCode");
+    }
+
+    [Test]
+    public async Task TomlCamelCase_NestedObject_RoundTrip_Works()
+    {
+        var original = new CamelCaseNestedParent
+        {
+            FullName = "Bob",
+            Address = new CamelCaseNestedAddr { StreetName = "Main St", ZipCode = 12345 }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<CamelCaseNestedParent>(bytes);
+
+        await Assert.That(result!.FullName).IsEqualTo("Bob");
+        await Assert.That(result.Address.StreetName).IsEqualTo("Main St");
+        await Assert.That(result.Address.ZipCode).IsEqualTo(12345);
+    }
+}
+
+public class TomlNestedConverterTests
+{
+    [Test]
+    public async Task TomlConverter_NestedObject_UsesConverter()
+    {
+        var obj = new NestedConverterParent
+        {
+            Name = "Test",
+            Address = new NestedConverterAddr { Tag = new TagWrapper { Value = "hello" } }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(obj);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        // Converter should produce [hello] format
+        await Assert.That(text).Contains("[hello]");
+        await Assert.That(text).DoesNotContain("[Tag]");
+
+        var result = TomlSerializer.Deserialize<NestedConverterParent>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Test");
+        await Assert.That(result.Address.Tag.Value).IsEqualTo("hello");
     }
 }

@@ -98,7 +98,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             }
             else if (k is "object" && p.Type is INamedTypeSymbol objNts)
             {
-                nestedProps = ExtractNested(objNts);
+                nestedProps = ExtractNested(objNts, useCamelCase);
             }
             else if (k is "dict" && p.Type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2)
             {
@@ -211,7 +211,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
-    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol type)
+    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol type, bool useCamelCase)
     {
         var list = new List<PropInfo>();
         foreach (var m in type.GetMembers())
@@ -224,7 +224,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 continue;
             if (HasYamlIgnore(p))
                 continue;
+            var nestedConverter = GetYamlConverter(p);
             var (k, isNullable, _) = TypeKindResolver.Resolve(p.Type);
+            if (nestedConverter is not null)
+                k = "string";
             if (k is null)
                 continue;
             string? ekt = null,
@@ -249,9 +252,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             }
             else if (k is "object" && p.Type is INamedTypeSymbol o2)
             {
-                np2 = ExtractNested(o2);
+                np2 = ExtractNested(o2, useCamelCase);
             }
-            var nestedJsonName = GetYamlKey(p) ?? p.Name;
+            var nestedJsonName = GetYamlKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name);
             list.Add(
                 new PropInfo(
                     p.Name,
@@ -260,7 +263,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     ekt,
                     etf,
-                    isNullable
+                    isNullable,
+                    np2,
+                    null,
+                    null,
+                    nestedConverter,
+                    GetYamlDateTimeFormat(p)
                 )
             );
         }
@@ -408,43 +416,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("yw.WriteStartMapping();");
             foreach (var np in p.NestedProps)
             {
-                s.Append(ind);
-                s.Append("yw.WritePropertyName(\"");
-                s.Append(np.Jn);
-                s.AppendLine("\"u8);");
-                switch (np.Tk)
-                {
-                    case "string":
-                        s.Append(ind);
-                        s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
-                        s.Append(target);
-                        s.Append('.');
-                        s.Append(p.Name);
-                        s.Append('.');
-                        s.Append(np.Name);
-                        s.AppendLine("));");
-                        break;
-                    case "int32":
-                        s.Append(ind);
-                        s.Append("yw.WriteNumber(");
-                        s.Append(target);
-                        s.Append('.');
-                        s.Append(p.Name);
-                        s.Append('.');
-                        s.Append(np.Name);
-                        s.AppendLine(");");
-                        break;
-                    default:
-                        s.Append(ind);
-                        s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
-                        s.Append(target);
-                        s.Append('.');
-                        s.Append(p.Name);
-                        s.Append('.');
-                        s.Append(np.Name);
-                        s.AppendLine(".ToString()));");
-                        break;
-                }
+                EmitSerialize(s, np, target + "." + p.Name, ind);
             }
             s.Append(ind);
             s.AppendLine("yw.WriteEndMapping();");
@@ -752,40 +724,60 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(" (__Y.Eq(nk, \"");
                 s.Append(np.Jn);
                 s.AppendLine("\"u8)) {");
-                switch (np.Tk)
+                if (np.ConverterType is not null)
                 {
-                    case "string":
-                        s.Append(pad);
-                        s.Append("            ");
-                        s.Append(tgt);
-                        s.Append('.');
-                        s.Append(p.Name);
-                        s.Append('.');
-                        s.Append(np.Name);
-                        s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
-                        break;
-                    case "int32":
-                        s.Append(pad);
-                        s.AppendLine("            r.TryGetInt32(out var __nv);");
-                        s.Append(pad);
-                        s.Append("            ");
-                        s.Append(tgt);
-                        s.Append('.');
-                        s.Append(p.Name);
-                        s.Append('.');
-                        s.Append(np.Name);
-                        s.AppendLine(" = __nv;");
-                        break;
-                    default:
-                        s.Append(pad);
-                        s.Append("            ");
-                        s.Append(tgt);
-                        s.Append('.');
-                        s.Append(p.Name);
-                        s.Append('.');
-                        s.Append(np.Name);
-                        s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
-                        break;
+                    s.Append(pad);
+                    s.AppendLine("        r.Read();");
+                    s.Append(pad);
+                    s.Append("        var __cnv = new ");
+                    s.Append(np.ConverterType);
+                    s.AppendLine("();");
+                    s.Append(pad);
+                    s.Append("        ");
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.Append('.');
+                    s.Append(np.Name);
+                    s.AppendLine(" = __cnv.Read(ref r);");
+                }
+                else
+                {
+                    switch (np.Tk)
+                    {
+                        case "string":
+                            s.Append(pad);
+                            s.Append("            ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.Append('.');
+                            s.Append(np.Name);
+                            s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                            break;
+                        case "int32":
+                            s.Append(pad);
+                            s.AppendLine("            r.TryGetInt32(out var __nv);");
+                            s.Append(pad);
+                            s.Append("            ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.Append('.');
+                            s.Append(np.Name);
+                            s.AppendLine(" = __nv;");
+                            break;
+                        default:
+                            s.Append(pad);
+                            s.Append("            ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.Append('.');
+                            s.Append(np.Name);
+                            s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                            break;
+                    }
                 }
                 s.Append(pad);
                 s.AppendLine("        }");

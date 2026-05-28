@@ -184,6 +184,56 @@ public class IniCamelCaseTests
     }
 }
 
+[IniCamelCase]
+public class CamelCaseNested
+{
+    public string StreetName { get; set; } = "";
+    public int ZipCode { get; set; }
+}
+
+[IniCamelCase]
+public class CamelCaseParent
+{
+    public string FullName { get; set; } = "";
+    public CamelCaseNested Address { get; set; } = new();
+}
+
+public class IniNestedCamelCaseTests
+{
+    [Test]
+    public async Task IniCamelCase_NestedObject_UsesCamelCaseKeys()
+    {
+        var obj = new CamelCaseParent
+        {
+            FullName = "Alice",
+            Address = new CamelCaseNested { StreetName = "Main St", ZipCode = 12345 }
+        };
+        var ini = IniSerializer.Serialize(obj);
+
+        await Assert.That(ini).Contains("streetName");
+        await Assert.That(ini).Contains("zipCode");
+        await Assert.That(ini).DoesNotContain("StreetName");
+        await Assert.That(ini).DoesNotContain("ZipCode");
+    }
+
+    [Test]
+    public async Task IniCamelCase_NestedObject_RoundTrip_Works()
+    {
+        var original = new CamelCaseParent
+        {
+            FullName = "Bob",
+            Address = new CamelCaseNested { StreetName = "Main St", ZipCode = 12345 }
+        };
+        var ini = IniSerializer.Serialize(original);
+        var bytes = Encoding.UTF8.GetBytes(ini);
+        var result = IniSerializer.Deserialize<CamelCaseParent>(bytes);
+
+        await Assert.That(result!.FullName).IsEqualTo("Bob");
+        await Assert.That(result.Address.StreetName).IsEqualTo("Main St");
+        await Assert.That(result.Address.ZipCode).IsEqualTo(12345);
+    }
+}
+
 public class IniDateTimeFormatPoco
 {
     [IniDateTimeFormat("yyyy-MM-dd")]

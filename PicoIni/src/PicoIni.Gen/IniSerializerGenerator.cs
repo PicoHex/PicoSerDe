@@ -126,7 +126,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             }
             else if (kind is "object" && p.Type is INamedTypeSymbol onts)
             {
-                nested = ExtractNested(onts);
+                nested = ExtractNested(onts, useCamelCase);
             }
 
             props.Add(
@@ -228,7 +228,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
-    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol t)
+    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol t, bool useCamelCase)
     {
         var list = new List<PropInfo>();
         foreach (var m in t.GetMembers())
@@ -251,7 +251,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             list.Add(
                 new PropInfo(
                     p.Name,
-                    GetKey(p) ?? p.Name,
+                    GetKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name),
                     k,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     n,

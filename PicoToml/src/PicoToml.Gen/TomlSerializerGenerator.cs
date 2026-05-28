@@ -104,7 +104,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             }
             else if (k is "object" && p.Type is INamedTypeSymbol objNts)
             {
-                nestedProps = ExtractNested(objNts);
+                nestedProps = ExtractNested(objNts, useCamelCase);
             }
             else if (k is "dict" && p.Type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2)
             {
@@ -226,7 +226,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
-    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol type)
+    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol type, bool useCamelCase)
     {
         var list = new List<PropInfo>();
         foreach (var member in type.GetMembers())
@@ -243,7 +243,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 continue;
             if (HasTomlIgnore(p))
                 continue;
+            var nestedConverter = GetTomlConverter(p);
             var (k, isNullable, _) = TypeKindResolver.Resolve(p.Type);
+            if (nestedConverter is not null)
+                k = "string";
             if (k is null)
                 continue;
             string? elemTk2 = null,
@@ -268,12 +271,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             }
             else if (k is "object" && p.Type is INamedTypeSymbol objNts2)
             {
-                nested2 = ExtractNested(objNts2);
+                nested2 = ExtractNested(objNts2, useCamelCase);
             }
             list.Add(
                 new PropInfo(
                     p.Name,
-                    GetTomlKey(p) ?? p.Name,
+                    GetTomlKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name),
                     k,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     elemTk2,
@@ -281,7 +284,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     isNullable,
                     nested2,
                     null,
-                    null
+                    null,
+                    GetTomlConverter(p),
+                    GetTomlDateTimeFormat(p)
                 )
             );
         }
@@ -507,12 +512,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\");");
             foreach (var np in p.NestedProps)
             {
-                s.Append(indent);
-                s.Append("tw.WriteKeyValue(\"");
-                s.Append(np.Jn);
-                s.Append("\", ");
-                EmitValueAccessor(s, np, target + "." + p.Name + "." + np.Name);
-                s.AppendLine(");");
+                EmitSerializeProp(s, np, target + "." + p.Name, indent);
             }
         }
         else if (p.IsNullable)
