@@ -109,13 +109,18 @@ catch (ArgumentException ex)
     Console.WriteLine($"  {ex.Message}");
 }
 
-// ═══ 6. File I/O ═══
+// ═══ 6. File I/O — read from data file ═══
 Console.WriteLine("\n─── 6. File I/O ───");
-var yf = Path.Combine(Path.GetTempPath(), "sample.yaml");
-File.WriteAllBytes(yf, YamlSerializer.SerializeToUtf8Bytes(cfg));
-Console.WriteLine($"  Written: {yf} ({new FileInfo(yf).Length} bytes)");
-var yfr = YamlSerializer.Deserialize<YamlConfig>(File.ReadAllBytes(yf));
-Console.WriteLine($"  Read back: {yfr?.Name} v{yfr?.Version}");
+var df = Path.Combine(AppContext.BaseDirectory, "data", "config.yaml");
+var fb = File.ReadAllBytes(df);
+var ff = YamlSerializer.Deserialize<YamlConfig>(fb);
+Console.WriteLine($"  Read {df} ({fb.Length} bytes)");
+Console.WriteLine($"  Config: {ff?.Name} v{ff?.Version}");
+Console.WriteLine($"  Tags: [{string.Join(", ", ff?.Tags ?? [])}]");
+
+var rb = YamlSerializer.SerializeToUtf8Bytes(ff!);
+var rr = YamlSerializer.Deserialize<YamlConfig>(rb);
+Console.WriteLine($"  Round-trip OK: {rr?.Name == ff?.Name}");
 
 Console.WriteLine("\nAll samples passed.");
 

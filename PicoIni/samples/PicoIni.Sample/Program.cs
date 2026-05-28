@@ -63,13 +63,21 @@ var pb = new ArrayBufferWriter<byte>(64);
 IniSerializer.Serialize(pb, new AppConfig { Title = "X" });
 Console.WriteLine($"  Bytes: {pb.WrittenSpan.Length}");
 
-// ═══ 6. File I/O ═══
+// ═══ 6. File I/O — read from data file ═══
 Console.WriteLine("\n─── 6. File I/O ───");
-var f = Path.Combine(Path.GetTempPath(), "sample.ini");
-File.WriteAllText(f, IniSerializer.Serialize(cfg));
-Console.WriteLine($"  Written: {f} ({new FileInfo(f).Length} bytes)");
-var fr = IniSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(File.ReadAllText(f)));
-Console.WriteLine($"  Read back: {fr?.Title} v{fr?.Version}");
+var df = Path.Combine(AppContext.BaseDirectory, "data", "config.ini");
+var text = File.ReadAllText(df);
+var fb = Encoding.UTF8.GetBytes(text);
+var ff = IniSerializer.Deserialize<AppConfig>(fb);
+Console.WriteLine($"  Read {df} ({fb.Length} bytes)");
+Console.WriteLine($"  Config: {ff?.Title} v{ff?.Version}");
+Console.WriteLine($"  Tags: [{string.Join(", ", ff?.Tags ?? [])}]");
+
+var rt = IniSerializer.Serialize(ff!);
+var rr = IniSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(rt));
+Console.WriteLine($"  Round-trip OK: {rr?.Title == ff?.Title}");
+
+Console.WriteLine("\nAll samples passed.");
 
 Console.WriteLine("\nAll samples passed.");
 

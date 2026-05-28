@@ -10,4 +10,7 @@
         <ProjectReference Include="..\..\src\PicoToml\PicoToml.csproj" />
         <ProjectReference Include="..\..\src\PicoToml.Gen\PicoToml.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     </ItemGroup>
+  <ItemGroup>
+    <Content Include="data\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

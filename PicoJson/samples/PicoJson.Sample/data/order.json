@@ -1,0 +1,22 @@
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "Status": "Processing",
+  "Total": 149.97,
+  "Discount": 10,
+  "CreatedAt": "2024-06-15",
+  "Customer": {
+    "Name": "Alice",
+    "Since": "2024-01-15",
+    "Preferences": ["email", "sms"],
+    "Address": {
+      "Street": "123 Main St",
+      "City": "SF",
+      "Zip": "94105",
+      "Country": "US"
+    }
+  },
+  "Lines": [
+    { "Product": "Widget A", "Quantity": 2, "UnitPrice": 49.99 },
+    { "Product": "Widget B", "Quantity": 1, "UnitPrice": 49.99 }
+  ]
+}

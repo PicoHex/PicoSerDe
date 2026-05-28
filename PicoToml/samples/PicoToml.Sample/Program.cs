@@ -93,21 +93,23 @@ var pb = new ArrayBufferWriter<byte>(64);
 TomlSerializer.Serialize(pb, new TomlConfig { Name = "X" });
 Console.WriteLine($"  Bytes: {pb.WrittenSpan.Length}");
 
-// ═══ 6. File I/O ═══
+// ═══ 6. File I/O — read from data file ═══
 Console.WriteLine("\n─── 6. File I/O ───");
-var filePath = Path.Combine(Path.GetTempPath(), "sample.toml");
+var dataDir = Path.Combine(AppContext.BaseDirectory, "data");
+var dataFile = Path.Combine(dataDir, "config.toml");
+var fileBytes = File.ReadAllBytes(dataFile);
+var fromFile = TomlSerializer.Deserialize<TomlConfig>(fileBytes);
+Console.WriteLine($"  Read {dataFile} ({fileBytes.Length} bytes)");
+Console.WriteLine($"  Config: {fromFile?.Name} v{fromFile?.Version}");
+Console.WriteLine($"  Tags: [{string.Join(", ", fromFile?.Tags ?? [])}]");
 
-// Serialize to file
-File.WriteAllBytes(filePath, TomlSerializer.SerializeToUtf8Bytes(cfg));
-Console.WriteLine($"  Written: {filePath} ({new FileInfo(filePath).Length} bytes)");
-
-// Deserialize from file
-var fileBytes = File.ReadAllBytes(filePath);
-var fileRst = TomlSerializer.Deserialize<TomlConfig>(fileBytes);
-Console.WriteLine($"  Read back: {fileRst?.Name} v{fileRst?.Version}");
+// Round-trip: serialize back and re-read
+var roundBytes = TomlSerializer.SerializeToUtf8Bytes(fromFile!);
+var reRead = TomlSerializer.Deserialize<TomlConfig>(roundBytes);
+Console.WriteLine($"  Round-trip OK: {reRead?.Name == fromFile?.Name}");
 
 // ═══ 7. NaN guard ═══
-Console.WriteLine("\n─── 6. NaN Guard ───");
+Console.WriteLine("\n─── 7. NaN Guard ───");
 try
 {
     new TomlWriter(new ArrayBufferWriter<byte>(64)).WriteKeyValue("v", double.NaN);

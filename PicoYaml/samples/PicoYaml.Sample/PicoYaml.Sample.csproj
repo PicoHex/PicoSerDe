@@ -10,4 +10,7 @@
         <ProjectReference Include="..\..\src\PicoYaml\PicoYaml.csproj" />
         <ProjectReference Include="..\..\src\PicoYaml.Gen\PicoYaml.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     </ItemGroup>
+  <ItemGroup>
+    <Content Include="data\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

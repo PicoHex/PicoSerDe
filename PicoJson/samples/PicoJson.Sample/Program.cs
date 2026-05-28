@@ -105,14 +105,20 @@ class Program
             Console.WriteLine($"  {ex.Message}");
         }
 
-        // ═══ 6. File I/O ═══
+        // ═══ 6. File I/O — read from data file ═══
         Console.WriteLine("\n=== 6. File I/O ===");
-        var filePath = Path.Combine(Path.GetTempPath(), "sample.json");
-        File.WriteAllBytes(filePath, JsonSerializer.SerializeToUtf8Bytes(order));
-        Console.WriteLine($"  Written: {filePath} ({new FileInfo(filePath).Length} bytes)");
-        var fileBytes = File.ReadAllBytes(filePath);
-        var fileOrder = JsonSerializer.Deserialize<Order>(fileBytes);
-        Console.WriteLine($"  Read back: Order {fileOrder?.Id}");
+        var dataFile = Path.Combine(AppContext.BaseDirectory, "data", "order.json");
+        var jsonBytes = File.ReadAllBytes(dataFile);
+        var fromFile = JsonSerializer.Deserialize<Order>(jsonBytes);
+        Console.WriteLine($"  Read {dataFile} ({jsonBytes.Length} bytes)");
+        Console.WriteLine($"  Order {fromFile?.Id}");
+        Console.WriteLine($"  Customer: {fromFile?.Customer?.Name}");
+        Console.WriteLine($"  Lines: {fromFile?.Lines?.Count}");
+
+        // Round-trip: serialize back and compare
+        var roundBytes = JsonSerializer.SerializeToUtf8Bytes(fromFile!);
+        var reRead = JsonSerializer.Deserialize<Order>(roundBytes);
+        Console.WriteLine($"  Round-trip OK: {reRead?.Customer?.Name == fromFile?.Customer?.Name}");
     }
 }
 
