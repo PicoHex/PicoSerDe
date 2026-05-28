@@ -10,6 +10,9 @@ public ref struct TomlReader
     private ReadOnlySpan<byte> _valueSpan;
     private ReadOnlySpan<byte> _tablePath;
     private bool _isArrayTable;
+    private bool _inArray;
+    private int _arrayDepth;
+    private bool _arrayStartEmitted;
 
     public TomlReader(ReadOnlySpan<byte> data)
     {
@@ -28,6 +31,10 @@ public ref struct TomlReader
 
     public bool Read()
     {
+        // ── Array mode: parse array elements ──
+        if (_inArray)
+            return ReadArray();
+
         Start:
         // Skip blank lines and comments
         while (_position < _data.Length)
@@ -102,6 +109,17 @@ public ref struct TomlReader
         while (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;
 
+        // ── Array value: key = [1, 2, 3] ──
+        if (_position < _data.Length && _data[_position] == (byte)'[')
+        {
+            _position++; // skip '['
+            _inArray = true;
+            _arrayDepth = 1;
+            _arrayStartEmitted = false;
+            _tokenType = TokenType.PropertyName;
+            return true;
+        }
+
         // Read quoted string value
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
@@ -161,9 +179,105 @@ public ref struct TomlReader
         return true;
     }
 
+    private bool ReadArray()
+    {
+        // Emit ArrayStart on first entry (after PropertyName)
+        if (!_arrayStartEmitted)
+        {
+            _arrayStartEmitted = true;
+            _tokenType = TokenType.ArrayStart;
+            return true;
+        }
+
+        // Skip whitespace, commas, newlines
+        while (_position < _data.Length)
+        {
+            var b = _data[_position];
+            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r' or (byte)',')
+                _position++;
+            else if (b == (byte)'#')
+                SkipLine();
+            else
+                break;
+        }
+
+        if (_position >= _data.Length)
+            return false;
+
+        // End of current array level
+        if (_data[_position] == (byte)']')
+        {
+            _position++;
+            _arrayDepth--;
+            if (_arrayDepth == 0)
+            {
+                _inArray = false;
+                // Skip trailing newline
+                if (_position < _data.Length && _data[_position] == (byte)'\r')
+                    _position++;
+                if (_position < _data.Length && _data[_position] == (byte)'\n')
+                    _position++;
+            }
+            _tokenType = TokenType.ArrayEnd;
+            return true;
+        }
+
+        // Nested array start
+        if (_data[_position] == (byte)'[')
+        {
+            _position++;
+            _arrayDepth++;
+            _tokenType = TokenType.ArrayStart;
+            return true;
+        }
+
+        // Read array element value
+        return ReadArrayValue();
+    }
+
+    private bool ReadArrayValue()
+    {
+        // Quoted string
+        if (_data[_position] == (byte)'"')
+        {
+            _position++;
+            var valStart = _position;
+            while (_position < _data.Length && _data[_position] != (byte)'"')
+                _position++;
+            _valueSpan = _data[valStart.._position];
+            _position++; // skip closing "
+        }
+        // Literal string
+        else if (_data[_position] == (byte)'\'')
+        {
+            _position++;
+            var valStart = _position;
+            while (_position < _data.Length && _data[_position] != (byte)'\'')
+                _position++;
+            _valueSpan = _data[valStart.._position];
+            _position++; // skip closing '
+        }
+        else
+        {
+            // Unquoted value (number, bool, etc.) — scan to next , or ]
+            var valStart = _position;
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)','
+                && _data[_position] != (byte)']'
+                && _data[_position] != (byte)'\n'
+                && _data[_position] != (byte)'\r'
+            )
+                _position++;
+            _valueSpan = Trim(_data[valStart.._position]);
+        }
+        _tokenType = TokenType.String;
+        return true;
+    }
+
     public bool TryGetInt32(out int v)
     {
-        if (_tokenType != TokenType.PropertyName)
+        if (_valueSpan.IsEmpty)
         {
             v = 0;
             return false;
@@ -173,7 +287,7 @@ public ref struct TomlReader
 
     public bool TryGetInt64(out long v)
     {
-        if (_tokenType != TokenType.PropertyName)
+        if (_valueSpan.IsEmpty)
         {
             v = 0;
             return false;
@@ -183,7 +297,7 @@ public ref struct TomlReader
 
     public bool TryGetBool(out bool v)
     {
-        if (_tokenType != TokenType.PropertyName)
+        if (_valueSpan.IsEmpty)
         {
             v = false;
             return false;
@@ -194,7 +308,7 @@ public ref struct TomlReader
 
     public bool TryGetFloat64(out double v)
     {
-        if (_tokenType != TokenType.PropertyName)
+        if (_valueSpan.IsEmpty)
         {
             v = 0;
             return false;
@@ -208,6 +322,17 @@ public ref struct TomlReader
         while (end > 0 && (s[end - 1] == (byte)' ' || s[end - 1] == (byte)'\t'))
             end--;
         return s[..end];
+    }
+
+    private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> s)
+    {
+        int start = 0;
+        while (start < s.Length && (s[start] == (byte)' ' || s[start] == (byte)'\t'))
+            start++;
+        int end = s.Length;
+        while (end > start && (s[end - 1] == (byte)' ' || s[end - 1] == (byte)'\t'))
+            end--;
+        return s[start..end];
     }
 
     private static bool IsDigit(byte b) => b is >= (byte)'0' and <= (byte)'9';

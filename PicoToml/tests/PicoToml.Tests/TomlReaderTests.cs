@@ -132,4 +132,87 @@ public class TomlReaderTests
         await Assert.That(ok).IsTrue();
         await Assert.That(v).IsEqualTo(9999999999L);
     }
+
+    [Test]
+    public async Task ArrayValue_Ints_EmitsArrayTokens()
+    {
+        var r = new TomlReader("scores = [1, 2, 3]\n"u8);
+        // Collect all tokens first (ref struct can't cross await)
+        var tokens = new List<(TokenType Type, string? Key, string? Value, int? IntVal)>();
+        while (r.Read())
+        {
+            var val = r.ValueSpan.Length > 0 ? Encoding.UTF8.GetString(r.ValueSpan) : null;
+            var key = r.KeySpan.Length > 0 ? Encoding.UTF8.GetString(r.KeySpan) : null;
+            r.TryGetInt32(out var iv);
+            tokens.Add((r.TokenType, key, val, r.TokenType != TokenType.PropertyName ? iv : null));
+        }
+
+        await Assert.That(tokens.Count).IsEqualTo(6);
+        // [0] PropertyName: scores
+        await Assert.That(tokens[0].Type).IsEqualTo(TokenType.PropertyName);
+        await Assert.That(tokens[0].Key).IsEqualTo("scores");
+        // [1] ArrayStart
+        await Assert.That(tokens[1].Type).IsEqualTo(TokenType.ArrayStart);
+        // [2] String: 1
+        await Assert.That(tokens[2].Type).IsEqualTo(TokenType.String);
+        await Assert.That(tokens[2].Value).IsEqualTo("1");
+        await Assert.That(tokens[2].IntVal).IsEqualTo(1);
+        // [3] String: 2
+        await Assert.That(tokens[3].Type).IsEqualTo(TokenType.String);
+        await Assert.That(tokens[3].Value).IsEqualTo("2");
+        await Assert.That(tokens[3].IntVal).IsEqualTo(2);
+        // [4] String: 3
+        await Assert.That(tokens[4].Type).IsEqualTo(TokenType.String);
+        await Assert.That(tokens[4].Value).IsEqualTo("3");
+        await Assert.That(tokens[4].IntVal).IsEqualTo(3);
+        // [5] ArrayEnd
+        await Assert.That(tokens[5].Type).IsEqualTo(TokenType.ArrayEnd);
+    }
+
+    [Test]
+    public async Task ArrayValue_Strings()
+    {
+        var r = new TomlReader("tags = [\"dev\", \"runner\"]\n"u8);
+        var values = new List<string>();
+        while (r.Read())
+        {
+            if (r.TokenType == TokenType.String)
+                values.Add(Encoding.UTF8.GetString(r.ValueSpan));
+        }
+        await Assert.That(values.Count).IsEqualTo(2);
+        await Assert.That(values[0]).IsEqualTo("dev");
+        await Assert.That(values[1]).IsEqualTo("runner");
+    }
+
+    [Test]
+    public async Task ArrayValue_Nested_EmitsArrayTokens()
+    {
+        var r = new TomlReader("matrix = [[1, 2], [3, 4]]\n"u8);
+        var tokens = new List<(TokenType Type, string? Value)>();
+        while (r.Read())
+        {
+            if (r.TokenType != TokenType.PropertyName)
+                tokens.Add(
+                    (
+                        r.TokenType,
+                        r.ValueSpan.Length > 0 ? Encoding.UTF8.GetString(r.ValueSpan) : null
+                    )
+                );
+        }
+        await Assert.That(tokens.Count).IsEqualTo(10);
+        await Assert.That(tokens[0].Type).IsEqualTo(TokenType.ArrayStart);
+        await Assert.That(tokens[1].Type).IsEqualTo(TokenType.ArrayStart);
+        await Assert.That(tokens[2].Type).IsEqualTo(TokenType.String);
+        await Assert.That(tokens[2].Value).IsEqualTo("1");
+        await Assert.That(tokens[3].Type).IsEqualTo(TokenType.String);
+        await Assert.That(tokens[3].Value).IsEqualTo("2");
+        await Assert.That(tokens[4].Type).IsEqualTo(TokenType.ArrayEnd);
+        await Assert.That(tokens[5].Type).IsEqualTo(TokenType.ArrayStart);
+        await Assert.That(tokens[6].Type).IsEqualTo(TokenType.String);
+        await Assert.That(tokens[6].Value).IsEqualTo("3");
+        await Assert.That(tokens[7].Type).IsEqualTo(TokenType.String);
+        await Assert.That(tokens[7].Value).IsEqualTo("4");
+        await Assert.That(tokens[8].Type).IsEqualTo(TokenType.ArrayEnd);
+        await Assert.That(tokens[9].Type).IsEqualTo(TokenType.ArrayEnd);
+    }
 }

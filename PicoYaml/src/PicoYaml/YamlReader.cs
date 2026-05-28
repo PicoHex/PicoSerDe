@@ -194,6 +194,37 @@ public ref struct YamlReader
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
+    public bool TryGetInt64(out long v)
+    {
+        if (_valueSpan.IsEmpty)
+        {
+            v = 0;
+            return false;
+        }
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+    }
+
+    public bool TryGetFloat64(out double v)
+    {
+        if (_valueSpan.IsEmpty)
+        {
+            v = 0;
+            return false;
+        }
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+    }
+
+    public bool TryGetBool(out bool v)
+    {
+        if (_valueSpan.IsEmpty)
+        {
+            v = false;
+            return false;
+        }
+        v = _valueSpan[0] == (byte)'t';
+        return true;
+    }
+
     private void SkipLine()
     {
         while (

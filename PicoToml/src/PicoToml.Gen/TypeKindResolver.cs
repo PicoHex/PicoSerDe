@@ -38,6 +38,11 @@ internal static class TypeKindResolver
             kk = "enum";
         if (
             kk is null
+            && type is INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" }
+        )
+            kk = "guid";
+        if (
+            kk is null
             && type is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } o
         )
         {
@@ -65,6 +70,7 @@ internal static class TypeKindResolver
             "float64" => "double",
             "boolean" => "bool",
             "datetime" => "System.DateTime",
+            "guid" => "System.Guid",
             "decimal" => "decimal",
             "enum" => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "object" => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),

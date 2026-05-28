@@ -4,11 +4,15 @@ public ref struct TomlWriter
 {
     private IBufferWriter<byte> _buffer;
     private long _bytesWritten;
+    private int _arrayDepth;
+    private long _arrayCommaMask;
 
     public TomlWriter(IBufferWriter<byte> buffer)
     {
         _buffer = buffer;
         _bytesWritten = 0;
+        _arrayDepth = 0;
+        _arrayCommaMask = 0;
     }
 
     public long BytesWritten => _bytesWritten;
@@ -82,6 +86,80 @@ public ref struct TomlWriter
     {
         WriteNewLine();
     }
+
+    // ── Array writing ──
+
+    public void WriteStartArray(ReadOnlySpan<byte> key)
+    {
+        if (_arrayDepth > 0)
+            ArrayBeforeValue();
+        if (key.Length > 0)
+        {
+            WriteKey(key);
+            WriteRaw(" = "u8);
+        }
+        WriteByte((byte)'[');
+        _arrayDepth++;
+    }
+
+    public void WriteEndArray()
+    {
+        _arrayDepth--;
+        _arrayCommaMask &= ~(1L << _arrayDepth);
+        WriteByte((byte)']');
+        if (_arrayDepth == 0)
+            WriteNewLine();
+    }
+
+    public void WriteArrayValue(int value)
+    {
+        ArrayBeforeValue();
+        Span<byte> buf = _buffer.GetSpan(16);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+    }
+
+    public void WriteArrayValue(long value)
+    {
+        ArrayBeforeValue();
+        Span<byte> buf = _buffer.GetSpan(32);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+    }
+
+    public void WriteArrayValue(string value)
+    {
+        ArrayBeforeValue();
+        WriteByte((byte)'"');
+        WriteRaw(Encoding.UTF8.GetBytes(value));
+        WriteByte((byte)'"');
+    }
+
+    public void WriteArrayValue(bool value)
+    {
+        ArrayBeforeValue();
+        WriteRaw(value ? "true"u8 : "false"u8);
+    }
+
+    public void WriteArrayValue(double value)
+    {
+        ArrayBeforeValue();
+        Span<byte> buf = _buffer.GetSpan(32);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+    }
+
+    private void ArrayBeforeValue()
+    {
+        if ((_arrayCommaMask & (1L << (_arrayDepth - 1))) != 0)
+            WriteRaw(", "u8);
+        _arrayCommaMask |= (1L << (_arrayDepth - 1));
+    }
+
+    // ── Private helpers ──
 
     private void WriteKey(ReadOnlySpan<byte> utf8)
     {

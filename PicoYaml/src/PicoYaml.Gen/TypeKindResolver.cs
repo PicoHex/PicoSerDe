@@ -30,10 +30,34 @@ internal static class TypeKindResolver
             SpecialType.System_Int64 => "int64",
             SpecialType.System_Double => "float64",
             SpecialType.System_Boolean => "boolean",
+            SpecialType.System_DateTime => "datetime",
+            SpecialType.System_Decimal => "decimal",
             _ => null
         };
         if (kk is null && type is INamedTypeSymbol { TypeKind: TypeKind.Enum })
             kk = "enum";
+        if (
+            kk is null
+            && type is INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" }
+        )
+            kk = "guid";
+        if (
+            kk is null
+            && type is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } o
+        )
+        {
+            foreach (var m in o.GetMembers())
+                if (
+                    m
+                        is IPropertySymbol
+                        {
+                            DeclaredAccessibility: Accessibility.Public,
+                            IsStatic: false
+                        } p
+                    && p.GetMethod is not null
+                )
+                    return ("object", false, null);
+        }
         return (kk, false, null);
     }
 
@@ -45,7 +69,11 @@ internal static class TypeKindResolver
             "int64" => "long",
             "float64" => "double",
             "boolean" => "bool",
+            "datetime" => "System.DateTime",
+            "guid" => "System.Guid",
+            "decimal" => "decimal",
             "enum" => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "object" => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             _ => "object"
         };
 }

@@ -6,6 +6,32 @@ public class SimplePoco
     public int Age { get; set; }
 }
 
+public class ListPoco
+{
+    public string Name { get; set; } = "";
+    public List<int> Scores { get; set; } = new();
+    public List<string> Tags { get; set; } = new();
+}
+
+public class NullablePoco
+{
+    public string Name { get; set; } = "";
+    public int? Age { get; set; }
+    public double? Rating { get; set; }
+    public bool? Enabled { get; set; }
+}
+
+public class TemporalPoco
+{
+    public string Name { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+}
+
+public class GuidPoco
+{
+    public Guid Id { get; set; }
+}
+
 public class TomlSerializerTests
 {
     [Test]
@@ -28,5 +54,84 @@ public class TomlSerializerTests
         await Assert.That(text).Contains("Bob");
         await Assert.That(text).Contains("Age");
         await Assert.That(text).Contains("25");
+    }
+
+    [Test]
+    public async Task RoundTrip_ListPoco()
+    {
+        var original = new ListPoco
+        {
+            Name = "Test",
+            Scores = new List<int> { 10, 20, 30 },
+            Tags = new List<string> { "dev", "runner" }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<ListPoco>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Test");
+        await Assert.That(result.Scores).IsNotNull();
+        await Assert.That(result.Scores.Count).IsEqualTo(3);
+        await Assert.That(result.Scores[0]).IsEqualTo(10);
+        await Assert.That(result.Scores[1]).IsEqualTo(20);
+        await Assert.That(result.Scores[2]).IsEqualTo(30);
+        await Assert.That(result.Tags.Count).IsEqualTo(2);
+        await Assert.That(result.Tags[0]).IsEqualTo("dev");
+        await Assert.That(result.Tags[1]).IsEqualTo("runner");
+    }
+
+    [Test]
+    public async Task RoundTrip_Nullable_HasValue()
+    {
+        var original = new NullablePoco
+        {
+            Name = "N",
+            Age = 42,
+            Rating = 4.5,
+            Enabled = true
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<NullablePoco>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("N");
+        await Assert.That(result.Age).IsEqualTo(42);
+        await Assert.That(result.Rating).IsEqualTo(4.5);
+        await Assert.That(result.Enabled).IsTrue();
+    }
+
+    [Test]
+    public async Task RoundTrip_Nullable_Null()
+    {
+        var original = new NullablePoco
+        {
+            Name = "N",
+            Age = null,
+            Rating = null,
+            Enabled = null
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<NullablePoco>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("N");
+        await Assert.That(result.Age).IsNull();
+        await Assert.That(result.Rating).IsNull();
+        await Assert.That(result.Enabled).IsNull();
+    }
+
+    [Test]
+    public async Task RoundTrip_DateTime()
+    {
+        var dt = new DateTime(2024, 6, 15, 12, 30, 0, DateTimeKind.Utc);
+        var original = new TemporalPoco { Name = "T", CreatedAt = dt };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<TemporalPoco>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("T");
+        await Assert.That(result.CreatedAt).IsEqualTo(dt);
+    }
+
+    [Test]
+    public async Task RoundTrip_Guid()
+    {
+        var g = Guid.NewGuid();
+        var original = new GuidPoco { Id = g };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<GuidPoco>(bytes);
+        await Assert.That(result!.Id).IsEqualTo(g);
     }
 }

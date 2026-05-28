@@ -123,6 +123,11 @@ public ref struct YamlWriter
 
     public void WriteSequenceItem(ReadOnlySpan<byte> utf8Value)
     {
+        if (_afterKey)
+        {
+            WriteNewLine();
+            _afterKey = false;
+        }
         for (var i = 0; i < _depth; i++)
             WriteRaw("  "u8);
         WriteRaw("- "u8);

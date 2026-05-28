@@ -51,7 +51,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         if (t is not INamedTypeSymbol nt)
             return null;
         if (nt.ContainingType is not null)
-            return null; // no nested types
+            return null;
         var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
         if (ns == "<global namespace>")
             ns = "";
@@ -68,15 +68,39 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 continue;
             if (p.GetMethod is null)
                 continue;
-            var (k, _, _) = TypeKindResolver.Resolve(p.Type);
+            var (k, isNullable, _) = TypeKindResolver.Resolve(p.Type);
             if (k is null)
                 continue;
+
+            string? elemTk = null;
+            string? elemTf = null;
+            if (k is "list" or "array")
+            {
+                if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
+                {
+                    var et = nts.TypeArguments[0];
+                    var (ek, _, _) = TypeKindResolver.Resolve(et);
+                    elemTk = ek;
+                    elemTf = TypeKindResolver.MapTypeName(ek ?? "string", et);
+                }
+                else if (p.Type is IArrayTypeSymbol ats)
+                {
+                    var et = ats.ElementType;
+                    var (ek, _, _) = TypeKindResolver.Resolve(et);
+                    elemTk = ek;
+                    elemTf = TypeKindResolver.MapTypeName(ek ?? "string", et);
+                }
+            }
+
             props.Add(
                 new PropInfo(
                     p.Name,
                     p.Name,
                     k,
-                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    elemTk,
+                    elemTf,
+                    isNullable
                 )
             );
         }
@@ -117,13 +141,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(";");
         }
         s.AppendLine();
-        // Helper (must come before serializer/deserializer that use it)
         s.AppendLine("file static class __T {");
         s.AppendLine(
             "    internal static bool __Tk(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if ((a[i] | 0x20) != (b[i] | 0x20)) return false; return true; }"
         );
         s.AppendLine("}");
         s.AppendLine();
+
         // Serializer
         s.Append("file sealed class ");
         s.Append(t.Name);
@@ -136,13 +160,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        var tw = new TomlWriter(w);");
         foreach (var p in t.Props)
         {
-            s.Append("        tw.WriteKeyValue(\"");
-            s.Append(p.Jn);
-            s.Append("\", ");
-            WriteVal(s, p, $"v.{p.Name}");
-            s.AppendLine(");");
+            EmitSerializeProp(s, p, "v", "        ");
         }
         s.AppendLine("    } }");
+
         // Deserializer
         s.Append("file sealed class ");
         s.Append(t.Name);
@@ -165,12 +186,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(" (__T.__Tk(k, \"");
             s.Append(t.Props[i].Jn);
             s.AppendLine("\"u8)) {");
-            EmitRead(s, t.Props[i], "o", "                ");
+            EmitDeserializeProp(s, t.Props[i], "o", "                ");
             s.AppendLine("            }");
         }
         s.AppendLine("        }");
         s.AppendLine("        return o;");
         s.AppendLine("    } }");
+
         // Registration
         s.Append("file static class ");
         s.Append(t.Name);
@@ -184,88 +206,282 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
-    private static void WriteVal(StringBuilder s, PropInfo p, string acc)
+    private static void EmitSerializeProp(StringBuilder s, PropInfo p, string target, string indent)
+    {
+        if (p.Tk is "list" or "array")
+        {
+            var ename = p.Name;
+            s.Append(indent);
+            s.Append("tw.WriteStartArray(\"");
+            s.Append(p.Jn);
+            s.AppendLine("\"u8);");
+            s.Append(indent);
+            s.Append("foreach (var __item in ");
+            s.Append(target);
+            s.Append('.');
+            s.Append(p.Name);
+            s.AppendLine(")");
+            s.Append(indent);
+            s.AppendLine("{");
+            EmitSerializeListElement(s, p, indent + "    ");
+            s.Append(indent);
+            s.AppendLine("}");
+            s.Append(indent);
+            s.AppendLine("tw.WriteEndArray();");
+        }
+        else if (p.IsNullable)
+        {
+            s.Append(indent);
+            s.Append("if (");
+            s.Append(target);
+            s.Append('.');
+            s.Append(p.Name);
+            s.AppendLine(".HasValue)");
+            s.Append(indent);
+            s.AppendLine("{");
+            s.Append(indent);
+            s.Append("    tw.WriteKeyValue(\"");
+            s.Append(p.Jn);
+            s.Append("\", ");
+            EmitValueAccessor(s, p, target + "." + p.Name + ".Value");
+            s.AppendLine(");");
+            s.Append(indent);
+            s.AppendLine("}");
+        }
+        else
+        {
+            s.Append(indent);
+            s.Append("tw.WriteKeyValue(\"");
+            s.Append(p.Jn);
+            s.Append("\", ");
+            EmitValueAccessor(s, p, target + "." + p.Name);
+            s.AppendLine(");");
+        }
+    }
+
+    private static void EmitValueAccessor(StringBuilder s, PropInfo p, string accessor)
     {
         switch (p.Tk)
         {
-            case "string":
-                s.Append(acc);
+            case "datetime":
+                s.Append(accessor);
+                s.Append(".ToString(\"O\")");
                 break;
-            case "int32":
-            case "int64":
-            case "float64":
-            case "boolean":
-                s.Append(acc);
+            case "guid":
+            case "decimal":
+            case "enum":
+                s.Append(accessor);
+                s.Append(".ToString()");
                 break;
             default:
-                s.Append(acc);
-                s.Append(".ToString()");
+                s.Append(accessor);
                 break;
         }
     }
 
-    private static void EmitRead(StringBuilder s, PropInfo p, string tgt, string pad)
+    private static void EmitSerializeListElement(StringBuilder s, PropInfo p, string indent)
     {
-        switch (p.Tk)
+        switch (p.ElemTk)
+        {
+            case "string":
+                s.Append(indent);
+                s.AppendLine("tw.WriteArrayValue(__item);");
+                break;
+            case "int32":
+                s.Append(indent);
+                s.AppendLine("tw.WriteArrayValue(__item);");
+                break;
+            case "int64":
+                s.Append(indent);
+                s.AppendLine("tw.WriteArrayValue(__item);");
+                break;
+            case "float64":
+                s.Append(indent);
+                s.AppendLine("tw.WriteArrayValue(__item);");
+                break;
+            case "boolean":
+                s.Append(indent);
+                s.AppendLine("tw.WriteArrayValue(__item);");
+                break;
+            default:
+                s.Append(indent);
+                s.AppendLine("tw.WriteArrayValue(__item.ToString());");
+                break;
+        }
+    }
+
+    private static void EmitDeserializeProp(StringBuilder s, PropInfo p, string tgt, string pad)
+    {
+        if (p.Tk is "list" or "array")
+        {
+            // Initialize list
+            s.Append(pad);
+            s.Append(tgt);
+            s.Append('.');
+            s.Append(p.Name);
+            s.Append(" ??= new System.Collections.Generic.List<");
+            s.Append(p.ElemTf ?? "object");
+            s.AppendLine(">();");
+            // Read array tokens
+            s.Append(pad);
+            s.AppendLine("if (r.Read() && r.TokenType == TokenType.ArrayStart)");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine("    while (r.Read() && r.TokenType != TokenType.ArrayEnd)");
+            s.Append(pad);
+            s.AppendLine("    {");
+            EmitDeserializeListElement(s, p, tgt, pad + "        ");
+            s.Append(pad);
+            s.AppendLine("    }");
+            s.Append(pad);
+            s.AppendLine("}");
+        }
+        else
+        {
+            switch (p.Tk)
+            {
+                case "string":
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                    break;
+                case "int32":
+                    s.Append(pad);
+                    s.AppendLine("r.TryGetInt32(out var __v);");
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = __v;");
+                    break;
+                case "int64":
+                    s.Append(pad);
+                    s.AppendLine("r.TryGetInt64(out var __v);");
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = __v;");
+                    break;
+                case "float64":
+                    s.Append(pad);
+                    s.AppendLine("r.TryGetFloat64(out var __v);");
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = __v;");
+                    break;
+                case "boolean":
+                    s.Append(pad);
+                    s.AppendLine("r.TryGetBool(out var __v);");
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = __v;");
+                    break;
+                case "datetime":
+                    s.Append(pad);
+                    s.AppendLine("var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                    s.Append(pad);
+                    s.AppendLine(
+                        "System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                    );
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = __dt;");
+                    break;
+                case "guid":
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = System.Guid.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                    break;
+                case "decimal":
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(
+                        " = decimal.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
+                    );
+                    break;
+                default:
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                    break;
+            }
+        }
+    }
+
+    private static void EmitDeserializeListElement(
+        StringBuilder s,
+        PropInfo p,
+        string tgt,
+        string pad
+    )
+    {
+        switch (p.ElemTk)
         {
             case "string":
                 s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.AppendLine(".Add(Encoding.UTF8.GetString(r.ValueSpan));");
                 break;
             case "int32":
                 s.Append(pad);
-                s.AppendLine("r.TryGetInt32(out var __v);");
+                s.AppendLine("r.TryGetInt32(out var __ev);");
                 s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = __v;");
+                s.AppendLine(".Add(__ev);");
                 break;
             case "int64":
                 s.Append(pad);
-                s.AppendLine("r.TryGetInt64(out var __v);");
+                s.AppendLine("r.TryGetInt64(out var __ev);");
                 s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = __v;");
+                s.AppendLine(".Add(__ev);");
                 break;
             case "float64":
                 s.Append(pad);
-                s.AppendLine("r.TryGetFloat64(out var __v);");
+                s.AppendLine("r.TryGetFloat64(out var __ev);");
                 s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = __v;");
+                s.AppendLine(".Add(__ev);");
                 break;
             case "boolean":
                 s.Append(pad);
-                s.AppendLine("r.TryGetBool(out var __v);");
+                s.AppendLine("r.TryGetBool(out var __ev);");
                 s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = __v;");
-                break;
-            case "object":
-            case "list":
-            case "array":
-                s.Append(pad);
-                s.Append("// V2: ");
-                s.Append(p.Tk);
-                s.Append(' ');
-                s.AppendLine(p.Name);
+                s.AppendLine(".Add(__ev);");
                 break;
             default:
                 s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.AppendLine(".Add(Encoding.UTF8.GetString(r.ValueSpan));");
                 break;
         }
     }
@@ -277,5 +493,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         ImmutableArray<PropInfo> Props
     );
 
-    internal readonly record struct PropInfo(string Name, string Jn, string Tk, string Tf);
+    internal readonly record struct PropInfo(
+        string Name,
+        string Jn,
+        string Tk,
+        string Tf,
+        string? ElemTk,
+        string? ElemTf,
+        bool IsNullable
+    );
 }

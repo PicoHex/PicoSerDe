@@ -84,4 +84,34 @@ public class YamlReaderTests
         await Assert.That(v2).IsEqualTo("runner");
         await Assert.That(tEnd).IsEqualTo(TokenType.ObjectEnd);
     }
+
+    [Test]
+    public async Task FloatValue_TryGetFloat64()
+    {
+        var r = new YamlReader("pi: 3.14\n"u8);
+        r.Read();
+        var ok = r.TryGetFloat64(out var pi);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(pi).IsGreaterThan(3.13);
+    }
+
+    [Test]
+    public async Task BoolValue_TryGetBool()
+    {
+        var r = new YamlReader("enabled: true\n"u8);
+        r.Read();
+        var ok = r.TryGetBool(out var v);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(v).IsTrue();
+    }
+
+    [Test]
+    public async Task Int64Value_TryGetInt64()
+    {
+        var r = new YamlReader("big: 9999999999\n"u8);
+        r.Read();
+        var ok = r.TryGetInt64(out var v);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(v).IsEqualTo(9999999999L);
+    }
 }
