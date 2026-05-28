@@ -177,3 +177,55 @@ public class TomlAttributeTests
         await Assert.That(result.Age).IsEqualTo(25);
     }
 }
+
+public class NestedKeyAddress
+{
+    [TomlKey("street_address")]
+    public string Street { get; set; } = "";
+
+    [TomlKey("city_name")]
+    public string City { get; set; } = "";
+}
+
+public class NestedKeyParent
+{
+    public string Name { get; set; } = "";
+    public NestedKeyAddress Address { get; set; } = new();
+}
+
+public class TomlNestedKeyTests
+{
+    [Test]
+    public async Task TomlKey_NestedObject_UsesCustomKeyNames()
+    {
+        var obj = new NestedKeyParent
+        {
+            Name = "Home",
+            Address = new NestedKeyAddress { Street = "123 Main", City = "NYC" }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(obj);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).Contains("street_address");
+        await Assert.That(text).Contains("city_name");
+        await Assert.That(text).DoesNotContain("Street");
+        await Assert.That(text).DoesNotContain("City");
+    }
+
+    [Test]
+    public async Task TomlKey_NestedObject_RoundTrip_Works()
+    {
+        var original = new NestedKeyParent
+        {
+            Name = "Home",
+            Address = new NestedKeyAddress { Street = "123 Main", City = "NYC" }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<NestedKeyParent>(bytes);
+
+        await Assert.That(result!.Name).IsEqualTo("Home");
+        await Assert.That(result.Address).IsNotNull();
+        await Assert.That(result.Address.Street).IsEqualTo("123 Main");
+        await Assert.That(result.Address.City).IsEqualTo("NYC");
+    }
+}

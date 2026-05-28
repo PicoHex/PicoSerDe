@@ -273,7 +273,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             list.Add(
                 new PropInfo(
                     p.Name,
-                    p.Name,
+                    GetTomlKey(p) ?? p.Name,
                     k,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     elemTk2,

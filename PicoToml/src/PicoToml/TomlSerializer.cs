@@ -29,6 +29,14 @@ public static partial class TomlSerializer
         return Encoding.UTF8.GetString(bytes);
     }
 
+    public static void Serialize<T>(IBufferWriter<byte> writer, T value)
+    {
+        if (_serializers.TryGetValue(typeof(T), out var s))
+            ((ISerializer<T>)s).Serialize(writer, value);
+        else
+            ThrowNoSerializer<T>();
+    }
+
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
         if (_deserializers.TryGetValue(typeof(T), out var d))

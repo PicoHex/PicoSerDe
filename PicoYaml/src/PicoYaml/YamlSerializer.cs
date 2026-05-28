@@ -26,6 +26,14 @@ public static partial class YamlSerializer
     public static string Serialize<T>(T value) =>
         Encoding.UTF8.GetString(SerializeToUtf8Bytes(value));
 
+    public static void Serialize<T>(IBufferWriter<byte> writer, T value)
+    {
+        if (_serializers.TryGetValue(typeof(T), out var s))
+            ((ISerializer<T>)s).Serialize(writer, value);
+        else
+            ThrowNoSer<T>();
+    }
+
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
         if (_deserializers.TryGetValue(typeof(T), out var d))

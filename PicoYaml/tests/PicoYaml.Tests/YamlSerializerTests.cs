@@ -235,4 +235,16 @@ public class YamlSerializerTests
         await Assert.That(result.Scores["alice"]).IsEqualTo(10);
         await Assert.That(result.Scores["bob"]).IsEqualTo(20);
     }
+
+    [Test]
+    public async Task Serialize_ToBufferWriter_ProducesValidOutput()
+    {
+        var model = new YamlSerModel { Name = "Test", Age = 42 };
+        var bw = new ArrayBufferWriter<byte>();
+        YamlSerializer.Serialize(bw, model);
+        var text = Encoding.UTF8.GetString(bw.WrittenSpan);
+
+        await Assert.That(text).Contains("Name");
+        await Assert.That(text).Contains("Test");
+    }
 }
