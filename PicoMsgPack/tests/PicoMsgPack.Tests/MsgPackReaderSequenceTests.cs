@@ -261,7 +261,7 @@ public class MsgPackReaderSequenceTests
             elen = extData.Length;
         }
         await Assert.That(tt).IsEqualTo(TokenType.Extension);
-        await Assert.That(tag).IsEqualTo(7);
+        await Assert.That((int)tag).IsEqualTo(7);
         await Assert.That(elen).IsEqualTo(1);
     }
 }

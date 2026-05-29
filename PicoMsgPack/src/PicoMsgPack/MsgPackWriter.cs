@@ -172,4 +172,24 @@ public ref struct MsgPackWriter
     }
 
     public void WriteEndArray() { }
+
+    public void WriteBytes(ReadOnlySpan<byte> value)
+    {
+        int len = value.Length;
+        if (len <= 255)
+        {
+            Span<byte> s = _buffer.GetSpan(2 + len);
+            s[0] = 0xC4; s[1] = (byte)len;
+            value.CopyTo(s.Slice(2));
+            _buffer.Advance(2 + len); _bytesWritten += 2 + len;
+        }
+        else
+        {
+            Span<byte> s = _buffer.GetSpan(3 + len);
+            s[0] = 0xC5;
+            BinaryPrimitives.WriteUInt16BigEndian(s.Slice(1), (ushort)len);
+            value.CopyTo(s.Slice(3));
+            _buffer.Advance(3 + len); _bytesWritten += 3 + len;
+        }
+    }
 }
