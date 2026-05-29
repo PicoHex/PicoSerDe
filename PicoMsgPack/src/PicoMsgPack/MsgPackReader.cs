@@ -6,10 +6,12 @@ public ref struct MsgPackReader
     private int _position;
     private TokenType _tokenType;
     private ReadOnlySpan<byte> _valueSpan;
-    private int _remainingElements;
+    private int[] _elementStack;    // remaining elements per depth level
     private int _depth;
-    private bool _inMap;            // inside a map (object)
-    private bool _expectMapKey;     // next element is a map key
+    private bool[] _isMapStack;     // whether current depth level is a map
+    private bool[] _expectKeyStack; // whether next element at this depth is a map key
+
+    private const int MaxDepth = 64;
 
     public MsgPackReader(ReadOnlySpan<byte> data)
     {
@@ -17,10 +19,10 @@ public ref struct MsgPackReader
         _position = 0;
         _tokenType = TokenType.None;
         _valueSpan = default;
-        _remainingElements = 0;
+        _elementStack = new int[MaxDepth];
+        _isMapStack = new bool[MaxDepth];
+        _expectKeyStack = new bool[MaxDepth];
         _depth = 0;
-        _inMap = false;
-        _expectMapKey = true;
     }
 
     public TokenType TokenType => _tokenType;
@@ -29,22 +31,12 @@ public ref struct MsgPackReader
 
     public bool Read()
     {
-        // Emit ObjectEnd/ArrayEnd when all elements consumed
-        if (_remainingElements == 0 && _depth > 0)
+        // Emit ObjectEnd/ArrayEnd when all elements at current depth consumed
+        if (_depth > 0 && _elementStack[_depth - 1] == 0)
         {
-            if (_inMap)
-            {
-                _tokenType = TokenType.ObjectEnd;
-                _inMap = false;
-                _depth--;
-                return true;
-            }
-            else
-            {
-                _tokenType = TokenType.ArrayEnd;
-                _depth--;
-                return true;
-            }
+            _depth--;
+            _tokenType = _isMapStack[_depth] ? TokenType.ObjectEnd : TokenType.ArrayEnd;
+            return true;
         }
 
         if (_position >= _data.Length)
@@ -57,96 +49,94 @@ public ref struct MsgPackReader
         {
             _valueSpan = new[] { b };
             _tokenType = TokenType.Int32;
-            FinishElement();
+            CountElement();
             return true;
         }
 
         // Fixmap 0x80-0x8F
         if (b >= 0x80 && b <= 0x8F)
         {
-            _remainingElements = (b & 0x0F) * 2; // key+value pairs → elements
+            int count = b & 0x0F;
+            PushLevel(true, count * 2); // key+value pairs
             _tokenType = TokenType.ObjectStart;
-            _inMap = true;
-            _expectMapKey = true;
-            _depth++;
             return true;
         }
 
         // Fixarray 0x90-0x9F
         if (b >= 0x90 && b <= 0x9F)
         {
-            _remainingElements = b & 0x0F;
+            PushLevel(false, b & 0x0F);
             _tokenType = TokenType.ArrayStart;
-            _depth++;
             return true;
         }
 
         // Fixstr 0xA0-0xBF
         if (b >= 0xA0 && b <= 0xBF)
-        {
-            return ReadString(b & 0x1F);
-        }
+            return ReadStringData(b & 0x1F);
 
         // Negative fixint 0xE0-0xFF
         if (b >= 0xE0)
         {
             _valueSpan = new[] { b };
             _tokenType = TokenType.Int32;
-            FinishElement();
+            CountElement();
             return true;
         }
 
         switch (b)
         {
             case 0xC0:
-                _tokenType = TokenType.Null;
-                FinishElement();
-                return true;
-
+                _tokenType = TokenType.Null; CountElement(); return true;
             case 0xC2: case 0xC3:
-                _valueSpan = new[] { b };
-                _tokenType = TokenType.Bool;
-                FinishElement();
-                return true;
-
-            case 0xCC: _valueSpan = ReadBytes(1); _tokenType = TokenType.UInt8; FinishElement(); return true;
-            case 0xCD: _valueSpan = ReadBytes(2); _tokenType = TokenType.Int32; FinishElement(); return true;
-            case 0xCE: _valueSpan = ReadBytes(4); _tokenType = TokenType.UInt32; FinishElement(); return true;
-            case 0xCF: _valueSpan = ReadBytes(8); _tokenType = TokenType.UInt64; FinishElement(); return true;
-
-            case 0xD0: _valueSpan = ReadBytes(1); _tokenType = TokenType.Int32; FinishElement(); return true;
-            case 0xD1: _valueSpan = ReadBytes(2); _tokenType = TokenType.Int32; FinishElement(); return true;
-            case 0xD2: _valueSpan = ReadBytes(4); _tokenType = TokenType.Int32; FinishElement(); return true;
-            case 0xD3: _valueSpan = ReadBytes(8); _tokenType = TokenType.Int64; FinishElement(); return true;
-
-            case 0xCA: _valueSpan = ReadBytes(4); _tokenType = TokenType.Float32; FinishElement(); return true;
-            case 0xCB: _valueSpan = ReadBytes(8); _tokenType = TokenType.Float64; FinishElement(); return true;
-
-            case 0xD9: return ReadString(ReadByteLen(1));
-            case 0xDA: return ReadString(ReadByteLen(2));
-            case 0xDB: return ReadString(ReadByteLen(4));
-
-            case 0xDC: _remainingElements = ReadByteLen(2); _tokenType = TokenType.ArrayStart; _depth++; return true;
-            case 0xDD: _remainingElements = ReadByteLen(4); _tokenType = TokenType.ArrayStart; _depth++; return true;
-
-            case 0xDE: _remainingElements = ReadByteLen(2) * 2; _tokenType = TokenType.ObjectStart; _inMap = true; _expectMapKey = true; _depth++; return true;
-            case 0xDF: _remainingElements = ReadByteLen(4) * 2; _tokenType = TokenType.ObjectStart; _inMap = true; _expectMapKey = true; _depth++; return true;
-
-            default:
-                throw new FormatException($"Unknown MsgPack byte 0x{b:X2} at offset {_position - 1}");
+                _valueSpan = new[] { b }; _tokenType = TokenType.Bool; CountElement(); return true;
+            case 0xCC: _valueSpan = ReadBytes(1); _tokenType = TokenType.UInt8; CountElement(); return true;
+            case 0xCD: _valueSpan = ReadBytes(2); _tokenType = TokenType.Int32; CountElement(); return true;
+            case 0xCE: _valueSpan = ReadBytes(4); _tokenType = TokenType.UInt32; CountElement(); return true;
+            case 0xCF: _valueSpan = ReadBytes(8); _tokenType = TokenType.UInt64; CountElement(); return true;
+            case 0xD0: _valueSpan = ReadBytes(1); _tokenType = TokenType.Int32; CountElement(); return true;
+            case 0xD1: _valueSpan = ReadBytes(2); _tokenType = TokenType.Int32; CountElement(); return true;
+            case 0xD2: _valueSpan = ReadBytes(4); _tokenType = TokenType.Int32; CountElement(); return true;
+            case 0xD3: _valueSpan = ReadBytes(8); _tokenType = TokenType.Int64; CountElement(); return true;
+            case 0xCA: _valueSpan = ReadBytes(4); _tokenType = TokenType.Float32; CountElement(); return true;
+            case 0xCB: _valueSpan = ReadBytes(8); _tokenType = TokenType.Float64; CountElement(); return true;
+            case 0xD9: return ReadStringData(ReadByteLen(1));
+            case 0xDA: return ReadStringData(ReadByteLen(2));
+            case 0xDB: return ReadStringData(ReadByteLen(4));
+            case 0xDC: PushLevel(false, ReadByteLen(2)); _tokenType = TokenType.ArrayStart; return true;
+            case 0xDD: PushLevel(false, ReadByteLen(4)); _tokenType = TokenType.ArrayStart; return true;
+            case 0xDE: PushLevel(true, ReadByteLen(2) * 2); _tokenType = TokenType.ObjectStart; return true;
+            case 0xDF: PushLevel(true, ReadByteLen(4) * 2); _tokenType = TokenType.ObjectStart; return true;
+            default: throw new FormatException($"Unknown MsgPack byte 0x{b:X2} at offset {_position - 1}");
         }
     }
 
-    private bool ReadString(int len)
+    private void PushLevel(bool isMap, int count)
+    {
+        _isMapStack[_depth] = isMap;
+        _expectKeyStack[_depth] = isMap;
+        _elementStack[_depth] = count;
+        _depth++;
+    }
+
+    private void CountElement()
+    {
+        if (_depth > 0 && _elementStack[_depth - 1] > 0)
+        {
+            _elementStack[_depth - 1]--;
+            if (_isMapStack[_depth - 1])
+                _expectKeyStack[_depth - 1] = !_expectKeyStack[_depth - 1];
+        }
+    }
+
+    private bool ReadStringData(int len)
     {
         _valueSpan = _data.Slice(_position, len);
         _position += len;
-        // In a map, string keys become PropertyName
-        if (_inMap && _expectMapKey)
+        if (_depth > 0 && _isMapStack[_depth - 1] && _expectKeyStack[_depth - 1])
             _tokenType = TokenType.PropertyName;
         else
             _tokenType = TokenType.String;
-        FinishElement();
+        CountElement();
         return true;
     }
 
@@ -163,17 +153,6 @@ public ref struct MsgPackReader
         for (int i = 0; i < bytes; i++)
             v = (v << 8) | _data[_position++];
         return v;
-    }
-
-    private void FinishElement()
-    {
-        if (_remainingElements > 0)
-        {
-            _remainingElements--;
-            // Toggle map key expectation
-            if (_inMap)
-                _expectMapKey = !_expectMapKey;
-        }
     }
 
     public bool TryGetInt32(out int v)
@@ -197,15 +176,13 @@ public ref struct MsgPackReader
     public bool TryGetInt64(out long v)
     {
         if (_valueSpan.IsEmpty) { v = 0; return false; }
-        if (_tokenType is TokenType.Int32 or TokenType.UInt32 or TokenType.Int64 or TokenType.UInt64)
+        if (_tokenType is TokenType.Int32 or TokenType.UInt8 or TokenType.UInt32 or TokenType.Int64 or TokenType.UInt64)
         {
             v = _valueSpan.Length switch
             {
-                1 => _valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0],
+                1 => _tokenType == TokenType.UInt8 ? _valueSpan[0] : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]),
                 2 => BinaryPrimitives.ReadInt16BigEndian(_valueSpan),
-                4 => _tokenType == TokenType.UInt32
-                    ? BinaryPrimitives.ReadUInt32BigEndian(_valueSpan)
-                    : BinaryPrimitives.ReadInt32BigEndian(_valueSpan),
+                4 => _tokenType == TokenType.UInt32 ? BinaryPrimitives.ReadUInt32BigEndian(_valueSpan) : BinaryPrimitives.ReadInt32BigEndian(_valueSpan),
                 8 => BinaryPrimitives.ReadInt64BigEndian(_valueSpan),
                 _ => 0,
             };
@@ -228,11 +205,7 @@ public ref struct MsgPackReader
             v = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64BigEndian(_valueSpan));
         else if (_tokenType == TokenType.Float32)
             v = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32BigEndian(_valueSpan));
-        else if (_tokenType is TokenType.Int32 or TokenType.Int64)
-        {
-            TryGetInt64(out var iv);
-            v = iv;
-        }
+        else if (_tokenType is TokenType.Int32 or TokenType.Int64) { TryGetInt64(out var iv); v = iv; }
         else { v = 0; return false; }
         return true;
     }
@@ -250,11 +223,7 @@ public ref struct MsgPackReader
         }
     }
 
-    public bool TrySkip()
-    {
-        try { Skip(); return true; }
-        catch { return false; }
-    }
+    public bool TrySkip() { try { Skip(); return true; } catch { return false; } }
 
     public void Dispose() { }
 }

@@ -125,6 +125,33 @@ public ref struct MsgPackWriter
 
     public void WriteEndObject() { /* MsgPack maps don't have end markers; count is specified upfront */ }
 
+    public void WriteInt64(long value)
+    {
+        if (value >= 0 && value <= 127)
+        {
+            Span<byte> s = _buffer.GetSpan(1); s[0] = (byte)value; _buffer.Advance(1); _bytesWritten++;
+        }
+        else if (value >= -32 && value < 0)
+        {
+            Span<byte> s = _buffer.GetSpan(1); s[0] = (byte)value; _buffer.Advance(1); _bytesWritten++;
+        }
+        else
+        {
+            Span<byte> s = _buffer.GetSpan(9);
+            s[0] = 0xD3;
+            BinaryPrimitives.WriteInt64BigEndian(s.Slice(1), value);
+            _buffer.Advance(9); _bytesWritten += 9;
+        }
+    }
+
+    public void WriteFloat64(double value)
+    {
+        Span<byte> s = _buffer.GetSpan(9);
+        s[0] = 0xCB;
+        BinaryPrimitives.WriteInt64BigEndian(s.Slice(1), BitConverter.DoubleToInt64Bits(value));
+        _buffer.Advance(9); _bytesWritten += 9;
+    }
+
     public void WriteStartArray(int count)
     {
         if (count <= 15)
