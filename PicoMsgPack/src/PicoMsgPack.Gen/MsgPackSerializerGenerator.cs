@@ -63,7 +63,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             if (p.GetMethod is null || HasAttr(p, "MsgPackIgnoreAttribute"))
                 continue;
 
+            var converterType = GetConverter(p);
             var (kind, nullable, inner) = TypeKindResolver.Resolve(p.Type);
+            // If converter is present, override kind to string for generic serialization
+            if (converterType is not null)
+                kind = "string";
             if (kind is null)
                 continue;
 
@@ -119,7 +123,8 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     nullable,
                     ek,
                     en,
-                    nested
+                    nested,
+                    converterType
                 )
             );
         }
@@ -186,6 +191,18 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             if (a.AttributeClass?.Name == n)
                 return true;
         return false;
+    }
+
+    static string? GetConverter(IPropertySymbol p)
+    {
+        foreach (var a in p.GetAttributes())
+            if (
+                a.AttributeClass?.Name == "MsgPackConverterAttribute"
+                && a.ConstructorArguments.Length >= 1
+                && a.ConstructorArguments[0].Value is INamedTypeSymbol ct
+            )
+                return ct.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return null;
     }
 
     static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
@@ -290,6 +307,35 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
     static void WriteSer(StringBuilder s, PropInfo p, string a, string ind)
     {
+        if (p.ConverterTypeFullName is not null)
+        {
+            s.Append(ind);
+            s.Append("var __cnv");
+            s.Append(_varCounter);
+            s.Append(" = new ");
+            s.Append(p.ConverterTypeFullName);
+            s.AppendLine("();");
+            s.Append(ind);
+            s.Append("var __bw");
+            s.Append(_varCounter);
+            s.Append(" = new ArrayBufferWriter<byte>();");
+            s.AppendLine();
+            s.Append(ind);
+            s.Append("__cnv");
+            s.Append(_varCounter);
+            s.Append(".Write(__bw");
+            s.Append(_varCounter);
+            s.Append(", ");
+            s.Append(a);
+            s.AppendLine(");");
+            s.Append(ind);
+            s.Append("mw.WriteString(__bw");
+            s.Append(_varCounter);
+            s.Append(".WrittenSpan);");
+            s.AppendLine();
+            _varCounter++;
+            return;
+        }
         bool needsNullCheck = p.TypeKind == "string"; // string can always be null
         if (p.IsNullable && p.TypeKind != "string")
         {
@@ -482,6 +528,21 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     static void WriteDeser(StringBuilder s, PropInfo p, string target, string ind)
     {
         var t = $"{target}.{p.Name}";
+        if (p.ConverterTypeFullName is not null)
+        {
+            s.Append(ind);
+            s.Append("var __cnv");
+            s.Append(_varCounter);
+            s.Append(" = new ");
+            s.Append(p.ConverterTypeFullName);
+            s.AppendLine("();");
+            s.Append(ind);
+            s.Append(t);
+            s.Append(" = __cnv");
+            s.Append(_varCounter++);
+            s.AppendLine(".Read(ref reader);");
+            return;
+        }
         switch (p.TypeKind)
         {
             case "string":
@@ -814,5 +875,6 @@ internal readonly record struct PropInfo(
     bool IsNullable,
     string? ElementTypeKind,
     string? ElementTypeName,
-    ImmutableArray<PropInfo> NestedProperties
+    ImmutableArray<PropInfo> NestedProperties,
+    string? ConverterTypeFullName = null
 );
