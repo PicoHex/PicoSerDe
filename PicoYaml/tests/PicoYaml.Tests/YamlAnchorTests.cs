@@ -53,4 +53,41 @@ public class YamlAnchorTests
         }
         await Assert.That(true).IsTrue();
     }
+
+    // ── Merge key (<<:) ──
+
+    [Test]
+    public async Task MergeKey_MergesAnchorMapping()
+    {
+        // server section merges def into itself:
+        //   server:
+        //     <<: *def      (brings host=localhost, port=8080)
+        //     name: main     (explicit override)
+        var yaml = "defaults: &def\n  host: localhost\n  port: 8080\nserver:\n  <<: *def\n  name: main"u8.ToArray();
+        bool inServer = false;
+        var serverKeys = new List<string>();
+        var serverVals = new List<string>();
+        using (var reader = new YamlReader(yaml))
+        {
+            while (reader.Read())
+            {
+                if (reader.TokenType == TokenType.ObjectStart) continue;
+                if (reader.TokenType == TokenType.ObjectEnd) { inServer = false; continue; }
+                if (reader.TokenType == TokenType.PropertyName)
+                {
+                    var key = Encoding.UTF8.GetString(reader.KeySpan);
+                    if (key == "server") { inServer = true; continue; }
+                    if (inServer)
+                    {
+                        serverKeys.Add(key);
+                        serverVals.Add(Encoding.UTF8.GetString(reader.ValueSpan));
+                    }
+                }
+            }
+        }
+        // server should have 3 keys: host, port (merged), name (explicit)
+        await Assert.That(serverKeys).Contains("host");
+        await Assert.That(serverKeys).Contains("port");
+        await Assert.That(serverKeys).Contains("name");
+    }
 }

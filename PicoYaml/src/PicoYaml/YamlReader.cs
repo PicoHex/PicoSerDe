@@ -25,6 +25,10 @@ public ref struct YamlReader
     // Anchor/alias support
     private Dictionary<string, StoredAnchor>? _anchors;
     private string? _pendingAnchorName;
+    private string? _pendingMappingAnchor;
+    private List<(byte[] Key, byte[] Value)>? _currentMappingPairs;
+    private List<(byte[] Key, byte[] Value)>? _replayPairs;
+    private int _replayIndex;
 
     private struct StoredAnchor
     {
@@ -76,7 +80,20 @@ public ref struct YamlReader
     public int Depth => _depth;
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
 
-    public bool Read() => _isSequence ? ReadSeq() : ReadSpan();
+    public bool Read()
+    {
+        if (_replayPairs is not null && _replayIndex < _replayPairs.Count)
+        {
+            var pair = _replayPairs[_replayIndex++];
+            _keySpan = pair.Key;
+            _valueSpan = pair.Value;
+            _tokenType = TokenType.PropertyName;
+            if (_replayIndex >= _replayPairs.Count)
+                _replayPairs = null;
+            return true;
+        }
+        return _isSequence ? ReadSeq() : ReadSpan();
+    }
 
     public bool TryGetInt32(out int v)
     {
@@ -213,6 +230,7 @@ public ref struct YamlReader
         {
             _position = lineStart;
             PopIndent();
+            FinalizeMappingAnchor();
             _tokenType = TokenType.ObjectEnd;
             _depth--;
             return true;
@@ -315,10 +333,11 @@ public ref struct YamlReader
                 var aliasName = Encoding.UTF8.GetString(_data[aliasStart.._position]);
                 if (_anchors is null || !_anchors.TryGetValue(aliasName, out var stored))
                     throw new FormatException($"Unresolved alias '*{aliasName}' at offset {BytesConsumed}");
-                if (stored.IsMapping)
+                if (stored.IsMapping && stored.MappingPairs is not null)
                 {
-                    // Mapping anchors not yet supported for aliasing
-                    _valueSpan = Array.Empty<byte>();
+                    _replayPairs = stored.MappingPairs;
+                    _replayIndex = 0;
+                    _valueSpan = default;
                 }
                 else
                     _valueSpan = stored.ScalarValue;
@@ -338,6 +357,7 @@ public ref struct YamlReader
             }
         }
         _tokenType = TokenType.PropertyName;
+        AccumulateMappingPair();
         StoreAnchorIfNeeded();
         return true;
     }
@@ -724,6 +744,16 @@ public ref struct YamlReader
             _anchors ??= new Dictionary<string, StoredAnchor>();
             if (_anchors.ContainsKey(_pendingAnchorName))
                 throw new FormatException($"Duplicate anchor '&{_pendingAnchorName}' at offset {BytesConsumed}");
+
+            // Empty value + pending anchor → mapping anchor (defer until ObjectEnd)
+            if (_valueSpan.IsEmpty)
+            {
+                _pendingMappingAnchor = _pendingAnchorName;
+                _pendingAnchorName = null;
+                _currentMappingPairs = new List<(byte[], byte[])>();
+                return;
+            }
+
             _anchors[_pendingAnchorName] = new StoredAnchor
             {
                 IsMapping = false,
@@ -731,6 +761,30 @@ public ref struct YamlReader
                 ScalarValue = _valueSpan.ToArray(),
             };
             _pendingAnchorName = null;
+        }
+    }
+
+    private void AccumulateMappingPair()
+    {
+        if (_pendingMappingAnchor is not null)
+        {
+            _currentMappingPairs ??= new List<(byte[], byte[])>();
+            _currentMappingPairs.Add((_keySpan.ToArray(), _valueSpan.ToArray()));
+        }
+    }
+
+    private void FinalizeMappingAnchor()
+    {
+        if (_pendingMappingAnchor is not null && _currentMappingPairs is not null)
+        {
+            _anchors ??= new Dictionary<string, StoredAnchor>();
+            _anchors[_pendingMappingAnchor] = new StoredAnchor
+            {
+                IsMapping = true,
+                MappingPairs = _currentMappingPairs,
+            };
+            _pendingMappingAnchor = null;
+            _currentMappingPairs = null;
         }
     }
 }
