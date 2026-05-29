@@ -21,4 +21,7 @@
   <Project Path="PicoYaml\tests\PicoYaml.Tests\PicoYaml.Tests.csproj" />
   <Project Path="PicoYaml\samples\PicoYaml.Sample\PicoYaml.Sample.csproj" />
   <Project Path="PicoYaml\benchmarks\PicoYaml.Benchmarks\PicoYaml.Benchmarks.csproj" />
+  <Project Path="PicoMsgPack\src\PicoMsgPack\PicoMsgPack.csproj" />
+  <Project Path="PicoMsgPack\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj" />
+  <Project Path="PicoMsgPack\tests\PicoMsgPack.Tests\PicoMsgPack.Tests.csproj" />
 </Solution>
