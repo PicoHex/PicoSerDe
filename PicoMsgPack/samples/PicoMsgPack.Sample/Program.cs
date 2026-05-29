@@ -2,8 +2,8 @@ using System.Text.Json;
 
 Console.WriteLine("=== PicoMsgPack Sample ===\n");
 
-// ═══ 1. Zero-Attribute Model (auto-numbered by declaration order) ═══
-Console.WriteLine("─── 1. Zero-Attribute Model ───");
+// ═══ 1. Zero-Attribute Models (all auto-numbered by declaration order) ═══
+Console.WriteLine("─── 1. Simple Model ───");
 var user = new User { Name = "Alice", Age = 30, Active = true };
 var bytes = MsgPackSerializer.SerializeToUtf8Bytes(user);
 var result = MsgPackSerializer.Deserialize<User>(bytes);
@@ -15,7 +15,7 @@ Console.WriteLine($"  JSON:    {jsonBytes.Length} bytes");
 Console.WriteLine($"  Saving:  {jsonBytes.Length - bytes.Length} bytes ({(double)(jsonBytes.Length - bytes.Length) / jsonBytes.Length * 100:F0}%)");
 
 // ═══ 2. Model with explicit keys ═══
-Console.WriteLine("\n─── 2. Explicit Keys ───");
+Console.WriteLine("\n─── 2. Collection Model ───");
 var product = new Product { Title = "Widget", Price = 9.99, Tags = ["sale", "new"] };
 var pBytes = MsgPackSerializer.SerializeToUtf8Bytes(product);
 var pResult = MsgPackSerializer.Deserialize<Product>(pBytes);
@@ -76,20 +76,20 @@ public class User       // keys auto-assigned: Name=0, Age=1, Active=2
     public bool Active { get; set; }
 }
 
-public class Product    // explicit keys for stable wire format
+public class Product    // auto-numbered: Title=0, Price=1, Tags=2
 {
-    [MsgPackKey(0)] public string Title { get; set; } = "";
-    [MsgPackKey(1)] public double Price { get; set; }
-    [MsgPackKey(2)] public List<string> Tags { get; set; } = new();
+    public string Title { get; set; } = "";
+    public double Price { get; set; }
+    public List<string> Tags { get; set; } = new();
 }
 
-public class Order
+public class Order      // auto-numbered: Id=0, Customer=1
 {
-    [MsgPackKey(0)] public int Id { get; set; }
-    [MsgPackKey(1)] public Customer? Customer { get; set; }
+    public int Id { get; set; }
+    public Customer? Customer { get; set; }
 }
 
-public class Customer
+public class Customer   // auto-numbered: Name=0
 {
-    [MsgPackKey(0)] public string Name { get; set; } = "";
+    public string Name { get; set; } = "";
 }
