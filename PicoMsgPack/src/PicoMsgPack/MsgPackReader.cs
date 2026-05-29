@@ -2,14 +2,22 @@ namespace PicoMsgPack;
 
 public ref struct MsgPackReader
 {
+    // Span mode
     private ReadOnlySpan<byte> _data;
     private int _position;
+
+    // Sequence mode
+    private SequenceReader<byte> _seqReader;
+    private readonly bool _isSequence;
+
+    // Common
     private TokenType _tokenType;
     private ReadOnlySpan<byte> _valueSpan;
-    private int[] _elementStack;    // remaining elements per depth level
+    private byte[]? _rentedBuffer;
+    private int[] _elementStack;
     private int _depth;
-    private bool[] _isMapStack;     // whether current depth level is a map
-    private bool[] _expectKeyStack; // whether next element at this depth is a map key
+    private bool[] _isMapStack;
+    private bool[] _expectKeyStack;
 
     private const int MaxDepth = 64;
 
@@ -17,8 +25,26 @@ public ref struct MsgPackReader
     {
         _data = data;
         _position = 0;
+        _seqReader = default;
+        _isSequence = false;
         _tokenType = TokenType.None;
         _valueSpan = default;
+        _rentedBuffer = null;
+        _elementStack = new int[MaxDepth];
+        _isMapStack = new bool[MaxDepth];
+        _expectKeyStack = new bool[MaxDepth];
+        _depth = 0;
+    }
+
+    public MsgPackReader(ReadOnlySequence<byte> data)
+    {
+        _data = default;
+        _position = 0;
+        _seqReader = new SequenceReader<byte>(data);
+        _isSequence = true;
+        _tokenType = TokenType.None;
+        _valueSpan = default;
+        _rentedBuffer = null;
         _elementStack = new int[MaxDepth];
         _isMapStack = new bool[MaxDepth];
         _expectKeyStack = new bool[MaxDepth];
@@ -26,89 +52,68 @@ public ref struct MsgPackReader
     }
 
     public TokenType TokenType => _tokenType;
-    public long BytesConsumed => _position;
+    public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
     public ReadOnlySpan<byte> GetStringRaw() => _valueSpan;
 
-    public bool Read()
+    // ── Mode-agnostic helpers ──
+
+    private bool IsAtEnd() => _isSequence ? _seqReader.End : _position >= _data.Length;
+
+    private byte PeekByte() =>
+        _isSequence ? _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] : _data[_position];
+
+    private void AdvanceByte()
     {
-        // Emit ObjectEnd/ArrayEnd when all elements at current depth consumed
-        if (_depth > 0 && _elementStack[_depth - 1] == 0)
-        {
-            _depth--;
-            _tokenType = _isMapStack[_depth] ? TokenType.ObjectEnd : TokenType.ArrayEnd;
-            return true;
-        }
-
-        if (_position >= _data.Length)
-            return false;
-
-        var b = _data[_position++];
-
-        // Positive fixint 0x00-0x7F
-        if (b <= 0x7F)
-        {
-            _valueSpan = new[] { b };
-            _tokenType = TokenType.Int32;
-            CountElement();
-            return true;
-        }
-
-        // Fixmap 0x80-0x8F
-        if (b >= 0x80 && b <= 0x8F)
-        {
-            int count = b & 0x0F;
-            PushLevel(true, count * 2); // key+value pairs
-            _tokenType = TokenType.ObjectStart;
-            return true;
-        }
-
-        // Fixarray 0x90-0x9F
-        if (b >= 0x90 && b <= 0x9F)
-        {
-            PushLevel(false, b & 0x0F);
-            _tokenType = TokenType.ArrayStart;
-            return true;
-        }
-
-        // Fixstr 0xA0-0xBF
-        if (b >= 0xA0 && b <= 0xBF)
-            return ReadStringData(b & 0x1F);
-
-        // Negative fixint 0xE0-0xFF
-        if (b >= 0xE0)
-        {
-            _valueSpan = new[] { b };
-            _tokenType = TokenType.Int32;
-            CountElement();
-            return true;
-        }
-
-        switch (b)
-        {
-            case 0xC0:
-                _tokenType = TokenType.Null; CountElement(); return true;
-            case 0xC2: case 0xC3:
-                _valueSpan = new[] { b }; _tokenType = TokenType.Bool; CountElement(); return true;
-            case 0xCC: _valueSpan = ReadBytes(1); _tokenType = TokenType.UInt8; CountElement(); return true;
-            case 0xCD: _valueSpan = ReadBytes(2); _tokenType = TokenType.Int32; CountElement(); return true;
-            case 0xCE: _valueSpan = ReadBytes(4); _tokenType = TokenType.UInt32; CountElement(); return true;
-            case 0xCF: _valueSpan = ReadBytes(8); _tokenType = TokenType.UInt64; CountElement(); return true;
-            case 0xD0: _valueSpan = ReadBytes(1); _tokenType = TokenType.Int32; CountElement(); return true;
-            case 0xD1: _valueSpan = ReadBytes(2); _tokenType = TokenType.Int32; CountElement(); return true;
-            case 0xD2: _valueSpan = ReadBytes(4); _tokenType = TokenType.Int32; CountElement(); return true;
-            case 0xD3: _valueSpan = ReadBytes(8); _tokenType = TokenType.Int64; CountElement(); return true;
-            case 0xCA: _valueSpan = ReadBytes(4); _tokenType = TokenType.Float32; CountElement(); return true;
-            case 0xCB: _valueSpan = ReadBytes(8); _tokenType = TokenType.Float64; CountElement(); return true;
-            case 0xD9: return ReadStringData(ReadByteLen(1));
-            case 0xDA: return ReadStringData(ReadByteLen(2));
-            case 0xDB: return ReadStringData(ReadByteLen(4));
-            case 0xDC: PushLevel(false, ReadByteLen(2)); _tokenType = TokenType.ArrayStart; return true;
-            case 0xDD: PushLevel(false, ReadByteLen(4)); _tokenType = TokenType.ArrayStart; return true;
-            case 0xDE: PushLevel(true, ReadByteLen(2) * 2); _tokenType = TokenType.ObjectStart; return true;
-            case 0xDF: PushLevel(true, ReadByteLen(4) * 2); _tokenType = TokenType.ObjectStart; return true;
-            default: throw new FormatException($"Unknown MsgPack byte 0x{b:X2} at offset {_position - 1}");
-        }
+        if (_isSequence) _seqReader.Advance(1);
+        else _position++;
     }
+
+    private void Advance(int count)
+    {
+        if (_isSequence) _seqReader.Advance(count);
+        else _position += count;
+    }
+
+    private ReadOnlySpan<byte> ReadBytes(int count)
+    {
+        if (_isSequence)
+        {
+            var buf = RentBuf(count);
+            _seqReader.TryCopyTo(buf.AsSpan(0, count));
+            _seqReader.Advance(count);
+            return buf.AsSpan(0, count);
+        }
+        var span = _data.Slice(_position, count);
+        _position += count;
+        return span;
+    }
+
+    private int ReadByteLen(int bytes)
+    {
+        if (_isSequence)
+        {
+            int v = 0;
+            for (int i = 0; i < bytes; i++)
+            {
+                _seqReader.TryRead(out byte b);
+                v = (v << 8) | b;
+            }
+            return v;
+        }
+        int vs = 0;
+        for (int i = 0; i < bytes; i++)
+            vs = (vs << 8) | _data[_position++];
+        return vs;
+    }
+
+    private byte[] RentBuf(int size)
+    {
+        var buf = ArrayPool<byte>.Shared.Rent(size);
+        _rentedBuffer = buf;
+        return buf;
+    }
+
+    // ── Element tracking (shared) ──
 
     private void PushLevel(bool isMap, int count)
     {
@@ -128,10 +133,64 @@ public ref struct MsgPackReader
         }
     }
 
-    private bool ReadStringData(int len)
+    // ── Read ──
+
+    public bool Read()
     {
-        _valueSpan = _data.Slice(_position, len);
-        _position += len;
+        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+        {
+            _depth--;
+            _tokenType = _isMapStack[_depth] ? TokenType.ObjectEnd : TokenType.ArrayEnd;
+            return true;
+        }
+        if (IsAtEnd()) return false;
+
+        var b = PeekByte();
+        AdvanceByte(); // consume tag byte
+
+        // Positive fixint 0x00-0x7F
+        if (b <= 0x7F) { _valueSpan = new[] { b }; _tokenType = TokenType.Int32; CountElement(); return true; }
+
+        // Fixmap 0x80-0x8F
+        if (b >= 0x80 && b <= 0x8F) { PushLevel(true, (b & 0x0F) * 2); _tokenType = TokenType.ObjectStart; return true; }
+
+        // Fixarray 0x90-0x9F
+        if (b >= 0x90 && b <= 0x9F) { PushLevel(false, b & 0x0F); _tokenType = TokenType.ArrayStart; return true; }
+
+        // Fixstr 0xA0-0xBF
+        if (b >= 0xA0 && b <= 0xBF) return ReadString(b & 0x1F);
+
+        // Negative fixint 0xE0-0xFF
+        if (b >= 0xE0) { _valueSpan = new[] { b }; _tokenType = TokenType.Int32; CountElement(); return true; }
+
+        switch (b)
+        {
+            case 0xC0: _tokenType = TokenType.Null; CountElement(); return true;
+            case 0xC2: case 0xC3: _valueSpan = new[] { b }; _tokenType = TokenType.Bool; CountElement(); return true;
+            case 0xCC: _valueSpan = ReadBytes(1); _tokenType = TokenType.UInt8; CountElement(); return true;
+            case 0xCD: _valueSpan = ReadBytes(2); _tokenType = TokenType.Int32; CountElement(); return true;
+            case 0xCE: _valueSpan = ReadBytes(4); _tokenType = TokenType.UInt32; CountElement(); return true;
+            case 0xCF: _valueSpan = ReadBytes(8); _tokenType = TokenType.UInt64; CountElement(); return true;
+            case 0xD0: _valueSpan = ReadBytes(1); _tokenType = TokenType.Int32; CountElement(); return true;
+            case 0xD1: _valueSpan = ReadBytes(2); _tokenType = TokenType.Int32; CountElement(); return true;
+            case 0xD2: _valueSpan = ReadBytes(4); _tokenType = TokenType.Int32; CountElement(); return true;
+            case 0xD3: _valueSpan = ReadBytes(8); _tokenType = TokenType.Int64; CountElement(); return true;
+            case 0xCA: _valueSpan = ReadBytes(4); _tokenType = TokenType.Float32; CountElement(); return true;
+            case 0xCB: _valueSpan = ReadBytes(8); _tokenType = TokenType.Float64; CountElement(); return true;
+            case 0xD9: return ReadString(ReadByteLen(1));
+            case 0xDA: return ReadString(ReadByteLen(2));
+            case 0xDB: return ReadString(ReadByteLen(4));
+            case 0xDC: PushLevel(false, ReadByteLen(2)); _tokenType = TokenType.ArrayStart; return true;
+            case 0xDD: PushLevel(false, ReadByteLen(4)); _tokenType = TokenType.ArrayStart; return true;
+            case 0xDE: PushLevel(true, ReadByteLen(2) * 2); _tokenType = TokenType.ObjectStart; return true;
+            case 0xDF: PushLevel(true, ReadByteLen(4) * 2); _tokenType = TokenType.ObjectStart; return true;
+            default: throw new FormatException($"Unknown MsgPack byte 0x{b:X2} at offset {BytesConsumed}");
+        }
+    }
+
+    private bool ReadString(int len)
+    {
+        _valueSpan = ReadBytes(len);
         if (_depth > 0 && _isMapStack[_depth - 1] && _expectKeyStack[_depth - 1])
             _tokenType = TokenType.PropertyName;
         else
@@ -140,20 +199,7 @@ public ref struct MsgPackReader
         return true;
     }
 
-    private ReadOnlySpan<byte> ReadBytes(int count)
-    {
-        var span = _data.Slice(_position, count);
-        _position += count;
-        return span;
-    }
-
-    private int ReadByteLen(int bytes)
-    {
-        int v = 0;
-        for (int i = 0; i < bytes; i++)
-            v = (v << 8) | _data[_position++];
-        return v;
-    }
+    // ── Typed accessors ──
 
     public bool TryGetInt32(out int v)
     {
@@ -225,5 +271,12 @@ public ref struct MsgPackReader
 
     public bool TrySkip() { try { Skip(); return true; } catch { return false; } }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_rentedBuffer is not null)
+        {
+            ArrayPool<byte>.Shared.Return(_rentedBuffer);
+            _rentedBuffer = null;
+        }
+    }
 }
