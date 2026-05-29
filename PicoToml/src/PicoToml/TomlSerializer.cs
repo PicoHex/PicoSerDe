@@ -2,9 +2,6 @@ namespace PicoToml;
 
 public static partial class TomlSerializer
 {
-    private static readonly ConcurrentDictionary<Type, object> _serializers = new();
-    private static readonly ConcurrentDictionary<Type, object> _deserializers = new();
-
     // Generic static cache — avoids dictionary lookup + cast on hot path
     private static class Cache<T>
     {
@@ -16,8 +13,6 @@ public static partial class TomlSerializer
     {
         Cache<T>.Serializer = serializer;
         Cache<T>.Deserializer = deserializer;
-        _serializers[typeof(T)] = serializer;
-        _deserializers[typeof(T)] = deserializer;
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
