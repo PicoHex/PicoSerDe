@@ -264,4 +264,21 @@ public class MsgPackReaderSequenceTests
         await Assert.That((int)tag).IsEqualTo(7);
         await Assert.That(elen).IsEqualTo(1);
     }
+
+    [Test]
+    public async Task Ext8_ReturnsExtension()
+    {
+        // ext8(3), tag=7, data=[1,2,3]
+        var data = new byte[] { 0xC7, 0x03, 0x07, 0x01, 0x02, 0x03 };
+        TokenType tt; byte tag; int elen;
+        using (var reader = new MsgPackReader(data))
+        {
+            reader.Read(); tt = reader.TokenType;
+            reader.TryGetExtension(out tag, out var extData);
+            elen = extData.Length;
+        }
+        await Assert.That(tt).IsEqualTo(TokenType.Extension);
+        await Assert.That((int)tag).IsEqualTo(7);
+        await Assert.That(elen).IsEqualTo(3);
+    }
 }

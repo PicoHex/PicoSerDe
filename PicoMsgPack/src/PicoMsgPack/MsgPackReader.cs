@@ -188,8 +188,9 @@ public ref struct MsgPackReader
             case 0xD6: _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(4); _tokenType = TokenType.Extension; CountElement(); return true;
             case 0xD7: _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(8); _tokenType = TokenType.Extension; CountElement(); return true;
             case 0xD8: _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(16); _tokenType = TokenType.Extension; CountElement(); return true;
-            case 0xC7: case 0xC8: case 0xC9: // ext8/16/32 — deferred
-                throw new FormatException($"Ext8/16/32 not yet supported at offset {BytesConsumed}");
+            case 0xC7: { int extLen = ReadByteLen(1); _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(extLen); _tokenType = TokenType.Extension; CountElement(); return true; }
+            case 0xC8: { int extLen = ReadByteLen(2); _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(extLen); _tokenType = TokenType.Extension; CountElement(); return true; }
+            case 0xC9: { int extLen = ReadByteLen(4); _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(extLen); _tokenType = TokenType.Extension; CountElement(); return true; }
             case 0xD9: return ReadString(ReadByteLen(1));
             case 0xDA: return ReadString(ReadByteLen(2));
             case 0xDB: return ReadString(ReadByteLen(4));

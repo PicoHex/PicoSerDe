@@ -1,45 +1,30 @@
 using System.Diagnostics;
+using MessagePack;
 
-// ═══ Test Data ═══
 var person = new PersonBench { Name = "Alice", Age = 30 };
-var tags = new TagList { Items = ["dev", "bench", "msgpack"] };
-
-// ═══ Benchmarks ═══
 var sw = Stopwatch.StartNew();
 const int Iters = 100_000;
 
-// Serialize Person
-sw.Restart();
-for (int i = 0; i < Iters; i++)
-    MsgPackSerializer.SerializeToUtf8Bytes(person);
-sw.Stop();
-Console.WriteLine($"Person Serialize:   {sw.Elapsed.TotalMilliseconds / Iters * 1_000_000:F2} ns/op");
+Console.WriteLine("=== PicoMsgPack vs MessagePack-CSharp ===\n");
 
-// Deserialize Person
-var personBytes = MsgPackSerializer.SerializeToUtf8Bytes(person);
-sw.Restart();
-for (int i = 0; i < Iters; i++)
-    MsgPackSerializer.Deserialize<PersonBench>(personBytes);
-sw.Stop();
-Console.WriteLine($"Person Deserialize: {sw.Elapsed.TotalMilliseconds / Iters * 1_000_000:F2} ns/op");
+// --- Serialize ---
+sw.Restart(); for (int i = 0; i < Iters; i++) MsgPackSerializer.SerializeToUtf8Bytes(person); sw.Stop();
+var picoSer = sw.Elapsed.TotalMilliseconds / Iters * 1_000_000;
+sw.Restart(); for (int i = 0; i < Iters; i++) MessagePackSerializer.Serialize(person); sw.Stop();
+var mpSer = sw.Elapsed.TotalMilliseconds / Iters * 1_000_000;
+Console.WriteLine($"Serialize:   Pico={picoSer:F0}ns  MPC={mpSer:F0}ns  ({picoSer/mpSer:F2}x)");
 
-// Serialize TagList
-sw.Restart();
-for (int i = 0; i < Iters; i++)
-    MsgPackSerializer.SerializeToUtf8Bytes(tags);
-sw.Stop();
-Console.WriteLine($"TagList Serialize:  {sw.Elapsed.TotalMilliseconds / Iters * 1_000_000:F2} ns/op");
+// --- Deserialize ---
+var picoBytes = MsgPackSerializer.SerializeToUtf8Bytes(person);
+var mpBytes = MessagePackSerializer.Serialize(person);
+sw.Restart(); for (int i = 0; i < Iters; i++) MsgPackSerializer.Deserialize<PersonBench>(picoBytes); sw.Stop();
+var picoDeser = sw.Elapsed.TotalMilliseconds / Iters * 1_000_000;
+sw.Restart(); for (int i = 0; i < Iters; i++) MessagePackSerializer.Deserialize<PersonBench>(mpBytes); sw.Stop();
+var mpDeser = sw.Elapsed.TotalMilliseconds / Iters * 1_000_000;
+Console.WriteLine($"Deserialize: Pico={picoDeser:F0}ns  MPC={mpDeser:F0}ns  ({picoDeser/mpDeser:F2}x)");
 
-// Deserialize TagList
-var tagBytes = MsgPackSerializer.SerializeToUtf8Bytes(tags);
-sw.Restart();
-for (int i = 0; i < Iters; i++)
-    MsgPackSerializer.Deserialize<TagList>(tagBytes);
-sw.Stop();
-Console.WriteLine($"TagList Deserialize:{sw.Elapsed.TotalMilliseconds / Iters * 1_000_000:F2} ns/op");
+// --- Size ---
+Console.WriteLine($"\nSize: Pico={picoBytes.Length}B  MPC={mpBytes.Length}B");
+Console.WriteLine("Done.");
 
-Console.WriteLine($"\nPerson size: {personBytes.Length} bytes");
-Console.WriteLine($"TagList size: {tagBytes.Length} bytes");
-
-public class PersonBench { [MsgPackKey(0)] public string Name { get; set; } = ""; [MsgPackKey(1)] public int Age { get; set; } }
-public class TagList { [MsgPackKey(0)] public List<string> Items { get; set; } = new(); }
+[MessagePackObject] public class PersonBench { [Key(0)] public string Name { get; set; } = ""; [Key(1)] public int Age { get; set; } }
