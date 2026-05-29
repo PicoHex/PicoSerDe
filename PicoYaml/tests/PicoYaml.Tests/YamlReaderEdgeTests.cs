@@ -85,4 +85,46 @@ public class YamlReaderEdgeTests
         await Assert.That(keys[1]).IsEqualTo("b");
         await Assert.That(tokens).Contains(TokenType.ObjectEnd);
     }
+
+    // ── complex key support ──
+
+    [Test]
+    public async Task ComplexKey_QuestionMark_ParsesValue()
+    {
+        var yaml = "? complex key\n: value"u8.ToArray();
+        string key = "",
+            val = "";
+        using (var reader = new YamlReader(yaml))
+        {
+            while (reader.Read())
+            {
+                if (reader.TokenType == TokenType.PropertyName)
+                {
+                    key = Encoding.UTF8.GetString(reader.KeySpan);
+                    val = Encoding.UTF8.GetString(reader.ValueSpan);
+                }
+            }
+        }
+        await Assert.That(key).IsEqualTo("complex key");
+        await Assert.That(val).IsEqualTo("value");
+    }
+
+    // ── tag support ──
+
+    [Test]
+    public async Task TagValue_ExclamationMark_StripsTag()
+    {
+        var yaml = "name: !str Alice"u8.ToArray();
+        string val = "";
+        using (var reader = new YamlReader(yaml))
+        {
+            while (reader.Read())
+            {
+                if (reader.TokenType == TokenType.PropertyName)
+                    val = Encoding.UTF8.GetString(reader.ValueSpan);
+            }
+        }
+        // Tag !str should be stripped, value is "Alice"
+        await Assert.That(val).IsEqualTo("Alice");
+    }
 }

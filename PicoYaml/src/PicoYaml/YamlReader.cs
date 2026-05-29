@@ -315,6 +315,42 @@ public ref struct YamlReader
             _tokenType = TokenType.String;
             return true;
         }
+        // Complex key: ? key\n: value
+        if (_data[_position] == (byte)'?')
+        {
+            _position++;
+            if (_position < _data.Length && _data[_position] == (byte)' ')
+                _position++;
+            int ckStart = _position;
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)'\n'
+                && _data[_position] != (byte)'\r'
+            )
+                _position++;
+            _keySpan = Trim(_data[ckStart.._position]);
+            SkipNewlineSpan();
+            // Expect ': value' on next line
+            while (_position < _data.Length && _data[_position] == (byte)' ')
+                _position++;
+            if (_position < _data.Length && _data[_position] == (byte)':')
+            {
+                _position++;
+                if (_position < _data.Length && _data[_position] == (byte)' ')
+                    _position++;
+                int cvStart = _position;
+                while (
+                    _position < _data.Length
+                    && _data[_position] != (byte)'\n'
+                    && _data[_position] != (byte)'\r'
+                )
+                    _position++;
+                _valueSpan = Trim(_data[cvStart.._position]);
+            }
+            SkipNewlineSpan();
+            _tokenType = TokenType.PropertyName;
+            return true;
+        }
         int ks = _position;
         while (_position < _data.Length && _data[_position] != (byte)':')
             _position++;
@@ -337,6 +373,22 @@ public ref struct YamlReader
             )
                 _position++;
             _pendingAnchorName = Encoding.UTF8.GetString(_data[anchorStart.._position]);
+            while (_position < _data.Length && _data[_position] == (byte)' ')
+                _position++;
+            afterKey = _position;
+        }
+
+        // Skip !tag before value
+        if (_position < _data.Length && _data[_position] == (byte)'!')
+        {
+            _position++;
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)' '
+                && _data[_position] != (byte)'\n'
+                && _data[_position] != (byte)'\r'
+            )
+                _position++;
             while (_position < _data.Length && _data[_position] == (byte)' ')
                 _position++;
             afterKey = _position;

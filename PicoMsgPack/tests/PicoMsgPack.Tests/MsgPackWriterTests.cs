@@ -72,14 +72,23 @@ public class MsgPackWriterTests
 
         // Verify by reading back
         var data = buf.WrittenSpan.ToArray();
-        TokenType t1; string k1, v1, k2; int age;
+        TokenType t1;
+        string k1,
+            v1,
+            k2;
+        int age;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); t1 = reader.TokenType;
-            reader.Read(); k1 = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); v1 = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); k2 = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); reader.TryGetInt32(out age);
+            reader.Read();
+            t1 = reader.TokenType;
+            reader.Read();
+            k1 = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            v1 = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            k2 = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            reader.TryGetInt32(out age);
         }
         await Assert.That(t1).IsEqualTo(TokenType.ObjectStart);
         await Assert.That(k1).IsEqualTo("name");
@@ -102,11 +111,42 @@ public class MsgPackWriterTests
 
         var data = buf.WrittenSpan.ToArray();
         var reader = new MsgPackReader(data);
-        string name = ""; int age = 0;
+        string name = "";
+        int age = 0;
         reader.Read(); // ObjectStart
-        reader.Read(); /* "name" */ reader.Read(); name = Encoding.UTF8.GetString(reader.GetStringRaw()); // "Bob"
-        reader.Read(); /* "age" */ reader.Read(); reader.TryGetInt32(out age);
+        reader.Read(); /* "name" */
+        reader.Read();
+        name = Encoding.UTF8.GetString(reader.GetStringRaw()); // "Bob"
+        reader.Read(); /* "age" */
+        reader.Read();
+        reader.TryGetInt32(out age);
         await Assert.That(name).IsEqualTo("Bob");
         await Assert.That(age).IsEqualTo(25);
+    }
+
+    [Test]
+    public async Task WriteExtension_RoundTrip()
+    {
+        var buf = new ArrayBufferWriter<byte>(64);
+        var writer = new MsgPackWriter(buf);
+        var data = new byte[] { 0x01, 0x02, 0x03 };
+        writer.WriteExtension(42, data);
+
+        var bytes = buf.WrittenSpan.ToArray();
+        TokenType tt;
+        bool ok;
+        byte tag;
+        byte[] extData;
+        {
+            var reader = new MsgPackReader(bytes);
+            reader.Read();
+            tt = reader.TokenType;
+            ok = reader.TryGetExtension(out tag, out var extSpan);
+            extData = extSpan.ToArray();
+        }
+        await Assert.That(tt).IsEqualTo(TokenType.Extension);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(tag).IsEqualTo((byte)42);
+        await Assert.That(extData).IsEquivalentTo(data);
     }
 }

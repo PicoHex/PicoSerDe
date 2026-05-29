@@ -123,24 +123,32 @@ public ref struct MsgPackWriter
         }
     }
 
-    public void WriteEndObject() { /* MsgPack maps don't have end markers; count is specified upfront */ }
+    public void WriteEndObject() { /* MsgPack maps don't have end markers; count is specified upfront */
+    }
 
     public void WriteInt64(long value)
     {
         if (value >= 0 && value <= 127)
         {
-            Span<byte> s = _buffer.GetSpan(1); s[0] = (byte)value; _buffer.Advance(1); _bytesWritten++;
+            Span<byte> s = _buffer.GetSpan(1);
+            s[0] = (byte)value;
+            _buffer.Advance(1);
+            _bytesWritten++;
         }
         else if (value >= -32 && value < 0)
         {
-            Span<byte> s = _buffer.GetSpan(1); s[0] = (byte)value; _buffer.Advance(1); _bytesWritten++;
+            Span<byte> s = _buffer.GetSpan(1);
+            s[0] = (byte)value;
+            _buffer.Advance(1);
+            _bytesWritten++;
         }
         else
         {
             Span<byte> s = _buffer.GetSpan(9);
             s[0] = 0xD3;
             BinaryPrimitives.WriteInt64BigEndian(s.Slice(1), value);
-            _buffer.Advance(9); _bytesWritten += 9;
+            _buffer.Advance(9);
+            _bytesWritten += 9;
         }
     }
 
@@ -149,7 +157,8 @@ public ref struct MsgPackWriter
         Span<byte> s = _buffer.GetSpan(9);
         s[0] = 0xCB;
         BinaryPrimitives.WriteInt64BigEndian(s.Slice(1), BitConverter.DoubleToInt64Bits(value));
-        _buffer.Advance(9); _bytesWritten += 9;
+        _buffer.Advance(9);
+        _bytesWritten += 9;
     }
 
     public void WriteStartArray(int count)
@@ -179,9 +188,11 @@ public ref struct MsgPackWriter
         if (len <= 255)
         {
             Span<byte> s = _buffer.GetSpan(2 + len);
-            s[0] = 0xC4; s[1] = (byte)len;
+            s[0] = 0xC4;
+            s[1] = (byte)len;
             value.CopyTo(s.Slice(2));
-            _buffer.Advance(2 + len); _bytesWritten += 2 + len;
+            _buffer.Advance(2 + len);
+            _bytesWritten += 2 + len;
         }
         else
         {
@@ -189,7 +200,88 @@ public ref struct MsgPackWriter
             s[0] = 0xC5;
             BinaryPrimitives.WriteUInt16BigEndian(s.Slice(1), (ushort)len);
             value.CopyTo(s.Slice(3));
-            _buffer.Advance(3 + len); _bytesWritten += 3 + len;
+            _buffer.Advance(3 + len);
+            _bytesWritten += 3 + len;
+        }
+    }
+
+    public void WriteExtension(byte tag, ReadOnlySpan<byte> data)
+    {
+        int len = data.Length;
+        if (len == 1)
+        {
+            var s = _buffer.GetSpan(3);
+            s[0] = 0xD4;
+            s[1] = tag;
+            data.CopyTo(s.Slice(2));
+            _buffer.Advance(3);
+            _bytesWritten += 3;
+        }
+        else if (len == 2)
+        {
+            var s = _buffer.GetSpan(4);
+            s[0] = 0xD5;
+            s[1] = tag;
+            data.CopyTo(s.Slice(2));
+            _buffer.Advance(4);
+            _bytesWritten += 4;
+        }
+        else if (len == 4)
+        {
+            var s = _buffer.GetSpan(6);
+            s[0] = 0xD6;
+            s[1] = tag;
+            data.CopyTo(s.Slice(2));
+            _buffer.Advance(6);
+            _bytesWritten += 6;
+        }
+        else if (len == 8)
+        {
+            var s = _buffer.GetSpan(10);
+            s[0] = 0xD7;
+            s[1] = tag;
+            data.CopyTo(s.Slice(2));
+            _buffer.Advance(10);
+            _bytesWritten += 10;
+        }
+        else if (len == 16)
+        {
+            var s = _buffer.GetSpan(18);
+            s[0] = 0xD8;
+            s[1] = tag;
+            data.CopyTo(s.Slice(2));
+            _buffer.Advance(18);
+            _bytesWritten += 18;
+        }
+        else if (len <= 255)
+        {
+            var s = _buffer.GetSpan(3 + len);
+            s[0] = 0xC7;
+            s[1] = (byte)len;
+            s[2] = tag;
+            data.CopyTo(s.Slice(3));
+            _buffer.Advance(3 + len);
+            _bytesWritten += 3 + len;
+        }
+        else if (len <= 65535)
+        {
+            var s = _buffer.GetSpan(4 + len);
+            s[0] = 0xC8;
+            BinaryPrimitives.WriteUInt16BigEndian(s.Slice(1), (ushort)len);
+            s[3] = tag;
+            data.CopyTo(s.Slice(4));
+            _buffer.Advance(4 + len);
+            _bytesWritten += 4 + len;
+        }
+        else
+        {
+            var s = _buffer.GetSpan(6 + len);
+            s[0] = 0xC9;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(1), (uint)len);
+            s[5] = tag;
+            data.CopyTo(s.Slice(6));
+            _buffer.Advance(6 + len);
+            _bytesWritten += 6 + len;
         }
     }
 }
