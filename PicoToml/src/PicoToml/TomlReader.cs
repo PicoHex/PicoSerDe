@@ -245,11 +245,7 @@ public ref struct TomlReader
             }
         }
         _bufCount = 0;
-        if (_rentedBuffer is not null)
-        {
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
-        }
+        _rentedBuffer = null;
     }
 
     // ── Span-mode Read ──
@@ -305,10 +301,6 @@ public ref struct TomlReader
             _position++;
         SkipLineSpan();
         _depth = 1; // TOML sections are flat (non-nesting)
-        if (_depth > _maxDepth)
-            throw new FormatException(
-                $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
-            );
         _tokenType = _isArrayTable ? TokenType.ArrayStart : TokenType.ObjectStart;
         return true;
     }
@@ -691,10 +683,6 @@ public ref struct TomlReader
             _seqReader.Advance(1);
         SkipLineSeq();
         _depth = 1; // TOML sections are flat (non-nesting)
-        if (_depth > _maxDepth)
-            throw new FormatException(
-                $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
-            );
         _tokenType = _isArrayTable ? TokenType.ArrayStart : TokenType.ObjectStart;
         return true;
     }

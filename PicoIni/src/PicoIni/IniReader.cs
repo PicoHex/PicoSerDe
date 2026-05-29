@@ -174,11 +174,7 @@ public ref struct IniReader
             }
         }
         _bufCount = 0;
-        if (_rentedBuffer is not null)
-        {
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
-        }
+        _rentedBuffer = null;
     }
 
     private void TrackBuffer(byte[] buf)

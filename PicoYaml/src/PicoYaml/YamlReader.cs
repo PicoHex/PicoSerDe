@@ -186,11 +186,7 @@ public ref struct YamlReader
             }
         }
         _bufCount = 0;
-        if (_rentedBuffer is not null)
-        {
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
-        }
+        _rentedBuffer = null;
     }
 
     // ── Span-mode Read ──

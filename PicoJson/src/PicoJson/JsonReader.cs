@@ -368,7 +368,6 @@ public ref struct JsonReader
         var buf = ArrayPool<byte>.Shared.Rent(256);
         _rentedBuffer = buf;
         int di = 0;
-        long bytesBeforeString = _seqReader.Consumed;
 
         try
         {
