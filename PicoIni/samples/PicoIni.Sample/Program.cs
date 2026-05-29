@@ -1,5 +1,3 @@
-using PicoIni;
-
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
 // ═══ 1. Sectioned model with nested objects ═══
