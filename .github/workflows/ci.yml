@@ -48,6 +48,7 @@ jobs:
       - run: dotnet build PicoIni/benchmarks/PicoIni.Benchmarks/PicoIni.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoYaml/benchmarks/PicoYaml.Benchmarks/PicoYaml.Benchmarks.csproj -c Release --no-restore
+      - run: dotnet build PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks/PicoMsgPack.Benchmarks.csproj -c Release --no-restore
       - name: Run PicoJson benchmarks (smoke)
         run: dotnet run --project PicoJson/benchmarks/PicoJson.Benchmarks -c Release --no-build -- --filter '*' --iterationCount 1 --warmupCount 0
       - name: Run PicoIni benchmarks (smoke)
@@ -56,6 +57,8 @@ jobs:
         run: dotnet run --project PicoToml/benchmarks/PicoToml.Benchmarks -c Release --no-build -- --filter '*' --iterationCount 1 --warmupCount 0
       - name: Run PicoYaml benchmarks (smoke)
         run: dotnet run --project PicoYaml/benchmarks/PicoYaml.Benchmarks -c Release --no-build -- --filter '*' --iterationCount 1 --warmupCount 0
+      - name: Run PicoMsgPack benchmarks (smoke)
+        run: dotnet run --project PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks -c Release --no-build -- --filter '*' --iterationCount 1 --warmupCount 0
 
   aot-validation:
     needs: build-and-test
@@ -98,3 +101,4 @@ jobs:
       - run: dotnet publish PicoIni/samples/PicoIni.Sample/PicoIni.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoToml/samples/PicoToml.Sample/PicoToml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoYaml/samples/PicoYaml.Sample/PicoYaml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
+      - run: dotnet publish PicoMsgPack/samples/PicoMsgPack.Sample/PicoMsgPack.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained

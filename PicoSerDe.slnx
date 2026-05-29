@@ -24,4 +24,6 @@
   <Project Path="PicoMsgPack\src\PicoMsgPack\PicoMsgPack.csproj" />
   <Project Path="PicoMsgPack\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj" />
   <Project Path="PicoMsgPack\tests\PicoMsgPack.Tests\PicoMsgPack.Tests.csproj" />
+  <Project Path="PicoMsgPack\benchmarks\PicoMsgPack.Benchmarks\PicoMsgPack.Benchmarks.csproj" />
+  <Project Path="PicoMsgPack\samples\PicoMsgPack.Sample\PicoMsgPack.Sample.csproj" />
 </Solution>
