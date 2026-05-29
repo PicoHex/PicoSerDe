@@ -21,6 +21,8 @@ public ref struct YamlReader
     private bool _inFlow;
     private bool _flowStartEmitted;
     private byte[]? _rentedBuffer;
+    private byte[]?[] _rentedBuffers;
+    private int _bufCount;
 
     // Anchor/alias support
     private Dictionary<string, StoredAnchor>? _anchors;
@@ -54,6 +56,8 @@ public ref struct YamlReader
         _inFlow = false;
         _flowStartEmitted = false;
         _rentedBuffer = null;
+        _rentedBuffers = new byte[]?[8];
+        _bufCount = 0;
         _maxDepth = 256;
     }
 
@@ -72,6 +76,8 @@ public ref struct YamlReader
         _inFlow = false;
         _flowStartEmitted = false;
         _rentedBuffer = null;
+        _rentedBuffers = new byte[]?[8];
+        _bufCount = 0;
         _maxDepth = 256;
     }
 
@@ -171,6 +177,15 @@ public ref struct YamlReader
 
     public void Dispose()
     {
+        for (int i = 0; i < _bufCount; i++)
+        {
+            if (_rentedBuffers[i] is not null)
+            {
+                ArrayPool<byte>.Shared.Return(_rentedBuffers[i]!);
+                _rentedBuffers[i] = null;
+            }
+        }
+        _bufCount = 0;
         if (_rentedBuffer is not null)
         {
             ArrayPool<byte>.Shared.Return(_rentedBuffer);
@@ -279,7 +294,12 @@ public ref struct YamlReader
         {
             _position++;
             int anchorStart = _position;
-            while (_position < _data.Length && _data[_position] != (byte)' ' && _data[_position] != (byte)'\n' && _data[_position] != (byte)'\r')
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)' '
+                && _data[_position] != (byte)'\n'
+                && _data[_position] != (byte)'\r'
+            )
                 _position++;
             _pendingAnchorName = Encoding.UTF8.GetString(_data[anchorStart.._position]);
             while (_position < _data.Length && _data[_position] == (byte)' ')
@@ -329,12 +349,28 @@ public ref struct YamlReader
             {
                 _position++;
                 int aliasStart = _position;
-                while (_position < _data.Length && _data[_position] != (byte)' ' && _data[_position] != (byte)'\n' && _data[_position] != (byte)'\r')
+                while (
+                    _position < _data.Length
+                    && _data[_position] != (byte)' '
+                    && _data[_position] != (byte)'\n'
+                    && _data[_position] != (byte)'\r'
+                )
                     _position++;
                 var aliasName = Encoding.UTF8.GetString(_data[aliasStart.._position]);
-                if (_anchors is null || !_anchors.TryGetValue(aliasName, out var stored))
-                    throw new FormatException($"Unresolved alias '*{aliasName}' at offset {BytesConsumed}");
-                if (stored.IsMapping && stored.MappingPairs is not null)
+
+                // P3 fix: resolve self-referencing alias from pending mapping anchor
+                if (_pendingMappingAnchor == aliasName && _currentMappingPairs is not null)
+                {
+                    // Snapshot current pairs for replay (anchor not yet finalized)
+                    _replayPairs = new List<(byte[], byte[])>(_currentMappingPairs);
+                    _replayIndex = 0;
+                    _valueSpan = default;
+                }
+                else if (_anchors is null || !_anchors.TryGetValue(aliasName, out var stored))
+                    throw new FormatException(
+                        $"Unresolved alias '*{aliasName}' at offset {BytesConsumed}"
+                    );
+                else if (stored.IsMapping && stored.MappingPairs is not null)
                 {
                     _replayPairs = stored.MappingPairs;
                     _replayIndex = 0;
@@ -703,6 +739,8 @@ public ref struct YamlReader
     private byte[] RentBuf(int size)
     {
         var buf = ArrayPool<byte>.Shared.Rent(size);
+        if (_bufCount < _rentedBuffers.Length)
+            _rentedBuffers[_bufCount++] = buf;
         _rentedBuffer = buf;
         return buf;
     }
@@ -744,7 +782,9 @@ public ref struct YamlReader
         {
             _anchors ??= new Dictionary<string, StoredAnchor>();
             if (_anchors.ContainsKey(_pendingAnchorName))
-                throw new FormatException($"Duplicate anchor '&{_pendingAnchorName}' at offset {BytesConsumed}");
+                throw new FormatException(
+                    $"Duplicate anchor '&{_pendingAnchorName}' at offset {BytesConsumed}"
+                );
 
             // Empty value + pending anchor → mapping anchor (defer until ObjectEnd)
             if (_valueSpan.IsEmpty)

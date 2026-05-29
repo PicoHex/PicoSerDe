@@ -23,6 +23,8 @@ public ref struct TomlReader
     private int _inlineTableDepth;
     private bool _inlineStartEmitted;
     private byte[]? _rentedBuffer;
+    private byte[]?[] _rentedBuffers;
+    private int _bufCount;
     private int _depth;
     private readonly int _maxDepth;
 
@@ -44,6 +46,8 @@ public ref struct TomlReader
         _inlineTableDepth = 0;
         _inlineStartEmitted = false;
         _rentedBuffer = null;
+        _rentedBuffers = new byte[]?[8];
+        _bufCount = 0;
         _depth = 0;
         _maxDepth = 256;
     }
@@ -66,6 +70,8 @@ public ref struct TomlReader
         _inlineTableDepth = 0;
         _inlineStartEmitted = false;
         _rentedBuffer = null;
+        _rentedBuffers = new byte[]?[8];
+        _bufCount = 0;
         _depth = 0;
         _maxDepth = 256;
     }
@@ -230,6 +236,15 @@ public ref struct TomlReader
 
     public void Dispose()
     {
+        for (int i = 0; i < _bufCount; i++)
+        {
+            if (_rentedBuffers[i] is not null)
+            {
+                ArrayPool<byte>.Shared.Return(_rentedBuffers[i]!);
+                _rentedBuffers[i] = null;
+            }
+        }
+        _bufCount = 0;
         if (_rentedBuffer is not null)
         {
             ArrayPool<byte>.Shared.Return(_rentedBuffer);
@@ -289,7 +304,8 @@ public ref struct TomlReader
         if (_isArrayTable && _position < _data.Length && _data[_position] == (byte)']')
             _position++;
         SkipLineSpan();
-        if (++_depth >= _maxDepth)
+        _depth = 1; // TOML sections are flat (non-nesting)
+        if (_depth > _maxDepth)
             throw new FormatException(
                 $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
             );
@@ -353,22 +369,36 @@ public ref struct TomlReader
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
             _position++;
-            if (_position + 1 < _data.Length && _data[_position] == (byte)'"' && _data[_position + 1] == (byte)'"')
+            if (
+                _position + 1 < _data.Length
+                && _data[_position] == (byte)'"'
+                && _data[_position + 1] == (byte)'"'
+            )
             {
                 _position += 2;
-                if (_position < _data.Length && _data[_position] == (byte)'\n') _position++;
+                if (_position < _data.Length && _data[_position] == (byte)'\n')
+                    _position++;
                 int ms = _position;
                 while (_position + 2 < _data.Length)
                 {
-                    if (_data[_position] == (byte)'"' && _data[_position + 1] == (byte)'"' && _data[_position + 2] == (byte)'"')
-                    { _valueSpan = _data[ms.._position]; _position += 3; return; }
+                    if (
+                        _data[_position] == (byte)'"'
+                        && _data[_position + 1] == (byte)'"'
+                        && _data[_position + 2] == (byte)'"'
+                    )
+                    {
+                        _valueSpan = _data[ms.._position];
+                        _position += 3;
+                        return;
+                    }
                     _position++;
                 }
             }
             else
             {
                 int vs = _position;
-                while (_position < _data.Length && _data[_position] != (byte)'"') _position++;
+                while (_position < _data.Length && _data[_position] != (byte)'"')
+                    _position++;
                 _valueSpan = _data[vs.._position];
                 _position++;
             }
@@ -376,22 +406,36 @@ public ref struct TomlReader
         else if (_position < _data.Length && _data[_position] == (byte)'\'')
         {
             _position++;
-            if (_position + 1 < _data.Length && _data[_position] == (byte)'\'' && _data[_position + 1] == (byte)'\'')
+            if (
+                _position + 1 < _data.Length
+                && _data[_position] == (byte)'\''
+                && _data[_position + 1] == (byte)'\''
+            )
             {
                 _position += 2;
-                if (_position < _data.Length && _data[_position] == (byte)'\n') _position++;
+                if (_position < _data.Length && _data[_position] == (byte)'\n')
+                    _position++;
                 int ms = _position;
                 while (_position + 2 < _data.Length)
                 {
-                    if (_data[_position] == (byte)'\'' && _data[_position + 1] == (byte)'\'' && _data[_position + 2] == (byte)'\'')
-                    { _valueSpan = _data[ms.._position]; _position += 3; return; }
+                    if (
+                        _data[_position] == (byte)'\''
+                        && _data[_position + 1] == (byte)'\''
+                        && _data[_position + 2] == (byte)'\''
+                    )
+                    {
+                        _valueSpan = _data[ms.._position];
+                        _position += 3;
+                        return;
+                    }
                     _position++;
                 }
             }
             else
             {
                 int vs = _position;
-                while (_position < _data.Length && _data[_position] != (byte)'\'') _position++;
+                while (_position < _data.Length && _data[_position] != (byte)'\'')
+                    _position++;
                 _valueSpan = _data[vs.._position];
                 _position++;
             }
@@ -646,7 +690,8 @@ public ref struct TomlReader
         )
             _seqReader.Advance(1);
         SkipLineSeq();
-        if (++_depth >= _maxDepth)
+        _depth = 1; // TOML sections are flat (non-nesting)
+        if (_depth > _maxDepth)
             throw new FormatException(
                 $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
             );
@@ -1002,6 +1047,9 @@ public ref struct TomlReader
     private byte[] RentBuf(int size)
     {
         var buf = ArrayPool<byte>.Shared.Rent(size);
+        // Track all rented buffers for cleanup
+        if (_bufCount < _rentedBuffers.Length)
+            _rentedBuffers[_bufCount++] = buf;
         _rentedBuffer = buf;
         return buf;
     }

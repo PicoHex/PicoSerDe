@@ -40,6 +40,7 @@ public static class DeserializerExtensions
         ReadResult result;
         do
         {
+            ct.ThrowIfCancellationRequested();
             result = await reader.ReadAsync(ct);
         } while (!result.IsCompleted && result.Buffer.Length == 0);
 

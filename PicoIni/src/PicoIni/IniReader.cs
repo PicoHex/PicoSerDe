@@ -9,6 +9,10 @@ public ref struct IniReader
     private TokenType _tokenType;
     private ReadOnlySpan<byte> _currentValue;
     private byte[]? _rentedBuffer;
+    private byte[]?[] _rentedBuffers;
+    private int _bufCount;
+    private int _depth;
+    private readonly int _maxDepth;
 
     // Pending value: when Read() returns PropertyName, the value token is emitted
     // on the next Read() call. Type detection is deferred to TryGet* methods.
@@ -29,11 +33,15 @@ public ref struct IniReader
         _tokenType = TokenType.None;
         _currentValue = default;
         _rentedBuffer = null;
+        _rentedBuffers = new byte[]?[8];
+        _bufCount = 0;
         _pendingValue = default;
         _hasPendingValue = false;
         _inSection = false;
         _hasPendingSectionStart = false;
         _pendingSectionName = default;
+        _depth = 0;
+        _maxDepth = 256;
     }
 
     public IniReader(ReadOnlySequence<byte> data)
@@ -45,15 +53,20 @@ public ref struct IniReader
         _tokenType = TokenType.None;
         _currentValue = default;
         _rentedBuffer = null;
+        _rentedBuffers = new byte[]?[8];
+        _bufCount = 0;
         _pendingValue = default;
         _hasPendingValue = false;
         _inSection = false;
         _hasPendingSectionStart = false;
         _pendingSectionName = default;
+        _depth = 0;
+        _maxDepth = 256;
     }
 
     public TokenType TokenType => _tokenType;
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
+
     public ReadOnlySpan<byte> GetStringRaw() => _currentValue;
 
     /// <summary>Optimized fast path: consume the pending value after a PropertyName read,
@@ -74,6 +87,10 @@ public ref struct IniReader
             _hasPendingSectionStart = false;
             _tokenType = TokenType.ObjectStart;
             _inSection = true;
+            if (++_depth > _maxDepth)
+                throw new FormatException(
+                    $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
+                );
             return true;
         }
 
@@ -96,44 +113,79 @@ public ref struct IniReader
     {
         if (_tokenType is TokenType.Int32 or TokenType.String)
             return Utf8Parser.TryParse(_currentValue, out v, out _);
-        v = 0; return false;
+        v = 0;
+        return false;
     }
 
     public bool TryGetInt64(out long v)
     {
         if (_tokenType is TokenType.Int32 or TokenType.Int64 or TokenType.String)
             return Utf8Parser.TryParse(_currentValue, out v, out _);
-        v = 0; return false;
+        v = 0;
+        return false;
     }
 
     public bool TryGetFloat64(out double v)
     {
-        if (_tokenType is TokenType.Int32 or TokenType.Int64 or TokenType.Float64 or TokenType.String)
+        if (
+            _tokenType
+            is TokenType.Int32
+                or TokenType.Int64
+                or TokenType.Float64
+                or TokenType.String
+        )
             return Utf8Parser.TryParse(_currentValue, out v, out _);
-        v = 0; return false;
+        v = 0;
+        return false;
     }
 
     public bool TryGetBool(out bool v)
     {
         if (_tokenType is TokenType.Bool or TokenType.String)
         {
-            if (_currentValue.SequenceEqual("true"u8)) { v = true; return true; }
-            if (_currentValue.SequenceEqual("false"u8)) { v = false; return true; }
+            if (_currentValue.SequenceEqual("true"u8))
+            {
+                v = true;
+                return true;
+            }
+            if (_currentValue.SequenceEqual("false"u8))
+            {
+                v = false;
+                return true;
+            }
             return Utf8Parser.TryParse(_currentValue, out v, out _);
         }
-        v = false; return false;
+        v = false;
+        return false;
     }
 
     public void Skip() { }
+
     public bool TrySkip() => true;
 
     public void Dispose()
     {
+        for (int i = 0; i < _bufCount; i++)
+        {
+            if (_rentedBuffers[i] is not null)
+            {
+                ArrayPool<byte>.Shared.Return(_rentedBuffers[i]!);
+                _rentedBuffers[i] = null;
+            }
+        }
+        _bufCount = 0;
         if (_rentedBuffer is not null)
         {
             ArrayPool<byte>.Shared.Return(_rentedBuffer);
             _rentedBuffer = null;
         }
+    }
+
+    private void TrackBuffer(byte[] buf)
+    {
+        if (_bufCount < _rentedBuffers.Length)
+            _rentedBuffers[_bufCount++] = buf;
+        _rentedBuffer = buf;
     }
 
     // ── Span-mode read ──
@@ -146,11 +198,19 @@ public ref struct IniReader
             if (b is (byte)'\n' or (byte)'\r')
             {
                 _position++;
-                if (_position < _data.Length && _data[_position] == (byte)'\n' && _data[_position - 1] == (byte)'\r')
+                if (
+                    _position < _data.Length
+                    && _data[_position] == (byte)'\n'
+                    && _data[_position - 1] == (byte)'\r'
+                )
                     _position++;
                 continue;
             }
-            if (b is (byte)' ' or (byte)'\t') { _position++; continue; }
+            if (b is (byte)' ' or (byte)'\t')
+            {
+                _position++;
+                continue;
+            }
             if (b == (byte)'[')
                 return ReadSectionSpan();
             if (b is (byte)';' or (byte)'#')
@@ -169,12 +229,17 @@ public ref struct IniReader
         {
             _tokenType = TokenType.ObjectEnd;
             _inSection = false;
+            _depth--;
             _pendingSectionName = ReadSectionNameSpan();
             _hasPendingSectionStart = true;
             return true;
         }
         _currentValue = ReadSectionNameSpan();
         _inSection = true;
+        if (++_depth > _maxDepth)
+            throw new FormatException(
+                $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
+            );
         _tokenType = TokenType.ObjectStart;
         return true;
     }
@@ -201,14 +266,17 @@ public ref struct IniReader
         _currentValue = TrimEnd(_data[keyStart.._position]);
         _tokenType = TokenType.PropertyName;
         _position++;
-        while (_position < _data.Length && (_data[_position] == (byte)' ' || _data[_position] == (byte)'\t'))
+        while (
+            _position < _data.Length
+            && (_data[_position] == (byte)' ' || _data[_position] == (byte)'\t')
+        )
             _position++;
 
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
             _position++;
             var buf = ArrayPool<byte>.Shared.Rent(256);
-            _rentedBuffer = buf;
+            TrackBuffer(buf);
             int di = 0;
             while (_position < _data.Length && _data[_position] != (byte)'"')
             {
@@ -217,27 +285,42 @@ public ref struct IniReader
                     _position++;
                     buf[di++] = _data[_position] switch
                     {
-                        (byte)'n' => (byte)'\n', (byte)'t' => (byte)'\t',
-                        (byte)'r' => (byte)'\r', (byte)'\\' => (byte)'\\',
-                        (byte)'"' => (byte)'"', var c => c,
+                        (byte)'n' => (byte)'\n',
+                        (byte)'t' => (byte)'\t',
+                        (byte)'r' => (byte)'\r',
+                        (byte)'\\' => (byte)'\\',
+                        (byte)'"' => (byte)'"',
+                        var c => c,
                     };
                     _position++;
                 }
-                else buf[di++] = _data[_position++];
+                else
+                    buf[di++] = _data[_position++];
             }
-            if (_position < _data.Length) _position++;
+            if (_position < _data.Length)
+                _position++;
             _pendingValue = buf.AsSpan(0, di);
         }
         else
         {
             var valStart = _position;
-            while (_position < _data.Length && _data[_position] != (byte)'\n' && _data[_position] != (byte)'\r')
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)'\n'
+                && _data[_position] != (byte)'\r'
+            )
                 _position++;
             var raw = _data[valStart.._position];
             var semiIdx = raw.IndexOf((byte)';');
             var hashIdx = raw.IndexOf((byte)'#');
-            var commentIdx = semiIdx < 0 ? hashIdx : hashIdx < 0 ? semiIdx : Math.Min(semiIdx, hashIdx);
-            if (commentIdx >= 0) raw = TrimEnd(raw[..commentIdx]);
+            var commentIdx =
+                semiIdx < 0
+                    ? hashIdx
+                    : hashIdx < 0
+                        ? semiIdx
+                        : Math.Min(semiIdx, hashIdx);
+            if (commentIdx >= 0)
+                raw = TrimEnd(raw[..commentIdx]);
             _pendingValue = Trim(raw);
         }
 
@@ -263,13 +346,25 @@ public ref struct IniReader
             if (b is (byte)'\n' or (byte)'\r')
             {
                 _seqReader.Advance(1);
-                if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\n')
+                if (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\n'
+                )
                     _seqReader.Advance(1);
                 continue;
             }
-            if (b is (byte)' ' or (byte)'\t') { _seqReader.Advance(1); continue; }
-            if (b == (byte)'[') return ReadSectionSeq();
-            if (b is (byte)';' or (byte)'#') { SkipToNextLineSeq(); continue; }
+            if (b is (byte)' ' or (byte)'\t')
+            {
+                _seqReader.Advance(1);
+                continue;
+            }
+            if (b == (byte)'[')
+                return ReadSectionSeq();
+            if (b is (byte)';' or (byte)'#')
+            {
+                SkipToNextLineSeq();
+                continue;
+            }
             return ReadKeyValueSeq();
         }
         return false;
@@ -281,12 +376,17 @@ public ref struct IniReader
         {
             _tokenType = TokenType.ObjectEnd;
             _inSection = false;
+            _depth--;
             _pendingSectionName = ReadSectionNameSeq();
             _hasPendingSectionStart = true;
             return true;
         }
         _currentValue = ReadSectionNameSeq();
         _inSection = true;
+        if (++_depth > _maxDepth)
+            throw new FormatException(
+                $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
+            );
         _tokenType = TokenType.ObjectStart;
         return true;
     }
@@ -295,14 +395,15 @@ public ref struct IniReader
     {
         _seqReader.Advance(1);
         var buf = ArrayPool<byte>.Shared.Rent(64);
-        _rentedBuffer = buf;
+        TrackBuffer(buf);
         int di = 0;
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)']')
         {
             buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
         }
-        if (_seqReader.End) throw new FormatException("Unterminated section");
+        if (_seqReader.End)
+            throw new FormatException("Unterminated section");
         _seqReader.Advance(1);
         SkipToNextLineSeq();
         return buf.AsSpan(0, di);
@@ -311,7 +412,7 @@ public ref struct IniReader
     private bool ReadKeyValueSeq()
     {
         var buf = ArrayPool<byte>.Shared.Rent(256);
-        _rentedBuffer = buf;
+        TrackBuffer(buf);
         int di = 0;
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'=')
         {
@@ -325,8 +426,11 @@ public ref struct IniReader
             _seqReader.Advance(1);
 
         di = 0;
-        while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
-            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r')
+        while (
+            !_seqReader.End
+            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+        )
         {
             buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
@@ -341,26 +445,42 @@ public ref struct IniReader
 
     private void SkipToNextLineSpan()
     {
-        while (_position < _data.Length && _data[_position] != (byte)'\n' && _data[_position] != (byte)'\r')
+        while (
+            _position < _data.Length
+            && _data[_position] != (byte)'\n'
+            && _data[_position] != (byte)'\r'
+        )
             _position++;
         if (_position < _data.Length)
         {
-            if (_data[_position] == (byte)'\r' && _position + 1 < _data.Length && _data[_position + 1] == (byte)'\n')
+            if (
+                _data[_position] == (byte)'\r'
+                && _position + 1 < _data.Length
+                && _data[_position + 1] == (byte)'\n'
+            )
                 _position += 2;
-            else _position++;
+            else
+                _position++;
         }
     }
 
     private void SkipToNextLineSeq()
     {
-        while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
-            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r')
+        while (
+            !_seqReader.End
+            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+        )
             _seqReader.Advance(1);
         if (!_seqReader.End)
         {
             var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
-            if (!_seqReader.End && b == (byte)'\r' && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\n')
+            if (
+                !_seqReader.End
+                && b == (byte)'\r'
+                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\n'
+            )
                 _seqReader.Advance(1);
         }
     }
@@ -368,15 +488,19 @@ public ref struct IniReader
     private static ReadOnlySpan<byte> TrimEnd(ReadOnlySpan<byte> s)
     {
         int e = s.Length;
-        while (e > 0 && (s[e - 1] == (byte)' ' || s[e - 1] == (byte)'\t')) e--;
+        while (e > 0 && (s[e - 1] == (byte)' ' || s[e - 1] == (byte)'\t'))
+            e--;
         return s[..e];
     }
 
     private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> s)
     {
-        int st = 0, e = s.Length;
-        while (st < e && (s[st] == (byte)' ' || s[st] == (byte)'\t')) st++;
-        while (e > st && (s[e - 1] == (byte)' ' || s[e - 1] == (byte)'\t')) e--;
+        int st = 0,
+            e = s.Length;
+        while (st < e && (s[st] == (byte)' ' || s[st] == (byte)'\t'))
+            st++;
+        while (e > st && (s[e - 1] == (byte)' ' || s[e - 1] == (byte)'\t'))
+            e--;
         return s[st..e];
     }
 }

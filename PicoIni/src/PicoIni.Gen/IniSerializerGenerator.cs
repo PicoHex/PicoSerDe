@@ -173,8 +173,18 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string ToCamelCase(string name) =>
-        name.Length > 0 ? char.ToLowerInvariant(name[0]) + name.Substring(1) : name;
+    private static string ToCamelCase(string name)
+    {
+        if (name.Length == 0)
+            return name;
+        int upperCount = 0;
+        while (upperCount < name.Length && char.IsUpper(name[upperCount]))
+            upperCount++;
+        if (upperCount <= 1)
+            return char.ToLowerInvariant(name[0]) + name.Substring(1);
+        int keepUpper = upperCount > 1 && upperCount < name.Length ? upperCount - 1 : upperCount;
+        return name.Substring(0, keepUpper).ToLowerInvariant() + name.Substring(keepUpper);
+    }
 
     private static string? GetIniDateTimeFormat(IPropertySymbol p)
     {
@@ -674,7 +684,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.Append(" = Encoding.UTF8.GetString(reader.GetStringRaw()).Split(',').Select(__s => ");
+                s.Append(
+                    " = Encoding.UTF8.GetString(reader.GetStringRaw()).Split(',').Select(__s => "
+                );
                 WriteParseElem(s, p);
                 s.AppendLine(").ToArray();");
                 break;

@@ -6,7 +6,7 @@ public ref struct JsonWriter
     private long _bytesWritten;
     private readonly bool _indented;
     private int _depth;
-    private long _needsComma;
+    private ulong _needsComma;
     private bool _afterPropertyName;
 
     public long BytesWritten => _bytesWritten;
@@ -17,7 +17,7 @@ public ref struct JsonWriter
         _bytesWritten = 0;
         _indented = indented;
         _depth = 0;
-        _needsComma = 0;
+        _needsComma = 0UL;
         _afterPropertyName = false;
     }
 
@@ -126,9 +126,9 @@ public ref struct JsonWriter
 
     public void WritePropertyName(ReadOnlySpan<byte> utf8Name)
     {
-        if ((_needsComma & (1L << _depth)) != 0)
+        if ((_needsComma & (1UL << _depth)) != 0)
             WriteByte((byte)',');
-        _needsComma |= (1L << _depth);
+        _needsComma |= (1UL << _depth);
         if (_indented)
             WriteIndent();
         WriteByte((byte)'"');
@@ -147,7 +147,7 @@ public ref struct JsonWriter
 
     public void WriteEndObject()
     {
-        _needsComma &= ~(1L << _depth);
+        _needsComma &= ~(1UL << _depth);
         _depth--;
         if (_indented)
             WriteIndent();
@@ -163,7 +163,7 @@ public ref struct JsonWriter
 
     public void WriteEndArray()
     {
-        _needsComma &= ~(1L << _depth);
+        _needsComma &= ~(1UL << _depth);
         _depth--;
         if (_indented)
             WriteIndent();
@@ -177,9 +177,9 @@ public ref struct JsonWriter
             _afterPropertyName = false;
             return;
         }
-        if ((_needsComma & (1L << _depth)) != 0)
+        if ((_needsComma & (1UL << _depth)) != 0)
             WriteByte((byte)',');
-        _needsComma |= (1L << _depth);
+        _needsComma |= (1UL << _depth);
     }
 
     private void WriteRaw(ReadOnlySpan<byte> utf8)

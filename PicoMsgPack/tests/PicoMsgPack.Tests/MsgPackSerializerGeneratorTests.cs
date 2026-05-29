@@ -3,56 +3,93 @@ namespace PicoMsgPack.Tests;
 // Test models with integer keys
 public class PersonMsgPack
 {
-    [MsgPackKey(0)] public string Name { get; set; } = "";
-    [MsgPackKey(1)] public int Age { get; set; }
+    [MsgPackKey(0)]
+    public string Name { get; set; } = "";
+
+    [MsgPackKey(1)]
+    public int Age { get; set; }
 }
 
 public class BookMsgPack
 {
-    [MsgPackKey(0)] public string Title { get; set; } = "";
-    [MsgPackKey(1)] public int Pages { get; set; }
-    [MsgPackKey(2)] public List<string> Tags { get; set; } = new();
+    [MsgPackKey(0)]
+    public string Title { get; set; } = "";
+
+    [MsgPackKey(1)]
+    public int Pages { get; set; }
+
+    [MsgPackKey(2)]
+    public List<string> Tags { get; set; } = new();
 }
 
 // Nested object models
 public class Address
 {
-    [MsgPackKey(0)] public string Street { get; set; } = "";
-    [MsgPackKey(1)] public string City { get; set; } = "";
+    [MsgPackKey(0)]
+    public string Street { get; set; } = "";
+
+    [MsgPackKey(1)]
+    public string City { get; set; } = "";
 }
 
 public class PersonWithAddress
 {
-    [MsgPackKey(0)] public string Name { get; set; } = "";
-    [MsgPackKey(1)] public Address? Home { get; set; }
+    [MsgPackKey(0)]
+    public string Name { get; set; } = "";
+
+    [MsgPackKey(1)]
+    public Address? Home { get; set; }
 }
 
 public class NullableModel
 {
-    [MsgPackKey(0)] public int? OptionalAge { get; set; }
-    [MsgPackKey(1)] public string? Nickname { get; set; }
+    [MsgPackKey(0)]
+    public int? OptionalAge { get; set; }
+
+    [MsgPackKey(1)]
+    public string? Nickname { get; set; }
 }
 
 public class TemporalModel
 {
-    [MsgPackKey(0)] public DateTime CreatedAt { get; set; }
-    [MsgPackKey(1)] public TimeSpan Duration { get; set; }
+    [MsgPackKey(0)]
+    public DateTime CreatedAt { get; set; }
+
+    [MsgPackKey(1)]
+    public TimeSpan Duration { get; set; }
+}
+
+public class DateOnlyTimeOnlyModel
+{
+    [MsgPackKey(0)]
+    public DateOnly Date { get; set; }
+
+    [MsgPackKey(1)]
+    public TimeOnly Time { get; set; }
+
+    [MsgPackKey(2)]
+    public TimeSpan Span { get; set; }
 }
 
 public class EnumModel
 {
-    [MsgPackKey(0)] public DayOfWeek Day { get; set; }
-    [MsgPackKey(1)] public Guid Id { get; set; }
+    [MsgPackKey(0)]
+    public DayOfWeek Day { get; set; }
+
+    [MsgPackKey(1)]
+    public Guid Id { get; set; }
 }
 
 public class DictModel
 {
-    [MsgPackKey(0)] public Dictionary<string, int> Counts { get; set; } = new();
+    [MsgPackKey(0)]
+    public Dictionary<string, int> Counts { get; set; } = new();
 }
 
 public class IntArrayModel
 {
-    [MsgPackKey(0)] public int[] Scores { get; set; } = [];
+    [MsgPackKey(0)]
+    public int[] Scores { get; set; } = [];
 }
 
 public class MsgPackSerializerGeneratorTests
@@ -70,7 +107,12 @@ public class MsgPackSerializerGeneratorTests
     [Test]
     public async Task Generated_Book_RoundTrip()
     {
-        var book = new BookMsgPack { Title = "Dune", Pages = 412, Tags = ["sci-fi", "classic"] };
+        var book = new BookMsgPack
+        {
+            Title = "Dune",
+            Pages = 412,
+            Tags =  ["sci-fi", "classic"]
+        };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(book);
         var result = MsgPackSerializer.Deserialize<BookMsgPack>(bytes);
         await Assert.That(result!.Title).IsEqualTo("Dune");
@@ -85,14 +127,23 @@ public class MsgPackSerializerGeneratorTests
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(person);
 
         // Verify structure manually
-        TokenType t1; int k0, k1, age; string v1;
+        TokenType t1;
+        int k0,
+            k1,
+            age;
+        string v1;
         using (var reader = new MsgPackReader(bytes))
         {
-            reader.Read(); t1 = reader.TokenType;
-            reader.Read(); reader.TryGetInt32(out k0);
-            reader.Read(); v1 = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); reader.TryGetInt32(out k1);
-            reader.Read(); reader.TryGetInt32(out age);
+            reader.Read();
+            t1 = reader.TokenType;
+            reader.Read();
+            reader.TryGetInt32(out k0);
+            reader.Read();
+            v1 = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            reader.TryGetInt32(out k1);
+            reader.Read();
+            reader.TryGetInt32(out age);
         }
         await Assert.That(t1).IsEqualTo(TokenType.ObjectStart);
         await Assert.That(k0).IsEqualTo(0);
@@ -181,6 +232,22 @@ public class MsgPackSerializerGeneratorTests
     // ── Enum / Guid ──
 
     [Test]
+    public async Task Generated_DateOnlyTimeOnly_RoundTrip()
+    {
+        var model = new DateOnlyTimeOnlyModel
+        {
+            Date = new DateOnly(2024, 6, 15),
+            Time = new TimeOnly(12, 30, 0),
+            Span = TimeSpan.FromMinutes(90)
+        };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<DateOnlyTimeOnlyModel>(bytes);
+        await Assert.That(result!.Date).IsEqualTo(new DateOnly(2024, 6, 15));
+        await Assert.That(result.Time).IsEqualTo(new TimeOnly(12, 30, 0));
+        await Assert.That(result.Span).IsEqualTo(TimeSpan.FromMinutes(90));
+    }
+
+    [Test]
     public async Task Generated_EnumGuid_RoundTrip()
     {
         var model = new EnumModel { Day = DayOfWeek.Friday, Id = Guid.NewGuid() };
@@ -209,7 +276,7 @@ public class MsgPackSerializerGeneratorTests
     [Test]
     public async Task Generated_IntArray_RoundTrip()
     {
-        var model = new IntArrayModel { Scores = [10, 20, 30] };
+        var model = new IntArrayModel { Scores =  [10, 20, 30] };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var result = MsgPackSerializer.Deserialize<IntArrayModel>(bytes);
         await Assert.That(result!.Scores).IsEquivalentTo(new[] { 10, 20, 30 });

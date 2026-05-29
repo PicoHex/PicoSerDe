@@ -441,6 +441,17 @@ public ref struct JsonReader
             }
 
             _valueSpan = buf.AsSpan(0, di);
+
+            SkipWhitespaceSeq();
+            if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)':')
+            {
+                _tokenType = TokenType.PropertyName;
+                _seqReader.Advance(1);
+            }
+            else
+            {
+                _tokenType = TokenType.String;
+            }
         }
         catch
         {
@@ -448,16 +459,6 @@ public ref struct JsonReader
             throw;
         }
 
-        SkipWhitespaceSeq();
-        if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)':')
-        {
-            _tokenType = TokenType.PropertyName;
-            _seqReader.Advance(1);
-        }
-        else
-        {
-            _tokenType = TokenType.String;
-        }
         return true;
     }
 

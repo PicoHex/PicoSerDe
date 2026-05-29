@@ -10,6 +10,7 @@ High-performance, AOT-first serialization framework for the PicoHex ecosystem. Z
 | INI | PicoIni | ✅ Production | Sections, comments, quoting, case-insensitive |
 | TOML | PicoToml | ✅ Beta | Tables, arrays, inline tables, multi-line strings |
 | YAML | PicoYaml | ✅ Beta | Indentation-based, flow style, anchors |
+| MessagePack | PicoMsgPack | ✅ Beta | Binary, fixint/fixstr/fixmap, extension types |
 
 ## Quick Start
 
