@@ -22,6 +22,10 @@ public ref struct YamlReader
     private bool _flowStartEmitted;
     private byte[]? _rentedBuffer;
 
+    // Anchor/alias support
+    private Dictionary<string, (TokenType Type, byte[] Value)>? _anchors;
+    private string? _pendingAnchorName;
+
     public YamlReader(ReadOnlySpan<byte> data)
     {
         _data = data;
@@ -242,6 +246,20 @@ public ref struct YamlReader
         if (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;
         int afterKey = _position;
+
+        // Check for &anchor before value
+        if (_position < _data.Length && _data[_position] == (byte)'&')
+        {
+            _position++;
+            int anchorStart = _position;
+            while (_position < _data.Length && _data[_position] != (byte)' ' && _data[_position] != (byte)'\n' && _data[_position] != (byte)'\r')
+                _position++;
+            _pendingAnchorName = Encoding.UTF8.GetString(_data[anchorStart.._position]);
+            while (_position < _data.Length && _data[_position] == (byte)' ')
+                _position++;
+            afterKey = _position;
+        }
+
         SkipLineSpan();
         int nextIndent = 0;
         while (_position < _data.Length && _data[_position] == (byte)' ')
@@ -279,17 +297,34 @@ public ref struct YamlReader
         }
         else
         {
-            int vs2 = _position;
-            while (
-                _position < _data.Length
-                && _data[_position] != (byte)'\n'
-                && _data[_position] != (byte)'\r'
-            )
+            // Check for *alias
+            if (_position < _data.Length && _data[_position] == (byte)'*')
+            {
                 _position++;
-            _valueSpan = Trim(_data[vs2.._position]);
-            SkipNewlineSpan();
+                int aliasStart = _position;
+                while (_position < _data.Length && _data[_position] != (byte)' ' && _data[_position] != (byte)'\n' && _data[_position] != (byte)'\r')
+                    _position++;
+                var aliasName = Encoding.UTF8.GetString(_data[aliasStart.._position]);
+                if (_anchors is null || !_anchors.TryGetValue(aliasName, out var stored))
+                    throw new FormatException($"Unresolved alias '*{aliasName}' at offset {BytesConsumed}");
+                _valueSpan = stored.Value;
+                SkipNewlineSpan();
+            }
+            else
+            {
+                int vs2 = _position;
+                while (
+                    _position < _data.Length
+                    && _data[_position] != (byte)'\n'
+                    && _data[_position] != (byte)'\r'
+                )
+                    _position++;
+                _valueSpan = Trim(_data[vs2.._position]);
+                SkipNewlineSpan();
+            }
         }
         _tokenType = TokenType.PropertyName;
+        StoreAnchorIfNeeded();
         return true;
     }
 
@@ -666,5 +701,17 @@ public ref struct YamlReader
         while (e > st && s[e - 1] == (byte)' ')
             e--;
         return s[st..e];
+    }
+
+    private void StoreAnchorIfNeeded()
+    {
+        if (_pendingAnchorName is not null)
+        {
+            _anchors ??= new Dictionary<string, (TokenType, byte[])>();
+            if (_anchors.ContainsKey(_pendingAnchorName))
+                throw new FormatException($"Duplicate anchor '&{_pendingAnchorName}' at offset {BytesConsumed}");
+            _anchors[_pendingAnchorName] = (_tokenType, _valueSpan.ToArray());
+            _pendingAnchorName = null;
+        }
     }
 }
