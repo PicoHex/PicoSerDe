@@ -113,4 +113,22 @@ public class IniSerializerTests
         await Assert.That(result?.Server.Host).IsEqualTo("localhost");
         await Assert.That(result?.Server.Port).IsEqualTo(8080);
     }
+
+    [Test]
+    public async Task GenericCache_RegisterThenSerialize_UsesCache()
+    {
+        IniSerializer.Register(new AppConfigIniSerializer(), new AppConfigIniDeserializer());
+        var config = new AppConfig { Title = "CacheTest", Server = new ServerConfig { Host = "localhost", Port = 8080 } };
+
+        var ini = IniSerializer.Serialize(config);
+        var result = IniSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(ini));
+        await Assert.That(result!.Title).IsEqualTo("CacheTest");
+        await Assert.That(result.Server.Host).IsEqualTo("localhost");
+        await Assert.That(result.Server.Port).IsEqualTo(8080);
+
+        // Second call uses cache
+        var ini2 = IniSerializer.Serialize(config);
+        var result2 = IniSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(ini2));
+        await Assert.That(result2!.Title).IsEqualTo("CacheTest");
+    }
 }

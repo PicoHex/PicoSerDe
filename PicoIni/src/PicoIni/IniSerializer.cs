@@ -7,19 +7,29 @@ public static partial class IniSerializer
     private static readonly ConcurrentDictionary<Type, object> _serializers = new();
     private static readonly ConcurrentDictionary<Type, object> _deserializers = new();
 
+    // Generic static cache — avoids dictionary lookup + cast on hot path
+    private static class Cache<T>
+    {
+        internal static ISerializer<T>? Serializer;
+        internal static IDeserializer<T>? Deserializer;
+    }
+
     /// <summary>Registers a manual serializer/deserializer pair for a type.</summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
+        Cache<T>.Serializer = serializer;
+        Cache<T>.Deserializer = deserializer;
         _serializers[typeof(T)] = serializer;
         _deserializers[typeof(T)] = deserializer;
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
     {
-        if (_serializers.TryGetValue(typeof(T), out var s))
+        var s = Cache<T>.Serializer;
+        if (s is not null)
         {
             var writer = new ArrayBufferWriter<byte>();
-            ((ISerializer<T>)s).Serialize(writer, value);
+            s.Serialize(writer, value);
             return writer.WrittenSpan.ToArray();
         }
         ThrowNoSerializer<T>();
@@ -34,16 +44,18 @@ public static partial class IniSerializer
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
     {
-        if (_serializers.TryGetValue(typeof(T), out var s))
-            ((ISerializer<T>)s).Serialize(writer, value);
+        var s = Cache<T>.Serializer;
+        if (s is not null)
+            s.Serialize(writer, value);
         else
             ThrowNoSerializer<T>();
     }
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
-        if (_deserializers.TryGetValue(typeof(T), out var d))
-            return ((IDeserializer<T>)d).Deserialize(data);
+        var d = Cache<T>.Deserializer;
+        if (d is not null)
+            return d.Deserialize(data);
         ThrowNoSerializer<T>();
         return default;
     }
