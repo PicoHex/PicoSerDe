@@ -57,6 +57,25 @@ public class YamlAnchorTests
     // ── Merge key (<<:) ──
 
     [Test]
+    public async Task MappingAnchor_StoresPairs()
+    {
+        // Verify &def on a mapping stores key-value pairs
+        var yaml = "defaults: &def\n  host: localhost\n  port: 8080"u8.ToArray();
+        var keys = new List<string>();
+        using (var reader = new YamlReader(yaml))
+        {
+            while (reader.Read())
+            {
+                if (reader.TokenType == TokenType.PropertyName)
+                    keys.Add(Encoding.UTF8.GetString(reader.KeySpan));
+            }
+        }
+        await Assert.That(keys).Contains("defaults");
+        await Assert.That(keys).Contains("host");
+        await Assert.That(keys).Contains("port");
+    }
+
+    [Test]
     public async Task MergeKey_MergesAnchorMapping()
     {
         // server section merges def into itself:
@@ -85,7 +104,6 @@ public class YamlAnchorTests
                 }
             }
         }
-        // server should have 3 keys: host, port (merged), name (explicit)
         await Assert.That(serverKeys).Contains("host");
         await Assert.That(serverKeys).Contains("port");
         await Assert.That(serverKeys).Contains("name");

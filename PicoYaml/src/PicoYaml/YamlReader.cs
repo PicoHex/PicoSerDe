@@ -26,7 +26,7 @@ public ref struct YamlReader
     private Dictionary<string, StoredAnchor>? _anchors;
     private string? _pendingAnchorName;
     private string? _pendingMappingAnchor;
-    private bool _skipFirstMappingPair;
+    private string? _nextAnchorName;
     private List<(byte[] Key, byte[] Value)>? _currentMappingPairs;
     private List<(byte[] Key, byte[] Value)>? _replayPairs;
     private int _replayIndex;
@@ -749,10 +749,9 @@ public ref struct YamlReader
             // Empty value + pending anchor → mapping anchor (defer until ObjectEnd)
             if (_valueSpan.IsEmpty)
             {
-                _pendingMappingAnchor = _pendingAnchorName;
+                _nextAnchorName = _pendingAnchorName;
                 _pendingAnchorName = null;
                 _currentMappingPairs = new List<(byte[], byte[])>();
-                _skipFirstMappingPair = true;
                 return;
             }
 
@@ -768,9 +767,14 @@ public ref struct YamlReader
 
     private void AccumulateMappingPair()
     {
+        if (_nextAnchorName is not null)
+        {
+            _pendingMappingAnchor = _nextAnchorName;
+            _nextAnchorName = null;
+            return; // skip the mapping's own key
+        }
         if (_pendingMappingAnchor is not null && _currentMappingPairs is not null)
         {
-            if (_skipFirstMappingPair) { _skipFirstMappingPair = false; return; }
             _currentMappingPairs.Add((_keySpan.ToArray(), _valueSpan.ToArray()));
         }
     }
