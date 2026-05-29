@@ -44,7 +44,7 @@ public class IniSerializerUnifiedTests
                     reader.Read();
                     if (key.SequenceEqual("Title"u8) && reader.TokenType == TokenType.String)
                         obj.Title = Encoding.UTF8.GetString(reader.GetStringRaw());
-                    else if (key.SequenceEqual("Port"u8) && reader.TokenType == TokenType.Int32)
+                    else if (key.SequenceEqual("Port"u8))
                     {
                         reader.TryGetInt32(out var p);
                         obj.Port = p;
@@ -97,7 +97,7 @@ public class IniSerializerUnifiedTests
                                 reader.Read();
                                 if (sk.SequenceEqual("Host"u8) && reader.TokenType == TokenType.String)
                                     config.Server.Host = Encoding.UTF8.GetString(reader.GetStringRaw());
-                                else if (sk.SequenceEqual("Port"u8) && reader.TokenType == TokenType.Int32)
+                                else if (sk.SequenceEqual("Port"u8))
                                 {
                                     reader.TryGetInt32(out var sp);
                                     config.Server.Port = sp;

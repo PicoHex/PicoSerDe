@@ -10,16 +10,15 @@ public ref struct IniReader
     private ReadOnlySpan<byte> _currentValue;
     private byte[]? _rentedBuffer;
 
-    // Pending value: when Read() returns PropertyName, the value token is stored
-    // and emitted on the next Read() call.
+    // Pending value: when Read() returns PropertyName, the value token is emitted
+    // on the next Read() call. Type detection is deferred to TryGet* methods.
     private ReadOnlySpan<byte> _pendingValue;
-    private TokenType _pendingValueType;
     private bool _hasPendingValue;
 
-    // Section tracking: emit implicit ObjectEnd when a new section starts while
-    // we were already inside a section.
+    // Section tracking
     private bool _inSection;
-    private bool _hasPendingSectionEnd;
+    private bool _hasPendingSectionStart;
+    private ReadOnlySpan<byte> _pendingSectionName;
 
     public IniReader(ReadOnlySpan<byte> data)
     {
@@ -31,10 +30,10 @@ public ref struct IniReader
         _currentValue = default;
         _rentedBuffer = null;
         _pendingValue = default;
-        _pendingValueType = TokenType.None;
         _hasPendingValue = false;
         _inSection = false;
-        _hasPendingSectionEnd = false;
+        _hasPendingSectionStart = false;
+        _pendingSectionName = default;
     }
 
     public IniReader(ReadOnlySequence<byte> data)
@@ -47,10 +46,10 @@ public ref struct IniReader
         _currentValue = default;
         _rentedBuffer = null;
         _pendingValue = default;
-        _pendingValueType = TokenType.None;
         _hasPendingValue = false;
         _inSection = false;
-        _hasPendingSectionEnd = false;
+        _hasPendingSectionStart = false;
+        _pendingSectionName = default;
     }
 
     public TokenType TokenType => _tokenType;
@@ -59,15 +58,6 @@ public ref struct IniReader
 
     public bool Read()
     {
-        // Emit pending ObjectEnd
-        if (_hasPendingSectionEnd)
-        {
-            _tokenType = TokenType.ObjectEnd;
-            _hasPendingSectionEnd = false;
-            _inSection = false;
-            return true;
-        }
-
         // Emit pending section start (from section transition)
         if (_hasPendingSectionStart)
         {
@@ -81,38 +71,48 @@ public ref struct IniReader
         // Emit pending value from previous PropertyName read
         if (_hasPendingValue)
         {
-            _tokenType = _pendingValueType;
             _currentValue = _pendingValue;
             _hasPendingValue = false;
+            // Value always starts as String — TryGet* methods parse on demand
+            _tokenType = TokenType.String;
             return true;
         }
 
         return _isSequence ? ReadSeq() : ReadSpan();
     }
 
+    // ── Lazy type accessors (accept String token, parse on demand) ──
+
     public bool TryGetInt32(out int v)
     {
-        if (_tokenType != TokenType.Int32) { v = 0; return false; }
-        return Utf8Parser.TryParse(_currentValue, out v, out _);
+        if (_tokenType is TokenType.Int32 or TokenType.String)
+            return Utf8Parser.TryParse(_currentValue, out v, out _);
+        v = 0; return false;
     }
 
     public bool TryGetInt64(out long v)
     {
-        if (_tokenType is not (TokenType.Int32 or TokenType.Int64)) { v = 0; return false; }
-        return Utf8Parser.TryParse(_currentValue, out v, out _);
+        if (_tokenType is TokenType.Int32 or TokenType.Int64 or TokenType.String)
+            return Utf8Parser.TryParse(_currentValue, out v, out _);
+        v = 0; return false;
     }
 
     public bool TryGetFloat64(out double v)
     {
-        if (_tokenType is not (TokenType.Float64 or TokenType.Int32 or TokenType.Int64)) { v = 0; return false; }
-        return Utf8Parser.TryParse(_currentValue, out v, out _);
+        if (_tokenType is TokenType.Int32 or TokenType.Int64 or TokenType.Float64 or TokenType.String)
+            return Utf8Parser.TryParse(_currentValue, out v, out _);
+        v = 0; return false;
     }
 
     public bool TryGetBool(out bool v)
     {
-        if (_tokenType != TokenType.Bool) { v = false; return false; }
-        v = _currentValue[0] == (byte)'t';
-        return true;
+        if (_tokenType is TokenType.Bool or TokenType.String)
+        {
+            if (_currentValue.SequenceEqual("true"u8)) { v = true; return true; }
+            if (_currentValue.SequenceEqual("false"u8)) { v = false; return true; }
+            return Utf8Parser.TryParse(_currentValue, out v, out _);
+        }
+        v = false; return false;
     }
 
     public void Skip() { }
@@ -134,7 +134,6 @@ public ref struct IniReader
         while (_position < _data.Length)
         {
             var b = _data[_position];
-
             if (b is (byte)'\n' or (byte)'\r')
             {
                 _position++;
@@ -142,9 +141,7 @@ public ref struct IniReader
                     _position++;
                 continue;
             }
-
             if (b is (byte)' ' or (byte)'\t') { _position++; continue; }
-
             if (b == (byte)'[')
                 return ReadSectionSpan();
             if (b is (byte)';' or (byte)'#')
@@ -161,14 +158,12 @@ public ref struct IniReader
     {
         if (_inSection)
         {
-            // Emit pending end, store section name for next Read()
             _tokenType = TokenType.ObjectEnd;
             _inSection = false;
             _pendingSectionName = ReadSectionNameSpan();
             _hasPendingSectionStart = true;
             return true;
         }
-
         _currentValue = ReadSectionNameSpan();
         _inSection = true;
         _tokenType = TokenType.ObjectStart;
@@ -177,39 +172,31 @@ public ref struct IniReader
 
     private ReadOnlySpan<byte> ReadSectionNameSpan()
     {
-        _position++; // skip '['
+        _position++;
         var start = _position;
         while (_position < _data.Length && _data[_position] != (byte)']')
             _position++;
         if (_position >= _data.Length)
             throw new FormatException("Unterminated section at end of input");
         var name = _data[start.._position];
-        _position++; // skip ']'
+        _position++;
         SkipToNextLineSpan();
         return name;
     }
 
-    private ReadOnlySpan<byte> _pendingSectionName;
-    private bool _hasPendingSectionStart;
-
     private bool ReadKeyValueSpan()
     {
-        // Read key
         var keyStart = _position;
         while (_position < _data.Length && _data[_position] != (byte)'=')
             _position++;
         _currentValue = TrimEnd(_data[keyStart.._position]);
         _tokenType = TokenType.PropertyName;
         _position++;
-
-        // Skip whitespace after =
         while (_position < _data.Length && (_data[_position] == (byte)' ' || _data[_position] == (byte)'\t'))
             _position++;
 
-        // Parse value
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
-            // Quoted string value
             _position++;
             var buf = ArrayPool<byte>.Shared.Rent(256);
             _rentedBuffer = buf;
@@ -221,40 +208,28 @@ public ref struct IniReader
                     _position++;
                     buf[di++] = _data[_position] switch
                     {
-                        (byte)'n' => (byte)'\n',
-                        (byte)'t' => (byte)'\t',
-                        (byte)'r' => (byte)'\r',
-                        (byte)'\\' => (byte)'\\',
-                        (byte)'"' => (byte)'"',
-                        var c => c,
+                        (byte)'n' => (byte)'\n', (byte)'t' => (byte)'\t',
+                        (byte)'r' => (byte)'\r', (byte)'\\' => (byte)'\\',
+                        (byte)'"' => (byte)'"', var c => c,
                     };
                     _position++;
                 }
-                else
-                    buf[di++] = _data[_position++];
+                else buf[di++] = _data[_position++];
             }
             if (_position < _data.Length) _position++;
             _pendingValue = buf.AsSpan(0, di);
-            _pendingValueType = TokenType.String;
         }
         else
         {
-            // Unquoted value — detect type
             var valStart = _position;
             while (_position < _data.Length && _data[_position] != (byte)'\n' && _data[_position] != (byte)'\r')
                 _position++;
             var raw = _data[valStart.._position];
-
-            // Strip inline comment
             var semiIdx = raw.IndexOf((byte)';');
             var hashIdx = raw.IndexOf((byte)'#');
             var commentIdx = semiIdx < 0 ? hashIdx : hashIdx < 0 ? semiIdx : Math.Min(semiIdx, hashIdx);
-            if (commentIdx >= 0)
-                raw = TrimEnd(raw[..commentIdx]);
-            raw = Trim(raw);
-
-            _pendingValue = raw;
-            _pendingValueType = DetectValueType(raw);
+            if (commentIdx >= 0) raw = TrimEnd(raw[..commentIdx]);
+            _pendingValue = Trim(raw);
         }
 
         SkipToNextLineSpan();
@@ -262,45 +237,17 @@ public ref struct IniReader
         return true;
     }
 
-    private static TokenType DetectValueType(ReadOnlySpan<byte> raw)
-    {
-        if (raw.IsEmpty) return TokenType.String;
-        if (raw.SequenceEqual("true"u8) || raw.SequenceEqual("false"u8)) return TokenType.Bool;
-        if (raw.SequenceEqual("null"u8)) return TokenType.Null;
-
-        bool hasDot = false, hasExp = false;
-        int start = raw[0] == (byte)'-' ? 1 : 0;
-        if (start >= raw.Length) return TokenType.String;
-        for (int i = start; i < raw.Length; i++)
-        {
-            byte c = raw[i];
-            if (c == (byte)'.') hasDot = true;
-            else if (c is (byte)'e' or (byte)'E') hasExp = true;
-            else if (c < (byte)'0' || c > (byte)'9') return TokenType.String;
-        }
-        return (hasDot || hasExp) ? TokenType.Float64 : TokenType.Int32;
-    }
-
     // ── Sequence-mode read ──
 
     private bool ReadSeq()
     {
-        if (_hasPendingSectionEnd)
-        {
-            _tokenType = TokenType.ObjectEnd;
-            _hasPendingSectionEnd = false;
-            _inSection = false;
-            return true;
-        }
-
         if (_hasPendingValue)
         {
-            _tokenType = _pendingValueType;
             _currentValue = _pendingValue;
             _hasPendingValue = false;
+            _tokenType = TokenType.String;
             return true;
         }
-
         while (!_seqReader.End)
         {
             var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
@@ -375,13 +322,13 @@ public ref struct IniReader
             buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
         }
-        var raw = Trim(buf.AsSpan(0, di));
-        _pendingValue = raw;
-        _pendingValueType = DetectValueType(raw);
+        _pendingValue = Trim(buf.AsSpan(0, di));
         SkipToNextLineSeq();
         _hasPendingValue = true;
         return true;
     }
+
+    // ── Helpers ──
 
     private void SkipToNextLineSpan()
     {
@@ -391,8 +338,7 @@ public ref struct IniReader
         {
             if (_data[_position] == (byte)'\r' && _position + 1 < _data.Length && _data[_position + 1] == (byte)'\n')
                 _position += 2;
-            else
-                _position++;
+            else _position++;
         }
     }
 
