@@ -39,11 +39,18 @@ Console.WriteLine(IniSerializer.Serialize(new DtCfg { Date = new DateTime(2024, 
 
 // ═══ 3. Raw Reader ───
 Console.WriteLine("\n─── 3. Raw Reader ───");
-var r = new IniReader(";config\n[server]\nhost = localhost\nport = 8080\n"u8);
+var r = new IniReader(";config\n[server]\nhost = localhost\nport = 8080\n"u8.ToArray());
 while (r.Read())
-    Console.WriteLine(
-        $"  {r.TokenType, -12} {Encoding.UTF8.GetString(r.SectionName)}{Encoding.UTF8.GetString(r.Key)} = {Encoding.UTF8.GetString(r.ValueSpan)}"
-    );
+{
+    if (r.TokenType == TokenType.ObjectStart)
+        Console.WriteLine($"  Section: {Encoding.UTF8.GetString(r.GetStringRaw())}");
+    else if (r.TokenType == TokenType.PropertyName)
+    {
+        var key = Encoding.UTF8.GetString(r.GetStringRaw());
+        r.Read(); // value
+        Console.WriteLine($"  {key} = {Encoding.UTF8.GetString(r.GetStringRaw())}");
+    }
+}
 
 // ═══ 4. Raw Writer ───
 Console.WriteLine("\n─── 4. Raw Writer ───");
