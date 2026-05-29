@@ -103,6 +103,18 @@ public class MsgPackSerializerGeneratorTests
 
     // ── Nested object ──
 
+    // ── Direct nested type test ──
+
+    [Test]
+    public async Task Generated_Address_Direct_RoundTrip()
+    {
+        var addr = new Address { Street = "1 Main", City = "NYC" };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(addr);
+        var result = MsgPackSerializer.Deserialize<Address>(bytes);
+        await Assert.That(result!.Street).IsEqualTo("1 Main");
+        await Assert.That(result!.City).IsEqualTo("NYC");
+    }
+
     [Test]
     public async Task Generated_Nested_RoundTrip()
     {
