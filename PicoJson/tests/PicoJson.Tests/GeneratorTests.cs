@@ -62,6 +62,25 @@ public class CaseModel
     public double Price { get; set; }
 }
 
+// Shared nested type — used by multiple parent types (tests M×N dedup)
+public class SharedAddress
+{
+    public string Street { get; set; } = "";
+    public string City { get; set; } = "";
+}
+
+public class CompanyA
+{
+    public string Name { get; set; } = "";
+    public SharedAddress? Headquarters { get; set; }
+}
+
+public class CompanyB
+{
+    public string Name { get; set; } = "";
+    public SharedAddress? Branch { get; set; }
+}
+
 public class GeneratorTests
 {
     public class Product
@@ -870,5 +889,37 @@ public class GeneratorTests
         var result = JsonSerializer.Deserialize<CaseModel>(json);
         await Assert.That(result!.Title).IsEqualTo("Widget");
         await Assert.That(result.Price).IsEqualTo(30.5);
+    }
+
+    // === Shared nested type (M×N dedup) ===
+
+    [Test]
+    public async Task SharedNestedType_CompanyA_RoundTrip()
+    {
+        var company = new CompanyA
+        {
+            Name = "Acme",
+            Headquarters = new SharedAddress { Street = "1 Main St", City = "NYC" }
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(company);
+        var result = JsonSerializer.Deserialize<CompanyA>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Acme");
+        await Assert.That(result.Headquarters!.Street).IsEqualTo("1 Main St");
+        await Assert.That(result.Headquarters.City).IsEqualTo("NYC");
+    }
+
+    [Test]
+    public async Task SharedNestedType_CompanyB_RoundTrip()
+    {
+        var company = new CompanyB
+        {
+            Name = "Globex",
+            Branch = new SharedAddress { Street = "2 Oak Ave", City = "LA" }
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(company);
+        var result = JsonSerializer.Deserialize<CompanyB>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Globex");
+        await Assert.That(result.Branch!.Street).IsEqualTo("2 Oak Ave");
+        await Assert.That(result.Branch.City).IsEqualTo("LA");
     }
 }
