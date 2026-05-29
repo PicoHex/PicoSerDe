@@ -20,6 +20,7 @@ public ref struct YamlReader
     private int _stackCount;
     private bool _inFlow;
     private bool _flowStartEmitted;
+    private bool _docStartPending;
     private byte[]? _rentedBuffer;
     private byte[]?[] _rentedBuffers;
     private int _bufCount;
@@ -55,6 +56,7 @@ public ref struct YamlReader
         _stackCount = 0;
         _inFlow = false;
         _flowStartEmitted = false;
+        _docStartPending = false;
         _rentedBuffer = null;
         _rentedBuffers = new byte[]?[8];
         _bufCount = 0;
@@ -75,6 +77,7 @@ public ref struct YamlReader
         _stackCount = 0;
         _inFlow = false;
         _flowStartEmitted = false;
+        _docStartPending = false;
         _rentedBuffer = null;
         _rentedBuffers = new byte[]?[8];
         _bufCount = 0;
@@ -226,6 +229,42 @@ public ref struct YamlReader
         {
             SkipLineSpan();
             goto Retry;
+        }
+        // Multi-document separator: --- at indent 0
+        if (
+            lineIndent == 0
+            && _data[_position] == (byte)'-'
+            && _position + 2 < _data.Length
+            && _data[_position + 1] == (byte)'-'
+            && _data[_position + 2] == (byte)'-'
+        )
+        {
+            _position += 3;
+            SkipLineSpan();
+            if (_stackCount > 0)
+            {
+                // End current document
+                PopIndent();
+                _tokenType = TokenType.ObjectEnd;
+                _depth--;
+            }
+            else
+            {
+                // Start of first document — emit ObjectStart next
+                _docStartPending = true;
+                goto Retry;
+            }
+            return true;
+        }
+        if (_docStartPending)
+        {
+            _docStartPending = false;
+            PushIndent(0);
+            PushIndent(lineIndent > 0 ? lineIndent : 0);
+            _depth++;
+            _tokenType = TokenType.ObjectStart;
+            _position = lineStart;
+            return true;
         }
         if (_stackCount == 0 && lineIndent > 0)
         {

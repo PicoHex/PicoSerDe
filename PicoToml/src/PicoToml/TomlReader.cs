@@ -194,7 +194,10 @@ public ref struct TomlReader
 
         var buf = RentBuf(16);
         int di = 0;
-        while (!_seqReader.End && IsDigit(_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex]))
+        while (
+            !_seqReader.End
+            && TextHelpers.IsDigit(_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex])
+        )
         {
             buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
@@ -257,25 +260,36 @@ public ref struct TomlReader
         if (_inArray)
             return ReadArraySpan();
 
-        StartSpan:
-        _position = SimdHelpers.SkipWhitespace(_data, _position);
-        while (_position < _data.Length)
-        {
-            if (_data[_position] == (byte)'\n' || _data[_position] == (byte)'\r')
-            {
-                _position++;
-                continue;
-            }
-            if (_data[_position] == (byte)'#')
-            {
-                SkipLineSpan();
-                goto StartSpan;
-            }
-            break;
-        }
-        if (_position >= _data.Length)
-            return false;
+        return SkipToMeaningfulLine() ? ReadTokenSpan() : false;
+    }
 
+    private bool SkipToMeaningfulLine()
+    {
+        while (true)
+        {
+            _position = SimdHelpers.SkipWhitespace(_data, _position);
+            while (_position < _data.Length)
+            {
+                if (_data[_position] == (byte)'\n' || _data[_position] == (byte)'\r')
+                {
+                    _position++;
+                    continue;
+                }
+                if (_data[_position] == (byte)'#')
+                {
+                    SkipLineSpan();
+                    goto nextLine;
+                }
+                return true;
+            }
+            return false;
+            nextLine:
+            ;
+        }
+    }
+
+    private bool ReadTokenSpan()
+    {
         if (_data[_position] == (byte)'[')
             return ReadTableHeaderSpan();
 
@@ -630,25 +644,28 @@ public ref struct TomlReader
         if (_inArray)
             return ReadArraySeq();
 
-        StartSeq:
-        while (!_seqReader.End)
+        while (true)
         {
-            var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-            if (b == (byte)'\n' || b == (byte)'\r')
+            while (!_seqReader.End)
             {
-                _seqReader.Advance(1);
-                continue;
+                var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                if (b == (byte)'\n' || b == (byte)'\r')
+                {
+                    _seqReader.Advance(1);
+                    continue;
+                }
+                if (b == (byte)'#')
+                {
+                    SkipLineSeq();
+                    goto nextLine;
+                }
+                goto foundToken;
             }
-            if (b == (byte)'#')
-            {
-                SkipLineSeq();
-                goto StartSeq;
-            }
-            break;
-        }
-        if (_seqReader.End)
             return false;
-
+            nextLine:
+            ;
+        }
+        foundToken:
         var fb = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
         if (fb == (byte)'[')
             return ReadTableHeaderSeq();
@@ -1060,6 +1077,4 @@ public ref struct TomlReader
             end--;
         return s[start..end];
     }
-
-    private static bool IsDigit(byte b) => b is >= (byte)'0' and <= (byte)'9';
 }

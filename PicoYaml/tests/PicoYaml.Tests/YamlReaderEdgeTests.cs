@@ -60,4 +60,29 @@ public class YamlReaderEdgeTests
         var ok = reader.Read();
         await Assert.That(ok).IsFalse();
     }
+
+    // ── multi-document support ──
+
+    [Test]
+    public async Task MultiDocument_Separator_EmitsObjectEndThenStart()
+    {
+        var yaml = "a: 1\n---\nb: 2"u8.ToArray();
+        var tokens = new List<TokenType>();
+        var keys = new List<string>();
+        using (var reader = new YamlReader(yaml))
+        {
+            while (reader.Read())
+            {
+                tokens.Add(reader.TokenType);
+                if (reader.TokenType == TokenType.PropertyName)
+                    keys.Add(Encoding.UTF8.GetString(reader.KeySpan));
+            }
+        }
+        // Doc 1: ObjectStart, a:1 PropertyName, ObjectEnd
+        // Doc 2: ObjectStart, b:2 PropertyName, ObjectEnd
+        await Assert.That(keys.Count).IsEqualTo(2);
+        await Assert.That(keys[0]).IsEqualTo("a");
+        await Assert.That(keys[1]).IsEqualTo("b");
+        await Assert.That(tokens).Contains(TokenType.ObjectEnd);
+    }
 }
