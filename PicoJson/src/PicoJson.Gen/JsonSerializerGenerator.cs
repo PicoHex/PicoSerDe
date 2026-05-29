@@ -376,31 +376,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
 
         sb.AppendLine();
-        EmitHelpers(sb);
         EmitSerializer(sb, type);
         sb.AppendLine();
         EmitDeserializer(sb, type);
         sb.AppendLine();
         EmitRegistration(sb, type);
         return sb.ToString();
-    }
-
-    private static void EmitHelpers(StringBuilder sb)
-    {
-        sb.AppendLine("file static class __PicoJsonHelp");
-        sb.AppendLine("{");
-        sb.AppendLine("    internal static bool Eq(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        if (a.Length != b.Length) return false;");
-        sb.AppendLine("        for (int i = 0; i < a.Length; i++)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            byte x = a[i], y = b[i];");
-        sb.AppendLine("            if (x != y && (x | 0x20) != (y | 0x20)) return false;");
-        sb.AppendLine("        }");
-        sb.AppendLine("        return true;");
-        sb.AppendLine("    }");
-        sb.AppendLine("}");
-        sb.AppendLine();
     }
 
     // ── Serializer emission ──
@@ -749,7 +730,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var keyword = i == 0 ? "if" : "else if";
             sb.Append("                ");
             sb.Append(keyword);
-            sb.Append(" (__PicoJsonHelp.Eq(propNameSpan, \"");
+            sb.Append(" (JsonHelp.Eq(propNameSpan, \"");
             sb.Append(prop.JsonName);
             sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
@@ -1190,7 +1171,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var keyword = i == 0 ? "if" : "else if";
             sb.Append(indent);
             sb.Append(keyword);
-            sb.Append(" (__PicoJsonHelp.Eq(");
+            sb.Append(" (JsonHelp.Eq(");
             sb.Append(propVarName);
             sb.Append(", \"");
             sb.Append(np.JsonName);
