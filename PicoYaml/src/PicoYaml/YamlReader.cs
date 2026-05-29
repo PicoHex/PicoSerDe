@@ -23,8 +23,16 @@ public ref struct YamlReader
     private byte[]? _rentedBuffer;
 
     // Anchor/alias support
-    private Dictionary<string, (TokenType Type, byte[] Value)>? _anchors;
+    private Dictionary<string, StoredAnchor>? _anchors;
     private string? _pendingAnchorName;
+
+    private struct StoredAnchor
+    {
+        public bool IsMapping;
+        public TokenType ScalarType;
+        public byte[] ScalarValue;
+        public List<(byte[] Key, byte[] Value)>? MappingPairs;
+    }
 
     public YamlReader(ReadOnlySpan<byte> data)
     {
@@ -152,7 +160,7 @@ public ref struct YamlReader
         }
     }
 
-    // ── Span-mode Read (unchanged) ──
+    // ── Span-mode Read ──
     private bool ReadSpan()
     {
         if (_inFlow)
@@ -307,7 +315,13 @@ public ref struct YamlReader
                 var aliasName = Encoding.UTF8.GetString(_data[aliasStart.._position]);
                 if (_anchors is null || !_anchors.TryGetValue(aliasName, out var stored))
                     throw new FormatException($"Unresolved alias '*{aliasName}' at offset {BytesConsumed}");
-                _valueSpan = stored.Value;
+                if (stored.IsMapping)
+                {
+                    // Mapping anchors not yet supported for aliasing
+                    _valueSpan = Array.Empty<byte>();
+                }
+                else
+                    _valueSpan = stored.ScalarValue;
                 SkipNewlineSpan();
             }
             else
@@ -707,10 +721,15 @@ public ref struct YamlReader
     {
         if (_pendingAnchorName is not null)
         {
-            _anchors ??= new Dictionary<string, (TokenType, byte[])>();
+            _anchors ??= new Dictionary<string, StoredAnchor>();
             if (_anchors.ContainsKey(_pendingAnchorName))
                 throw new FormatException($"Duplicate anchor '&{_pendingAnchorName}' at offset {BytesConsumed}");
-            _anchors[_pendingAnchorName] = (_tokenType, _valueSpan.ToArray());
+            _anchors[_pendingAnchorName] = new StoredAnchor
+            {
+                IsMapping = false,
+                ScalarType = _tokenType,
+                ScalarValue = _valueSpan.ToArray(),
+            };
             _pendingAnchorName = null;
         }
     }
