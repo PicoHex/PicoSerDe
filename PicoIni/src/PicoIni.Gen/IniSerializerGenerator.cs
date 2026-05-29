@@ -372,7 +372,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        while (reader.Read()) {");
         s.AppendLine("            if (reader.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var __k = reader.GetStringRaw();");
-        s.AppendLine("                reader.Read(); // advance to value token");
+        s.AppendLine("                reader.ReadValue(); // fast path: consume pending value");
 
         // Top-level key matching
         if (top.Count > 0)

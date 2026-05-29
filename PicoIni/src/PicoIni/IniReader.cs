@@ -56,6 +56,15 @@ public ref struct IniReader
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
     public ReadOnlySpan<byte> GetStringRaw() => _currentValue;
 
+    /// <summary>Optimized fast path: consume the pending value after a PropertyName read,
+    /// without checking for section transitions.</summary>
+    public void ReadValue()
+    {
+        _currentValue = _pendingValue;
+        _hasPendingValue = false;
+        _tokenType = TokenType.String;
+    }
+
     public bool Read()
     {
         // Emit pending section start (from section transition)
