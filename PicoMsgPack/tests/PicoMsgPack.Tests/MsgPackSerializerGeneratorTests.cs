@@ -14,6 +14,47 @@ public class BookMsgPack
     [MsgPackKey(2)] public List<string> Tags { get; set; } = new();
 }
 
+// Nested object models
+public class Address
+{
+    [MsgPackKey(0)] public string Street { get; set; } = "";
+    [MsgPackKey(1)] public string City { get; set; } = "";
+}
+
+public class PersonWithAddress
+{
+    [MsgPackKey(0)] public string Name { get; set; } = "";
+    [MsgPackKey(1)] public Address? Home { get; set; }
+}
+
+public class NullableModel
+{
+    [MsgPackKey(0)] public int? OptionalAge { get; set; }
+    [MsgPackKey(1)] public string? Nickname { get; set; }
+}
+
+public class TemporalModel
+{
+    [MsgPackKey(0)] public DateTime CreatedAt { get; set; }
+    [MsgPackKey(1)] public TimeSpan Duration { get; set; }
+}
+
+public class EnumModel
+{
+    [MsgPackKey(0)] public DayOfWeek Day { get; set; }
+    [MsgPackKey(1)] public Guid Id { get; set; }
+}
+
+public class DictModel
+{
+    [MsgPackKey(0)] public Dictionary<string, int> Counts { get; set; } = new();
+}
+
+public class IntArrayModel
+{
+    [MsgPackKey(0)] public int[] Scores { get; set; } = [];
+}
+
 public class MsgPackSerializerGeneratorTests
 {
     [Test]
@@ -58,5 +99,107 @@ public class MsgPackSerializerGeneratorTests
         await Assert.That(v1).IsEqualTo("Bob");
         await Assert.That(k1).IsEqualTo(1);
         await Assert.That(age).IsEqualTo(25);
+    }
+
+    // ── Nested object ──
+
+    [Test]
+    public async Task Generated_Nested_RoundTrip()
+    {
+        var person = new PersonWithAddress
+        {
+            Name = "Alice",
+            Home = new Address { Street = "1 Main", City = "NYC" }
+        };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(person);
+        var result = MsgPackSerializer.Deserialize<PersonWithAddress>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Alice");
+        await Assert.That(result.Home!.Street).IsEqualTo("1 Main");
+        await Assert.That(result.Home.City).IsEqualTo("NYC");
+    }
+
+    [Test]
+    public async Task Generated_NestedNull_RoundTrip()
+    {
+        var person = new PersonWithAddress { Name = "Bob", Home = null };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(person);
+        var result = MsgPackSerializer.Deserialize<PersonWithAddress>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Bob");
+        await Assert.That(result.Home).IsNull();
+    }
+
+    // ── Nullable ──
+
+    [Test]
+    public async Task Generated_Nullable_RoundTrip()
+    {
+        var model = new NullableModel { OptionalAge = 42, Nickname = "Test" };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<NullableModel>(bytes);
+        await Assert.That(result!.OptionalAge).IsEqualTo(42);
+        await Assert.That(result.Nickname).IsEqualTo("Test");
+    }
+
+    [Test]
+    public async Task Generated_NullableNullValues_RoundTrip()
+    {
+        var model = new NullableModel { OptionalAge = null, Nickname = null };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<NullableModel>(bytes);
+        await Assert.That(result!.OptionalAge).IsNull();
+        await Assert.That(result.Nickname).IsNull();
+    }
+
+    // ── DateTime / TimeSpan ──
+
+    [Test]
+    public async Task Generated_DateTime_RoundTrip()
+    {
+        var model = new TemporalModel
+        {
+            CreatedAt = new DateTime(2024, 6, 15, 12, 0, 0, DateTimeKind.Utc),
+            Duration = TimeSpan.FromSeconds(90)
+        };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<TemporalModel>(bytes);
+        await Assert.That(result!.CreatedAt).IsEqualTo(model.CreatedAt);
+        await Assert.That(result.Duration).IsEqualTo(model.Duration);
+    }
+
+    // ── Enum / Guid ──
+
+    [Test]
+    public async Task Generated_EnumGuid_RoundTrip()
+    {
+        var model = new EnumModel { Day = DayOfWeek.Friday, Id = Guid.NewGuid() };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<EnumModel>(bytes);
+        await Assert.That(result!.Day).IsEqualTo(DayOfWeek.Friday);
+        await Assert.That(result.Id).IsEqualTo(model.Id);
+    }
+
+    // ── Dictionary ──
+
+    [Test]
+    public async Task Generated_Dict_RoundTrip()
+    {
+        var model = new DictModel();
+        model.Counts["a"] = 1;
+        model.Counts["b"] = 2;
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<DictModel>(bytes);
+        await Assert.That(result!.Counts["a"]).IsEqualTo(1);
+        await Assert.That(result.Counts["b"]).IsEqualTo(2);
+    }
+
+    // ── int[] ──
+
+    [Test]
+    public async Task Generated_IntArray_RoundTrip()
+    {
+        var model = new IntArrayModel { Scores = [10, 20, 30] };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<IntArrayModel>(bytes);
+        await Assert.That(result!.Scores).IsEquivalentTo(new[] { 10, 20, 30 });
     }
 }

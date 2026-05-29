@@ -6,151 +6,111 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var providers = context.SyntaxProvider
-            .CreateSyntaxProvider(
-                predicate: static (n, _) => IsCandidate(n),
-                transform: static (ctx, _) => Transform(ctx)
-            )
-            .Where(static t => t.HasValue)
-            .Select(static (t, _) => t!.Value);
-
+            .CreateSyntaxProvider(predicate: static (n, _) => IsCandidate(n), transform: static (ctx, _) => Transform(ctx))
+            .Where(static t => t.HasValue).Select(static (t, _) => t!.Value);
         context.RegisterSourceOutput(providers.Collect(), static (spc, types) => GenerateAll(spc, types));
     }
 
-    private static bool IsCandidate(SyntaxNode node)
-    {
-        if (node is not InvocationExpressionSyntax { Expression: var e }) return false;
-        var name = e switch
-        {
-            MemberAccessExpressionSyntax { Name: var n } => n,
-            MemberBindingExpressionSyntax { Name: var n } => n,
-            _ => null,
-        };
-        return name switch
-        {
-            GenericNameSyntax gn => gn.Identifier.Text,
-            SimpleNameSyntax sn => sn.Identifier.Text,
-            _ => null,
-        } is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
-    }
+    static bool IsCandidate(SyntaxNode n) => n is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax { Name: GenericNameSyntax gn } } && gn.Identifier.Text is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
 
-    private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
+    static TypeInfo? Transform(GeneratorSyntaxContext ctx)
     {
         if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m) return null;
-        if (m.ContainingType.Name != "MsgPackSerializer" || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoMsgPack")
-            return null;
-        if (m.TypeArguments.Length != 1) return null;
+        if (m.ContainingType.Name != "MsgPackSerializer" || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoMsgPack") return null;
+        if (m.TypeArguments.Length != 1 || m.TypeArguments[0] is not INamedTypeSymbol nt || nt.SpecialType != SpecialType.None) return null;
 
-        var t = m.TypeArguments[0];
-        if (t.SpecialType != SpecialType.None) return null;
-        if (t is not INamedTypeSymbol nt) return null;
-
-        var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
-        if (ns == "<global namespace>") ns = "";
-
-        var props = new List<PropInfo>();
-        int autoKey = 0;
+        var ns = nt.ContainingNamespace?.ToDisplayString() ?? ""; if (ns == "<global namespace>") ns = "";
+        var props = new List<PropInfo>(); int ak = 0;
 
         foreach (var member in nt.GetMembers())
         {
-            if (member is not IPropertySymbol p) continue;
-            if (p.DeclaredAccessibility != Accessibility.Public) continue;
-            if (p.IsStatic || p.IsIndexer) continue;
+            if (member is not IPropertySymbol p || p.DeclaredAccessibility != Accessibility.Public || p.IsStatic || p.IsIndexer) continue;
             if (p.IsReadOnly && p.SetMethod is null) continue;
-            if (p.GetMethod is null) continue;
-            if (HasAttr(p, "MsgPackIgnoreAttribute")) continue;
+            if (p.GetMethod is null || HasAttr(p, "MsgPackIgnoreAttribute")) continue;
 
-            var (kind, nullable, _) = TypeKindResolver.Resolve(p.Type);
+            var (kind, nullable, inner) = TypeKindResolver.Resolve(p.Type);
             if (kind is null) continue;
 
-            int key = GetKey(p) ?? autoKey++;
+            int key = GetKey(p) ?? ak++;
+            string? ek = null, en = null;
+            ImmutableArray<PropInfo> nested = ImmutableArray<PropInfo>.Empty;
 
-            string? elemKind = null, elemName = null;
             if (kind is "list" or "array")
             {
-                ITypeSymbol? et = p.Type switch { IArrayTypeSymbol a => a.ElementType, INamedTypeSymbol n2 => n2.TypeArguments[0], _ => null };
-                if (et is not null) { var (ek, _, _) = TypeKindResolver.Resolve(et); if (ek is not null) { elemKind = ek; elemName = TypeKindResolver.MapTypeName(ek, et); } }
+                ITypeSymbol? et = p.Type switch { IArrayTypeSymbol a => a.ElementType, INamedTypeSymbol n2 when n2.TypeArguments.Length == 1 => n2.TypeArguments[0], _ => null };
+                if (et is not null) { var (kk, _, _) = TypeKindResolver.Resolve(et); if (kk is not null) { ek = kk; en = TypeKindResolver.MapTypeName(kk, et); if (kk == "object" && et is INamedTypeSymbol eo) nested = ExtractNested(eo); } }
+            }
+            else if (kind == "dict" && p.Type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2)
+            {
+                var (vk, _, _) = TypeKindResolver.Resolve(nd.TypeArguments[1]);
+                if (vk is not null) { ek = vk; en = TypeKindResolver.MapTypeName(vk, nd.TypeArguments[1]); }
+            }
+            else if (kind == "object" && p.Type is INamedTypeSymbol onts)
+            {
+                nested = ExtractNested(onts);
             }
 
-            props.Add(new PropInfo(p.Name, key, kind, p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), nullable, elemKind, elemName));
+            props.Add(new PropInfo(p.Name, key, kind, p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), nullable, ek, en, nested));
         }
 
         return new TypeInfo(nt.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ns, nt.Name, props.ToImmutableArray());
     }
 
-    private static int? GetKey(IPropertySymbol p)
+    static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol t)
     {
-        foreach (var a in p.GetAttributes())
-            if (a.AttributeClass?.Name == "MsgPackKeyAttribute" && a.ConstructorArguments.Length == 1 && a.ConstructorArguments[0].Value is int k)
-                return k;
-        return null;
+        var l = new List<PropInfo>(); int ak = 0;
+        foreach (var m in t.GetMembers())
+        {
+            if (m is not IPropertySymbol p || p.DeclaredAccessibility != Accessibility.Public || p.IsStatic || p.IsIndexer) continue;
+            if (p.IsReadOnly && p.SetMethod is null) continue;
+            if (p.GetMethod is null || HasAttr(p, "MsgPackIgnoreAttribute")) continue;
+            var (k, n, _) = TypeKindResolver.Resolve(p.Type);
+            if (k is null) continue;
+            l.Add(new PropInfo(p.Name, GetKey(p) ?? ak++, k, p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), n, null, null, ImmutableArray<PropInfo>.Empty));
+        }
+        return l.ToImmutableArray();
     }
 
-    private static bool HasAttr(IPropertySymbol p, string name)
-    {
-        foreach (var a in p.GetAttributes())
-            if (a.AttributeClass?.Name == name) return true;
-        return false;
-    }
+    static int? GetKey(IPropertySymbol p) { foreach (var a in p.GetAttributes()) if (a.AttributeClass?.Name == "MsgPackKeyAttribute" && a.ConstructorArguments.Length == 1 && a.ConstructorArguments[0].Value is int k) return k; return null; }
+    static bool HasAttr(IPropertySymbol p, string n) { foreach (var a in p.GetAttributes()) if (a.AttributeClass?.Name == n) return true; return false; }
 
-    private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
+    static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
         var seen = new HashSet<string>();
-        foreach (var t in types)
-        {
-            if (!seen.Add(t.FullyQualifiedName)) continue;
-            spc.AddSource($"{t.Name}_MsgPackSerializer.g.cs", SourceText.From(Gen(t), Encoding.UTF8));
-        }
+        foreach (var t in types) { if (!seen.Add(t.FullyQualifiedName)) continue; spc.AddSource($"{t.Name}_MsgPackSerializer.g.cs", SourceText.From(Gen(t), Encoding.UTF8)); }
     }
 
-    private static string Gen(TypeInfo type)
+    static string Gen(TypeInfo type)
     {
         var s = new StringBuilder();
         s.AppendLine("// <auto-generated/>");
         s.AppendLine("using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;");
-        s.AppendLine("using PicoSerDe.Abs; using PicoMsgPack;");
+        s.AppendLine("using System.Collections.Generic; using PicoSerDe.Abs; using PicoMsgPack;");
         if (!string.IsNullOrEmpty(type.Namespace)) { s.Append("using "); s.Append(type.Namespace); s.AppendLine(";"); }
         s.AppendLine();
 
-        // Sort by key for deterministic output
         var sorted = type.Properties.OrderBy(p => p.Key).ToImmutableArray();
 
-        // Serializer
+        // === Serializer ===
         s.Append("file readonly struct "); s.Append(type.Name); s.Append("MsgPackSerializer : ISerializer<"); s.Append(type.Name); s.AppendLine("> {");
         s.Append("    public void Serialize(IBufferWriter<byte> writer, "); s.Append(type.Name); s.AppendLine(" value) {");
-        s.Append("        var mw = new MsgPackWriter(writer);\n        mw.WriteStartObject("); s.Append(sorted.Length); s.AppendLine(");");
-        foreach (var p in sorted)
-        {
-            s.Append("        mw.WriteInt32("); s.Append(p.Key); s.AppendLine(");");
-            WriteValue(s, p, $"value.{p.Name}");
-        }
-        s.AppendLine("        mw.WriteEndObject();");
-        s.AppendLine("    } }");
+        s.Append("        var mw = new MsgPackWriter(writer); mw.WriteStartObject("); s.Append(sorted.Length); s.AppendLine(");");
+        foreach (var p in sorted) { s.Append("        mw.WriteInt32("); s.Append(p.Key); s.AppendLine(");"); WriteSer(s, p, $"value.{p.Name}", "        "); }
+        s.AppendLine("        mw.WriteEndObject(); } }");
         s.AppendLine();
 
-        // Deserializer
+        // === Deserializer ===
         s.Append("file readonly struct "); s.Append(type.Name); s.Append("MsgPackDeserializer : IDeserializer<"); s.Append(type.Name); s.AppendLine("> {");
         s.Append("    public "); s.Append(type.Name); s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
-        s.AppendLine("        var reader = new MsgPackReader(data);");
-        s.Append("        var obj = new "); s.Append(type.Name); s.AppendLine("();");
-        s.AppendLine("        reader.Read(); // ObjectStart");
-        s.AppendLine("        while (reader.Read() && reader.TokenType != TokenType.ObjectEnd) {");
-        s.AppendLine("            reader.TryGetInt32(out var __key);");
-        s.AppendLine("            reader.Read(); // value");
-        s.AppendLine("            switch (__key) {");
-        foreach (var p in sorted)
-        {
-            s.Append("                case "); s.Append(p.Key); s.AppendLine(":");
-            ReadValue(s, p, "obj");
-            s.AppendLine("                    break;");
-        }
-        s.AppendLine("                default: reader.TrySkip(); break;");
-        s.AppendLine("            }");
-        s.AppendLine("        }");
-        s.AppendLine("        return obj;");
-        s.AppendLine("    } }");
+        s.AppendLine("        var reader = new MsgPackReader(data); var obj = new "); s.Append(type.Name); s.AppendLine("();");
+        s.AppendLine("        reader.Read(); while (reader.Read() && reader.TokenType != TokenType.ObjectEnd) {");
+        s.AppendLine("            reader.TryGetInt32(out var __k); reader.Read(); switch (__k) {");
+        foreach (var p in sorted) { s.Append("                case "); s.Append(p.Key); s.AppendLine(":"); WriteDeser(s, p, "obj", "                "); s.AppendLine("                    break;"); }
+        s.AppendLine("                default: reader.TrySkip(); break; } }");
+        s.AppendLine("        return obj; } }");
         s.AppendLine();
 
-        // Registration
+        // === Registration ===
         s.Append("file static class "); s.Append(type.Name); s.AppendLine("__Reg {");
         s.AppendLine("    [ModuleInitializer] internal static void Register() {");
         s.Append("        MsgPackSerializer.Register<"); s.Append(type.Name); s.Append(">(new "); s.Append(type.Name);
@@ -158,78 +118,113 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
-    private static void WriteValue(StringBuilder s, PropInfo p, string acc)
+    static void WriteSer(StringBuilder s, PropInfo p, string a, string ind)
     {
+        if (p.IsNullable) { s.Append(ind); s.Append("if ("); s.Append(a); s.AppendLine(".HasValue) {"); ind += "    "; a += ".Value"; }
         switch (p.TypeKind)
         {
-            case "string": s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(acc); s.AppendLine("));"); break;
-            case "int32": s.Append("mw.WriteInt32("); s.Append(acc); s.AppendLine(");"); break;
-            case "int64": s.Append("mw.WriteInt64("); s.Append(acc); s.AppendLine(");"); break;
-            case "float64": s.Append("mw.WriteFloat64("); s.Append(acc); s.AppendLine(");"); break;
-            case "boolean": s.Append("mw.WriteBoolean("); s.Append(acc); s.AppendLine(");"); break;
-            case "datetime": s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(acc); s.AppendLine(".ToString(\"O\")));"); break;
-            case "guid": case "enum": s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(acc); s.AppendLine(".ToString()));"); break;
+            case "string": s.Append(ind); s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine("));"); break;
+            case "int32": s.Append(ind); s.Append("mw.WriteInt32("); s.Append(a); s.AppendLine(");"); break;
+            case "int64": s.Append(ind); s.Append("mw.WriteInt64("); s.Append(a); s.AppendLine(");"); break;
+            case "float64": s.Append(ind); s.Append("mw.WriteFloat64("); s.Append(a); s.AppendLine(");"); break;
+            case "boolean": s.Append(ind); s.Append("mw.WriteBoolean("); s.Append(a); s.AppendLine(");"); break;
+            case "datetime": s.Append(ind); s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine(".ToString(\"O\")));"); break;
+            case "timespan": s.Append(ind); s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine(".ToString()));"); break;
+            case "guid": case "enum": s.Append(ind); s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine(".ToString()));"); break;
             case "list": case "array":
-                s.Append("mw.WriteStartArray("); s.Append(acc); s.AppendLine(".Count);");
-                s.Append("        for (int __i = 0; __i < "); s.Append(acc); s.AppendLine(".Count; __i++) {");
-                WriteElem(s, p, $"{acc}[__i]");
-                s.AppendLine("        }");
-                break;
-            default: s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(acc); s.AppendLine(".ToString()));"); break;
+                s.Append(ind); s.Append("mw.WriteStartArray("); s.Append(p.TypeKind == "array" ? $"{a}.Length" : $"{a}.Count"); s.AppendLine(");");
+                s.Append(ind); s.Append("foreach (var __i in "); s.Append(a); s.AppendLine(") {"); WriteSerElem(s, p, "__i", ind + "    "); s.Append(ind); s.AppendLine("}");
+                s.Append(ind); s.AppendLine("mw.WriteEndArray();"); break;
+            case "dict":
+                s.Append(ind); s.Append("mw.WriteStartObject("); s.Append(a); s.AppendLine(".Count);");
+                s.Append(ind); s.Append("foreach (var __kv in "); s.Append(a); s.AppendLine(") {");
+                s.Append(ind); s.Append("    mw.WriteString(Encoding.UTF8.GetBytes(__kv.Key));"); WriteSerElem(s, p, "__kv.Value", ind + "    "); s.Append(ind); s.AppendLine("}");
+                s.Append(ind); s.AppendLine("mw.WriteEndObject();"); break;
+            case "object":
+                if (p.NestedProperties.Length == 0) { s.Append(ind); s.AppendLine("mw.WriteNull();"); break; }
+                s.Append(ind); s.Append("if ("); s.Append(a); s.AppendLine(" == null) mw.WriteNull(); else {");
+                var ns = p.NestedProperties.OrderBy(n => n.Key).ToImmutableArray();
+                s.Append(ind); s.Append("    mw.WriteStartObject("); s.Append(ns.Length); s.AppendLine(");");
+                foreach (var n in ns) { s.Append(ind); s.Append("    mw.WriteInt32("); s.Append(n.Key); s.AppendLine(");"); WriteSer(s, n, $"{a}.{n.Name}", ind + "    "); }
+                s.Append(ind); s.AppendLine("    mw.WriteEndObject(); }"); break;
+            default: s.Append(ind); s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine(".ToString()));"); break;
         }
+        if (p.IsNullable) { ind = ind.Substring(4); s.Append(ind); s.AppendLine("} else mw.WriteNull();"); }
     }
 
-    private static void WriteElem(StringBuilder s, PropInfo p, string acc)
+    static void WriteSerElem(StringBuilder s, PropInfo p, string a, string ind)
     {
         switch (p.ElementTypeKind)
         {
-            case "string": s.Append("        mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(acc); s.AppendLine("));"); break;
-            case "int32": s.Append("        mw.WriteInt32("); s.Append(acc); s.AppendLine(");"); break;
-            default: s.Append("        mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(acc); s.AppendLine(".ToString()));"); break;
+            case "string": s.Append(ind); s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine("));"); break;
+            case "int32": s.Append(ind); s.Append("mw.WriteInt32("); s.Append(a); s.AppendLine(");"); break;
+            case "int64": s.Append(ind); s.Append("mw.WriteInt64("); s.Append(a); s.AppendLine(");"); break;
+            case "float64": s.Append(ind); s.Append("mw.WriteFloat64("); s.Append(a); s.AppendLine(");"); break;
+            case "boolean": s.Append(ind); s.Append("mw.WriteBoolean("); s.Append(a); s.AppendLine(");"); break;
+            default: s.Append(ind); s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine(".ToString()));"); break;
         }
     }
 
-    private static void ReadValue(StringBuilder s, PropInfo p, string target)
+    static void WriteDeser(StringBuilder s, PropInfo p, string target, string ind)
     {
+        var t = $"{target}.{p.Name}";
         switch (p.TypeKind)
         {
-            case "string":
-                s.Append("                    "); s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());"); break;
-            case "int32":
-                s.Append("                    reader.TryGetInt32(out var __v); "); s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(" = __v;"); break;
-            case "int64":
-                s.Append("                    reader.TryGetInt64(out var __v); "); s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(" = __v;"); break;
-            case "float64":
-                s.Append("                    reader.TryGetFloat64(out var __v); "); s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(" = __v;"); break;
-            case "boolean":
-                s.Append("                    reader.TryGetBool(out var __v); "); s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(" = __v;"); break;
-            case "datetime":
-                s.Append("                    DateTime.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __dt); ");
-                s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(" = __dt;"); break;
-            case "guid":
-                s.Append("                    Guid.TryParse(reader.GetStringRaw(), out var __g); ");
-                s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(" = __g;"); break;
-            case "enum":
-                s.Append("                    Enum.TryParse<"); s.Append(p.TypeFullName); s.Append(">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __e); ");
-                s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(" = __e;"); break;
-            case "list": case "array":
-                s.Append("                    if (reader.TokenType == TokenType.ArrayStart) { while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) { ");
-                ReadElem(s, p, target);
-                s.Append(" } }"); s.AppendLine();
-                break;
+            case "string": if (p.IsNullable) { s.Append(ind); s.Append("if (reader.TokenType == TokenType.Null) "); s.Append(t); s.AppendLine(" = null; else "); } s.Append(ind); s.Append(t); s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());"); break;
+            case "int32": s.Append(ind); s.AppendLine("reader.TryGetInt32(out var __v);"); s.Append(ind); s.Append(t); s.AppendLine(" = __v;"); break;
+            case "int64": s.Append(ind); s.AppendLine("reader.TryGetInt64(out var __v);"); s.Append(ind); s.Append(t); s.AppendLine(" = __v;"); break;
+            case "float64": s.Append(ind); s.AppendLine("reader.TryGetFloat64(out var __v);"); s.Append(ind); s.Append(t); s.AppendLine(" = __v;"); break;
+            case "boolean": s.Append(ind); s.AppendLine("reader.TryGetBool(out var __v);"); s.Append(ind); s.Append(t); s.AppendLine(" = __v;"); break;
+            case "datetime": s.Append(ind); s.AppendLine("var __ds = Encoding.UTF8.GetString(reader.GetStringRaw()); DateTime.TryParse(__ds, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"); s.Append(ind); s.Append(t); s.AppendLine(" = __dt;"); break;
+            case "timespan": s.Append(ind); s.AppendLine("TimeSpan.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __ts);"); s.Append(ind); s.Append(t); s.AppendLine(" = __ts;"); break;
+            case "guid": s.Append(ind); s.AppendLine("Guid.TryParse(reader.GetStringRaw(), out var __g);"); s.Append(ind); s.Append(t); s.AppendLine(" = __g;"); break;
+            case "enum": s.Append(ind); s.Append("Enum.TryParse<"); s.Append(p.TypeFullName); s.AppendLine(">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __e);"); s.Append(ind); s.Append(t); s.AppendLine(" = __e;"); break;
+            case "list":
+                s.Append(ind); s.Append(t); s.Append(" ??= new List<"); s.Append(p.ElementTypeName); s.AppendLine(">(16);");
+                s.Append(ind); s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
+                s.Append(ind); s.AppendLine("    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"); ReadDeserElem(s, p, t, ".Add", ind + "        ");
+                s.Append(ind); s.AppendLine("    } }"); break;
+            case "array":
+                s.Append(ind); s.Append("var __l = new List<"); s.Append(p.ElementTypeName); s.AppendLine(">(16);");
+                s.Append(ind); s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
+                s.Append(ind); s.AppendLine("    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"); ReadDeserElem(s, p, "__l", ".Add", ind + "        ");
+                s.Append(ind); s.AppendLine("    } }");
+                s.Append(ind); s.Append(t); s.AppendLine(" = __l.ToArray();"); break;
+            case "dict":
+                s.Append(ind); s.Append(t); s.Append(" ??= new Dictionary<string, "); s.Append(p.ElementTypeName); s.AppendLine(">(16);");
+                s.Append(ind); s.AppendLine("if (reader.TokenType == TokenType.ObjectStart) {");
+                s.Append(ind); s.AppendLine("    while (reader.Read() && reader.TokenType == TokenType.PropertyName) {");
+                s.Append(ind); s.AppendLine("        var __dk = Encoding.UTF8.GetString(reader.GetStringRaw()); reader.Read();");
+                ReadDeserElem(s, p, $"{t}[__dk]", " =", ind + "        ");
+                s.Append(ind); s.AppendLine("    } }"); break;
+            case "object":
+                if (p.NestedProperties.Length == 0) { s.Append(ind); s.Append(t); s.AppendLine(" = default!;"); break; }
+                s.Append(ind); s.AppendLine("if (reader.TokenType == TokenType.Null) {");
+                if (p.IsNullable) { s.Append(ind); s.Append("    "); s.Append(t); s.AppendLine(" = null;"); }
+                s.Append(ind); s.AppendLine("} else {");
+                s.Append(ind); s.Append("    var __o = new "); s.Append(p.TypeFullName); s.AppendLine("();");
+                s.Append(ind); s.AppendLine("    reader.Read(); while (reader.Read() && reader.TokenType != TokenType.ObjectEnd) {");
+                s.Append(ind); s.AppendLine("        reader.TryGetInt32(out var __nk); reader.Read(); switch (__nk) {");
+                var ns = p.NestedProperties.OrderBy(n => n.Key).ToImmutableArray();
+                foreach (var n in ns) { s.Append(ind); s.Append("            case "); s.Append(n.Key); s.AppendLine(":"); WriteDeser(s, n, "__o", ind + "                "); s.Append(ind); s.AppendLine("                break;"); }
+                s.Append(ind); s.AppendLine("            default: reader.TrySkip(); break; } }");
+                s.Append(ind); s.Append("    "); s.Append(t); s.AppendLine(" = __o; }"); break;
         }
     }
 
-    private static void ReadElem(StringBuilder s, PropInfo p, string target)
+    static void ReadDeserElem(StringBuilder s, PropInfo p, string target, string op, string ind)
     {
         switch (p.ElementTypeKind)
         {
-            case "string": s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(".Add(Encoding.UTF8.GetString(reader.GetStringRaw())); "); break;
-            case "int32": s.Append("int __ev; reader.TryGetInt32(out __ev); "); s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(".Add(__ev); "); break;
-            default: s.Append(target); s.Append("."); s.Append(p.Name); s.AppendLine(".Add(default); "); break;
+            case "string": s.Append(ind); s.Append(target); s.Append(op); s.AppendLine("(Encoding.UTF8.GetString(reader.GetStringRaw()));"); break;
+            case "int32": s.Append(ind); s.AppendLine("reader.TryGetInt32(out var __ev);"); s.Append(ind); s.Append(target); s.Append(op); s.AppendLine("(__ev);"); break;
+            case "int64": s.Append(ind); s.AppendLine("reader.TryGetInt64(out var __ev);"); s.Append(ind); s.Append(target); s.Append(op); s.AppendLine("(__ev);"); break;
+            case "float64": s.Append(ind); s.AppendLine("reader.TryGetFloat64(out var __ev);"); s.Append(ind); s.Append(target); s.Append(op); s.AppendLine("(__ev);"); break;
+            case "boolean": s.Append(ind); s.AppendLine("reader.TryGetBool(out var __ev);"); s.Append(ind); s.Append(target); s.Append(op); s.AppendLine("(__ev);"); break;
+            default: s.Append(ind); s.Append(target); s.Append(op); s.AppendLine("(default!);"); break;
         }
     }
 }
 
 internal readonly record struct TypeInfo(string FullyQualifiedName, string Namespace, string Name, ImmutableArray<PropInfo> Properties);
-internal readonly record struct PropInfo(string Name, int Key, string TypeKind, string TypeFullName, bool IsNullable, string? ElementTypeKind, string? ElementTypeName);
+internal readonly record struct PropInfo(string Name, int Key, string TypeKind, string TypeFullName, bool IsNullable, string? ElementTypeKind, string? ElementTypeName, ImmutableArray<PropInfo> NestedProperties);
