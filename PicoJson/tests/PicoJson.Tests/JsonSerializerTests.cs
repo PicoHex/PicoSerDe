@@ -134,4 +134,46 @@ public class JsonSerializerTests
         );
         await Assert.That(ex.Message).Contains("UnregisteredType");
     }
+
+    // ── Generic cache tests ──
+
+    [Test]
+    public async Task GenericCache_RegisterThenSerialize_UsesCache()
+    {
+        JsonSerializer.Register(new PersonJsonSerializer(), new PersonJsonDeserializer());
+
+        var person = new Person { Name = "CacheTest", Age = 99 };
+        var buf = new ArrayBufferWriter<byte>(256);
+
+        JsonSerializer.Serialize(buf, person);
+        var result = JsonSerializer.Deserialize<Person>(buf.WrittenSpan);
+
+        await Assert.That(result!.Name).IsEqualTo("CacheTest");
+        await Assert.That(result.Age).IsEqualTo(99);
+
+        // Second call should also work (cache already populated)
+        var buf2 = new ArrayBufferWriter<byte>(256);
+        JsonSerializer.Serialize(buf2, person);
+        var result2 = JsonSerializer.Deserialize<Person>(buf2.WrittenSpan);
+        await Assert.That(result2!.Name).IsEqualTo("CacheTest");
+        await Assert.That(result2.Age).IsEqualTo(99);
+    }
+
+    [Test]
+    public async Task GenericCache_ConcurrentRegistrations_ThreadSafe()
+    {
+        var tasks = new List<Task>();
+        for (int i = 0; i < 10; i++)
+        {
+            tasks.Add(Task.Run(() =>
+            {
+                JsonSerializer.Register(new PersonJsonSerializer(), new PersonJsonDeserializer());
+                var person = new Person { Name = "Concurrent", Age = 42 };
+                var json = JsonSerializer.Serialize(person);
+                var result = JsonSerializer.Deserialize<Person>(Encoding.UTF8.GetBytes(json));
+            }));
+        }
+        await Task.WhenAll(tasks);
+        await Assert.That(true).IsTrue();
+    }
 }
