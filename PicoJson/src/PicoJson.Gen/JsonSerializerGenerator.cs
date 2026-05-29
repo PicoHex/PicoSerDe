@@ -356,10 +356,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             var fullName = kv.Key;
             var props = kv.Value;
-            var shortName = ShortName(fullName);
+            var cleanName = fullName.Replace("global::", "");
+            var shortName = ShortName(cleanName);
             spc.AddSource(
                 $"{shortName}_JsonInner.g.cs",
-                SourceText.From(GenerateInnerHelper(fullName, shortName, props), Encoding.UTF8)
+                SourceText.From(GenerateInnerHelper(cleanName, shortName, props), Encoding.UTF8)
             );
         }
 
@@ -432,8 +433,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     private static string ShortName(string fullName)
     {
-        var lastDot = fullName.LastIndexOf('.');
-        return lastDot >= 0 ? fullName.Substring(lastDot + 1) : fullName;
+        var name = fullName.Replace("global::", "");
+        var lastDot = name.LastIndexOf('.');
+        return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
     }
 
     private static string GenerateInnerHelper(string fullName, string shortName, ImmutableArray<PropertyInfo> props)
@@ -445,6 +447,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("using System.Text;");
         sb.AppendLine("using PicoSerDe.Abs;");
         sb.AppendLine("using PicoJson;");
+
+        // Extract namespace from fullName
+        var lastDot = fullName.LastIndexOf('.');
+        if (lastDot > 0)
+        {
+            var ns = fullName.Substring(0, lastDot);
+            sb.AppendLine();
+            sb.Append("namespace ");
+            sb.Append(ns);
+            sb.AppendLine(";");
+        }
         sb.AppendLine();
         sb.Append("internal static class ");
         sb.Append(shortName);
