@@ -122,7 +122,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
     static void WriteSer(StringBuilder s, PropInfo p, string a, string ind)
     {
-        if (p.IsNullable) { s.Append(ind); s.Append("if ("); s.Append(a); s.AppendLine(".HasValue) {"); ind += "    "; a += ".Value"; }
+        bool isRefNullable = p.IsNullable && p.TypeKind == "string";
+        if (p.IsNullable && !isRefNullable) { s.Append(ind); s.Append("if ("); s.Append(a); s.AppendLine(".HasValue) {"); ind += "    "; a += ".Value"; }
+        else if (isRefNullable) { s.Append(ind); s.Append("if ("); s.Append(a); s.AppendLine(" != null) {"); ind += "    "; }
         switch (p.TypeKind)
         {
             case "string": s.Append(ind); s.Append("mw.WriteString(Encoding.UTF8.GetBytes("); s.Append(a); s.AppendLine("));"); break;
@@ -173,10 +175,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         switch (p.TypeKind)
         {
             case "string": if (p.IsNullable) { s.Append(ind); s.Append("if (reader.TokenType == TokenType.Null) "); s.Append(t); s.AppendLine(" = null; else "); } s.Append(ind); s.Append(t); s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());"); break;
-            case "int32": s.Append(ind); s.Append("reader.TryGetInt32(out var __v"); s.Append(_varCounter); s.AppendLine(");"); s.Append(ind); s.Append(t); s.Append(" = __v"); s.Append(_varCounter++); s.AppendLine(";"); break;
-            case "int64": s.Append(ind); s.Append("reader.TryGetInt64(out var __v"); s.Append(_varCounter); s.AppendLine(");"); s.Append(ind); s.Append(t); s.Append(" = __v"); s.Append(_varCounter++); s.AppendLine(";"); break;
-            case "float64": s.Append(ind); s.Append("reader.TryGetFloat64(out var __v"); s.Append(_varCounter); s.AppendLine(");"); s.Append(ind); s.Append(t); s.Append(" = __v"); s.Append(_varCounter++); s.AppendLine(";"); break;
-            case "boolean": s.Append(ind); s.Append("reader.TryGetBool(out var __v"); s.Append(_varCounter); s.AppendLine(");"); s.Append(ind); s.Append(t); s.Append(" = __v"); s.Append(_varCounter++); s.AppendLine(";"); break;
+            case "int32": if (p.IsNullable) { s.Append(ind); s.AppendLine("if (reader.TokenType == TokenType.Null) { int? __nv = null; "); s.Append(ind); s.Append(t); s.AppendLine(" = __nv; } else {"); }
+s.Append(ind); s.Append("reader.TryGetInt32(out var __v"); s.Append(_varCounter); s.AppendLine(");"); s.Append(ind); s.Append(t); s.Append(" = __v"); s.Append(_varCounter++); s.AppendLine(";"); if (p.IsNullable) { s.Append(ind); s.AppendLine("}"); } break;
+            case "int64": if (p.IsNullable) { s.Append(ind); s.AppendLine("if (reader.TokenType == TokenType.Null) { long? __nv = null; "); s.Append(ind); s.Append(t); s.AppendLine(" = __nv; } else {"); }
+s.Append(ind); s.Append("reader.TryGetInt64(out var __v"); s.Append(_varCounter); s.AppendLine(");"); s.Append(ind); s.Append(t); s.Append(" = __v"); s.Append(_varCounter++); s.AppendLine(";"); if (p.IsNullable) { s.Append(ind); s.AppendLine("}"); } break;
+            case "float64": if (p.IsNullable) { s.Append(ind); s.AppendLine("if (reader.TokenType == TokenType.Null) { double? __nv = null; "); s.Append(ind); s.Append(t); s.AppendLine(" = __nv; } else {"); }
+s.Append(ind); s.Append("reader.TryGetFloat64(out var __v"); s.Append(_varCounter); s.AppendLine(");"); s.Append(ind); s.Append(t); s.Append(" = __v"); s.Append(_varCounter++); s.AppendLine(";"); if (p.IsNullable) { s.Append(ind); s.AppendLine("}"); } break;
+            case "boolean": if (p.IsNullable) { s.Append(ind); s.AppendLine("if (reader.TokenType == TokenType.Null) { bool? __nv = null; "); s.Append(ind); s.Append(t); s.AppendLine(" = __nv; } else {"); }
+s.Append(ind); s.Append("reader.TryGetBool(out var __v"); s.Append(_varCounter); s.AppendLine(");"); s.Append(ind); s.Append(t); s.Append(" = __v"); s.Append(_varCounter++); s.AppendLine(";"); if (p.IsNullable) { s.Append(ind); s.AppendLine("}"); } break;
             case "datetime": s.Append(ind); s.AppendLine("var __ds = Encoding.UTF8.GetString(reader.GetStringRaw()); DateTime.TryParse(__ds, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"); s.Append(ind); s.Append(t); s.AppendLine(" = __dt;"); break;
             case "timespan": s.Append(ind); s.AppendLine("TimeSpan.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __ts);"); s.Append(ind); s.Append(t); s.AppendLine(" = __ts;"); break;
             case "guid": s.Append(ind); s.AppendLine("Guid.TryParse(reader.GetStringRaw(), out var __g);"); s.Append(ind); s.Append(t); s.AppendLine(" = __g;"); break;
@@ -205,7 +211,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 if (p.IsNullable) { s.Append(ind); s.Append("    "); s.Append(t); s.AppendLine(" = null;"); }
                 s.Append(ind); s.AppendLine("} else {");
                 s.Append(ind); s.Append("    var __o = new "); s.Append(p.TypeFullName); s.AppendLine("();");
-                s.Append(ind); s.AppendLine("    reader.Read(); while (reader.Read() && reader.TokenType != TokenType.ObjectEnd) {");
+                s.Append(ind); s.AppendLine("    while (reader.Read() && reader.TokenType != TokenType.ObjectEnd) {");
                 s.Append(ind); s.AppendLine("        reader.TryGetInt32(out var __nk); reader.Read(); switch (__nk) {");
                 var ns = p.NestedProperties.OrderBy(n => n.Key).ToImmutableArray();
                 foreach (var n in ns) { s.Append(ind); s.Append("            case "); s.Append(n.Key); s.AppendLine(":"); WriteDeser(s, n, "__o", ind + "                "); s.Append(ind); s.AppendLine("                break;"); }
