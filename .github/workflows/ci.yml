@@ -46,6 +46,16 @@ jobs:
       - run: dotnet test --configuration Release --no-build --verbosity normal
       - run: dotnet build PicoJson/benchmarks/PicoJson.Benchmarks/PicoJson.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoIni/benchmarks/PicoIni.Benchmarks/PicoIni.Benchmarks.csproj -c Release --no-restore
+      - run: dotnet build PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj -c Release --no-restore
+      - run: dotnet build PicoYaml/benchmarks/PicoYaml.Benchmarks/PicoYaml.Benchmarks.csproj -c Release --no-restore
+      - name: Run PicoJson benchmarks (smoke)
+        run: dotnet run --project PicoJson/benchmarks/PicoJson.Benchmarks -c Release --no-build -- --filter '*' --iterationCount 1 --warmupCount 0
+      - name: Run PicoIni benchmarks (smoke)
+        run: dotnet run --project PicoIni/benchmarks/PicoIni.Benchmarks -c Release --no-build -- --filter '*' --iterationCount 1 --warmupCount 0
+      - name: Run PicoToml benchmarks (smoke)
+        run: dotnet run --project PicoToml/benchmarks/PicoToml.Benchmarks -c Release --no-build -- --filter '*' --iterationCount 1 --warmupCount 0
+      - name: Run PicoYaml benchmarks (smoke)
+        run: dotnet run --project PicoYaml/benchmarks/PicoYaml.Benchmarks -c Release --no-build -- --filter '*' --iterationCount 1 --warmupCount 0
 
   aot-validation:
     needs: build-and-test
