@@ -15,6 +15,7 @@ public ref struct MsgPackReader
     private ReadOnlySpan<byte> _valueSpan;
     private byte[]? _rentedBuffer;
     private int[] _elementStack;
+    private byte _tag; // for Extension tokens
     private int _depth;
     private bool[] _isMapStack;
     private bool[] _expectKeyStack;
@@ -30,7 +31,7 @@ public ref struct MsgPackReader
         _tokenType = TokenType.None;
         _valueSpan = default;
         _rentedBuffer = null;
-        _elementStack = new int[MaxDepth];
+        _elementStack = new int[MaxDepth]; _tag = 0;
         _isMapStack = new bool[MaxDepth];
         _expectKeyStack = new bool[MaxDepth];
         _depth = 0;
@@ -45,7 +46,7 @@ public ref struct MsgPackReader
         _tokenType = TokenType.None;
         _valueSpan = default;
         _rentedBuffer = null;
-        _elementStack = new int[MaxDepth];
+        _elementStack = new int[MaxDepth]; _tag = 0;
         _isMapStack = new bool[MaxDepth];
         _expectKeyStack = new bool[MaxDepth];
         _depth = 0;
@@ -177,6 +178,18 @@ public ref struct MsgPackReader
             case 0xD3: _valueSpan = ReadBytes(8); _tokenType = TokenType.Int64; CountElement(); return true;
             case 0xCA: _valueSpan = ReadBytes(4); _tokenType = TokenType.Float32; CountElement(); return true;
             case 0xCB: _valueSpan = ReadBytes(8); _tokenType = TokenType.Float64; CountElement(); return true;
+            // bin family
+            case 0xC4: _valueSpan = ReadBytes(ReadByteLen(1)); _tokenType = TokenType.Bytes; CountElement(); return true;
+            case 0xC5: _valueSpan = ReadBytes(ReadByteLen(2)); _tokenType = TokenType.Bytes; CountElement(); return true;
+            case 0xC6: _valueSpan = ReadBytes(ReadByteLen(4)); _tokenType = TokenType.Bytes; CountElement(); return true;
+            // ext family
+            case 0xD4: _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(1); _tokenType = TokenType.Extension; CountElement(); return true;
+            case 0xD5: _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(2); _tokenType = TokenType.Extension; CountElement(); return true;
+            case 0xD6: _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(4); _tokenType = TokenType.Extension; CountElement(); return true;
+            case 0xD7: _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(8); _tokenType = TokenType.Extension; CountElement(); return true;
+            case 0xD8: _tag = PeekByte(); AdvanceByte(); _valueSpan = ReadBytes(16); _tokenType = TokenType.Extension; CountElement(); return true;
+            case 0xC7: case 0xC8: case 0xC9: // ext8/16/32 — deferred
+                throw new FormatException($"Ext8/16/32 not yet supported at offset {BytesConsumed}");
             case 0xD9: return ReadString(ReadByteLen(1));
             case 0xDA: return ReadString(ReadByteLen(2));
             case 0xDB: return ReadString(ReadByteLen(4));
@@ -241,6 +254,14 @@ public ref struct MsgPackReader
     {
         if (_tokenType != TokenType.Bool || _valueSpan.IsEmpty) { v = false; return false; }
         v = _valueSpan[0] == 0xC3;
+        return true;
+    }
+
+    public bool TryGetExtension(out byte tag, out ReadOnlySpan<byte> data)
+    {
+        if (_tokenType != TokenType.Extension || _valueSpan.IsEmpty) { tag = 0; data = default; return false; }
+        tag = _tag;
+        data = _valueSpan;
         return true;
     }
 

@@ -219,4 +219,49 @@ public class MsgPackReaderSequenceTests
         await Assert.That(name).IsEqualTo("Alice");
         await Assert.That(age).IsEqualTo(30);
     }
+
+    // ── Bin/Ext types ──
+
+    [Test]
+    public async Task Bin8_ReturnsBytes()
+    {
+        var data = new byte[] { 0xC4, 0x03, 0x01, 0x02, 0x03 };
+        TokenType tt; bool eq;
+        using (var reader = new MsgPackReader(data))
+        {
+            reader.Read(); tt = reader.TokenType;
+            eq = reader.GetStringRaw().SequenceEqual(new byte[] { 1, 2, 3 });
+        }
+        await Assert.That(tt).IsEqualTo(TokenType.Bytes);
+        await Assert.That(eq).IsTrue();
+    }
+
+    [Test]
+    public async Task Bin16_ReturnsBytes()
+    {
+        var data = new byte[5];
+        data[0] = 0xC5; data[1] = 0x00; data[2] = 0x02; data[3] = 0xAB; data[4] = 0xCD;
+        int len;
+        using (var reader = new MsgPackReader(data))
+        {
+            reader.Read(); len = reader.GetStringRaw().Length;
+        }
+        await Assert.That(len).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task FixExt1_ReturnsExtension()
+    {
+        var data = new byte[] { 0xD4, 0x07, 0x42 };
+        TokenType tt; byte tag; int elen;
+        using (var reader = new MsgPackReader(data))
+        {
+            reader.Read(); tt = reader.TokenType;
+            reader.TryGetExtension(out tag, out var extData);
+            elen = extData.Length;
+        }
+        await Assert.That(tt).IsEqualTo(TokenType.Extension);
+        await Assert.That(tag).IsEqualTo(7);
+        await Assert.That(elen).IsEqualTo(1);
+    }
 }
