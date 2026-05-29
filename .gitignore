@@ -411,3 +411,5 @@ FodyWeavers.xsd
 
 # Superpowers internal planning docs (not public)
 docs/superpowers/
+docs/TODO.md
+docs/beta-issues.md
