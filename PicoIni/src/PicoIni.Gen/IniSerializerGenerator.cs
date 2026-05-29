@@ -380,7 +380,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         if (sec.Count > 0)
             s.AppendLine("        int __sec = -1;");
         s.AppendLine("        while (reader.Read()) {");
-        s.AppendLine("            if (reader.TokenType == IniTokenType.Key) {");
+        s.AppendLine("            if (reader.TokenType == TokenType.PropertyName) {");
+        s.AppendLine("                var __k = reader.GetStringRaw();");
+        s.AppendLine("                reader.Read(); // advance to value token");
 
         // Top-level key matching
         if (top.Count > 0)
@@ -391,7 +393,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(" (");
                 if (sec.Count > 0)
                     s.Append("__sec < 0 && ");
-                s.Append("__IniHelp.Eq(reader.Key, \"");
+                s.Append("__IniHelp.Eq(__k, \"");
                 s.Append(top[i].JsonName);
                 s.AppendLine("\"u8)) {");
                 EmitRead(s, top[i], "obj", "                    ");
@@ -407,7 +409,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 {
                     s.Append("                else if (__sec == ");
                     s.Append(si);
-                    s.Append(" && __IniHelp.Eq(reader.Key, \"");
+                    s.Append(" && __IniHelp.Eq(__k, \"");
                     s.Append(np.JsonName);
                     s.Append("\"u8)) { ");
                     EmitRead(s, np, $"obj.{sec[si].Name}", "");
@@ -418,7 +420,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("            }");
         if (sec.Count > 0)
         {
-            s.AppendLine("            else if (reader.TokenType == IniTokenType.SectionStart) {");
+            s.AppendLine("            else if (reader.TokenType == TokenType.ObjectStart) {");
             s.AppendLine("                __sec = -1;");
 
             for (int i = 0; i < sec.Count; i++)
@@ -426,7 +428,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 var sn = sec[i].SectionName ?? sec[i].JsonName;
                 s.Append("                ");
                 s.Append(i == 0 ? "if" : "else if");
-                s.Append(" (__IniHelp.Eq(reader.SectionName, \"");
+                s.Append(" (__IniHelp.Eq(reader.GetStringRaw(), \"");
                 s.Append(sn);
                 s.AppendLine("\"u8)) {");
                 s.Append("                    obj.");
@@ -535,7 +537,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);
-            s.AppendLine(" = __c.Read(reader.ValueSpan);");
+            s.AppendLine(" = __c.Read(reader.GetStringRaw());");
             return;
         }
         switch (p.TypeKind)
@@ -545,7 +547,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = Encoding.UTF8.GetString(reader.ValueSpan);");
+                s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
                 break;
             case "int32":
                 s.Append(pad);
@@ -589,14 +591,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append('.');
                 s.Append(p.Name);
                 s.AppendLine(
-                    " = decimal.Parse(Encoding.UTF8.GetString(reader.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
+                    " = decimal.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.CultureInfo.InvariantCulture);"
                 );
                 break;
             case "datetime":
                 if (p.DateTimeFormat is not null)
                 {
                     s.Append(pad);
-                    s.AppendLine("var __dtStr = Encoding.UTF8.GetString(reader.ValueSpan);");
+                    s.AppendLine("var __dtStr = Encoding.UTF8.GetString(reader.GetStringRaw());");
                     s.Append(pad);
                     s.Append("System.DateTime.TryParseExact(__dtStr, \"");
                     s.Append(p.DateTimeFormat);
@@ -608,7 +610,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 {
                     s.Append(pad);
                     s.AppendLine(
-                        "System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out DateTime __v, out _);"
+                        "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _);"
                     );
                 }
                 s.Append(pad);
@@ -620,7 +622,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             case "guid":
                 s.Append(pad);
                 s.AppendLine(
-                    "System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out Guid __v, out _, 'D');"
+                    "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out Guid __v, out _, 'D');"
                 );
                 s.Append(pad);
                 s.Append(target);
@@ -635,28 +637,28 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(p.Name);
                 s.Append(" = Enum.Parse<");
                 s.Append(p.TypeFullName);
-                s.AppendLine(">(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(">(Encoding.UTF8.GetString(reader.GetStringRaw()));");
                 break;
             case "dateonly":
                 s.Append(pad);
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = DateOnly.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(" = DateOnly.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()));");
                 break;
             case "timeonly":
                 s.Append(pad);
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = TimeOnly.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(" = TimeOnly.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()));");
                 break;
             case "timespan":
                 s.Append(pad);
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = TimeSpan.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(" = TimeSpan.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()));");
                 break;
             case "list":
                 s.Append(pad);
@@ -668,7 +670,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(">(16);");
                 s.Append(pad);
                 s.Append(
-                    "foreach (var __s in Encoding.UTF8.GetString(reader.ValueSpan).Split(',')) "
+                    "foreach (var __s in Encoding.UTF8.GetString(reader.GetStringRaw()).Split(',')) "
                 );
                 s.Append(target);
                 s.Append('.');
@@ -682,7 +684,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.Append(" = Encoding.UTF8.GetString(reader.ValueSpan).Split(',').Select(__s => ");
+                s.Append(" = Encoding.UTF8.GetString(reader.GetStringRaw()).Split(',').Select(__s => ");
                 WriteParseElem(s, p);
                 s.AppendLine(").ToArray();");
                 break;
