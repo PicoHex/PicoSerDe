@@ -247,6 +247,7 @@ public ref struct TomlReader
             return ReadArraySpan();
 
         StartSpan:
+        _position = SimdHelpers.SkipWhitespace(_data, _position);
         while (_position < _data.Length)
         {
             if (_data[_position] == (byte)'\n' || _data[_position] == (byte)'\r')
@@ -410,11 +411,13 @@ public ref struct TomlReader
 
         while (_position < _data.Length)
         {
-            var b = _data[_position];
-            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r' or (byte)',')
+            _position = SimdHelpers.SkipWhitespace(_data, _position);
+            if (_position < _data.Length && _data[_position] == (byte)',')
+            {
                 _position++;
-            else
-                break;
+                continue;
+            }
+            break;
         }
         if (_position >= _data.Length)
             return false;
@@ -479,13 +482,18 @@ public ref struct TomlReader
 
         while (_position < _data.Length)
         {
-            var b = _data[_position];
-            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r' or (byte)',')
+            _position = SimdHelpers.SkipWhitespace(_data, _position);
+            if (_position < _data.Length && _data[_position] == (byte)',')
+            {
                 _position++;
-            else if (b == (byte)'#')
+                continue;
+            }
+            if (_position < _data.Length && _data[_position] == (byte)'#')
+            {
                 SkipLineSpan();
-            else
-                break;
+                continue;
+            }
+            break;
         }
         if (_position >= _data.Length)
             return false;

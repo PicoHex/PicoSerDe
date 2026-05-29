@@ -303,11 +303,13 @@ public ref struct YamlReader
         }
         while (_position < _data.Length)
         {
-            var b = _data[_position];
-            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r' or (byte)',')
+            _position = SimdHelpers.SkipWhitespace(_data, _position);
+            if (_position < _data.Length && _data[_position] == (byte)',')
+            {
                 _position++;
-            else
-                break;
+                continue;
+            }
+            break;
         }
         if (_position >= _data.Length)
             return false;
