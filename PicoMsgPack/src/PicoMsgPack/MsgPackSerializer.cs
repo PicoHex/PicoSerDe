@@ -28,13 +28,16 @@ public static partial class MsgPackSerializer
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
     {
-        if (Cache<T>.Serializer is { } s) s.Serialize(writer, value);
-        else SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
+        if (Cache<T>.Serializer is { } s)
+            s.Serialize(writer, value);
+        else
+            SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
     }
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
-        if (Cache<T>.Deserializer is { } d) return d.Deserialize(data);
+        if (Cache<T>.Deserializer is { } d)
+            return d.Deserialize(data);
         SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
         return default;
     }

@@ -26,17 +26,21 @@ public static partial class TomlSerializer
         return default!;
     }
 
-    public static string Serialize<T>(T value) => Encoding.UTF8.GetString(SerializeToUtf8Bytes(value));
+    public static string Serialize<T>(T value) =>
+        Encoding.UTF8.GetString(SerializeToUtf8Bytes(value));
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
     {
-        if (Cache<T>.Serializer is { } s) s.Serialize(writer, value);
-        else SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
+        if (Cache<T>.Serializer is { } s)
+            s.Serialize(writer, value);
+        else
+            SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
     }
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
-        if (Cache<T>.Deserializer is { } d) return d.Deserialize(data);
+        if (Cache<T>.Deserializer is { } d)
+            return d.Deserialize(data);
         SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
         return default;
     }
