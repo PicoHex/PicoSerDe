@@ -398,13 +398,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             sb.AppendLine(";");
         }
         sb.AppendLine();
-        // Self-contained Eq helper for this inner class
-        sb.AppendLine(
-            "file static class __Y_"
-                + shortName
-                + " { internal static bool Eq(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false; return true; } }"
-        );
-        sb.AppendLine();
         sb.Append("internal static class ");
         sb.Append(shortName);
         sb.AppendLine("YamlInner");
@@ -448,7 +441,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             var kw = i == 0 ? "if" : "else if";
             sb.Append("                ");
             sb.Append(kw);
-            sb.Append(" (__Y_" + shortName + ".Eq(nk, \"");
+            sb.Append(" (TextHelpers.Eq(nk, \"");
             sb.Append(np.Jn);
             sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
@@ -739,9 +732,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             sb.AppendLine(";");
         }
         sb.AppendLine();
-        sb.AppendLine(
-            "file static class __Y { internal static bool Eq(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false; return true; } }"
-        );
         sb.AppendLine();
 
         // Serializer
@@ -785,7 +775,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             var p = t.Props[i];
             sb.Append("            ");
             sb.Append(i == 0 ? "if" : "else if");
-            sb.Append(" (__Y.Eq(k, \"");
+            sb.Append(" (TextHelpers.Eq(k, \"");
             sb.Append(p.Jn);
             sb.AppendLine("\"u8)) {");
             EmitDeserialize(sb, p, "o", "                ");

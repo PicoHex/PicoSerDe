@@ -44,4 +44,11 @@ public static class SerializerExtensions
         serializer.Serialize(writer, value);
         await stream.WriteAsync(writer.WrittenSpan.ToArray(), ct);
     }
+
+    /// <summary>Throws a descriptive InvalidOperationException when no SG is registered for a type.</summary>
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+    public static void ThrowNoSerializer<T>(string formatPackage) =>
+        throw new InvalidOperationException(
+            $"No serializer/deserializer registered for {typeof(T)}. Ensure {formatPackage} is referenced and the type is used with serializer methods."
+        );
 }

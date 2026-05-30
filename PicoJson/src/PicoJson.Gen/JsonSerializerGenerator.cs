@@ -517,7 +517,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var kw = i == 0 ? "if" : "else if";
             sb.Append("            ");
             sb.Append(kw);
-            sb.Append(" (JsonHelp.Eq(__n, \"");
+            sb.Append(" (TextHelpers.Eq(__n, \"");
             sb.Append(np.JsonName);
             sb.AppendLine("\"u8))");
             sb.AppendLine("            {");
@@ -892,7 +892,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var keyword = i == 0 ? "if" : "else if";
             sb.Append("                ");
             sb.Append(keyword);
-            sb.Append(" (JsonHelp.Eq(propNameSpan, \"");
+            sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
             sb.Append(prop.JsonName);
             sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
@@ -1302,7 +1302,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var keyword = i == 0 ? "if" : "else if";
             sb.Append(indent);
             sb.Append(keyword);
-            sb.Append(" (JsonHelp.Eq(");
+            sb.Append(" (TextHelpers.Eq(");
             sb.Append(propVarName);
             sb.Append(", \"");
             sb.Append(np.JsonName);

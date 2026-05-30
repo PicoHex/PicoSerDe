@@ -16,38 +16,26 @@ public static partial class MsgPackSerializer
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
     {
-        var s = Cache<T>.Serializer;
-        if (s is not null)
+        if (Cache<T>.Serializer is { } s)
         {
             var writer = SerializerExtensions.RentWriter();
             s.Serialize(writer, value);
             return writer.WrittenSpan.ToArray();
         }
-        ThrowNoSerializer<T>();
-        return default;
+        SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
+        return default!;
     }
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
     {
-        var s = Cache<T>.Serializer;
-        if (s is not null)
-            s.Serialize(writer, value);
-        else
-            ThrowNoSerializer<T>();
+        if (Cache<T>.Serializer is { } s) s.Serialize(writer, value);
+        else SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
     }
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
-        var d = Cache<T>.Deserializer;
-        if (d is not null)
-            return d.Deserialize(data);
-        ThrowNoSerializer<T>();
+        if (Cache<T>.Deserializer is { } d) return d.Deserialize(data);
+        SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
         return default;
     }
-
-    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
-    private static void ThrowNoSerializer<T>() =>
-        throw new InvalidOperationException(
-            $"No serializer registered for {typeof(T)}. Ensure PicoMsgPack.Gen is referenced."
-        );
 }

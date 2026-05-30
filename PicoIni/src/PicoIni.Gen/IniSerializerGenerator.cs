@@ -393,7 +393,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(" (");
                 if (sec.Count > 0)
                     s.Append("__sec < 0 && ");
-                s.Append("IniHelp.Eq(__k, \"");
+                s.Append("TextHelpers.Eq(__k, \"");
                 s.Append(top[i].JsonName);
                 s.AppendLine("\"u8)) {");
                 EmitRead(s, top[i], "obj", "                    ");
@@ -409,7 +409,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 {
                     s.Append("                else if (__sec == ");
                     s.Append(si);
-                    s.Append(" && IniHelp.Eq(__k, \"");
+                    s.Append(" && TextHelpers.Eq(__k, \"");
                     s.Append(np.JsonName);
                     s.Append("\"u8)) { ");
                     EmitRead(s, np, $"obj.{sec[si].Name}", "");
@@ -428,7 +428,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 var sn = sec[i].SectionName ?? sec[i].JsonName;
                 s.Append("                ");
                 s.Append(i == 0 ? "if" : "else if");
-                s.Append(" (IniHelp.Eq(reader.GetStringRaw(), \"");
+                s.Append(" (TextHelpers.Eq(reader.GetStringRaw(), \"");
                 s.Append(sn);
                 s.AppendLine("\"u8)) {");
                 s.Append("                    obj.");
