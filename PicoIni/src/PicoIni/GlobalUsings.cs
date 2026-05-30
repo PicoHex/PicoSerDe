@@ -4,3 +4,4 @@ global using System.Collections.Concurrent;
 global using System.Runtime.CompilerServices;
 global using System.Text;
 global using PicoSerDe.Abs;
+global using static PicoSerDe.Abs.TextHelpers;

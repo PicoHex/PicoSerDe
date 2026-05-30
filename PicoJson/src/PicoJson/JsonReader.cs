@@ -16,6 +16,8 @@ public ref struct JsonReader
     private readonly int _maxDepth;
     private ReadOnlySpan<byte> _valueSpan;
     private byte[]? _rentedBuffer;
+    private byte[]?[] _rentedBuffers;
+    private int _bufCount;
 
     public JsonReader(ReadOnlySpan<byte> data, int maxDepth = 256)
     {
@@ -28,6 +30,8 @@ public ref struct JsonReader
         _maxDepth = maxDepth;
         _valueSpan = default;
         _rentedBuffer = null;
+        _rentedBuffers = new byte[]?[8];
+        _bufCount = 0;
     }
 
     public JsonReader(ReadOnlySequence<byte> data, int maxDepth = 256)
@@ -41,6 +45,8 @@ public ref struct JsonReader
         _maxDepth = maxDepth;
         _valueSpan = default;
         _rentedBuffer = null;
+        _rentedBuffers = new byte[]?[8];
+        _bufCount = 0;
     }
 
     public TokenType TokenType => _tokenType;
@@ -269,7 +275,7 @@ public ref struct JsonReader
         if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'-')
             _seqReader.Advance(1);
         var buf = ArrayPool<byte>.Shared.Rent(16);
-        _rentedBuffer = buf;
+        TrackBuffer(buf);
         int di = 0;
         while (!_seqReader.End && IsDigit(_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex]))
         {
@@ -366,7 +372,7 @@ public ref struct JsonReader
         _seqReader.Advance(1); // skip opening "
 
         var buf = ArrayPool<byte>.Shared.Rent(256);
-        _rentedBuffer = buf;
+        TrackBuffer(buf);
         int di = 0;
 
         try
@@ -421,7 +427,7 @@ public ref struct JsonReader
                         buf.AsSpan(0, di).CopyTo(newBuf);
                         ArrayPool<byte>.Shared.Return(buf);
                         buf = newBuf;
-                        _rentedBuffer = buf;
+                        TrackBuffer(buf);
                     }
                 }
                 else
@@ -434,7 +440,7 @@ public ref struct JsonReader
                         buf.AsSpan(0, di).CopyTo(newBuf);
                         ArrayPool<byte>.Shared.Return(buf);
                         buf = newBuf;
-                        _rentedBuffer = buf;
+                        TrackBuffer(buf);
                     }
                 }
             }
@@ -589,7 +595,7 @@ public ref struct JsonReader
             // is still cheaper than the old Rent(_valueSpan.Length) for large
             // strings.  For ≤256 bytes we rent exactly di (decoded size).
             var decoded = ArrayPool<byte>.Shared.Rent(_valueSpan.Length);
-            _rentedBuffer = decoded;
+            TrackBuffer(decoded);
             try
             {
                 int di = 0;
@@ -686,7 +692,7 @@ public ref struct JsonReader
     private void ReadNumberSeq()
     {
         var buf = ArrayPool<byte>.Shared.Rent(32);
-        _rentedBuffer = buf;
+        TrackBuffer(buf);
         int di = 0;
         try
         {
@@ -772,7 +778,7 @@ public ref struct JsonReader
     private bool ReadLiteralSeq(ReadOnlySpan<byte> expected, TokenType token)
     {
         var buf = ArrayPool<byte>.Shared.Rent(expected.Length);
-        _rentedBuffer = buf;
+        TrackBuffer(buf);
         try
         {
             for (int i = 0; i < expected.Length; i++)
@@ -891,17 +897,27 @@ public ref struct JsonReader
 
     private void ReturnBuffer()
     {
-        if (_rentedBuffer is not null)
+        for (int i = 0; i < _bufCount; i++)
         {
-            ArrayPool<byte>.Shared.Return(_rentedBuffer);
-            _rentedBuffer = null;
+            if (_rentedBuffers[i] is not null)
+            {
+                ArrayPool<byte>.Shared.Return(_rentedBuffers[i]!);
+                _rentedBuffers[i] = null;
+            }
         }
+        _bufCount = 0;
+        _rentedBuffer = null;
+    }
+
+    private void TrackBuffer(byte[] buf)
+    {
+        if (_bufCount < _rentedBuffers!.Length)
+            _rentedBuffers[_bufCount++] = buf;
+        _rentedBuffer = buf;
     }
 
     public void Dispose()
     {
         ReturnBuffer();
     }
-
-    private static bool IsDigit(byte b) => b is >= (byte)'0' and <= (byte)'9';
 }

@@ -268,23 +268,25 @@ public ref struct TomlReader
         while (true)
         {
             _position = SimdHelpers.SkipWhitespace(_data, _position);
+            bool lineWasComment = false;
             while (_position < _data.Length)
             {
-                if (_data[_position] == (byte)'\n' || _data[_position] == (byte)'\r')
+                byte b = _data[_position];
+                if (b == (byte)'\n' || b == (byte)'\r')
                 {
                     _position++;
                     continue;
                 }
-                if (_data[_position] == (byte)'#')
+                if (b == (byte)'#')
                 {
                     SkipLineSpan();
-                    goto nextLine;
+                    lineWasComment = true;
+                    break;
                 }
                 return true;
             }
-            return false;
-            nextLine:
-            ;
+            if (!lineWasComment)
+                return false;
         }
     }
 
@@ -646,6 +648,7 @@ public ref struct TomlReader
 
         while (true)
         {
+            bool lineWasComment = false;
             while (!_seqReader.End)
             {
                 var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
@@ -657,20 +660,17 @@ public ref struct TomlReader
                 if (b == (byte)'#')
                 {
                     SkipLineSeq();
-                    goto nextLine;
+                    lineWasComment = true;
+                    break;
                 }
-                goto foundToken;
+                // Found a meaningful token
+                if (b == (byte)'[')
+                    return ReadTableHeaderSeq();
+                return ReadKeyValueSeq();
             }
-            return false;
-            nextLine:
-            ;
+            if (!lineWasComment)
+                return false;
         }
-        foundToken:
-        var fb = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-        if (fb == (byte)'[')
-            return ReadTableHeaderSeq();
-
-        return ReadKeyValueSeq();
     }
 
     private bool ReadTableHeaderSeq()
@@ -1057,24 +1057,5 @@ public ref struct TomlReader
             _rentedBuffers[_bufCount++] = buf;
         _rentedBuffer = buf;
         return buf;
-    }
-
-    private static ReadOnlySpan<byte> TrimEnd(ReadOnlySpan<byte> s)
-    {
-        int end = s.Length;
-        while (end > 0 && (s[end - 1] == (byte)' ' || s[end - 1] == (byte)'\t'))
-            end--;
-        return s[..end];
-    }
-
-    private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> s)
-    {
-        int start = 0;
-        while (start < s.Length && (s[start] == (byte)' ' || s[start] == (byte)'\t'))
-            start++;
-        int end = s.Length;
-        while (end > start && (s[end - 1] == (byte)' ' || s[end - 1] == (byte)'\t'))
-            end--;
-        return s[start..end];
     }
 }

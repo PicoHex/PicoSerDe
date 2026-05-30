@@ -409,29 +409,90 @@ public ref struct IniReader
     {
         var buf = ArrayPool<byte>.Shared.Rent(256);
         TrackBuffer(buf);
-        int di = 0;
-        while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'=')
+
+        // Read key up to '='
+        if (
+            !_seqReader.TryReadTo(
+                out ReadOnlySpan<byte> keyBytes,
+                (byte)'=',
+                advancePastDelimiter: true
+            )
+        )
         {
-            buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-            _seqReader.Advance(1);
+            // No '=' found: consume rest as value-less key (or error)
+            _currentValue = default;
+            _tokenType = TokenType.PropertyName;
+            _hasPendingValue = false;
+            SkipToNextLineSeq();
+            return true;
         }
-        _currentValue = TrimEnd(buf.AsSpan(0, di));
+        _currentValue = TextHelpers.TrimEnd(keyBytes);
         _tokenType = TokenType.PropertyName;
-        _seqReader.Advance(1);
+
+        // Skip whitespace after '='
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' ')
             _seqReader.Advance(1);
 
-        di = 0;
-        while (
-            !_seqReader.End
-            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
-            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
-        )
+        // Quoted value with escape handling
+        if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
         {
-            buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
+            int di = 0;
+            while (
+                !_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'
+            )
+            {
+                if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\\')
+                {
+                    _seqReader.Advance(1);
+                    if (_seqReader.End)
+                        break;
+                    buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] switch
+                    {
+                        (byte)'n' => (byte)'\n',
+                        (byte)'t' => (byte)'\t',
+                        (byte)'r' => (byte)'\r',
+                        (byte)'\\' => (byte)'\\',
+                        (byte)'"' => (byte)'"',
+                        var c => c,
+                    };
+                    _seqReader.Advance(1);
+                }
+                else
+                {
+                    buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                    _seqReader.Advance(1);
+                }
+            }
+            if (!_seqReader.End)
+                _seqReader.Advance(1); // skip closing quote
+            _pendingValue = buf.AsSpan(0, di);
         }
-        _pendingValue = Trim(buf.AsSpan(0, di));
+        else
+        {
+            int di = 0;
+            while (
+                !_seqReader.End
+                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+            )
+            {
+                buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                _seqReader.Advance(1);
+            }
+            var raw = (ReadOnlySpan<byte>)buf.AsSpan(0, di);
+            var semiIdx = raw.IndexOf((byte)';');
+            var hashIdx = raw.IndexOf((byte)'#');
+            var commentIdx =
+                semiIdx < 0
+                    ? hashIdx
+                    : hashIdx < 0
+                        ? semiIdx
+                        : Math.Min(semiIdx, hashIdx);
+            if (commentIdx >= 0)
+                raw = TextHelpers.TrimEnd(raw[..commentIdx]);
+            _pendingValue = TextHelpers.Trim(raw);
+        }
         SkipToNextLineSeq();
         _hasPendingValue = true;
         return true;
@@ -479,24 +540,5 @@ public ref struct IniReader
             )
                 _seqReader.Advance(1);
         }
-    }
-
-    private static ReadOnlySpan<byte> TrimEnd(ReadOnlySpan<byte> s)
-    {
-        int e = s.Length;
-        while (e > 0 && (s[e - 1] == (byte)' ' || s[e - 1] == (byte)'\t'))
-            e--;
-        return s[..e];
-    }
-
-    private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> s)
-    {
-        int st = 0,
-            e = s.Length;
-        while (st < e && (s[st] == (byte)' ' || s[st] == (byte)'\t'))
-            st++;
-        while (e > st && (s[e - 1] == (byte)' ' || s[e - 1] == (byte)'\t'))
-            e--;
-        return s[st..e];
     }
 }

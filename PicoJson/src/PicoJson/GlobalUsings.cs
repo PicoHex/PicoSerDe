@@ -7,3 +7,4 @@ global using System.Runtime.InteropServices;
 global using System.Runtime.Intrinsics;
 global using System.Text;
 global using PicoSerDe.Abs;
+global using static PicoSerDe.Abs.TextHelpers;

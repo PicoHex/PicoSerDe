@@ -10,7 +10,11 @@ public enum TokenType
     PropertyName,
     Null,
     Bool,
+
+    /// <summary>Reserved for future format support. Not currently emitted by any reader/writer.</summary>
     Int8,
+
+    /// <summary>Reserved for future format support. Not currently emitted by any reader/writer.</summary>
     Int16,
     Int32,
     Int64,
@@ -18,6 +22,8 @@ public enum TokenType
     UInt16,
     UInt32,
     UInt64,
+
+    /// <summary>Reserved for future format support. Not currently emitted by any reader/writer.</summary>
     Float16,
     Float32,
     Float64,

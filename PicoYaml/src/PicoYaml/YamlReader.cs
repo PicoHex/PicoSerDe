@@ -674,6 +674,46 @@ public ref struct YamlReader
         if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' ')
             _seqReader.Advance(1);
 
+        // Skip !tag and &anchor and *alias before value
+        while (!_seqReader.End)
+        {
+            var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+            if (b == (byte)'!')
+            {
+                _seqReader.Advance(1);
+                while (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)' '
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+                )
+                    _seqReader.Advance(1);
+                while (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
+                )
+                    _seqReader.Advance(1);
+            }
+            else if (b == (byte)'&')
+            {
+                _seqReader.Advance(1);
+                while (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)' '
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+                )
+                    _seqReader.Advance(1);
+                while (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
+                )
+                    _seqReader.Advance(1);
+            }
+            else
+                break;
+        }
+
         // Skip peek logic for sequence mode — emit value directly
         if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'{')
         {

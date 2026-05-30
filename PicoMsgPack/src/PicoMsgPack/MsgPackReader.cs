@@ -15,11 +15,11 @@ public ref struct MsgPackReader
     private ReadOnlySpan<byte> _valueSpan;
     private byte[]? _rentedBuffer;
     private byte[] _singleByteBuffer; // pre-allocated 1-byte array to avoid heap alloc per int
-    private int[] _elementStack;
+    private IntStack64 _elementStack;
     private byte _tag; // for Extension tokens
     private int _depth;
-    private bool[] _isMapStack;
-    private bool[] _expectKeyStack;
+    private BoolStack64 _isMapStack;
+    private BoolStack64 _expectKeyStack;
 
     private const int MaxDepth = 64;
 
@@ -33,10 +33,10 @@ public ref struct MsgPackReader
         _valueSpan = default;
         _rentedBuffer = null;
         _singleByteBuffer = new byte[1];
-        _elementStack = new int[MaxDepth];
+        _elementStack = default;
         _tag = 0;
-        _isMapStack = new bool[MaxDepth];
-        _expectKeyStack = new bool[MaxDepth];
+        _isMapStack = default;
+        _expectKeyStack = default;
         _depth = 0;
     }
 
@@ -50,10 +50,10 @@ public ref struct MsgPackReader
         _valueSpan = default;
         _rentedBuffer = null;
         _singleByteBuffer = new byte[1];
-        _elementStack = new int[MaxDepth];
+        _elementStack = default;
         _tag = 0;
-        _isMapStack = new bool[MaxDepth];
-        _expectKeyStack = new bool[MaxDepth];
+        _isMapStack = default;
+        _expectKeyStack = default;
         _depth = 0;
     }
 
@@ -540,4 +540,16 @@ public ref struct MsgPackReader
             _rentedBuffer = null;
         }
     }
+}
+
+[System.Runtime.CompilerServices.InlineArray(64)]
+internal struct IntStack64
+{
+    private int _e0;
+}
+
+[System.Runtime.CompilerServices.InlineArray(64)]
+internal struct BoolStack64
+{
+    private bool _e0;
 }

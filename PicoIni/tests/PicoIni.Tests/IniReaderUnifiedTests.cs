@@ -24,13 +24,18 @@ public class IniReaderUnifiedTests
     public async Task Read_TwoSections_EmitsImplicitEndBeforeSecondStart()
     {
         var data = "[A]\n[B]"u8.ToArray();
-        TokenType t1, t2, t3;
+        TokenType t1,
+            t2,
+            t3;
         string s3;
         using (var reader = new IniReader(data))
         {
-            reader.Read(); t1 = reader.TokenType;
-            reader.Read(); t2 = reader.TokenType;
-            reader.Read(); t3 = reader.TokenType;
+            reader.Read();
+            t1 = reader.TokenType;
+            reader.Read();
+            t2 = reader.TokenType;
+            reader.Read();
+            t3 = reader.TokenType;
             s3 = Encoding.UTF8.GetString(reader.GetStringRaw());
         }
         await Assert.That(t1).IsEqualTo(TokenType.ObjectStart);
@@ -44,11 +49,15 @@ public class IniReaderUnifiedTests
     {
         var data = "Host = localhost"u8.ToArray();
         TokenType tt1;
-        string v1, v2;
+        string v1,
+            v2;
         using (var reader = new IniReader(data))
         {
-            reader.Read(); tt1 = reader.TokenType; v1 = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); v2 = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            tt1 = reader.TokenType;
+            v1 = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            v2 = Encoding.UTF8.GetString(reader.GetStringRaw());
         }
         await Assert.That(tt1).IsEqualTo(TokenType.PropertyName);
         await Assert.That(v1).IsEqualTo("Host");
@@ -59,10 +68,12 @@ public class IniReaderUnifiedTests
     public async Task TryGetInt32_ParsesInteger()
     {
         var data = "Port = 8080"u8.ToArray();
-        int v; bool ok;
+        int v;
+        bool ok;
         using (var reader = new IniReader(data))
         {
-            reader.Read(); reader.Read();
+            reader.Read();
+            reader.Read();
             ok = reader.TryGetInt32(out v);
         }
         await Assert.That(ok).IsTrue();
@@ -73,10 +84,12 @@ public class IniReaderUnifiedTests
     public async Task TryGetBool_ParsesTrue()
     {
         var data = "Enabled = true"u8.ToArray();
-        bool v, ok;
+        bool v,
+            ok;
         using (var reader = new IniReader(data))
         {
-            reader.Read(); reader.Read();
+            reader.Read();
+            reader.Read();
             ok = reader.TryGetBool(out v);
         }
         await Assert.That(ok).IsTrue();
@@ -87,10 +100,12 @@ public class IniReaderUnifiedTests
     public async Task TryGetFloat64_ParsesFloat()
     {
         var data = "Rate = 3.14"u8.ToArray();
-        double v; bool ok;
+        double v;
+        bool ok;
         using (var reader = new IniReader(data))
         {
-            reader.Read(); reader.Read();
+            reader.Read();
+            reader.Read();
             ok = reader.TryGetFloat64(out v);
         }
         await Assert.That(ok).IsTrue();
@@ -101,10 +116,12 @@ public class IniReaderUnifiedTests
     public async Task TryGetInt32_ParsesNegative()
     {
         var data = "Offset = -42"u8.ToArray();
-        int v; bool ok;
+        int v;
+        bool ok;
         using (var reader = new IniReader(data))
         {
-            reader.Read(); reader.Read();
+            reader.Read();
+            reader.Read();
             ok = reader.TryGetInt32(out v);
         }
         await Assert.That(ok).IsTrue();
@@ -116,7 +133,11 @@ public class IniReaderUnifiedTests
     {
         var data = "; comment\n[Server]"u8.ToArray();
         TokenType tt;
-        using (var reader = new IniReader(data)) { reader.Read(); tt = reader.TokenType; }
+        using (var reader = new IniReader(data))
+        {
+            reader.Read();
+            tt = reader.TokenType;
+        }
         await Assert.That(tt).IsEqualTo(TokenType.ObjectStart);
     }
 
@@ -125,7 +146,11 @@ public class IniReaderUnifiedTests
     {
         var data = "\n\n[Server]"u8.ToArray();
         TokenType tt;
-        using (var reader = new IniReader(data)) { reader.Read(); tt = reader.TokenType; }
+        using (var reader = new IniReader(data))
+        {
+            reader.Read();
+            tt = reader.TokenType;
+        }
         await Assert.That(tt).IsEqualTo(TokenType.ObjectStart);
     }
 
@@ -136,7 +161,8 @@ public class IniReaderUnifiedTests
         string v;
         using (var reader = new IniReader(data))
         {
-            reader.Read(); reader.Read();
+            reader.Read();
+            reader.Read();
             v = Encoding.UTF8.GetString(reader.GetStringRaw());
         }
         await Assert.That(v).IsEqualTo("hello world");
@@ -149,8 +175,64 @@ public class IniReaderUnifiedTests
         bool last;
         using (var reader = new IniReader(data))
         {
-            reader.Read(); reader.Read(); last = reader.Read();
+            reader.Read();
+            reader.Read();
+            last = reader.Read();
         }
         await Assert.That(last).IsFalse();
+    }
+
+    [Test]
+    public async Task Read_SequenceMode_SimpleKeyValue_Works()
+    {
+        var data = "Key = Val"u8.ToArray();
+        var sequence = new ReadOnlySequence<byte>(data);
+        string s1 = "",
+            s2 = "";
+        // Use local function to contain ref struct
+        ReadSequence(sequence, out s1, out s2);
+        await Assert.That(s1).IsEqualTo("Key");
+        await Assert.That(s2).IsEqualTo("Val");
+    }
+
+    private static void ReadSequence(ReadOnlySequence<byte> seq, out string key, out string value)
+    {
+        key = "";
+        value = "";
+        using var reader = new IniReader(seq);
+        if (reader.Read())
+            key = Encoding.UTF8.GetString(reader.GetStringRaw());
+        if (reader.Read())
+            value = Encoding.UTF8.GetString(reader.GetStringRaw());
+    }
+
+    [Test]
+    public async Task Read_SequenceMode_QuotedValue_UnescapesCorrectly()
+    {
+        var data = "Name = \"hello\\nworld\""u8.ToArray();
+        var sequence = new ReadOnlySequence<byte>(data);
+        string key = "",
+            value = "";
+        ReadSequence(sequence, out key, out value);
+        await Assert.That(key).IsEqualTo("Name");
+        await Assert.That(value).IsEqualTo("hello\nworld");
+    }
+}
+
+file sealed class BufferSegment : ReadOnlySequenceSegment<byte>
+{
+    public BufferSegment(byte[] data, int offset, int length)
+    {
+        Memory = new ReadOnlyMemory<byte>(data, offset, length);
+    }
+
+    public BufferSegment Append(byte[] data, int offset, int length)
+    {
+        var next = new BufferSegment(data, offset, length)
+        {
+            RunningIndex = RunningIndex + Memory.Length
+        };
+        Next = next;
+        return next;
     }
 }
