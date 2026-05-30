@@ -9,7 +9,16 @@ public ref struct IniReader
     private TokenType _tokenType;
     private ReadOnlySpan<byte> _currentValue;
     private byte[]? _rentedBuffer;
-    private byte[]?[] _rentedBuffers;
+
+    // Inline buffer tracking — avoids heap array allocation
+    private byte[]? _rb0,
+        _rb1,
+        _rb2,
+        _rb3,
+        _rb4,
+        _rb5,
+        _rb6,
+        _rb7;
     private int _bufCount;
     private int _depth;
     private readonly int _maxDepth;
@@ -33,7 +42,7 @@ public ref struct IniReader
         _tokenType = TokenType.None;
         _currentValue = default;
         _rentedBuffer = null;
-        _rentedBuffers = new byte[]?[8];
+        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
         _bufCount = 0;
         _pendingValue = default;
         _hasPendingValue = false;
@@ -53,7 +62,7 @@ public ref struct IniReader
         _tokenType = TokenType.None;
         _currentValue = default;
         _rentedBuffer = null;
-        _rentedBuffers = new byte[]?[8];
+        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
         _bufCount = 0;
         _pendingValue = default;
         _hasPendingValue = false;
@@ -165,22 +174,56 @@ public ref struct IniReader
 
     public void Dispose()
     {
-        for (int i = 0; i < _bufCount; i++)
-        {
-            if (_rentedBuffers[i] is not null)
-            {
-                ArrayPool<byte>.Shared.Return(_rentedBuffers[i]!);
-                _rentedBuffers[i] = null;
-            }
-        }
+        ReturnBuf(ref _rb0);
+        ReturnBuf(ref _rb1);
+        ReturnBuf(ref _rb2);
+        ReturnBuf(ref _rb3);
+        ReturnBuf(ref _rb4);
+        ReturnBuf(ref _rb5);
+        ReturnBuf(ref _rb6);
+        ReturnBuf(ref _rb7);
         _bufCount = 0;
         _rentedBuffer = null;
     }
 
+    private static void ReturnBuf(ref byte[]? buf)
+    {
+        if (buf is not null)
+        {
+            ArrayPool<byte>.Shared.Return(buf);
+            buf = null;
+        }
+    }
+
     private void TrackBuffer(byte[] buf)
     {
-        if (_bufCount < _rentedBuffers.Length)
-            _rentedBuffers[_bufCount++] = buf;
+        switch (_bufCount++)
+        {
+            case 0:
+                _rb0 = buf;
+                break;
+            case 1:
+                _rb1 = buf;
+                break;
+            case 2:
+                _rb2 = buf;
+                break;
+            case 3:
+                _rb3 = buf;
+                break;
+            case 4:
+                _rb4 = buf;
+                break;
+            case 5:
+                _rb5 = buf;
+                break;
+            case 6:
+                _rb6 = buf;
+                break;
+            default:
+                _rb7 = buf;
+                break;
+        }
         _rentedBuffer = buf;
     }
 
