@@ -2,7 +2,7 @@ using PicoBench;
 using PicoBench.Formatters;
 
 Console.OutputEncoding = Encoding.UTF8;
-Console.WriteLine("PicoYaml vs VYaml — Performance Comparison");
+Console.WriteLine("PicoYaml — Self Benchmark (AOT)");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
 Console.WriteLine(new string('=', 60));
 Console.WriteLine();
@@ -29,48 +29,32 @@ var collection = new CollectionPoco
 var results = new List<ComparisonResult>
 {
     Benchmark.Compare(
-        "Simple — Serialize (bytes)",
-        "PicoYaml",
+        "Simple — Ser vs Deser",
+        "Serialize",
         () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(simple),
-        "VYaml",
-        () => VYaml.Serialization.YamlSerializer.Serialize(simple).ToArray()
+        "Deserialize",
+        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(simple)
     ),
     Benchmark.Compare(
-        "Nested — Serialize (bytes)",
-        "PicoYaml",
+        "Nested — Ser vs Deser",
+        "Serialize",
         () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(nested),
-        "VYaml",
-        () => VYaml.Serialization.YamlSerializer.Serialize(nested).ToArray()
+        "Deserialize",
+        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(nested)
     ),
     Benchmark.Compare(
-        "Collection — Serialize (bytes)",
-        "PicoYaml",
+        "Collection — Ser vs Deser",
+        "Serialize",
         () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(collection),
-        "VYaml",
-        () => VYaml.Serialization.YamlSerializer.Serialize(collection).ToArray()
-    ),
-    // string 场景
-    Benchmark.Compare(
-        "Simple — SerializeToString",
-        "PicoYaml",
-        () => PicoYaml.YamlSerializer.Serialize(simple),
-        "VYaml",
-        () => VYaml.Serialization.YamlSerializer.Serialize(simple).ToArray()
-    ),
-    Benchmark.Compare(
-        "Nested — SerializeToString",
-        "PicoYaml",
-        () => PicoYaml.YamlSerializer.Serialize(nested),
-        "VYaml",
-        () => VYaml.Serialization.YamlSerializer.Serialize(nested).ToArray()
+        "Deserialize",
+        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(collection)
     ),
 };
 
 foreach (var c in results)
 {
-    var icon = c.IsFaster ? "✓" : "✗";
     Console.WriteLine(
-        $"{icon} {c.Name, -38} Pico={c.Candidate.Statistics.Avg / 1000:F1}μs  VYaml={c.Baseline.Statistics.Avg / 1000:F1}μs  x{c.Speedup:F2}"
+        $"   {c.Name, -30} Ser={c.Candidate.Statistics.Avg / 1000:F1}μs  Deser={c.Baseline.Statistics.Avg / 1000:F1}μs  Ratio={c.Candidate.Statistics.Avg / c.Baseline.Statistics.Avg:F2}"
     );
 }
 

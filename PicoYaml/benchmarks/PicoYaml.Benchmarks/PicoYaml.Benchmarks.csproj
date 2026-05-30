@@ -9,8 +9,6 @@
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="PicoBench" Version="*" />
-        <PackageReference Include="VYaml" Version="1.*" />
-        <PackageReference Include="VYaml.Annotations" Version="1.*" />
     </ItemGroup>
     <ItemGroup>
         <Compile Include="..\..\..\shared\BenchModels.cs" Link="BenchModels.cs" />
