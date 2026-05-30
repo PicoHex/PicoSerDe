@@ -575,193 +575,294 @@ public ref struct YamlReader
         if (_inFlow)
             return ReadFlowSeq();
 
-        RetrySeq:
-        if (_seqReader.End)
+        while (true)
         {
-            if (_stackCount > 0)
+            if (_seqReader.End)
+            {
+                if (_stackCount > 0)
+                {
+                    PopIndent();
+                    _tokenType = TokenType.ObjectEnd;
+                    _depth--;
+                    return true;
+                }
+                return false;
+            }
+
+            int lineIndent = 0;
+            while (
+                !_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
+            )
+            {
+                lineIndent++;
+                _seqReader.Advance(1);
+            }
+
+            bool skipLine = false;
+            if (
+                _seqReader.End
+                || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\n'
+                || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\r'
+            )
+            {
+                SkipLineSeq();
+                skipLine = true;
+            }
+            else if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'#')
+            {
+                SkipLineSeq();
+                skipLine = true;
+            }
+            if (skipLine)
+                continue;
+
+            // Multi-document separator: --- at indent 0
+            var remaining = _seqReader.Remaining;
+            if (
+                lineIndent == 0
+                && remaining >= 3
+                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'-'
+                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex + 1] == (byte)'-'
+                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex + 2] == (byte)'-'
+            )
+            {
+                _seqReader.Advance(3);
+                SkipLineSeq();
+                if (_stackCount > 0)
+                {
+                    PopIndent();
+                    _tokenType = TokenType.ObjectEnd;
+                    _depth--;
+                }
+                else
+                {
+                    _docStartPending = true;
+                    continue;
+                }
+                return true;
+            }
+            if (_docStartPending)
+            {
+                _docStartPending = false;
+                PushIndent(0);
+                PushIndent(lineIndent > 0 ? lineIndent : 0);
+                _depth++;
+                _tokenType = TokenType.ObjectStart;
+                return true;
+            }
+
+            if (_stackCount == 0 && lineIndent > 0)
+            {
+                PushIndent(0);
+                PushIndent(lineIndent);
+                if (_depth >= _maxDepth)
+                    throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
+                _tokenType = TokenType.ObjectStart;
+                _depth++;
+                return true;
+            }
+            if (_stackCount > 0 && lineIndent < _indentStack[_stackCount - 1])
             {
                 PopIndent();
                 _tokenType = TokenType.ObjectEnd;
                 _depth--;
                 return true;
             }
-            return false;
-        }
+            if (_stackCount > 0 && lineIndent > _indentStack[_stackCount - 1])
+            {
+                PushIndent(lineIndent);
+                if (_depth >= _maxDepth)
+                    throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
+                _tokenType = TokenType.ObjectStart;
+                _depth++;
+                return true;
+            }
 
-        int lineIndent = 0;
-        while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' ')
-        {
-            lineIndent++;
-            _seqReader.Advance(1);
-        }
-        if (
-            _seqReader.End
-            || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\n'
-            || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\r'
-        )
-        {
-            SkipLineSeq();
-            goto RetrySeq;
-        }
-        if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'#')
-        {
-            SkipLineSeq();
-            goto RetrySeq;
-        }
-
-        if (_stackCount == 0 && lineIndent > 0)
-        {
-            PushIndent(0);
-            PushIndent(lineIndent);
-            if (_depth >= _maxDepth)
-                throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
-            _tokenType = TokenType.ObjectStart;
-            _depth++;
-            return true;
-        }
-        if (_stackCount > 0 && lineIndent < _indentStack[_stackCount - 1])
-        {
-            PopIndent();
-            _tokenType = TokenType.ObjectEnd;
-            _depth--;
-            return true;
-        }
-        if (_stackCount > 0 && lineIndent > _indentStack[_stackCount - 1])
-        {
-            PushIndent(lineIndent);
-            if (_depth >= _maxDepth)
-                throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
-            _tokenType = TokenType.ObjectStart;
-            _depth++;
-            return true;
-        }
-
-        // Sequence item
-        if (
-            _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'-'
-            && _seqReader.Remaining >= 2
-            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex + 1] == (byte)' '
-        )
-        {
-            _seqReader.Advance(2);
-            var buf = RentBuf(256);
-            int di = 0;
-            while (
-                !_seqReader.End
-                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
-                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+            // Sequence item
+            if (
+                _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'-'
+                && _seqReader.Remaining >= 2
+                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex + 1] == (byte)' '
             )
             {
-                buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-                _seqReader.Advance(1);
-            }
-            _valueSpan = Trim(buf.AsSpan(0, di));
-            SkipNewlineSeq();
-            _tokenType = TokenType.String;
-            return true;
-        }
-
-        // Key: value
-        var keyBuf = RentBuf(256);
-        int kd = 0;
-        while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)':')
-        {
-            keyBuf[kd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-            _seqReader.Advance(1);
-        }
-        _keySpan = TrimEnd(keyBuf.AsSpan(0, kd));
-        _seqReader.Advance(1); // skip ':'
-        if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' ')
-            _seqReader.Advance(1);
-
-        // Skip !tag and &anchor and *alias before value
-        while (!_seqReader.End)
-        {
-            var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-            if (b == (byte)'!')
-            {
-                _seqReader.Advance(1);
+                _seqReader.Advance(2);
+                var buf = RentBuf(256);
+                int di = 0;
                 while (
                     !_seqReader.End
-                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)' '
                     && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
                     && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
                 )
+                {
+                    buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                     _seqReader.Advance(1);
+                }
+                _valueSpan = Trim(buf.AsSpan(0, di));
+                SkipNewlineSeq();
+                _tokenType = TokenType.String;
+                return true;
+            }
+
+            // Complex key: ? key\n: value
+            if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'?')
+            {
+                _seqReader.Advance(1);
+                if (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
+                )
+                    _seqReader.Advance(1);
+                var ckBuf = RentBuf(256);
+                int ckd = 0;
+                while (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+                )
+                {
+                    ckBuf[ckd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                    _seqReader.Advance(1);
+                }
+                _keySpan = Trim(ckBuf.AsSpan(0, ckd));
+                SkipNewlineSeq();
                 while (
                     !_seqReader.End
                     && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
                 )
                     _seqReader.Advance(1);
+                if (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)':'
+                )
+                {
+                    _seqReader.Advance(1);
+                    if (
+                        !_seqReader.End
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
+                    )
+                        _seqReader.Advance(1);
+                    var cvBuf = RentBuf(256);
+                    int cvd = 0;
+                    while (
+                        !_seqReader.End
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+                    )
+                    {
+                        cvBuf[cvd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                        _seqReader.Advance(1);
+                    }
+                    _valueSpan = Trim(cvBuf.AsSpan(0, cvd));
+                }
+                SkipNewlineSeq();
+                _tokenType = TokenType.PropertyName;
+                return true;
             }
-            else if (b == (byte)'&')
+
+            // Key: value
+            var keyBuf = RentBuf(256);
+            int kd = 0;
+            while (
+                !_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)':'
+            )
+            {
+                keyBuf[kd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                _seqReader.Advance(1);
+            }
+            _keySpan = TrimEnd(keyBuf.AsSpan(0, kd));
+            _seqReader.Advance(1); // skip ':'
+            if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' ')
+                _seqReader.Advance(1);
+
+            // Skip !tag and &anchor and *alias before value
+            while (!_seqReader.End)
+            {
+                var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                if (b == (byte)'!')
+                {
+                    _seqReader.Advance(1);
+                    while (
+                        !_seqReader.End
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)' '
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+                    )
+                        _seqReader.Advance(1);
+                    while (
+                        !_seqReader.End
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
+                    )
+                        _seqReader.Advance(1);
+                }
+                else if (b == (byte)'&')
+                {
+                    _seqReader.Advance(1);
+                    while (
+                        !_seqReader.End
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)' '
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+                    )
+                        _seqReader.Advance(1);
+                    while (
+                        !_seqReader.End
+                        && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
+                    )
+                        _seqReader.Advance(1);
+                }
+                else
+                    break;
+            }
+
+            // Skip peek logic for sequence mode — emit value directly
+            if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'{')
+            {
+                _seqReader.Advance(1);
+                _inFlow = true;
+                _flowStartEmitted = false;
+                _tokenType = TokenType.PropertyName;
+                return true;
+            }
+
+            var valBuf = RentBuf(256);
+            int vd = 0;
+            if (
+                !_seqReader.End
+                && (
+                    _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"'
+                    || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\''
+                )
+            )
             {
                 _seqReader.Advance(1);
                 while (
                     !_seqReader.End
-                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)' '
-                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
-                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\''
                 )
+                {
+                    valBuf[vd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                     _seqReader.Advance(1);
-                while (
-                    !_seqReader.End
-                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
-                )
-                    _seqReader.Advance(1);
+                }
+                _seqReader.Advance(1);
             }
             else
-                break;
-        }
-
-        // Skip peek logic for sequence mode — emit value directly
-        if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'{')
-        {
-            _seqReader.Advance(1);
-            _inFlow = true;
-            _flowStartEmitted = false;
+            {
+                while (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+                )
+                {
+                    valBuf[vd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                    _seqReader.Advance(1);
+                }
+            }
+            _valueSpan = Trim(valBuf.AsSpan(0, vd));
+            SkipNewlineSeq();
             _tokenType = TokenType.PropertyName;
             return true;
         }
-
-        var valBuf = RentBuf(256);
-        int vd = 0;
-        if (
-            !_seqReader.End
-            && (
-                _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"'
-                || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\''
-            )
-        )
-        {
-            _seqReader.Advance(1);
-            while (
-                !_seqReader.End
-                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'
-                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\''
-            )
-            {
-                valBuf[vd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-                _seqReader.Advance(1);
-            }
-            _seqReader.Advance(1);
-        }
-        else
-        {
-            while (
-                !_seqReader.End
-                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
-                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
-            )
-            {
-                valBuf[vd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-                _seqReader.Advance(1);
-            }
-        }
-        _valueSpan = Trim(valBuf.AsSpan(0, vd));
-        SkipNewlineSeq();
-        _tokenType = TokenType.PropertyName;
-        return true;
     }
 
     private bool ReadFlowSeq()

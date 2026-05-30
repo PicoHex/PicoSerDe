@@ -92,6 +92,12 @@ public class IntArrayModel
     public int[] Scores { get; set; } = [];
 }
 
+public class BytesModel
+{
+    [MsgPackKey(0)]
+    public byte[] Data { get; set; } = [];
+}
+
 public class MsgPackSerializerGeneratorTests
 {
     [Test]
@@ -280,5 +286,14 @@ public class MsgPackSerializerGeneratorTests
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var result = MsgPackSerializer.Deserialize<IntArrayModel>(bytes);
         await Assert.That(result!.Scores).IsEquivalentTo(new[] { 10, 20, 30 });
+    }
+
+    [Test]
+    public async Task Generated_Bytes_RoundTrip()
+    {
+        var model = new BytesModel { Data = new byte[] { 1, 2, 3, 4 } };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<BytesModel>(bytes);
+        await Assert.That(result!.Data).IsEquivalentTo(new byte[] { 1, 2, 3, 4 });
     }
 }

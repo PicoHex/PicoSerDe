@@ -4,32 +4,55 @@ internal static class TypeKindResolver
 {
     public static (string? Kind, bool IsNullable, ITypeSymbol? InnerType) Resolve(ITypeSymbol type)
     {
-        if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } ntsNullable)
+        if (
+            type is INamedTypeSymbol
+            {
+                OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
+            } ntsNullable
+        )
         {
             var inner = ntsNullable.TypeArguments[0];
             var (innerKind, _, _) = Resolve(inner);
             return (innerKind, true, inner);
         }
 
-        if (type is IArrayTypeSymbol) return ("array", false, null);
+        if (type is IArrayTypeSymbol arr)
+        {
+            // Special case: byte[] → "bytes"
+            if (arr.ElementType.SpecialType == SpecialType.System_Byte)
+                return ("bytes", false, null);
+            return ("array", false, null);
+        }
 
         if (type is INamedTypeSymbol ntsList && ntsList.TypeArguments.Length == 1)
         {
-            if (ntsList.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IList_T
-                || ntsList.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_ICollection_T
-                || ntsList.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T)
+            if (
+                ntsList.OriginalDefinition.SpecialType
+                    == SpecialType.System_Collections_Generic_IList_T
+                || ntsList.OriginalDefinition.SpecialType
+                    == SpecialType.System_Collections_Generic_ICollection_T
+                || ntsList.OriginalDefinition.SpecialType
+                    == SpecialType.System_Collections_Generic_IEnumerable_T
+            )
             {
                 var (ek, _, _) = Resolve(ntsList.TypeArguments[0]);
-                if (ek is null) return (null, false, null);
+                if (ek is null)
+                    return (null, false, null);
                 return ("list", false, null);
             }
-            if (ntsList.Name == "List" && ntsList.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic")
+            if (
+                ntsList.Name == "List"
+                && ntsList.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic"
+            )
                 return ("list", false, null);
         }
 
         if (type is INamedTypeSymbol ntsDict && ntsDict.TypeArguments.Length == 2)
         {
-            if (ntsDict.Name == "Dictionary" && ntsDict.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic")
+            if (
+                ntsDict.Name == "Dictionary"
+                && ntsDict.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic"
+            )
                 return ("dict", false, null);
         }
 
@@ -52,19 +75,34 @@ internal static class TypeKindResolver
             {
                 INamedTypeSymbol { TypeKind: TypeKind.Enum } => "enum",
                 INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" } => "guid",
-                INamedTypeSymbol { Name: "DateOnly", ContainingNamespace.Name: "System" } => "dateonly",
-                INamedTypeSymbol { Name: "TimeOnly", ContainingNamespace.Name: "System" } => "timeonly",
-                INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace.Name: "System" } => "timespan",
+                INamedTypeSymbol { Name: "DateOnly", ContainingNamespace.Name: "System" }
+                    => "dateonly",
+                INamedTypeSymbol { Name: "TimeOnly", ContainingNamespace.Name: "System" }
+                    => "timeonly",
+                INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace.Name: "System" }
+                    => "timespan",
                 _ => null,
             };
         }
 
-        if (kind is null && type is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } ntsObj)
+        if (
+            kind is null
+            && type is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } ntsObj
+        )
         {
             foreach (var member in ntsObj.GetMembers())
             {
-                if (member is IPropertySymbol { DeclaredAccessibility: Accessibility.Public, IsStatic: false, IsIndexer: false } ps
-                    && ps.GetMethod is not null && !(ps.IsReadOnly && ps.SetMethod is null))
+                if (
+                    member
+                        is IPropertySymbol
+                        {
+                            DeclaredAccessibility: Accessibility.Public,
+                            IsStatic: false,
+                            IsIndexer: false
+                        } ps
+                    && ps.GetMethod is not null
+                    && !(ps.IsReadOnly && ps.SetMethod is null)
+                )
                     return ("object", false, null);
             }
         }
@@ -86,7 +124,7 @@ internal static class TypeKindResolver
             "timespan" => "System.TimeSpan",
             "guid" => "System.Guid",
             "decimal" => "decimal",
-            "enum" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "bytes" => "byte[]",
             "object" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             _ => "object",
         };

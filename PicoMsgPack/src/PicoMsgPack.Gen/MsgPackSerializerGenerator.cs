@@ -421,6 +421,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.AppendLine("mw.WriteEndArray();");
                 break;
+            case "bytes":
+                s.Append(ind);
+                s.Append("mw.WriteBytes(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
             case "dict":
                 s.Append(ind);
                 s.Append("mw.WriteStartObject(");
@@ -699,6 +705,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append(t);
                 s.AppendLine(" = __e;");
+                break;
+            case "bytes":
+                s.Append(ind);
+                s.Append(t);
+                s.AppendLine(" = reader.GetStringRaw().ToArray();");
                 break;
             case "list":
                 s.Append(ind);

@@ -127,4 +127,88 @@ public class YamlReaderEdgeTests
         // Tag !str should be stripped, value is "Alice"
         await Assert.That(val).IsEqualTo("Alice");
     }
+
+    // ── sequence-mode tests ──
+
+    [Test]
+    public async Task SeqMode_MultiDocument_Separator_EmitsObjectEndThenStart()
+    {
+        var data = "a: 1\n---\nb: 2"u8.ToArray();
+        var seq = new ReadOnlySequence<byte>(data);
+        var tokens = new List<TokenType>();
+        var keys = new List<string>();
+        ReadSeqCapture(seq, tokens, keys);
+        await Assert.That(keys.Count).IsEqualTo(2);
+        await Assert.That(keys[0]).IsEqualTo("a");
+        await Assert.That(keys[1]).IsEqualTo("b");
+        await Assert.That(tokens).Contains(TokenType.ObjectEnd);
+    }
+
+    [Test]
+    public async Task SeqMode_ComplexKey_QuestionMark_ParsesValue()
+    {
+        var data = "? ck\n: val"u8.ToArray();
+        var seq = new ReadOnlySequence<byte>(data);
+        string key = "",
+            val = "";
+        ReadSeqCaptureProps(seq, out key, out val);
+        await Assert.That(key).IsEqualTo("ck");
+        await Assert.That(val).IsEqualTo("val");
+    }
+
+    [Test]
+    public async Task SeqMode_SimpleKeyValue_Works()
+    {
+        var data = "name: Alice"u8.ToArray();
+        var seq = new ReadOnlySequence<byte>(data);
+        string key = "",
+            val = "";
+        ReadSeqCaptureProps(seq, out key, out val);
+        await Assert.That(key).IsEqualTo("name");
+        await Assert.That(val).IsEqualTo("Alice");
+    }
+
+    [Test]
+    public async Task SeqMode_TagValue_ExclamationMark_StripsTag()
+    {
+        var data = "name: !str Alice"u8.ToArray();
+        var seq = new ReadOnlySequence<byte>(data);
+        string val = "";
+        ReadSeqCaptureProps(seq, out _, out val);
+        await Assert.That(val).IsEqualTo("Alice");
+    }
+
+    private static void ReadSeqCapture(
+        ReadOnlySequence<byte> seq,
+        List<TokenType> tokens,
+        List<string> keys
+    )
+    {
+        using var reader = new YamlReader(seq);
+        while (reader.Read())
+        {
+            tokens.Add(reader.TokenType);
+            if (reader.TokenType == TokenType.PropertyName)
+                keys.Add(Encoding.UTF8.GetString(reader.KeySpan));
+        }
+    }
+
+    private static void ReadSeqCaptureProps(
+        ReadOnlySequence<byte> seq,
+        out string key,
+        out string val
+    )
+    {
+        key = "";
+        val = "";
+        using var reader = new YamlReader(seq);
+        while (reader.Read())
+        {
+            if (reader.TokenType == TokenType.PropertyName)
+            {
+                key = Encoding.UTF8.GetString(reader.KeySpan);
+                val = Encoding.UTF8.GetString(reader.ValueSpan);
+            }
+        }
+    }
 }
