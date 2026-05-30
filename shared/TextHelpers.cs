@@ -17,7 +17,8 @@ public static class TextHelpers
 
     public static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> s)
     {
-        int st = 0, e = s.Length;
+        int st = 0,
+            e = s.Length;
         while (st < e && (s[st] == (byte)' ' || s[st] == (byte)'\t'))
             st++;
         while (e > st && (s[e - 1] == (byte)' ' || s[e - 1] == (byte)'\t'))
@@ -35,7 +36,8 @@ public static class TextHelpers
             return a.SequenceEqual(b);
         for (int i = 0; i < a.Length; i++)
         {
-            byte x = a[i], y = b[i];
+            byte x = a[i],
+                y = b[i];
             if (x != y && ((x | 0x20) != (y | 0x20) || (x | 0x20) is < (byte)'a' or > (byte)'z'))
                 return false;
         }

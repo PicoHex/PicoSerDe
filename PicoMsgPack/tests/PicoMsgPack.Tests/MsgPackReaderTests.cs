@@ -9,7 +9,8 @@ public class MsgPackReaderTests
         TokenType tt;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); tt = reader.TokenType;
+            reader.Read();
+            tt = reader.TokenType;
         }
         await Assert.That(tt).IsEqualTo(TokenType.Null);
     }
@@ -18,10 +19,13 @@ public class MsgPackReaderTests
     public async Task BooleanFalse_ReturnsBool()
     {
         var data = new byte[] { 0xC2 };
-        TokenType tt; bool v;
+        TokenType tt;
+        bool v;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); tt = reader.TokenType; reader.TryGetBool(out v);
+            reader.Read();
+            tt = reader.TokenType;
+            reader.TryGetBool(out v);
         }
         await Assert.That(tt).IsEqualTo(TokenType.Bool);
         await Assert.That(v).IsFalse();
@@ -32,7 +36,11 @@ public class MsgPackReaderTests
     {
         var data = new byte[] { 0xC3 };
         bool v;
-        using (var reader = new MsgPackReader(data)) { reader.Read(); reader.TryGetBool(out v); }
+        using (var reader = new MsgPackReader(data))
+        {
+            reader.Read();
+            reader.TryGetBool(out v);
+        }
         await Assert.That(v).IsTrue();
     }
 
@@ -40,10 +48,13 @@ public class MsgPackReaderTests
     public async Task PositiveFixInt_ReturnsInt32()
     {
         var data = new byte[] { 0x2A };
-        TokenType tt; int v;
+        TokenType tt;
+        int v;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); tt = reader.TokenType; reader.TryGetInt32(out v);
+            reader.Read();
+            tt = reader.TokenType;
+            reader.TryGetInt32(out v);
         }
         await Assert.That(tt).IsEqualTo(TokenType.Int32);
         await Assert.That(v).IsEqualTo(42);
@@ -54,7 +65,11 @@ public class MsgPackReaderTests
     {
         var data = new byte[] { 0xFF };
         int v;
-        using (var reader = new MsgPackReader(data)) { reader.Read(); reader.TryGetInt32(out v); }
+        using (var reader = new MsgPackReader(data))
+        {
+            reader.Read();
+            reader.TryGetInt32(out v);
+        }
         await Assert.That(v).IsEqualTo(-1);
     }
 
@@ -63,7 +78,11 @@ public class MsgPackReaderTests
     {
         var data = new byte[] { 0xCC, 0xFF };
         int v;
-        using (var reader = new MsgPackReader(data)) { reader.Read(); reader.TryGetInt32(out v); }
+        using (var reader = new MsgPackReader(data))
+        {
+            reader.Read();
+            reader.TryGetInt32(out v);
+        }
         await Assert.That(v).IsEqualTo(255);
     }
 
@@ -72,7 +91,11 @@ public class MsgPackReaderTests
     {
         var data = new byte[] { 0xD0, 0x80 };
         int v;
-        using (var reader = new MsgPackReader(data)) { reader.Read(); reader.TryGetInt32(out v); }
+        using (var reader = new MsgPackReader(data))
+        {
+            reader.Read();
+            reader.TryGetInt32(out v);
+        }
         await Assert.That(v).IsEqualTo(-128);
     }
 
@@ -80,10 +103,13 @@ public class MsgPackReaderTests
     public async Task FixStr_ReturnsString()
     {
         var data = new byte[] { 0xA5, (byte)'h', (byte)'e', (byte)'l', (byte)'l', (byte)'o' };
-        TokenType tt; string s;
+        TokenType tt;
+        string s;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); tt = reader.TokenType; s = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            tt = reader.TokenType;
+            s = Encoding.UTF8.GetString(reader.GetStringRaw());
         }
         await Assert.That(tt).IsEqualTo(TokenType.String);
         await Assert.That(s).IsEqualTo("hello");
@@ -93,14 +119,23 @@ public class MsgPackReaderTests
     public async Task FixArray_ReturnsArrayTokens()
     {
         var data = new byte[] { 0x93, 0x01, 0x02, 0x03 };
-        TokenType t1, t5; int v1, v2, v3;
+        TokenType t1,
+            t5;
+        int v1,
+            v2,
+            v3;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); t1 = reader.TokenType;
-            reader.Read(); reader.TryGetInt32(out v1);
-            reader.Read(); reader.TryGetInt32(out v2);
-            reader.Read(); reader.TryGetInt32(out v3);
-            reader.Read(); t5 = reader.TokenType;
+            reader.Read();
+            t1 = reader.TokenType;
+            reader.Read();
+            reader.TryGetInt32(out v1);
+            reader.Read();
+            reader.TryGetInt32(out v2);
+            reader.Read();
+            reader.TryGetInt32(out v3);
+            reader.Read();
+            t5 = reader.TokenType;
         }
         await Assert.That(t1).IsEqualTo(TokenType.ArrayStart);
         await Assert.That(v1).IsEqualTo(1);
@@ -113,13 +148,22 @@ public class MsgPackReaderTests
     public async Task FixMap_ReturnsObjectTokens()
     {
         var data = new byte[] { 0x81, 0xA1, (byte)'a', 0x01 };
-        TokenType t1, t2, t4; string k; int v;
+        TokenType t1,
+            t2,
+            t4;
+        string k;
+        int v;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); t1 = reader.TokenType;
-            reader.Read(); t2 = reader.TokenType; k = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); reader.TryGetInt32(out v);
-            reader.Read(); t4 = reader.TokenType;
+            reader.Read();
+            t1 = reader.TokenType;
+            reader.Read();
+            t2 = reader.TokenType;
+            k = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            reader.TryGetInt32(out v);
+            reader.Read();
+            t4 = reader.TokenType;
         }
         await Assert.That(t1).IsEqualTo(TokenType.ObjectStart);
         await Assert.That(t2).IsEqualTo(TokenType.PropertyName);
@@ -135,23 +179,46 @@ public class MsgPackReaderTests
         var nameBytes = Encoding.UTF8.GetBytes("name");
         var aliceBytes = Encoding.UTF8.GetBytes("Alice");
         var ageBytes = Encoding.UTF8.GetBytes("age");
-        var data = new byte[1 + 1 + nameBytes.Length + 1 + aliceBytes.Length + 1 + ageBytes.Length + 1];
+        var data = new byte[
+            1 + 1 + nameBytes.Length + 1 + aliceBytes.Length + 1 + ageBytes.Length + 1
+        ];
         int p = 0;
         data[p++] = 0x82; // fixmap(2)
-        data[p++] = (byte)(0xA0 | nameBytes.Length); Array.Copy(nameBytes, 0, data, p, nameBytes.Length); p += nameBytes.Length;
-        data[p++] = (byte)(0xA0 | aliceBytes.Length); Array.Copy(aliceBytes, 0, data, p, aliceBytes.Length); p += aliceBytes.Length;
-        data[p++] = (byte)(0xA0 | ageBytes.Length); Array.Copy(ageBytes, 0, data, p, ageBytes.Length); p += ageBytes.Length;
+        data[p++] = (byte)(0xA0 | nameBytes.Length);
+        Array.Copy(nameBytes, 0, data, p, nameBytes.Length);
+        p += nameBytes.Length;
+        data[p++] = (byte)(0xA0 | aliceBytes.Length);
+        Array.Copy(aliceBytes, 0, data, p, aliceBytes.Length);
+        p += aliceBytes.Length;
+        data[p++] = (byte)(0xA0 | ageBytes.Length);
+        Array.Copy(ageBytes, 0, data, p, ageBytes.Length);
+        p += ageBytes.Length;
         data[p++] = 30;
 
-        TokenType t1, t2, t4, t6; string k1, v1, k2; int v2;
+        TokenType t1,
+            t2,
+            t4,
+            t6;
+        string k1,
+            v1,
+            k2;
+        int v2;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); t1 = reader.TokenType;
-            reader.Read(); t2 = reader.TokenType; k1 = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); v1 = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); t4 = reader.TokenType; k2 = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); reader.TryGetInt32(out v2);
-            reader.Read(); t6 = reader.TokenType;
+            reader.Read();
+            t1 = reader.TokenType;
+            reader.Read();
+            t2 = reader.TokenType;
+            k1 = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            v1 = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            t4 = reader.TokenType;
+            k2 = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            reader.TryGetInt32(out v2);
+            reader.Read();
+            t6 = reader.TokenType;
         }
         await Assert.That(t1).IsEqualTo(TokenType.ObjectStart);
         await Assert.That(t2).IsEqualTo(TokenType.PropertyName);

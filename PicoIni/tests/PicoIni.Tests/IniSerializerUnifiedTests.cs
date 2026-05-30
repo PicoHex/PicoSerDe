@@ -95,15 +95,22 @@ public class IniSerializerUnifiedTests
                             {
                                 var sk = reader.GetStringRaw();
                                 reader.Read();
-                                if (sk.SequenceEqual("Host"u8) && reader.TokenType == TokenType.String)
-                                    config.Server.Host = Encoding.UTF8.GetString(reader.GetStringRaw());
+                                if (
+                                    sk.SequenceEqual("Host"u8)
+                                    && reader.TokenType == TokenType.String
+                                )
+                                    config.Server.Host = Encoding
+                                        .UTF8
+                                        .GetString(reader.GetStringRaw());
                                 else if (sk.SequenceEqual("Port"u8))
                                 {
                                     reader.TryGetInt32(out var sp);
                                     config.Server.Port = sp;
                                 }
                             }
-                            else if (reader.TokenType is TokenType.ObjectStart or TokenType.ObjectEnd)
+                            else if (
+                                reader.TokenType is TokenType.ObjectStart or TokenType.ObjectEnd
+                            )
                                 break;
                         }
                     }
@@ -129,7 +136,11 @@ public class IniSerializerUnifiedTests
     [Test]
     public async Task AppConfig_RoundTrip()
     {
-        var config = new AppConfig { Title = "MyApp", Server = new ServerSection { Host = "localhost", Port = 8080 } };
+        var config = new AppConfig
+        {
+            Title = "MyApp",
+            Server = new ServerSection { Host = "localhost", Port = 8080 }
+        };
         var ser = new AppConfigIniSerializer();
         var deser = new AppConfigIniDeserializer();
         var buf = new ArrayBufferWriter<byte>(256);

@@ -87,7 +87,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (HasJsonIgnore(prop))
                 continue;
 
-            var (typeKind, isNullable, innerTypeSymbol) = PicoSerDe.Gen.TypeKindResolver.Resolve(prop.Type);
+            var (typeKind, isNullable, innerTypeSymbol) = PicoSerDe
+                .Gen
+                .TypeKindResolver
+                .Resolve(prop.Type);
             if (typeKind is null)
                 continue;
 

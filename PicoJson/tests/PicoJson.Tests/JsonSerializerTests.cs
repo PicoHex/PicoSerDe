@@ -165,13 +165,18 @@ public class JsonSerializerTests
         var tasks = new List<Task>();
         for (int i = 0; i < 10; i++)
         {
-            tasks.Add(Task.Run(() =>
-            {
-                JsonSerializer.Register(new PersonJsonSerializer(), new PersonJsonDeserializer());
-                var person = new Person { Name = "Concurrent", Age = 42 };
-                var json = JsonSerializer.Serialize(person);
-                var result = JsonSerializer.Deserialize<Person>(Encoding.UTF8.GetBytes(json));
-            }));
+            tasks.Add(
+                Task.Run(() =>
+                {
+                    JsonSerializer.Register(
+                        new PersonJsonSerializer(),
+                        new PersonJsonDeserializer()
+                    );
+                    var person = new Person { Name = "Concurrent", Age = 42 };
+                    var json = JsonSerializer.Serialize(person);
+                    var result = JsonSerializer.Deserialize<Person>(Encoding.UTF8.GetBytes(json));
+                })
+            );
         }
         await Task.WhenAll(tasks);
         await Assert.That(true).IsTrue();

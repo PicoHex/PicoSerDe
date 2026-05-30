@@ -48,12 +48,16 @@ internal static class TypeKindResolver
                     == SpecialType.System_Collections_Generic_ICollection_T
                 || ntsList.OriginalDefinition.SpecialType
                     == SpecialType.System_Collections_Generic_IEnumerable_T
-                || (ntsList.Name is "IReadOnlyList" or "IReadOnlyCollection" or "IEnumerable"
+                || (
+                    ntsList.Name is "IReadOnlyList" or "IReadOnlyCollection" or "IEnumerable"
                     && ntsList.ContainingNamespace?.ToDisplayString()
-                        == "System.Collections.Generic")
-                || (ntsList.Name == "List"
+                        == "System.Collections.Generic"
+                )
+                || (
+                    ntsList.Name == "List"
                     && ntsList.ContainingNamespace?.ToDisplayString()
-                        == "System.Collections.Generic")
+                        == "System.Collections.Generic"
+                )
             )
             {
                 var elementType = ntsList.TypeArguments[0];
@@ -93,26 +97,13 @@ internal static class TypeKindResolver
             kind = type switch
             {
                 INamedTypeSymbol { TypeKind: TypeKind.Enum } => "enum",
-                INamedTypeSymbol
-                {
-                    Name: "Guid",
-                    ContainingNamespace.Name: "System"
-                } => "guid",
-                INamedTypeSymbol
-                {
-                    Name: "DateOnly",
-                    ContainingNamespace.Name: "System"
-                } => "dateonly",
-                INamedTypeSymbol
-                {
-                    Name: "TimeOnly",
-                    ContainingNamespace.Name: "System"
-                } => "timeonly",
-                INamedTypeSymbol
-                {
-                    Name: "TimeSpan",
-                    ContainingNamespace.Name: "System"
-                } => "timespan",
+                INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" } => "guid",
+                INamedTypeSymbol { Name: "DateOnly", ContainingNamespace.Name: "System" }
+                    => "dateonly",
+                INamedTypeSymbol { Name: "TimeOnly", ContainingNamespace.Name: "System" }
+                    => "timeonly",
+                INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace.Name: "System" }
+                    => "timespan",
                 _ => null,
             };
         }

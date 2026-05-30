@@ -24,7 +24,10 @@ public class TemporalTests
             var obj = new TimeSpanModel();
             while (reader.Read())
             {
-                if (reader.TokenType == TokenType.PropertyName && reader.GetStringRaw().SequenceEqual("Duration"u8))
+                if (
+                    reader.TokenType == TokenType.PropertyName
+                    && reader.GetStringRaw().SequenceEqual("Duration"u8)
+                )
                 {
                     reader.Read();
                     obj.Duration = TimeSpan.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()));

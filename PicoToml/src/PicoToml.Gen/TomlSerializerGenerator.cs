@@ -334,14 +334,24 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     d[p.Tf] = p.NestedProps;
                     // Recursively collect deeper nested types
                     foreach (var np in p.NestedProps)
-                        if (np.Tk == "object" && !string.IsNullOrEmpty(np.Tf) && np.NestedProps.Length > 0 && !d.ContainsKey(np.Tf))
+                        if (
+                            np.Tk == "object"
+                            && !string.IsNullOrEmpty(np.Tf)
+                            && np.NestedProps.Length > 0
+                            && !d.ContainsKey(np.Tf)
+                        )
                             d[np.Tf] = np.NestedProps;
                 }
             }
         }
     }
 
-    static string ShortName(string fqn) { var n = fqn.Replace("global::", ""); var i = n.LastIndexOf('.'); return i >= 0 ? n.Substring(i + 1) : n; }
+    static string ShortName(string fqn)
+    {
+        var n = fqn.Replace("global::", "");
+        var i = n.LastIndexOf('.');
+        return i >= 0 ? n.Substring(i + 1) : n;
+    }
 
     static string GenInner(string fqn, string shortName, ImmutableArray<PropInfo> props)
     {
@@ -351,28 +361,46 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("using System; using System.Buffers; using System.Text;");
         s.AppendLine("using PicoSerDe.Core; using PicoToml;");
         var lastDot = clean.LastIndexOf('.');
-        if (lastDot > 0) { s.Append("namespace "); s.Append(clean.Substring(0, lastDot)); s.AppendLine(";"); }
-        s.AppendLine("file static class __T { internal static bool __Tk(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) { byte x = a[i], y = b[i]; if (x != y && (x | 0x20) != (y | 0x20)) return false; } return true; } }");
+        if (lastDot > 0)
+        {
+            s.Append("namespace ");
+            s.Append(clean.Substring(0, lastDot));
+            s.AppendLine(";");
+        }
+        s.AppendLine(
+            "file static class __T { internal static bool __Tk(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) { byte x = a[i], y = b[i]; if (x != y && (x | 0x20) != (y | 0x20)) return false; } return true; } }"
+        );
         s.AppendLine();
-        s.Append("internal static class "); s.Append(shortName); s.AppendLine("TomlInner {");
+        s.Append("internal static class ");
+        s.Append(shortName);
+        s.AppendLine("TomlInner {");
 
         // Serialize
-        s.Append("    internal static void Serialize(TomlWriter tw, "); s.Append(clean); s.AppendLine(" value) {");
+        s.Append("    internal static void Serialize(TomlWriter tw, ");
+        s.Append(clean);
+        s.AppendLine(" value) {");
         foreach (var p in props.OrderBy(x => x.Jn))
             EmitSerializeProp(s, p, "value", "        ");
         s.AppendLine("    }");
 
         // Deserialize
-        s.Append("    internal static "); s.Append(clean); s.AppendLine(" Deserialize(ref TomlReader r) {");
-        s.Append("        var o = new "); s.Append(clean); s.AppendLine("();");
+        s.Append("    internal static ");
+        s.Append(clean);
+        s.AppendLine(" Deserialize(ref TomlReader r) {");
+        s.Append("        var o = new ");
+        s.Append(clean);
+        s.AppendLine("();");
         s.AppendLine("        while (r.Read() && r.TokenType != TokenType.ObjectEnd) {");
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
         var sorted = props.OrderBy(x => x.Jn).ToImmutableArray();
         for (int i = 0; i < sorted.Length; i++)
         {
-            s.Append("                "); s.Append(i == 0 ? "if" : "else if");
-            s.Append(" (__T.__Tk(k, \""); s.Append(sorted[i].Jn); s.AppendLine("\"u8)) {");
+            s.Append("                ");
+            s.Append(i == 0 ? "if" : "else if");
+            s.Append(" (__T.__Tk(k, \"");
+            s.Append(sorted[i].Jn);
+            s.AppendLine("\"u8)) {");
             EmitDeserializeProp(s, sorted[i], "o", "                    ");
             s.AppendLine("                }");
         }

@@ -18,6 +18,7 @@ public class MsgPackReaderSequenceTests
     private class SeqSegment : ReadOnlySequenceSegment<byte>
     {
         public SeqSegment(byte[] data) => Memory = data;
+
         public SeqSegment Append(byte[] data)
         {
             var next = new SeqSegment(data) { RunningIndex = RunningIndex + Memory.Length };
@@ -33,7 +34,8 @@ public class MsgPackReaderSequenceTests
         TokenType tt;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); tt = reader.TokenType;
+            reader.Read();
+            tt = reader.TokenType;
         }
         await Assert.That(tt).IsEqualTo(TokenType.Null);
     }
@@ -45,7 +47,8 @@ public class MsgPackReaderSequenceTests
         int v;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); reader.TryGetInt32(out v);
+            reader.Read();
+            reader.TryGetInt32(out v);
         }
         await Assert.That(v).IsEqualTo(42);
     }
@@ -57,7 +60,8 @@ public class MsgPackReaderSequenceTests
         int v;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); reader.TryGetInt32(out v);
+            reader.Read();
+            reader.TryGetInt32(out v);
         }
         await Assert.That(v).IsEqualTo(-1);
     }
@@ -69,7 +73,8 @@ public class MsgPackReaderSequenceTests
         bool v;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); reader.TryGetBool(out v);
+            reader.Read();
+            reader.TryGetBool(out v);
         }
         await Assert.That(v).IsTrue();
     }
@@ -77,11 +82,14 @@ public class MsgPackReaderSequenceTests
     [Test]
     public async Task Sequence_FixStr()
     {
-        var seq = MakeSeq(new byte[] { 0xA5, (byte)'h', (byte)'e', (byte)'l', (byte)'l', (byte)'o' });
+        var seq = MakeSeq(
+            new byte[] { 0xA5, (byte)'h', (byte)'e', (byte)'l', (byte)'l', (byte)'o' }
+        );
         string s;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); s = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            s = Encoding.UTF8.GetString(reader.GetStringRaw());
         }
         await Assert.That(s).IsEqualTo("hello");
     }
@@ -97,7 +105,8 @@ public class MsgPackReaderSequenceTests
         string s;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); s = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            s = Encoding.UTF8.GetString(reader.GetStringRaw());
         }
         await Assert.That(s).IsEqualTo("hello");
     }
@@ -113,7 +122,8 @@ public class MsgPackReaderSequenceTests
         int v;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); reader.TryGetInt32(out v);
+            reader.Read();
+            reader.TryGetInt32(out v);
         }
         await Assert.That(v).IsEqualTo(123);
     }
@@ -123,13 +133,20 @@ public class MsgPackReaderSequenceTests
     {
         // {"a":1} = 0x81, 0xA1 'a', 0x01
         var seq = MakeSeq(new byte[] { 0x81, 0xA1, (byte)'a', 0x01 });
-        TokenType t1, t4; string k; int v;
+        TokenType t1,
+            t4;
+        string k;
+        int v;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); t1 = reader.TokenType;
-            reader.Read(); k = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); reader.TryGetInt32(out v);
-            reader.Read(); t4 = reader.TokenType;
+            reader.Read();
+            t1 = reader.TokenType;
+            reader.Read();
+            k = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            reader.TryGetInt32(out v);
+            reader.Read();
+            t4 = reader.TokenType;
         }
         await Assert.That(t1).IsEqualTo(TokenType.ObjectStart);
         await Assert.That(k).IsEqualTo("a");
@@ -142,14 +159,23 @@ public class MsgPackReaderSequenceTests
     {
         // [1,2,3] = 0x93, 0x01, 0x02, 0x03
         var seq = MakeSeq(new byte[] { 0x93, 0x01, 0x02, 0x03 });
-        TokenType t1, t5; int v1, v2, v3;
+        TokenType t1,
+            t5;
+        int v1,
+            v2,
+            v3;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); t1 = reader.TokenType;
-            reader.Read(); reader.TryGetInt32(out v1);
-            reader.Read(); reader.TryGetInt32(out v2);
-            reader.Read(); reader.TryGetInt32(out v3);
-            reader.Read(); t5 = reader.TokenType;
+            reader.Read();
+            t1 = reader.TokenType;
+            reader.Read();
+            reader.TryGetInt32(out v1);
+            reader.Read();
+            reader.TryGetInt32(out v2);
+            reader.Read();
+            reader.TryGetInt32(out v3);
+            reader.Read();
+            t5 = reader.TokenType;
         }
         await Assert.That(t1).IsEqualTo(TokenType.ArrayStart);
         await Assert.That(v1).IsEqualTo(1);
@@ -169,7 +195,8 @@ public class MsgPackReaderSequenceTests
         int v;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); reader.TryGetInt32(out v);
+            reader.Read();
+            reader.TryGetInt32(out v);
         }
         await Assert.That(v).IsEqualTo(42);
     }
@@ -181,7 +208,8 @@ public class MsgPackReaderSequenceTests
         int v;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); reader.TryGetInt32(out v);
+            reader.Read();
+            reader.TryGetInt32(out v);
         }
         await Assert.That(v).IsEqualTo(255);
     }
@@ -190,13 +218,19 @@ public class MsgPackReaderSequenceTests
     public async Task Sequence_Str8()
     {
         var data = new byte[3 + 5];
-        data[0] = 0xD9; data[1] = 5;
-        data[2] = (byte)'h'; data[3] = (byte)'e'; data[4] = (byte)'l'; data[5] = (byte)'l'; data[6] = (byte)'o';
+        data[0] = 0xD9;
+        data[1] = 5;
+        data[2] = (byte)'h';
+        data[3] = (byte)'e';
+        data[4] = (byte)'l';
+        data[5] = (byte)'l';
+        data[6] = (byte)'o';
         var seq = MakeSeq(data);
         string s;
         using (var reader = new MsgPackReader(seq))
         {
-            reader.Read(); s = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            s = Encoding.UTF8.GetString(reader.GetStringRaw());
         }
         await Assert.That(s).IsEqualTo("hello");
     }
@@ -207,14 +241,19 @@ public class MsgPackReaderSequenceTests
         var person = new PersonMsgPack { Name = "Alice", Age = 30 };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(person);
         var seq = MakeSeq(bytes);
-        string name; int age;
+        string name;
+        int age;
         using (var reader = new MsgPackReader(seq))
         {
             reader.Read(); // ObjectStart
-            reader.Read(); reader.TryGetInt32(out _); // key0
-            reader.Read(); name = Encoding.UTF8.GetString(reader.GetStringRaw());
-            reader.Read(); reader.TryGetInt32(out _); // key1
-            reader.Read(); reader.TryGetInt32(out age);
+            reader.Read();
+            reader.TryGetInt32(out _); // key0
+            reader.Read();
+            name = Encoding.UTF8.GetString(reader.GetStringRaw());
+            reader.Read();
+            reader.TryGetInt32(out _); // key1
+            reader.Read();
+            reader.TryGetInt32(out age);
         }
         await Assert.That(name).IsEqualTo("Alice");
         await Assert.That(age).IsEqualTo(30);
@@ -226,10 +265,12 @@ public class MsgPackReaderSequenceTests
     public async Task Bin8_ReturnsBytes()
     {
         var data = new byte[] { 0xC4, 0x03, 0x01, 0x02, 0x03 };
-        TokenType tt; bool eq;
+        TokenType tt;
+        bool eq;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); tt = reader.TokenType;
+            reader.Read();
+            tt = reader.TokenType;
             eq = reader.GetStringRaw().SequenceEqual(new byte[] { 1, 2, 3 });
         }
         await Assert.That(tt).IsEqualTo(TokenType.Bytes);
@@ -240,11 +281,16 @@ public class MsgPackReaderSequenceTests
     public async Task Bin16_ReturnsBytes()
     {
         var data = new byte[5];
-        data[0] = 0xC5; data[1] = 0x00; data[2] = 0x02; data[3] = 0xAB; data[4] = 0xCD;
+        data[0] = 0xC5;
+        data[1] = 0x00;
+        data[2] = 0x02;
+        data[3] = 0xAB;
+        data[4] = 0xCD;
         int len;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); len = reader.GetStringRaw().Length;
+            reader.Read();
+            len = reader.GetStringRaw().Length;
         }
         await Assert.That(len).IsEqualTo(2);
     }
@@ -253,10 +299,13 @@ public class MsgPackReaderSequenceTests
     public async Task FixExt1_ReturnsExtension()
     {
         var data = new byte[] { 0xD4, 0x07, 0x42 };
-        TokenType tt; byte tag; int elen;
+        TokenType tt;
+        byte tag;
+        int elen;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); tt = reader.TokenType;
+            reader.Read();
+            tt = reader.TokenType;
             reader.TryGetExtension(out tag, out var extData);
             elen = extData.Length;
         }
@@ -270,10 +319,13 @@ public class MsgPackReaderSequenceTests
     {
         // ext8(3), tag=7, data=[1,2,3]
         var data = new byte[] { 0xC7, 0x03, 0x07, 0x01, 0x02, 0x03 };
-        TokenType tt; byte tag; int elen;
+        TokenType tt;
+        byte tag;
+        int elen;
         using (var reader = new MsgPackReader(data))
         {
-            reader.Read(); tt = reader.TokenType;
+            reader.Read();
+            tt = reader.TokenType;
             reader.TryGetExtension(out tag, out var extData);
             elen = extData.Length;
         }

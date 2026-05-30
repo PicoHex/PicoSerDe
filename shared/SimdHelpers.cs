@@ -43,8 +43,7 @@ internal static class SimdHelpers
 
         // Scalar fallback
         while (
-            position < len
-            && data[position] is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r'
+            position < len && data[position] is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r'
         )
         {
             position++;
