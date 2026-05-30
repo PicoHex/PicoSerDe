@@ -53,6 +53,54 @@ public ref struct YamlWriter
         WriteNewLine();
     }
 
+    public void WriteString(scoped ReadOnlySpan<char> value)
+    {
+        if (_afterKey)
+        {
+            WriteByte((byte)' ');
+            _afterKey = false;
+        }
+        int max = Encoding.UTF8.GetMaxByteCount(value.Length);
+        if (max <= 256)
+        {
+            Span<byte> buf = stackalloc byte[max];
+            int w = Encoding.UTF8.GetBytes(value, buf);
+            var slice = buf[..w];
+            if (NeedsQuoting(slice))
+            {
+                _buffer.Write("\""u8);
+                _bytesWritten++;
+                _buffer.Write(slice);
+                _bytesWritten += w;
+                _buffer.Write("\""u8);
+                _bytesWritten++;
+            }
+            else
+            {
+                _buffer.Write(slice);
+                _bytesWritten += w;
+            }
+        }
+        else
+        {
+            var bytes = Encoding.UTF8.GetBytes(value.ToArray());
+            if (NeedsQuoting(bytes))
+            {
+                _buffer.Write("\""u8);
+                _bytesWritten++;
+                WriteEscaped(bytes);
+                _buffer.Write("\""u8);
+                _bytesWritten++;
+            }
+            else
+            {
+                _buffer.Write(bytes);
+                _bytesWritten += bytes.Length;
+            }
+        }
+        WriteNewLine();
+    }
+
     public void WriteNumber(int value)
     {
         if (_afterKey)

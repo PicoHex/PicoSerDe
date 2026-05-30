@@ -470,9 +470,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         switch (p.TypeKind)
         {
             case "string":
-                s.Append("Encoding.UTF8.GetBytes(");
                 s.Append(acc);
-                s.Append(')');
                 break;
             // All other types: pass raw value — IniWriter has typed overloads
             case "int32":

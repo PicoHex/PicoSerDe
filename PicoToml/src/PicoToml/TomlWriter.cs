@@ -36,7 +36,42 @@ public ref struct TomlWriter
     {
         WriteKey(Encoding.UTF8.GetBytes(key));
         WriteRaw(" = \""u8);
-        WriteRaw(Encoding.UTF8.GetBytes(value));
+        int max = Encoding.UTF8.GetMaxByteCount(value.Length);
+        if (max <= 256)
+        {
+            Span<byte> buf = stackalloc byte[max];
+            int w = Encoding.UTF8.GetBytes(value.AsSpan(), buf);
+            _buffer.Write(buf[..w]);
+            _bytesWritten += w;
+        }
+        else
+        {
+            var bytes = Encoding.UTF8.GetBytes(value);
+            _buffer.Write(bytes);
+            _bytesWritten += bytes.Length;
+        }
+        WriteByte((byte)'"');
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(string key, scoped ReadOnlySpan<char> value)
+    {
+        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = \""u8);
+        int max = Encoding.UTF8.GetMaxByteCount(value.Length);
+        if (max <= 256)
+        {
+            Span<byte> buf = stackalloc byte[max];
+            int w = Encoding.UTF8.GetBytes(value, buf);
+            _buffer.Write(buf[..w]);
+            _bytesWritten += w;
+        }
+        else
+        {
+            var bytes = Encoding.UTF8.GetBytes(value.ToArray());
+            _buffer.Write(bytes);
+            _bytesWritten += bytes.Length;
+        }
         WriteByte((byte)'"');
         WriteNewLine();
     }
