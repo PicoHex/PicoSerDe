@@ -17,7 +17,7 @@
         <ProjectReference Include="..\..\src\PicoMsgPack\PicoMsgPack.csproj" />
         <ProjectReference Include="..\..\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"
                           OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-        <ProjectReference Include="..\..\..\PicoSerDe.Abs\src\PicoSerDe.Abs.csproj" />
+        <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
     </ItemGroup>
 
 </Project>

@@ -37,7 +37,7 @@ jobs:
           rm -rf ./artifacts/nupkg
           mkdir -p ./artifacts/nupkg
 
-          dotnet pack PicoSerDe.Abs/src/PicoSerDe.Abs.csproj \
+          dotnet pack PicoSerDe.Core/src/PicoSerDe.Core.csproj \
             --configuration Release \
             --output ./artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \

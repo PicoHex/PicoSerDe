@@ -19,7 +19,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\..\PicoSerDe.Abs\src\PicoSerDe.Abs.csproj" />
+        <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
     </ItemGroup>
 
     <ItemGroup>

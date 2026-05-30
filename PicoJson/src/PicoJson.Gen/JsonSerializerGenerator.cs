@@ -87,7 +87,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (HasJsonIgnore(prop))
                 continue;
 
-            var (typeKind, isNullable, innerTypeSymbol) = TypeKindResolver.Resolve(prop.Type);
+            var (typeKind, isNullable, innerTypeSymbol) = PicoSerDe.Gen.TypeKindResolver.Resolve(prop.Type);
             if (typeKind is null)
                 continue;
 
@@ -107,11 +107,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 else
                     continue;
 
-                var (ek, _, _) = TypeKindResolver.Resolve(elementType);
+                var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(elementType);
                 if (ek is null)
                     continue;
                 elementTypeKind = ek;
-                elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
+                elementTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek, elementType);
                 if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
                     nestedProperties = ExtractNestedProperties(eNtsObj, useCamelCase);
             }
@@ -121,14 +121,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 {
                     var keyType = ntsDict.TypeArguments[0];
                     var valType = ntsDict.TypeArguments[1];
-                    var (kk, _, _) = TypeKindResolver.Resolve(keyType);
-                    var (vk, _, _) = TypeKindResolver.Resolve(valType);
+                    var (kk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(keyType);
+                    var (vk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(valType);
                     if (kk is null || vk is null)
                         continue;
                     keyTypeKind = kk;
-                    keyTypeName = TypeKindResolver.MapTypeName(kk, keyType);
+                    keyTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(kk, keyType);
                     elementTypeKind = vk;
-                    elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
+                    elementTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vk, valType);
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
                         nestedProperties = ExtractNestedProperties(vNtsObj);
                 }
@@ -190,7 +190,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (HasJsonIgnore(prop))
                 continue;
 
-            var (typeKind, isNullable, _) = TypeKindResolver.Resolve(prop.Type);
+            var (typeKind, isNullable, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(prop.Type);
             if (typeKind is null)
                 continue;
 
@@ -210,11 +210,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 else
                     continue;
 
-                var (ek, _, _) = TypeKindResolver.Resolve(elementType);
+                var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(elementType);
                 if (ek is null)
                     continue;
                 elementTypeKind = ek;
-                elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
+                elementTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek, elementType);
                 if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
                     nestedProperties = ExtractNestedProperties(eNtsObj, useCamelCase);
             }
@@ -224,14 +224,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 {
                     var keyType = ntsDict.TypeArguments[0];
                     var valType = ntsDict.TypeArguments[1];
-                    var (kk, _, _) = TypeKindResolver.Resolve(keyType);
-                    var (vk, _, _) = TypeKindResolver.Resolve(valType);
+                    var (kk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(keyType);
+                    var (vk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(valType);
                     if (kk is null || vk is null)
                         continue;
                     keyTypeKind = kk;
-                    keyTypeName = TypeKindResolver.MapTypeName(kk, keyType);
+                    keyTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(kk, keyType);
                     elementTypeKind = vk;
-                    elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
+                    elementTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vk, valType);
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
                         nestedProperties = ExtractNestedProperties(vNtsObj);
                 }
@@ -461,7 +461,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Buffers;");
         sb.AppendLine("using System.Text;");
-        sb.AppendLine("using PicoSerDe.Abs;");
+        sb.AppendLine("using PicoSerDe.Core;");
         sb.AppendLine("using PicoJson;");
 
         // Extract namespace from fullName
@@ -542,7 +542,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Buffers;");
         sb.AppendLine("using System.Text;");
-        sb.AppendLine("using PicoSerDe.Abs;");
+        sb.AppendLine("using PicoSerDe.Core;");
         sb.AppendLine("using PicoJson;");
 
         if (!string.IsNullOrEmpty(type.Namespace))

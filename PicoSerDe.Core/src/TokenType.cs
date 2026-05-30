@@ -1,4 +1,4 @@
-namespace PicoSerDe.Abs;
+namespace PicoSerDe.Core;
 
 public enum TokenType
 {

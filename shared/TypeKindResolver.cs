@@ -1,8 +1,20 @@
-namespace PicoJson.Gen;
+// Unified TypeKindResolver — shared across all 5 format source generators
+// Each SG project includes this file via <Compile Include>
+
+using Microsoft.CodeAnalysis;
+
+namespace PicoSerDe.Gen;
 
 internal static class TypeKindResolver
 {
-    public static (string? Kind, bool IsNullable, ITypeSymbol? InnerType) Resolve(ITypeSymbol type)
+    /// <param name="format">
+    /// Format hint: "json" | "ini" | "msgpack" | "toml" | "yaml".
+    /// Used for format-specific type mapping (e.g., byte[] → "bytes" in MsgPack).
+    /// </param>
+    public static (string? Kind, bool IsNullable, ITypeSymbol? InnerType) Resolve(
+        ITypeSymbol type,
+        string format = ""
+    )
     {
         // Nullable<T>
         if (
@@ -13,15 +25,20 @@ internal static class TypeKindResolver
         )
         {
             var inner = ntsNullable.TypeArguments[0];
-            var (innerKind, _, _) = Resolve(inner);
+            var (innerKind, _, _) = Resolve(inner, format);
             return (innerKind, true, inner);
         }
 
         // T[]
-        if (type is IArrayTypeSymbol)
+        if (type is IArrayTypeSymbol arr)
+        {
+            // MsgPack-specific: byte[] → "bytes"
+            if (format == "msgpack" && arr.ElementType.SpecialType == SpecialType.System_Byte)
+                return ("bytes", false, null);
             return ("array", false, null);
+        }
 
-        // List<T>
+        // List<T>, IList<T>, ICollection<T>, IEnumerable<T>, IReadOnlyList<T>, IReadOnlyCollection<T>
         if (type is INamedTypeSymbol ntsList && ntsList.TypeArguments.Length == 1)
         {
             if (
@@ -31,35 +48,16 @@ internal static class TypeKindResolver
                     == SpecialType.System_Collections_Generic_ICollection_T
                 || ntsList.OriginalDefinition.SpecialType
                     == SpecialType.System_Collections_Generic_IEnumerable_T
+                || (ntsList.Name is "IReadOnlyList" or "IReadOnlyCollection" or "IEnumerable"
+                    && ntsList.ContainingNamespace?.ToDisplayString()
+                        == "System.Collections.Generic")
+                || (ntsList.Name == "List"
+                    && ntsList.ContainingNamespace?.ToDisplayString()
+                        == "System.Collections.Generic")
             )
             {
                 var elementType = ntsList.TypeArguments[0];
-                var (ek, _, _) = Resolve(elementType);
-                if (ek is null)
-                    return (null, false, null);
-                return ("list", false, null);
-            }
-
-            // Check by name for List<T> (Roslyn doesn't have a SpecialType for List<T>)
-            if (
-                ntsList.Name == "List"
-                && ntsList.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic"
-            )
-                return ("list", false, null);
-        }
-
-        // IReadOnlyList<T>, IReadOnlyCollection<T>, IEnumerable<T> → list
-        if (type is INamedTypeSymbol ntsRoList && ntsRoList.TypeArguments.Length == 1)
-        {
-            var roName = ntsRoList.Name;
-            var roNs = ntsRoList.ContainingNamespace?.ToDisplayString() ?? "";
-            if (
-                (roName is "IReadOnlyList" or "IReadOnlyCollection" or "IEnumerable")
-                && roNs == "System.Collections.Generic"
-            )
-            {
-                var elementType = ntsRoList.TypeArguments[0];
-                var (ek, _, _) = Resolve(elementType);
+                var (ek, _, _) = Resolve(elementType, format);
                 if (ek is null)
                     return (null, false, null);
                 return ("list", false, null);
@@ -95,13 +93,26 @@ internal static class TypeKindResolver
             kind = type switch
             {
                 INamedTypeSymbol { TypeKind: TypeKind.Enum } => "enum",
-                INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" } => "guid",
-                INamedTypeSymbol { Name: "DateOnly", ContainingNamespace.Name: "System" }
-                    => "dateonly",
-                INamedTypeSymbol { Name: "TimeOnly", ContainingNamespace.Name: "System" }
-                    => "timeonly",
-                INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace.Name: "System" }
-                    => "timespan",
+                INamedTypeSymbol
+                {
+                    Name: "Guid",
+                    ContainingNamespace.Name: "System"
+                } => "guid",
+                INamedTypeSymbol
+                {
+                    Name: "DateOnly",
+                    ContainingNamespace.Name: "System"
+                } => "dateonly",
+                INamedTypeSymbol
+                {
+                    Name: "TimeOnly",
+                    ContainingNamespace.Name: "System"
+                } => "timeonly",
+                INamedTypeSymbol
+                {
+                    Name: "TimeSpan",
+                    ContainingNamespace.Name: "System"
+                } => "timespan",
                 _ => null,
             };
         }
@@ -148,6 +159,7 @@ internal static class TypeKindResolver
             "timespan" => "System.TimeSpan",
             "guid" => "System.Guid",
             "decimal" => "decimal",
+            "bytes" => "byte[]",
             "enum" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "object" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             _ => "object",

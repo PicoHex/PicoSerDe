@@ -2,7 +2,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
-namespace PicoSerDe.Abs;
+namespace PicoSerDe.Core;
 
 internal static class SimdHelpers
 {

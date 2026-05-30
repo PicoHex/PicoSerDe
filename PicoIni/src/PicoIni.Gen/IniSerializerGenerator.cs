@@ -80,7 +80,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             if (HasAttr(p, "IniIgnoreAttribute"))
                 continue;
 
-            var (kind, nullable, inner) = TypeKindResolver.Resolve(p.Type);
+            var (kind, nullable, inner) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
             if (kind is null)
                 continue;
 
@@ -100,11 +100,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 };
                 if (et is not null)
                 {
-                    var (ek, _, _) = TypeKindResolver.Resolve(et);
+                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
                     if (ek is not null)
                     {
                         elemKind = ek;
-                        elemName = TypeKindResolver.MapTypeName(ek, et);
+                        elemName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek, et);
                     }
                 }
             }
@@ -114,14 +114,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 && nd.TypeArguments.Length == 2
             )
             {
-                var (kk, _, _) = TypeKindResolver.Resolve(nd.TypeArguments[0]);
-                var (vk, _, _) = TypeKindResolver.Resolve(nd.TypeArguments[1]);
+                var (kk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(nd.TypeArguments[0]);
+                var (vk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(nd.TypeArguments[1]);
                 if (kk is not null && vk is not null)
                 {
                     keyKind = kk;
-                    keyName = TypeKindResolver.MapTypeName(kk, nd.TypeArguments[0]);
+                    keyName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(kk, nd.TypeArguments[0]);
                     elemKind = vk;
-                    elemName = TypeKindResolver.MapTypeName(vk, nd.TypeArguments[1]);
+                    elemName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vk, nd.TypeArguments[1]);
                 }
             }
             else if (kind is "object" && p.Type is INamedTypeSymbol onts)
@@ -255,7 +255,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 continue;
             if (HasAttr(p, "IniIgnoreAttribute"))
                 continue;
-            var (k, n, _) = TypeKindResolver.Resolve(p.Type);
+            var (k, n, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
             if (k is null)
                 continue;
             list.Add(
@@ -298,7 +298,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine(
             "using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;"
         );
-        s.AppendLine("using PicoSerDe.Abs; using PicoIni;");
+        s.AppendLine("using PicoSerDe.Core; using PicoIni;");
         if (!string.IsNullOrEmpty(type.Namespace))
         {
             s.Append("using ");

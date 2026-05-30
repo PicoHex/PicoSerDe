@@ -1,4 +1,4 @@
-namespace PicoSerDe.Abs;
+namespace PicoSerDe.Core;
 
 public interface ISerializer<T>
 {

@@ -67,7 +67,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             if (HasYamlIgnore(p))
                 continue;
             var converterType = GetYamlConverter(p);
-            var (k, isNullable, _) = TypeKindResolver.Resolve(p.Type);
+            var (k, isNullable, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
             if (converterType is not null)
                 k = "string";
             if (k is null)
@@ -84,16 +84,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
                 {
                     var et = nts.TypeArguments[0];
-                    var (ek, _, _) = TypeKindResolver.Resolve(et);
+                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
                     elemTk = ek;
-                    elemTf = TypeKindResolver.MapTypeName(ek ?? "string", et);
+                    elemTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
                 }
                 else if (p.Type is IArrayTypeSymbol ats)
                 {
                     var et = ats.ElementType;
-                    var (ek, _, _) = TypeKindResolver.Resolve(et);
+                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
                     elemTk = ek;
-                    elemTf = TypeKindResolver.MapTypeName(ek ?? "string", et);
+                    elemTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
                 }
             }
             else if (k is "object" && p.Type is INamedTypeSymbol objNts)
@@ -104,12 +104,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             {
                 var kt = nd.TypeArguments[0];
                 var vt = nd.TypeArguments[1];
-                var (ktk, _, _) = TypeKindResolver.Resolve(kt);
-                var (vtk, _, _) = TypeKindResolver.Resolve(vt);
+                var (ktk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(kt);
+                var (vtk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(vt);
                 keyTk = ktk;
-                keyTf = TypeKindResolver.MapTypeName(ktk ?? "string", kt);
+                keyTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ktk ?? "string", kt);
                 elemTk = vtk;
-                elemTf = TypeKindResolver.MapTypeName(vtk ?? "string", vt);
+                elemTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vtk ?? "string", vt);
             }
 
             props.Add(
@@ -235,7 +235,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             if (HasYamlIgnore(p))
                 continue;
             var nestedConverter = GetYamlConverter(p);
-            var (k, isNullable, _) = TypeKindResolver.Resolve(p.Type);
+            var (k, isNullable, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
             if (nestedConverter is not null)
                 k = "string";
             if (k is null)
@@ -248,16 +248,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
                 {
                     var et = nts.TypeArguments[0];
-                    var (ek, _, _) = TypeKindResolver.Resolve(et);
+                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
                     ekt = ek;
-                    etf = TypeKindResolver.MapTypeName(ek ?? "string", et);
+                    etf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
                 }
                 else if (p.Type is IArrayTypeSymbol ats)
                 {
                     var et = ats.ElementType;
-                    var (ek, _, _) = TypeKindResolver.Resolve(et);
+                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
                     ekt = ek;
-                    etf = TypeKindResolver.MapTypeName(ek ?? "string", et);
+                    etf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
                 }
             }
             else if (k is "object" && p.Type is INamedTypeSymbol o2)
@@ -387,7 +387,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "using System; using System.Buffers; using System.Text; using System.Globalization;"
         );
-        sb.AppendLine("using PicoSerDe.Abs; using PicoYaml;");
+        sb.AppendLine("using PicoSerDe.Core; using PicoYaml;");
 
         var lastDot = fullName.LastIndexOf('.');
         if (lastDot > 0)
@@ -730,7 +730,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;"
         );
-        sb.AppendLine("using PicoSerDe.Abs; using PicoYaml;");
+        sb.AppendLine("using PicoSerDe.Core; using PicoYaml;");
         if (!string.IsNullOrEmpty(t.Ns))
         {
             sb.AppendLine();

@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace PicoSerDe.Abs;
+namespace PicoSerDe.Core;
 
 public static class TextHelpers
 {

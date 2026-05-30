@@ -64,7 +64,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 continue;
 
             var converterType = GetConverter(p);
-            var (kind, nullable, inner) = TypeKindResolver.Resolve(p.Type);
+            var (kind, nullable, inner) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type, "msgpack");
             // If converter is present, override kind to string for generic serialization
             if (converterType is not null)
                 kind = "string";
@@ -86,11 +86,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 };
                 if (et is not null)
                 {
-                    var (kk, _, _) = TypeKindResolver.Resolve(et);
+                    var (kk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et, "msgpack");
                     if (kk is not null)
                     {
                         ek = kk;
-                        en = TypeKindResolver.MapTypeName(kk, et);
+                        en = PicoSerDe.Gen.TypeKindResolver.MapTypeName(kk, et);
                         if (kk == "object" && et is INamedTypeSymbol eo)
                             nested = ExtractNested(eo);
                     }
@@ -102,11 +102,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 && nd.TypeArguments.Length == 2
             )
             {
-                var (vk, _, _) = TypeKindResolver.Resolve(nd.TypeArguments[1]);
+                var (vk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(nd.TypeArguments[1]);
                 if (vk is not null)
                 {
                     ek = vk;
-                    en = TypeKindResolver.MapTypeName(vk, nd.TypeArguments[1]);
+                    en = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vk, nd.TypeArguments[1]);
                 }
             }
             else if (kind == "object" && p.Type is INamedTypeSymbol onts)
@@ -154,7 +154,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 continue;
             if (p.GetMethod is null || HasAttr(p, "MsgPackIgnoreAttribute"))
                 continue;
-            var (k, n, _) = TypeKindResolver.Resolve(p.Type);
+            var (k, n, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type, "msgpack");
             if (k is null)
                 continue;
             l.Add(
@@ -227,7 +227,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine(
             "using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;"
         );
-        s.AppendLine("using System.Collections.Generic; using PicoSerDe.Abs; using PicoMsgPack;");
+        s.AppendLine("using System.Collections.Generic; using PicoSerDe.Core; using PicoMsgPack;");
         if (!string.IsNullOrEmpty(type.Namespace))
         {
             s.Append("using ");

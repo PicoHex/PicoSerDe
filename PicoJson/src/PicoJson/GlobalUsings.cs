@@ -6,5 +6,5 @@ global using System.Runtime.CompilerServices;
 global using System.Runtime.InteropServices;
 global using System.Runtime.Intrinsics;
 global using System.Text;
-global using PicoSerDe.Abs;
-global using static PicoSerDe.Abs.TextHelpers;
+global using PicoSerDe.Core;
+global using static PicoSerDe.Core.TextHelpers;

@@ -1,6 +1,6 @@
 #pragma warning disable TUnitAssertions0005 // Assert.That with constant value is intentional here
 
-namespace PicoSerDe.Abs.Tests;
+namespace PicoSerDe.Core.Tests;
 
 public class TokenTypeTests
 {

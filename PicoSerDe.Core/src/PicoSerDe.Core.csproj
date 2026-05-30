@@ -8,9 +8,9 @@
         <IsAotCompatible>true</IsAotCompatible>
         <IsTrimmable>true</IsTrimmable>
         <IsPackable>true</IsPackable>
-        <PackageId>PicoSerDe.Abs</PackageId>
-        <Description>PicoSerDe abstractions — shared serialization contracts and token layer for the PicoHex ecosystem</Description>
-        <PackageTags>PicoHex;Serialization;AOT;Serialization Injection;Abstractions</PackageTags>
+        <PackageId>PicoSerDe.Core</PackageId>
+        <Description>PicoSerDe Core — shared serialization infrastructure, contracts, and utilities for the PicoHex ecosystem</Description>
+        <PackageTags>PicoHex;Serialization;AOT;Core</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
 
@@ -19,7 +19,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <InternalsVisibleTo Include="PicoSerDe.Abs.Tests" />
+        <InternalsVisibleTo Include="PicoSerDe.Core.Tests" />
     </ItemGroup>
 
     <ItemGroup>

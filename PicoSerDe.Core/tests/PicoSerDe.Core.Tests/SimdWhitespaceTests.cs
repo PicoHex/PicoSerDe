@@ -1,4 +1,4 @@
-namespace PicoSerDe.Abs.Tests;
+namespace PicoSerDe.Core.Tests;
 
 public class SimdWhitespaceTests
 {
