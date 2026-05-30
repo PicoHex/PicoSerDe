@@ -26,8 +26,13 @@ public static partial class JsonSerializer
         return default!;
     }
 
-    public static string Serialize<T>(T value) =>
-        Encoding.UTF8.GetString(SerializeToUtf8Bytes(value));
+    public static string Serialize<T>(T value)
+    {
+        if (Cache<T>.Serializer is { } s)
+            return s.SerializeToString(value);
+        SerializerExtensions.ThrowNoSerializer<T>("PicoJson.Gen");
+        return "";
+    }
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
     {

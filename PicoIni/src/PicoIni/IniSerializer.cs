@@ -29,11 +29,7 @@ public static partial class IniSerializer
     public static string Serialize<T>(T value)
     {
         if (Cache<T>.Serializer is { } s)
-        {
-            var writer = SerializerExtensions.RentWriter();
-            s.Serialize(writer, value);
-            return Encoding.UTF8.GetString(writer.WrittenSpan);
-        }
+            return s.SerializeToString(value);
         SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
         return "";
     }
