@@ -325,7 +325,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 continue;
             s.Append("        iw.WriteKeyValue(\"");
             s.Append(p.JsonName);
-            s.Append("\", ");
+            s.Append("\"u8, ");
             WriteValue(s, p, $"value.{p.Name}");
             s.AppendLine(");");
         }
@@ -346,7 +346,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             {
                 s.Append("        iw.WriteKeyValue(\"");
                 s.Append(np.JsonName);
-                s.Append("\", ");
+                s.Append("\"u8, ");
                 WriteValue(s, np, $"value.{p.Name}.{np.Name}");
                 s.AppendLine(");");
             }

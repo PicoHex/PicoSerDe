@@ -230,6 +230,110 @@ public ref struct IniWriter
         WriteNewLine();
     }
 
+    // ── utf8 key overloads for remaining value types ──
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, DateTime value)
+    {
+        WriteRaw(utf8Key);
+        WriteRaw(" = "u8);
+        Span<byte> buf = stackalloc byte[64];
+        Utf8Formatter.TryFormat(value, buf, out var w, 'O');
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, double value)
+    {
+        WriteRaw(utf8Key);
+        WriteRaw(" = "u8);
+        Span<byte> buf = stackalloc byte[32];
+        value.TryFormat(buf, out var w);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, decimal value)
+    {
+        WriteRaw(utf8Key);
+        WriteRaw(" = "u8);
+        Span<byte> buf = stackalloc byte[64];
+        value.TryFormat(buf, out var w);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, Guid value)
+    {
+        WriteRaw(utf8Key);
+        WriteRaw(" = "u8);
+        Span<byte> buf = stackalloc byte[64];
+        Utf8Formatter.TryFormat(value, buf, out var w, 'D');
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, TimeSpan value)
+    {
+        WriteRaw(utf8Key);
+        WriteRaw(" = "u8);
+        Span<byte> buf = stackalloc byte[64];
+        Utf8Formatter.TryFormat(value, buf, out var w, 'c');
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, DateOnly value)
+    {
+        WriteRaw(utf8Key);
+        WriteRaw(" = "u8);
+        Span<char> cbuf = stackalloc char[32];
+        value.TryFormat(cbuf, out var cw, "O");
+        Span<byte> buf = stackalloc byte[64];
+        int bw = Encoding.UTF8.GetBytes(cbuf[..cw], buf);
+        _buffer.Write(buf[..bw]);
+        _bytesWritten += bw;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, TimeOnly value)
+    {
+        WriteRaw(utf8Key);
+        WriteRaw(" = "u8);
+        Span<char> cbuf = stackalloc char[32];
+        value.TryFormat(cbuf, out var cw, "O");
+        Span<byte> buf = stackalloc byte[64];
+        int bw = Encoding.UTF8.GetBytes(cbuf[..cw], buf);
+        _buffer.Write(buf[..bw]);
+        _bytesWritten += bw;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, scoped ReadOnlySpan<char> value)
+    {
+        WriteRaw(utf8Key);
+        WriteRaw(" = "u8);
+        int max = Encoding.UTF8.GetMaxByteCount(value.Length);
+        if (max <= 256)
+        {
+            Span<byte> buf = stackalloc byte[max];
+            int w = Encoding.UTF8.GetBytes(value, buf);
+            _buffer.Write(buf[..w]);
+            _bytesWritten += w;
+        }
+        else
+        {
+            var bytes = Encoding.UTF8.GetBytes(value.ToArray());
+            _buffer.Write(bytes);
+            _bytesWritten += bytes.Length;
+        }
+        WriteNewLine();
+    }
+
     // ── Private helpers ──
 
     private void WriteKey(ReadOnlySpan<byte> utf8Key)
