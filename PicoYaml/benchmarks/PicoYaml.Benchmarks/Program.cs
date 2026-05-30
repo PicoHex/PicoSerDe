@@ -9,28 +9,9 @@ Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}
 Console.WriteLine(new string('=', 60));
 Console.WriteLine();
 
-var yamlSerializer = new SerializerBuilder()
-    .WithNamingConvention(NullNamingConvention.Instance)
-    .Build();
-var yamlDeserializer = new DeserializerBuilder()
-    .WithNamingConvention(NullNamingConvention.Instance)
-    .Build();
+var yamlSer = new SerializerBuilder().WithNamingConvention(NullNamingConvention.Instance).Build();
 
 var simple = new SimplePoco { Name = "Hello World", Age = 42 };
-var simpleBytes = YamlSerializer.SerializeToUtf8Bytes(simple);
-
-var complex = new ComplexPoco
-{
-    Id = Guid.NewGuid(),
-    Title = "Benchmark",
-    Price = 149.99m,
-    CreatedAt = DateTime.UtcNow,
-    Day = DayOfWeek.Friday,
-    Rating = 4.5,
-    IsActive = true
-};
-var complexBytes = YamlSerializer.SerializeToUtf8Bytes(complex);
-
 var nested = new NestedPoco
 {
     Id = 1,
@@ -43,74 +24,52 @@ var nested = new NestedPoco
     },
     Tags = new List<string> { "dev", "bench" }
 };
-var nestedBytes = YamlSerializer.SerializeToUtf8Bytes(nested);
-
 var collection = new CollectionPoco
 {
     Scores = Enumerable.Range(0, 100).ToList(),
     Metadata = new() { ["source"] = "benchmark" }
 };
-var colBytes = YamlSerializer.SerializeToUtf8Bytes(collection);
 
-var results = new List<ComparisonResult>
-{
+var results = new List<ComparisonResult>();
+results.Add(
     Benchmark.Compare(
         "Simple — Serialize",
         "PicoYaml",
         () => YamlSerializer.SerializeToUtf8Bytes(simple),
         "YamlDotNet",
-        () => Encoding.UTF8.GetBytes(yamlSerializer.Serialize(simple))
-    ),
-    Benchmark.Compare(
-        "Simple — Deserialize",
-        "PicoYaml",
-        () => YamlSerializer.Deserialize<SimplePoco>(simpleBytes),
-        "YamlDotNet",
-        () => yamlDeserializer.Deserialize<SimplePoco>(Encoding.UTF8.GetString(simpleBytes))
-    ),
-    Benchmark.Compare(
-        "Complex — Serialize",
-        "PicoYaml",
-        () => YamlSerializer.SerializeToUtf8Bytes(complex),
-        "YamlDotNet",
-        () => Encoding.UTF8.GetBytes(yamlSerializer.Serialize(complex))
-    ),
-    Benchmark.Compare(
-        "Complex — Deserialize",
-        "PicoYaml",
-        () => YamlSerializer.Deserialize<ComplexPoco>(complexBytes),
-        "YamlDotNet",
-        () => yamlDeserializer.Deserialize<ComplexPoco>(Encoding.UTF8.GetString(complexBytes))
-    ),
+        () => Encoding.UTF8.GetBytes(yamlSer.Serialize(simple))
+    )
+);
+results.Add(
     Benchmark.Compare(
         "Nested — Serialize",
         "PicoYaml",
         () => YamlSerializer.SerializeToUtf8Bytes(nested),
         "YamlDotNet",
-        () => Encoding.UTF8.GetBytes(yamlSerializer.Serialize(nested))
-    ),
-    Benchmark.Compare(
-        "Nested — Deserialize",
-        "PicoYaml",
-        () => YamlSerializer.Deserialize<NestedPoco>(nestedBytes),
-        "YamlDotNet",
-        () => yamlDeserializer.Deserialize<NestedPoco>(Encoding.UTF8.GetString(nestedBytes))
-    ),
+        () => Encoding.UTF8.GetBytes(yamlSer.Serialize(nested))
+    )
+);
+results.Add(
     Benchmark.Compare(
         "Collection — Serialize",
         "PicoYaml",
         () => YamlSerializer.SerializeToUtf8Bytes(collection),
         "YamlDotNet",
-        () => Encoding.UTF8.GetBytes(yamlSerializer.Serialize(collection))
-    ),
+        () => Encoding.UTF8.GetBytes(yamlSer.Serialize(collection))
+    )
+);
+
+// Deserialize: round-trip
+var spb = YamlSerializer.SerializeToUtf8Bytes(simple);
+results.Add(
     Benchmark.Compare(
-        "Collection — Deserialize",
+        "Simple — Deserialize",
         "PicoYaml",
-        () => YamlSerializer.Deserialize<CollectionPoco>(colBytes),
-        "YamlDotNet",
-        () => yamlDeserializer.Deserialize<CollectionPoco>(Encoding.UTF8.GetString(colBytes))
-    ),
-};
+        () => YamlSerializer.Deserialize<SimplePoco>(spb)!,
+        "YamlDotNet — Serialize",
+        () => Encoding.UTF8.GetBytes(yamlSer.Serialize(simple))
+    )
+);
 
 foreach (var c in results)
 {

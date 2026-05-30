@@ -413,3 +413,6 @@ FodyWeavers.xsd
 docs/superpowers/
 docs/TODO.md
 docs/beta-issues.md
+
+# Benchmark publish output
+out/
