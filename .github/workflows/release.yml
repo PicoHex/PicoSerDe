@@ -43,14 +43,14 @@ jobs:
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false
 
-          dotnet pack PicoJson/src/PicoJson.Gen/PicoJson.Gen.csproj \
+          dotnet pack PicoJetson/src/PicoJetson.Gen/PicoJetson.Gen.csproj \
             --configuration Release \
             --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
             -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
-          dotnet pack PicoJson/src/PicoJson/PicoJson.csproj \
+          dotnet pack PicoJetson/src/PicoJetson/PicoJetson.csproj \
             --configuration Release \
             --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \

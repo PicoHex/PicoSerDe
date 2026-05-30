@@ -12,7 +12,7 @@ High-performance, AOT-first serialization framework for the PicoHex ecosystem. Z
 
 | Format | Library | Status | AOT | Key Features |
 |--------|---------|--------|:---:|--------------|
-| JSON | PicoJson | ✅ Production | ✅ | RFC 8259, SIMD-accelerated, Unicode escapes |
+| JSON | PicoJetson | ✅ Production | ✅ | RFC 8259, SIMD-accelerated, Unicode escapes |
 | MessagePack | PicoMsgPack | ✅ Production | ✅ | fixint/fixstr/fixmap, extension types, binary |
 | INI | PicoIni | 🟡 Beta | ✅ | Sections, comments, quoting, case-insensitive |
 | TOML | PicoToml | 🟡 Beta | ✅ | Tables, arrays, inline tables, multi-line strings |
@@ -39,9 +39,9 @@ High-performance, AOT-first serialization framework for the PicoHex ecosystem. Z
 
 Benchmarks run as NativeAOT self-contained executables on .NET 10, 100K iterations, win-x64.
 
-### JSON — PicoJson vs System.Text.Json (AOT)
+### JSON — PicoJetson vs System.Text.Json (AOT)
 
-| Scenario | PicoJson | STJ | Ratio |
+| Scenario | PicoJetson | STJ | Ratio |
 |----------|:-------:|:---:|:-----:|
 | Simple Serialize | 0.18μs | 0.23μs | **1.29x** |
 | Complex Serialize | 0.75μs | 1.19μs | **1.59x** |
@@ -74,12 +74,12 @@ Benchmarks run as NativeAOT self-contained executables on .NET 10, 100K iteratio
 ### JSON
 
 ```bash
-dotnet add package PicoJson
-dotnet add package PicoJson.Gen
+dotnet add package PicoJetson
+dotnet add package PicoJetson.Gen
 ```
 
 ```csharp
-using PicoJson;
+using PicoJetson;
 
 public record Person(string Name, int Age);
 
@@ -163,7 +163,7 @@ dotnet add package PicoYaml.Gen
 │  TextHelpers    │ SerializerExtensions        │
 └────┬────────┬─────────┬─────────┬─────────┬──┘
      │        │         │         │         │
- PicoJson  PicoIni  PicoMsgPack PicoToml PicoYaml
+ PicoJetson  PicoIni  PicoMsgPack PicoToml PicoYaml
    ││       ││         ││        ││       ││
   .Gen     .Gen       .Gen      .Gen     .Gen   ← 5 source generators
 ```
@@ -225,8 +225,8 @@ while (reader.Read())
 | Package | NuGet | Description |
 |---------|:-----:|-------------|
 | `PicoSerDe.Core` | [![NuGet](https://img.shields.io/nuget/v/PicoSerDe.Core)](https://www.nuget.org/packages/PicoSerDe.Core) | Shared contracts, utilities, SIMD helpers |
-| `PicoJson` | [![NuGet](https://img.shields.io/nuget/v/PicoJson)](https://www.nuget.org/packages/PicoJson) | JSON serializer |
-| `PicoJson.Gen` | [![NuGet](https://img.shields.io/nuget/v/PicoJson.Gen)](https://www.nuget.org/packages/PicoJson.Gen) | JSON source generator |
+| `PicoJetson` | [![NuGet](https://img.shields.io/nuget/v/PicoJetson)](https://www.nuget.org/packages/PicoJetson) | JSON serializer |
+| `PicoJetson.Gen` | [![NuGet](https://img.shields.io/nuget/v/PicoJetson.Gen)](https://www.nuget.org/packages/PicoJetson.Gen) | JSON source generator |
 | `PicoMsgPack` | [![NuGet](https://img.shields.io/nuget/v/PicoMsgPack)](https://www.nuget.org/packages/PicoMsgPack) | MessagePack serializer |
 | `PicoMsgPack.Gen` | [![NuGet](https://img.shields.io/nuget/v/PicoMsgPack.Gen)](https://www.nuget.org/packages/PicoMsgPack.Gen) | MessagePack source generator |
 | `PicoIni` | [![NuGet](https://img.shields.io/nuget/v/PicoIni)](https://www.nuget.org/packages/PicoIni) | INI serializer |
@@ -261,7 +261,7 @@ PicoSerDe/
 ├── PicoSerDe.Core/         # Shared infrastructure
 │   ├── src/                # ISerializer<T>, IDeserializer<T>, TokenType, SimdHelpers, TextHelpers
 │   └── tests/
-├── PicoJson/               # JSON (src, gen, tests, benchmarks, samples)
+├── PicoJetson/               # JSON (src, gen, tests, benchmarks, samples)
 ├── PicoMsgPack/            # MessagePack (src, gen, tests, benchmarks, samples)
 ├── PicoIni/                # INI (src, gen, tests, benchmarks, samples)
 ├── PicoToml/               # TOML (src, gen, tests, benchmarks, samples)

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <IsAotCompatible>true</IsAotCompatible>
+        <IsTrimmable>true</IsTrimmable>
+        <IsPackable>true</IsPackable>
+        <PackageId>PicoJetson</PackageId>
+        <Description>PicoJetson — zero-allocation, AOT-first JSON serializer. Lightning-fast serialization/deserialization with SIMD-accelerated parsing and source-generated zero-reflection code for the PicoHex ecosystem.</Description>
+        <PackageTags>PicoHex;JSON;JSON Serializer;JSON Deserializer;AOT;Serialization;High Performance;SIMD</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="..\..\..\README.md" Pack="true" PackagePath="" Visible="false" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="PicoJetson.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\..\..\shared\SimdHelpers.cs" Link="SimdHelpers.cs" />
+    </ItemGroup>
+
+</Project>

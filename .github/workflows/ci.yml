@@ -44,13 +44,13 @@ jobs:
       - run: dotnet restore -p:UseProjectReferences=true
       - run: dotnet build --configuration Release --no-restore -p:UseProjectReferences=true
       - run: dotnet test --configuration Release --no-build --verbosity normal
-      - run: dotnet build PicoJson/benchmarks/PicoJson.Benchmarks/PicoJson.Benchmarks.csproj -c Release --no-restore
+      - run: dotnet build PicoJetson/benchmarks/PicoJetson.Benchmarks/PicoJetson.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoIni/benchmarks/PicoIni.Benchmarks/PicoIni.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoYaml/benchmarks/PicoYaml.Benchmarks/PicoYaml.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks/PicoMsgPack.Benchmarks.csproj -c Release --no-restore
-      - name: Run PicoJson benchmarks (smoke)
-        run: dotnet run --project PicoJson/benchmarks/PicoJson.Benchmarks -c Release --no-build
+      - name: Run PicoJetson benchmarks (smoke)
+        run: dotnet run --project PicoJetson/benchmarks/PicoJetson.Benchmarks -c Release --no-build
       - name: Run PicoIni benchmarks (smoke)
         run: dotnet run --project PicoIni/benchmarks/PicoIni.Benchmarks -c Release --no-build
       - name: Run PicoToml benchmarks (smoke)
@@ -93,7 +93,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang zlib1g-dev
-      - run: dotnet publish PicoJson/samples/PicoJson.Sample/PicoJson.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
+      - run: dotnet publish PicoJetson/samples/PicoJetson.Sample/PicoJetson.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoIni/samples/PicoIni.Sample/PicoIni.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoToml/samples/PicoToml.Sample/PicoToml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoYaml/samples/PicoYaml.Sample/PicoYaml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained

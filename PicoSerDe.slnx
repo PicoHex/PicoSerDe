@@ -1,11 +1,11 @@
 <Solution>
   <Project Path="PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
   <Project Path="PicoSerDe.Core\tests\PicoSerDe.Core.Tests\PicoSerDe.Core.Tests.csproj" />
-  <Project Path="PicoJson\src\PicoJson\PicoJson.csproj" />
-  <Project Path="PicoJson\src\PicoJson.Gen\PicoJson.Gen.csproj" />
-  <Project Path="PicoJson\tests\PicoJson.Tests\PicoJson.Tests.csproj" />
-  <Project Path="PicoJson\samples\PicoJson.Sample\PicoJson.Sample.csproj" />
-  <Project Path="PicoJson\benchmarks\PicoJson.Benchmarks\PicoJson.Benchmarks.csproj" />
+  <Project Path="PicoJetson\src\PicoJetson\PicoJetson.csproj" />
+  <Project Path="PicoJetson\src\PicoJetson.Gen\PicoJetson.Gen.csproj" />
+  <Project Path="PicoJetson\tests\PicoJetson.Tests\PicoJetson.Tests.csproj" />
+  <Project Path="PicoJetson\samples\PicoJetson.Sample\PicoJetson.Sample.csproj" />
+  <Project Path="PicoJetson\benchmarks\PicoJetson.Benchmarks\PicoJetson.Benchmarks.csproj" />
   <Project Path="PicoIni\src\PicoIni\PicoIni.csproj" />
   <Project Path="PicoIni\src\PicoIni.Gen\PicoIni.Gen.csproj" />
   <Project Path="PicoIni\tests\PicoIni.Tests\PicoIni.Tests.csproj" />
