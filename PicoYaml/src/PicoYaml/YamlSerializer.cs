@@ -26,8 +26,17 @@ public static partial class YamlSerializer
         return default!;
     }
 
-    public static string Serialize<T>(T value) =>
-        Encoding.UTF8.GetString(SerializeToUtf8Bytes(value));
+    public static string Serialize<T>(T value)
+    {
+        if (Cache<T>.Serializer is { } s)
+        {
+            var writer = SerializerExtensions.RentWriter();
+            s.Serialize(writer, value);
+            return Encoding.UTF8.GetString(writer.WrittenSpan);
+        }
+        SerializerExtensions.ThrowNoSerializer<T>("PicoYaml.Gen");
+        return "";
+    }
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
     {
