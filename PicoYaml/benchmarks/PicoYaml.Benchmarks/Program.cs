@@ -1,15 +1,12 @@
 using PicoBench;
 using PicoBench.Formatters;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Serialization;
 
 Console.OutputEncoding = Encoding.UTF8;
-Console.WriteLine("PicoYaml vs YamlDotNet — Performance Comparison");
+Console.WriteLine("PicoYaml vs VYaml — Performance Comparison");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
 Console.WriteLine(new string('=', 60));
 Console.WriteLine();
-
-var yamlSer = new SerializerBuilder().WithNamingConvention(NullNamingConvention.Instance).Build();
 
 var simple = new SimplePoco { Name = "Hello World", Age = 42 };
 var nested = new NestedPoco
@@ -31,43 +28,70 @@ var collection = new CollectionPoco
 };
 
 var results = new List<ComparisonResult>();
+
+// Serialize
 results.Add(
     Benchmark.Compare(
         "Simple — Serialize",
         "PicoYaml",
-        () => YamlSerializer.SerializeToUtf8Bytes(simple),
-        "YamlDotNet",
-        () => Encoding.UTF8.GetBytes(yamlSer.Serialize(simple))
+        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(simple),
+        "VYaml",
+        () => VYaml.Serialization.YamlSerializer.Serialize(simple).ToArray()
     )
 );
 results.Add(
     Benchmark.Compare(
         "Nested — Serialize",
         "PicoYaml",
-        () => YamlSerializer.SerializeToUtf8Bytes(nested),
-        "YamlDotNet",
-        () => Encoding.UTF8.GetBytes(yamlSer.Serialize(nested))
+        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(nested),
+        "VYaml",
+        () => VYaml.Serialization.YamlSerializer.Serialize(nested).ToArray()
     )
 );
 results.Add(
     Benchmark.Compare(
         "Collection — Serialize",
         "PicoYaml",
-        () => YamlSerializer.SerializeToUtf8Bytes(collection),
-        "YamlDotNet",
-        () => Encoding.UTF8.GetBytes(yamlSer.Serialize(collection))
+        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(collection),
+        "VYaml",
+        () => VYaml.Serialization.YamlSerializer.Serialize(collection).ToArray()
     )
 );
 
-// Deserialize: round-trip
-var spb = YamlSerializer.SerializeToUtf8Bytes(simple);
+// Deserialize
+var simplePicoBytes = PicoYaml.YamlSerializer.SerializeToUtf8Bytes(simple);
+var simpleVyBytes = VYaml.Serialization.YamlSerializer.Serialize(simple);
 results.Add(
     Benchmark.Compare(
         "Simple — Deserialize",
         "PicoYaml",
-        () => YamlSerializer.Deserialize<SimplePoco>(spb)!,
-        "YamlDotNet — Serialize",
-        () => Encoding.UTF8.GetBytes(yamlSer.Serialize(simple))
+        () =>
+        {
+            _ = PicoYaml.YamlSerializer.Deserialize<SimplePoco>(simplePicoBytes);
+        },
+        "VYaml",
+        () =>
+        {
+            _ = VYaml.Serialization.YamlSerializer.Deserialize<SimplePoco>(simpleVyBytes);
+        }
+    )
+);
+
+var nestedPicoBytes = PicoYaml.YamlSerializer.SerializeToUtf8Bytes(nested);
+var nestedVyBytes = VYaml.Serialization.YamlSerializer.Serialize(nested);
+results.Add(
+    Benchmark.Compare(
+        "Nested — Deserialize",
+        "PicoYaml",
+        () =>
+        {
+            _ = PicoYaml.YamlSerializer.Deserialize<NestedPoco>(nestedPicoBytes);
+        },
+        "VYaml",
+        () =>
+        {
+            _ = VYaml.Serialization.YamlSerializer.Deserialize<NestedPoco>(nestedVyBytes);
+        }
     )
 );
 
@@ -75,7 +99,7 @@ foreach (var c in results)
 {
     var icon = c.IsFaster ? "✓" : "✗";
     Console.WriteLine(
-        $"{icon} {c.Name, -36} PicoYaml={c.Candidate.Statistics.Avg / 1000:F1}μs  YDN={c.Baseline.Statistics.Avg / 1000:F1}μs  Speedup={c.Speedup:F2}x"
+        $"{icon} {c.Name, -36} PicoYaml={c.Candidate.Statistics.Avg / 1000:F1}μs  VYaml={c.Baseline.Statistics.Avg / 1000:F1}μs  Speedup={c.Speedup:F2}x"
     );
 }
 
