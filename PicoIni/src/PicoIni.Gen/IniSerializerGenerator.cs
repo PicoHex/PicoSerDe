@@ -695,7 +695,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         switch (p.ElementTypeKind)
         {
             case "string":
-                s.Append("");
+                s.Append("__s");
                 break;
             case "int32":
                 s.Append("int.Parse(__s)");
