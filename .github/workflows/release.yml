@@ -34,91 +34,91 @@ jobs:
       # Tier 2 pack order: Abstractions → Generator → Consumer
       - shell: bash
         run: |
-          rm -rf ./artifacts/nupkg
-          mkdir -p ./artifacts/nupkg
+          rm -rf ${{ github.workspace }}/artifacts/nupkg
+          mkdir -p ${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoSerDe.Core/src/PicoSerDe.Core.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false
 
           dotnet pack PicoJson/src/PicoJson.Gen/PicoJson.Gen.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreAdditionalProjectSources=./artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoJson/src/PicoJson/PicoJson.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=./artifacts/nupkg
+            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoIni/src/PicoIni.Gen/PicoIni.Gen.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreAdditionalProjectSources=./artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoIni/src/PicoIni/PicoIni.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=./artifacts/nupkg
+            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoToml/src/PicoToml.Gen/PicoToml.Gen.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreAdditionalProjectSources=./artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoToml/src/PicoToml/PicoToml.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=./artifacts/nupkg
+            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoYaml/src/PicoYaml.Gen/PicoYaml.Gen.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreAdditionalProjectSources=./artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoYaml/src/PicoYaml/PicoYaml.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=./artifacts/nupkg
+            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoMsgPack/src/PicoMsgPack.Gen/PicoMsgPack.Gen.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreAdditionalProjectSources=./artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoMsgPack/src/PicoMsgPack/PicoMsgPack.csproj \
             --configuration Release \
-            --output ./artifacts/nupkg \
+            --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=./artifacts/nupkg
+            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
 
       - uses: actions/upload-artifact@v4
         with:
           name: nupkg
           path: |
-            ./artifacts/nupkg/*.nupkg
-            ./artifacts/nupkg/*.snupkg
+            ${{ github.workspace }}/artifacts/nupkg/*.nupkg
+            ${{ github.workspace }}/artifacts/nupkg/*.snupkg
 
   publish:
     runs-on: ubuntu-latest
