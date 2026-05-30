@@ -35,6 +35,30 @@ public ref struct YamlWriter
         _afterKey = true;
     }
 
+    public void WritePropertyName(scoped ReadOnlySpan<char> name)
+    {
+        int max = Encoding.UTF8.GetMaxByteCount(name.Length);
+        if (max <= 256)
+        {
+            Span<byte> buf = stackalloc byte[max];
+            int w = Encoding.UTF8.GetBytes(name, buf);
+            for (int i = 0; i < _depth; i++)
+            {
+                _buffer.Write("  "u8);
+                _bytesWritten += 2;
+            }
+            _buffer.Write(buf[..w]);
+            _bytesWritten += w;
+            _buffer.Write(":"u8);
+            _bytesWritten++;
+            _afterKey = true;
+        }
+        else
+        {
+            WritePropertyName(Encoding.UTF8.GetBytes(name.ToArray()));
+        }
+    }
+
     public void WriteString(ReadOnlySpan<byte> utf8Value)
     {
         if (_afterKey)

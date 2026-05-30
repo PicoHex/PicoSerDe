@@ -878,7 +878,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(ind);
             s.AppendLine("{");
             s.Append(ind);
-            s.AppendLine("    yw.WritePropertyName(Encoding.UTF8.GetBytes(__kvp.Key));");
+            s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
             if (p.ElemTk == "int32")
             {
                 s.Append(ind);

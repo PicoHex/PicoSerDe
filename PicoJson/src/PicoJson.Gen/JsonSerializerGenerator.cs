@@ -677,7 +677,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(effectiveAccessor);
                 sb.AppendLine(".ToString(\"O\");");
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__d));");
+                sb.AppendLine("jw.WriteString(__d);");
                 break;
             case "timeonly":
                 sb.Append(indent);
@@ -685,7 +685,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(effectiveAccessor);
                 sb.AppendLine(".ToString(\"O\");");
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__t));");
+                sb.AppendLine("jw.WriteString(__t);");
                 break;
             case "timespan":
                 sb.Append(indent);
@@ -693,7 +693,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(effectiveAccessor);
                 sb.AppendLine(".ToString();");
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__ts));");
+                sb.AppendLine("jw.WriteString(__ts);");
                 break;
             case "guid":
             case "enum":

@@ -124,6 +124,70 @@ public ref struct JsonWriter
         WriteByte((byte)'"');
     }
 
+    public void WriteString(scoped ReadOnlySpan<char> value)
+    {
+        BeforeWriteValue();
+        int max = Encoding.UTF8.GetMaxByteCount(value.Length);
+        if (max <= 256)
+        {
+            Span<byte> buf = stackalloc byte[max];
+            int w = Encoding.UTF8.GetBytes(value, buf);
+            WriteByte((byte)'"');
+            var slice = buf[..w];
+            int escapeCount = 0;
+            foreach (var b in slice)
+                if (b is (byte)'"' or (byte)'\\' or < 0x20)
+                    escapeCount++;
+            if (escapeCount == 0)
+            {
+                _buffer.Write(slice);
+                _bytesWritten += w;
+            }
+            else
+            {
+                var escaped = new byte[w + escapeCount];
+                int di = 0;
+                foreach (var b in slice)
+                {
+                    switch (b)
+                    {
+                        case (byte)'"':
+                            escaped[di++] = (byte)'\\';
+                            escaped[di++] = (byte)'"';
+                            break;
+                        case (byte)'\\':
+                            escaped[di++] = (byte)'\\';
+                            escaped[di++] = (byte)'\\';
+                            break;
+                        case (byte)'\n':
+                            escaped[di++] = (byte)'\\';
+                            escaped[di++] = (byte)'n';
+                            break;
+                        case (byte)'\r':
+                            escaped[di++] = (byte)'\\';
+                            escaped[di++] = (byte)'r';
+                            break;
+                        case (byte)'\t':
+                            escaped[di++] = (byte)'\\';
+                            escaped[di++] = (byte)'t';
+                            break;
+                        default:
+                            escaped[di++] = b;
+                            break;
+                    }
+                }
+                _buffer.Write(escaped);
+                _bytesWritten += escaped.Length;
+            }
+            WriteByte((byte)'"');
+        }
+        else
+        {
+            var bytes = Encoding.UTF8.GetBytes(value.ToArray());
+            WriteString(bytes);
+        }
+    }
+
     public void WritePropertyName(ReadOnlySpan<byte> utf8Name)
     {
         if ((_needsComma & (1UL << _depth)) != 0)
@@ -136,6 +200,33 @@ public ref struct JsonWriter
         WriteByte((byte)'"');
         WriteRaw(_indented ? ": "u8 : ":"u8);
         _afterPropertyName = true;
+    }
+
+    public void WritePropertyName(scoped ReadOnlySpan<char> name)
+    {
+        int max = Encoding.UTF8.GetMaxByteCount(name.Length);
+        if (max <= 256)
+        {
+            Span<byte> buf = stackalloc byte[max];
+            int w = Encoding.UTF8.GetBytes(name, buf);
+            if ((_needsComma & (1UL << _depth)) != 0)
+                WriteByte((byte)',');
+            _needsComma |= (1UL << _depth);
+            if (_indented)
+                WriteIndent();
+            WriteByte((byte)'"');
+            _buffer.Write(buf[..w]);
+            _bytesWritten += w;
+            WriteByte((byte)'"');
+            _buffer.Write(_indented ? ": "u8 : ":"u8);
+            _bytesWritten += _indented ? 2 : 1;
+            _afterPropertyName = true;
+        }
+        else
+        {
+            var bytes = Encoding.UTF8.GetBytes(name.ToArray());
+            WritePropertyName(bytes);
+        }
     }
 
     public void WriteStartObject()
