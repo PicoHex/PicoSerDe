@@ -474,43 +474,36 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(acc);
                 s.Append(')');
                 break;
+            // All other types: pass raw value — IniWriter has typed overloads
             case "int32":
             case "int64":
             case "float64":
             case "boolean":
-                s.Append(acc);
-                break;
             case "decimal":
+            case "guid":
+            case "timespan":
+            case "dateonly":
+            case "timeonly":
                 s.Append(acc);
-                s.Append(".ToString(System.Globalization.CultureInfo.InvariantCulture)");
                 break;
             case "datetime":
                 if (p.DateTimeFormat is not null)
                 {
+                    s.Append("Encoding.UTF8.GetBytes(");
                     s.Append(acc);
                     s.Append(".ToString(\"");
                     s.Append(p.DateTimeFormat);
-                    s.Append("\")");
+                    s.Append("\"))");
                 }
                 else
                 {
                     s.Append(acc);
-                    s.Append(".ToString(\"O\")");
                 }
                 break;
-            case "dateonly":
-            case "timeonly":
-                s.Append(acc);
-                s.Append(".ToString(\"O\")");
-                break;
-            case "timespan":
-                s.Append(acc);
-                s.Append(".ToString()");
-                break;
-            case "guid":
             case "enum":
+                s.Append("Encoding.UTF8.GetBytes(");
                 s.Append(acc);
-                s.Append(".ToString()");
+                s.Append(".ToString())");
                 break;
             case "list":
             case "array":
@@ -587,12 +580,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "decimal":
                 s.Append(pad);
+                s.AppendLine(
+                    "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out decimal __v, out _);"
+                );
+                s.Append(pad);
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(
-                    " = decimal.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.CultureInfo.InvariantCulture);"
-                );
+                s.AppendLine(" = __v;");
                 break;
             case "datetime":
                 if (p.DateTimeFormat is not null)
@@ -655,10 +650,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "timespan":
                 s.Append(pad);
+                s.AppendLine(
+                    "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out TimeSpan __v, out _, 'c');"
+                );
+                s.Append(pad);
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = TimeSpan.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()));");
+                s.AppendLine(" = __v;");
                 break;
             case "list":
                 s.Append(pad);
@@ -698,7 +697,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         switch (p.ElementTypeKind)
         {
             case "string":
-                s.Append("__s");
+                s.Append("");
                 break;
             case "int32":
                 s.Append("int.Parse(__s)");
@@ -713,7 +712,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("bool.Parse(__s)");
                 break;
             default:
-                s.Append("__s");
+                s.Append("");
                 break;
         }
     }

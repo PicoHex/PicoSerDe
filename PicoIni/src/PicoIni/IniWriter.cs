@@ -145,6 +145,65 @@ public ref struct IniWriter
         WriteNewLine();
     }
 
+    public void WriteKeyValue(string key, DateTime value)
+    {
+        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = "u8);
+        Span<byte> buf = stackalloc byte[64];
+        Utf8Formatter.TryFormat(value, buf, out int w, 'O');
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(string key, Guid value)
+    {
+        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = "u8);
+        Span<byte> buf = stackalloc byte[64];
+        Utf8Formatter.TryFormat(value, buf, out int w, 'D');
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(string key, TimeSpan value)
+    {
+        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = "u8);
+        Span<byte> buf = stackalloc byte[64];
+        Utf8Formatter.TryFormat(value, buf, out int w, 'c');
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(string key, DateOnly value)
+    {
+        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = "u8);
+        Span<char> cbuf = stackalloc char[32];
+        value.TryFormat(cbuf, out int cw, "O");
+        Span<byte> buf = stackalloc byte[64];
+        int bw = Encoding.UTF8.GetBytes(cbuf[..cw], buf);
+        _buffer.Write(buf[..bw]);
+        _bytesWritten += bw;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(string key, TimeOnly value)
+    {
+        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = "u8);
+        Span<char> cbuf = stackalloc char[32];
+        value.TryFormat(cbuf, out int cw, "O");
+        Span<byte> buf = stackalloc byte[64];
+        int bw = Encoding.UTF8.GetBytes(cbuf[..cw], buf);
+        _buffer.Write(buf[..bw]);
+        _bytesWritten += bw;
+        WriteNewLine();
+    }
+
     public void WriteBlankLine()
     {
         WriteNewLine();
