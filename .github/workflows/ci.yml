@@ -26,7 +26,7 @@ jobs:
           - logical-target: win-x64
             runs-on: windows-latest
           - logical-target: win-arm64
-            runs-on: windows-11-arm
+            runs-on: windows-latest
           - logical-target: linux-x64
             runs-on: ubuntu-latest
           - logical-target: linux-arm64
@@ -70,7 +70,7 @@ jobs:
             runs-on: windows-latest
             rid: win-x64
           - logical-target: win-arm64
-            runs-on: windows-11-arm
+            runs-on: windows-latest
             rid: win-arm64
           - logical-target: linux-x64
             runs-on: ubuntu-latest
