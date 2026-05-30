@@ -10,7 +10,12 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="PicoBench" Version="*" />
         <PackageReference Include="MessagePack" Version="3.*" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\..\..\shared\BenchModels.cs" Link="BenchModels.cs" />
     </ItemGroup>
 
     <ItemGroup>

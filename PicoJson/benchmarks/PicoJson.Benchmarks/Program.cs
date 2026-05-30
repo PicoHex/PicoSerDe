@@ -1,3 +1,4 @@
+using PicoBench;
 using StjJson = System.Text.Json.JsonSerializer;
 
 // ═══ Test Data ═══
@@ -160,46 +161,6 @@ static void PrintComparison(ComparisonResult c)
             + $"STJ={c.Baseline.Statistics.Avg / 1000:F1}μs  "
             + $"Speedup={c.Speedup:F2}x ({(c.ImprovementPercent >= 0 ? "+" : "")}{c.ImprovementPercent:F1}%)"
     );
-}
-
-// ═══ Model Definitions ═══
-
-public class SimplePoco
-{
-    public string Name { get; set; } = "";
-    public int Age { get; set; }
-}
-
-public class ComplexPoco
-{
-    public Guid Id { get; set; }
-    public string Title { get; set; } = "";
-    public decimal Price { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DayOfWeek Day { get; set; }
-    public double Rating { get; set; }
-    public bool IsActive { get; set; }
-}
-
-public class NestedPoco
-{
-    public int Id { get; set; }
-    public string Name { get; set; } = "";
-    public NestedAddress? Address { get; set; }
-    public List<string> Tags { get; set; } = new();
-}
-
-public class NestedAddress
-{
-    public string Street { get; set; } = "";
-    public string City { get; set; } = "";
-    public string? Zip { get; set; }
-}
-
-public class CollectionPoco
-{
-    public List<int> Scores { get; set; } = new();
-    public Dictionary<string, string> Metadata { get; set; } = new();
 }
 
 // ═══ S.T.J AOT Context ═══

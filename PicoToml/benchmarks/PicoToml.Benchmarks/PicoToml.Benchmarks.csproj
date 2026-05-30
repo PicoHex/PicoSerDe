@@ -7,6 +7,13 @@
         <IsPackable>false</IsPackable>
     </PropertyGroup>
     <ItemGroup>
+        <PackageReference Include="PicoBench" Version="*" />
+        <PackageReference Include="Tommy" Version="3.*" />
+    </ItemGroup>
+    <ItemGroup>
+        <Compile Include="..\..\..\shared\BenchModels.cs" Link="BenchModels.cs" />
+    </ItemGroup>
+    <ItemGroup>
         <ProjectReference Include="..\..\src\PicoToml\PicoToml.csproj" />
         <ProjectReference Include="..\..\src\PicoToml.Gen\PicoToml.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     </ItemGroup>

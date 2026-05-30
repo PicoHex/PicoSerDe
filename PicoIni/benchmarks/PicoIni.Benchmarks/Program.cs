@@ -1,92 +1,69 @@
-Console.OutputEncoding = Encoding.UTF8;
-Console.WriteLine("=== PicoIni Performance Benchmarks ===");
-Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
-Console.WriteLine(new string('-', 60));
+using IniParser;
+using PicoBench;
+using PicoBench.Formatters;
 
-// ── Test data ──
-var simple = new BmSimple { Title = "MyApp", Version = 2 };
-var complex = new BmComplex
+Console.OutputEncoding = Encoding.UTF8;
+Console.WriteLine("PicoIni vs ini-parser — Performance Comparison");
+Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
+Console.WriteLine(new string('=', 60));
+Console.WriteLine();
+
+var parser = new FileIniDataParser();
+
+var simple = new SimplePoco { Name = "Hello World", Age = 42 };
+var simpleBytes = IniSerializer.SerializeToUtf8Bytes(simple);
+var simpleStr = Encoding.UTF8.GetString(simpleBytes);
+
+// Build equivalent IniData for ini-parser
+var simpleIni = new IniParser.Model.IniData();
+simpleIni.Global["Name"] = "Hello World";
+simpleIni.Global["Age"] = "42";
+
+IniParser.Model.IniData ParseIni(string s)
 {
-    Title = "Benchmark Suite",
-    Version = 1,
-    Server = new BmServer
-    {
-        Host = "prod.example.com",
-        Port = 443,
-        Enabled = true
-    },
-    Database = new BmDb { ConnectionString = "server=.;db=test", MaxPool = 50 },
-    Tags =  ["prod", "api", "v2"]
+    var p = new IniParser.Parser.IniDataParser();
+    return p.Parse(s);
+}
+byte[] SerIni(IniParser.Model.IniData d)
+{
+    using var ms = new MemoryStream();
+    using var sw = new StreamWriter(ms);
+    parser.WriteData(sw, d);
+    sw.Flush();
+    return ms.ToArray();
+}
+SimplePoco DeserSimple(string s)
+{
+    var d = ParseIni(s);
+    return new SimplePoco { Name = d.Global["Name"], Age = int.Parse(d.Global["Age"]) };
+}
+
+var results = new List<ComparisonResult>
+{
+    Benchmark.Compare(
+        "Simple — Serialize",
+        "PicoIni",
+        () => IniSerializer.SerializeToUtf8Bytes(simple),
+        "ini-parser",
+        () => SerIni(simpleIni)
+    ),
+    Benchmark.Compare(
+        "Simple — Deserialize",
+        "PicoIni",
+        () => IniSerializer.Deserialize<SimplePoco>(simpleBytes),
+        "ini-parser",
+        () => DeserSimple(simpleStr)
+    ),
 };
 
-// ── Benchmark helper ──
-static void Run(string name, Action action, int iterations = 100_000)
+foreach (var c in results)
 {
-    action(); // warmup
-    var sw = Stopwatch.StartNew();
-    for (int i = 0; i < iterations; i++)
-        action();
-    sw.Stop();
-    var perOp = sw.Elapsed.TotalMicroseconds / iterations;
-    Console.WriteLine($"  {name, -30} {perOp, 8:F2} μs/op  ({iterations:N0} iterations)");
+    var icon = c.IsFaster ? "✓" : "✗";
+    Console.WriteLine(
+        $"{icon} {c.Name, -36} PicoIni={c.Candidate.Statistics.Avg / 1000:F1}μs  IFP={c.Baseline.Statistics.Avg / 1000:F1}μs  Speedup={c.Speedup:F2}x"
+    );
 }
 
-Console.WriteLine("\n--- Serialize ---");
-Run("Simple → bytes", () => IniSerializer.SerializeToUtf8Bytes(simple));
-Run("Simple → string", () => IniSerializer.Serialize(simple));
-Run("Complex → bytes", () => IniSerializer.SerializeToUtf8Bytes(complex));
-
-Console.WriteLine("\n--- Deserialize ---");
-var simpleBytes = IniSerializer.SerializeToUtf8Bytes(simple);
-var complexBytes = IniSerializer.SerializeToUtf8Bytes(complex);
-Run("Simple ← bytes", () => IniSerializer.Deserialize<BmSimple>(simpleBytes));
-Run("Complex ← bytes", () => IniSerializer.Deserialize<BmComplex>(complexBytes));
-
-Console.WriteLine("\n--- Round-trip ---");
-Run(
-    "Simple  S→D",
-    () =>
-    {
-        var b = IniSerializer.SerializeToUtf8Bytes(simple);
-        IniSerializer.Deserialize<BmSimple>(b);
-    }
-);
-Run(
-    "Complex S→D",
-    () =>
-    {
-        var b = IniSerializer.SerializeToUtf8Bytes(complex);
-        IniSerializer.Deserialize<BmComplex>(b);
-    }
-);
-
-Console.WriteLine($"\nDone. ({DateTime.Now:T})");
-
-// ── Model types ──
-public class BmSimple
-{
-    public string Title { get; set; } = "";
-    public int Version { get; set; }
-}
-
-public class BmServer
-{
-    public string Host { get; set; } = "";
-    public int Port { get; set; }
-    public bool Enabled { get; set; }
-}
-
-public class BmDb
-{
-    public string ConnectionString { get; set; } = "";
-    public int MaxPool { get; set; }
-}
-
-public class BmComplex
-{
-    public string Title { get; set; } = "";
-    public int Version { get; set; }
-    public BmServer Server { get; set; } = new();
-    public BmDb Database { get; set; } = new();
-    public List<string> Tags { get; set; } = [];
-}
+Console.WriteLine();
+Console.WriteLine(new string('=', 60));
+Console.WriteLine(SummaryFormatter.Format(results));

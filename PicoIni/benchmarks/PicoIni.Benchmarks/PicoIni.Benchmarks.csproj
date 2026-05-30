@@ -13,6 +13,11 @@
 
   <ItemGroup>
     <PackageReference Include="PicoBench" Version="*" />
+    <PackageReference Include="ini-parser-netstandard" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\shared\BenchModels.cs" Link="BenchModels.cs" />
   </ItemGroup>
 
   <ItemGroup>
