@@ -1,3 +1,6 @@
+using PicoBench;
+using PicoBench.Formatters;
+using Tommy;
 
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoToml vs Tommy — Performance Comparison");
@@ -7,7 +10,7 @@ Console.WriteLine();
 
 var simple = new SimplePoco { Name = "Hello World", Age = 42 };
 var simpleBytes = TomlSerializer.SerializeToUtf8Bytes(simple);
-var simpleStr = Encoding.UTF8.GetString(simpleBytes);
+var simpleStr = TomlSerializer.Serialize(simple);
 
 var nested = new NestedPoco
 {
@@ -22,9 +25,8 @@ var nested = new NestedPoco
     Tags = new List<string> { "dev", "bench" }
 };
 var nestedBytes = TomlSerializer.SerializeToUtf8Bytes(nested);
-var nestedStr = Encoding.UTF8.GetString(nestedBytes);
+var nestedStr = TomlSerializer.Serialize(nested);
 
-// Tommy: build equivalent tables
 var simpleToml = new TomlTable { ["Name"] = "Hello World", ["Age"] = 42L };
 var nestedToml = new TomlTable
 {
@@ -46,7 +48,14 @@ byte[] TommySer(TomlTable t)
     sw.Flush();
     return Encoding.UTF8.GetBytes(sw.ToString());
 }
-SimplePoco TommyDeserSimple(string s)
+string TommySerStr(TomlTable t)
+{
+    using var sw = new StringWriter();
+    t.WriteTo(sw);
+    sw.Flush();
+    return sw.ToString();
+}
+SimplePoco TommyDeser(string s)
 {
     using var sr = new StringReader(s);
     var t = TOML.Parse(sr);
@@ -61,33 +70,49 @@ NestedPoco TommyDeserNested(string s)
 
 var results = new List<ComparisonResult>
 {
+    // bytes 场景
     Benchmark.Compare(
-        "Simple — Serialize",
+        "Simple — Serialize (bytes)",
         "PicoToml",
         () => TomlSerializer.SerializeToUtf8Bytes(simple),
         "Tommy",
         () => TommySer(simpleToml)
     ),
     Benchmark.Compare(
-        "Simple — Deserialize",
+        "Simple — Deserialize (bytes)",
         "PicoToml",
         () => TomlSerializer.Deserialize<SimplePoco>(simpleBytes),
         "Tommy",
-        () => TommyDeserSimple(simpleStr)
+        () => TommyDeser(simpleStr)
     ),
     Benchmark.Compare(
-        "Nested — Serialize",
+        "Nested — Serialize (bytes)",
         "PicoToml",
         () => TomlSerializer.SerializeToUtf8Bytes(nested),
         "Tommy",
         () => TommySer(nestedToml)
     ),
     Benchmark.Compare(
-        "Nested — Deserialize",
+        "Nested — Deserialize (bytes)",
         "PicoToml",
         () => TomlSerializer.Deserialize<NestedPoco>(nestedBytes),
         "Tommy",
         () => TommyDeserNested(nestedStr)
+    ),
+    // string 往返（文本格式自然输出）
+    Benchmark.Compare(
+        "Simple — SerializeToString",
+        "PicoToml",
+        () => TomlSerializer.Serialize(simple),
+        "Tommy",
+        () => TommySerStr(simpleToml)
+    ),
+    Benchmark.Compare(
+        "Simple — Deserialize←string",
+        "PicoToml",
+        () => TomlSerializer.Deserialize<SimplePoco>(Encoding.UTF8.GetBytes(simpleStr)),
+        "Tommy",
+        () => TommyDeser(simpleStr)
     ),
 };
 
@@ -95,7 +120,7 @@ foreach (var c in results)
 {
     var icon = c.IsFaster ? "✓" : "✗";
     Console.WriteLine(
-        $"{icon} {c.Name, -36} PicoToml={c.Candidate.Statistics.Avg / 1000:F1}μs  Tommy={c.Baseline.Statistics.Avg / 1000:F1}μs  Speedup={c.Speedup:F2}x"
+        $"{icon} {c.Name, -38} Pico={c.Candidate.Statistics.Avg / 1000:F1}μs  Tommy={c.Baseline.Statistics.Avg / 1000:F1}μs  x{c.Speedup:F2}"
     );
 }
 

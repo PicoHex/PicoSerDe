@@ -1,3 +1,6 @@
+using IniParser;
+using PicoBench;
+using PicoBench.Formatters;
 
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoIni vs ini-parser — Performance Comparison");
@@ -7,16 +10,14 @@ Console.WriteLine();
 
 var parser = new FileIniDataParser();
 
-// ── Simple POCO ──
 var simple = new SimplePoco { Name = "Hello World", Age = 42 };
 var simpleBytes = IniSerializer.SerializeToUtf8Bytes(simple);
-var simpleStr = Encoding.UTF8.GetString(simpleBytes);
+var simpleStr = IniSerializer.Serialize(simple);
 
 var simpleIni = new IniParser.Model.IniData();
 simpleIni.Global["Name"] = "Hello World";
 simpleIni.Global["Age"] = "42";
 
-// ── Complex POCO ──
 var complex = new ComplexPoco
 {
     Id = Guid.NewGuid(),
@@ -28,7 +29,7 @@ var complex = new ComplexPoco
     IsActive = true
 };
 var complexBytes = IniSerializer.SerializeToUtf8Bytes(complex);
-var complexStr = Encoding.UTF8.GetString(complexBytes);
+var complexStr = IniSerializer.Serialize(complex);
 
 var complexIni = new IniParser.Model.IniData();
 complexIni.Global["Id"] = complex.Id.ToString();
@@ -43,7 +44,6 @@ complexIni.Global["Rating"] = complex
     .ToString(System.Globalization.CultureInfo.InvariantCulture);
 complexIni.Global["IsActive"] = complex.IsActive.ToString();
 
-// ── Helpers ──
 IniParser.Model.IniData ParseIni(string s)
 {
     return new IniParser.Parser.IniDataParser().Parse(s);
@@ -61,54 +61,44 @@ SimplePoco DeserSimple(string s)
     var d = ParseIni(s);
     return new SimplePoco { Name = d.Global["Name"], Age = int.Parse(d.Global["Age"]) };
 }
-ComplexPoco DeserComplex(string s)
-{
-    var d = ParseIni(s);
-    return new ComplexPoco
-    {
-        Id = Guid.Parse(d.Global["Id"]!),
-        Title = d.Global["Title"] ?? "",
-        Price = decimal.Parse(
-            d.Global["Price"]!,
-            System.Globalization.CultureInfo.InvariantCulture
-        ),
-        CreatedAt = DateTime.Parse(d.Global["CreatedAt"]!),
-        Day = Enum.Parse<DayOfWeek>(d.Global["Day"]!),
-        Rating = double.Parse(d.Global["Rating"]!),
-        IsActive = bool.Parse(d.Global["IsActive"]!)
-    };
-}
 
-// ── Benchmarks ──
 var results = new List<ComparisonResult>
 {
     Benchmark.Compare(
-        "Simple — Serialize",
+        "Simple — Serialize (bytes)",
         "PicoIni",
         () => IniSerializer.SerializeToUtf8Bytes(simple),
         "ini-parser",
         () => SerIni(simpleIni)
     ),
     Benchmark.Compare(
-        "Simple — Deserialize",
+        "Simple — Deserialize (bytes)",
         "PicoIni",
         () => IniSerializer.Deserialize<SimplePoco>(simpleBytes),
         "ini-parser",
         () => DeserSimple(simpleStr)
     ),
     Benchmark.Compare(
-        "Complex — Serialize",
+        "Complex — Serialize (bytes)",
         "PicoIni",
         () => IniSerializer.SerializeToUtf8Bytes(complex),
         "ini-parser",
         () => SerIni(complexIni)
     ),
+    // 文本格式真实场景: string 往返
     Benchmark.Compare(
-        "Complex — Deserialize",
+        "Simple — SerializeToString",
         "PicoIni",
-        () => IniSerializer.Deserialize<ComplexPoco>(complexBytes),
+        () => IniSerializer.Serialize(simple),
         "ini-parser",
-        () => DeserComplex(complexStr)
+        () => SerIni(simpleIni)
+    ),
+    Benchmark.Compare(
+        "Simple — Deserialize←string",
+        "PicoIni",
+        () => IniSerializer.Deserialize<SimplePoco>(Encoding.UTF8.GetBytes(simpleStr)),
+        "ini-parser",
+        () => DeserSimple(simpleStr)
     ),
 };
 
@@ -116,7 +106,7 @@ foreach (var c in results)
 {
     var icon = c.IsFaster ? "✓" : "✗";
     Console.WriteLine(
-        $"{icon} {c.Name, -36} PicoIni={c.Candidate.Statistics.Avg / 1000:F1}μs  IFP={c.Baseline.Statistics.Avg / 1000:F1}μs  Speedup={c.Speedup:F2}x"
+        $"{icon} {c.Name, -38} Pico={c.Candidate.Statistics.Avg / 1000:F1}μs  IFP={c.Baseline.Statistics.Avg / 1000:F1}μs  x{c.Speedup:F2}"
     );
 }
 
