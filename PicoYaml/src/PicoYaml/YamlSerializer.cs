@@ -20,7 +20,7 @@ public static partial class YamlSerializer
         var s = Cache<T>.Serializer;
         if (s is not null)
         {
-            var w = new ArrayBufferWriter<byte>();
+            var w = SerializerExtensions.RentWriter();
             s.Serialize(w, value);
             return w.WrittenSpan.ToArray();
         }

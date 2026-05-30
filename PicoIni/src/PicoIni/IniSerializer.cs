@@ -23,7 +23,7 @@ public static partial class IniSerializer
         var s = Cache<T>.Serializer;
         if (s is not null)
         {
-            var writer = new ArrayBufferWriter<byte>();
+            var writer = SerializerExtensions.RentWriter();
             s.Serialize(writer, value);
             return writer.WrittenSpan.ToArray();
         }
