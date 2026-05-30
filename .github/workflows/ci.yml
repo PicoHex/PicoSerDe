@@ -30,7 +30,7 @@ jobs:
           - logical-target: linux-x64
             runs-on: ubuntu-latest
           - logical-target: linux-arm64
-            runs-on: ubuntu-latest
+            runs-on: ubuntu-24.04-arm
           - logical-target: osx-arm64
             runs-on: macos-latest
     runs-on: ${{ matrix.runs-on }}
@@ -76,7 +76,7 @@ jobs:
             runs-on: ubuntu-latest
             rid: linux-x64
           - logical-target: linux-arm64
-            runs-on: ubuntu-latest
+            runs-on: ubuntu-24.04-arm
             rid: linux-arm64
           - logical-target: osx-arm64
             runs-on: macos-latest
@@ -88,16 +88,12 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       # RID publish validation: x64 Linux hosts need arm64 cross-compilation toolchain
-      - name: Install Linux AOT prerequisites (x64)
-        if: startsWith(matrix.rid, 'linux-x64')
-        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
-      - name: Install Linux AOT prerequisites (arm64 cross)
-        if: matrix.rid == 'linux-arm64'
+      - name: Install Linux AOT prerequisites
+        if: startsWith(matrix.rid, 'linux-')
+        shell: bash
         run: |
-          sudo dpkg --add-architecture arm64
-          sudo sed -i 's|https\?://security.ubuntu.com|http://ports.ubuntu.com|g; s|https\?://archive.ubuntu.com|http://ports.ubuntu.com|g; s|https\?://azure.archive.ubuntu.com|http://ports.ubuntu.com|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-          sudo apt-get update -o APT::Acquire::Retries=3
-          sudo apt-get install -y clang zlib1g-dev binutils-aarch64-linux-gnu
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev
       - run: dotnet publish PicoJson/samples/PicoJson.Sample/PicoJson.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoIni/samples/PicoIni.Sample/PicoIni.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoToml/samples/PicoToml.Sample/PicoToml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
