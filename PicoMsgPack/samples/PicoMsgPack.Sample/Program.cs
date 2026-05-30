@@ -1,4 +1,3 @@
-using System.Text.Json;
 
 Console.WriteLine("=== PicoMsgPack Sample ===\n");
 

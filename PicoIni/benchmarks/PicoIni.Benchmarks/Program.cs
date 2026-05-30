@@ -1,6 +1,3 @@
-using IniParser;
-using PicoBench;
-using PicoBench.Formatters;
 
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoIni vs ini-parser — Performance Comparison");

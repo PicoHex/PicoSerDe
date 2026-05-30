@@ -1,6 +1,3 @@
-using PicoBench;
-using PicoBench.Formatters;
-using VYaml.Serialization;
 
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoYaml vs VYaml — Performance Comparison");
