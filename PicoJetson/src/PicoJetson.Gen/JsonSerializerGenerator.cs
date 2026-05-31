@@ -1,8 +1,21 @@
 namespace PicoJetson.Gen;
 
+using TypeInfo = PicoSerDe.Gen.TypeInfo;
+using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
+
 [Generator(LanguageNames.CSharp)]
 public sealed class JsonSerializerGenerator : IIncrementalGenerator
 {
+    private static readonly PicoSerDe.Gen.FormatConfig Config = new("JsonSerializer", "PicoJetson", "json");
+
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
+        HasJsonCamelCase,
+        GetJsonPropertyName,
+        HasJsonIgnore,
+        GetJsonConverterType,
+        GetDateTimeFormat
+    );
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var typeProviders = context
@@ -22,250 +35,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     // ── Candidate detection ──
 
-    private static bool IsCandidate(SyntaxNode node)
-    {
-        if (node is not InvocationExpressionSyntax { Expression: var expr })
-            return false;
+    private static bool IsCandidate(SyntaxNode node) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(node);
 
-        SimpleNameSyntax? name = expr switch
-        {
-            MemberAccessExpressionSyntax { Name: var n } => n,
-            MemberBindingExpressionSyntax { Name: var n } => n,
-            _ => null,
-        };
-
-        string? methodName = name switch
-        {
-            GenericNameSyntax gn => gn.Identifier.Text,
-            SimpleNameSyntax sn => sn.Identifier.Text,
-            _ => null,
-        };
-
-        return methodName is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
-    }
-
-    private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
-    {
-        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method)
-            return null;
-
-        if (
-            method.ContainingType.Name != "JsonSerializer"
-            || method.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoJetson"
-        )
-            return null;
-
-        if (method.TypeArguments.Length != 1)
-            return null;
-
-        var typeArg = method.TypeArguments[0];
-        if (typeArg.SpecialType != SpecialType.None)
-            return null;
-        if (typeArg is not INamedTypeSymbol namedType)
-            return null;
-        if (namedType.ContainingType is not null)
-            return null;
-
-        var ns = namedType.ContainingNamespace?.ToDisplayString() ?? "";
-        if (ns == "<global namespace>")
-            ns = "";
-        var useCamelCase = HasJsonCamelCase(namedType);
-        var properties = new List<PropertyInfo>();
-
-        foreach (var member in namedType.GetMembers())
-        {
-            if (member is not IPropertySymbol prop)
-                continue;
-            if (prop.DeclaredAccessibility != Accessibility.Public)
-                continue;
-            if (prop.IsStatic || prop.IsIndexer)
-                continue;
-            if (prop.IsReadOnly && prop.SetMethod is null)
-                continue;
-            if (prop.GetMethod is null)
-                continue;
-            if (HasJsonIgnore(prop))
-                continue;
-
-            var (typeKind, isNullable, innerTypeSymbol) = PicoSerDe
-                .Gen
-                .TypeKindResolver
-                .Resolve(prop.Type);
-            if (typeKind is null)
-                continue;
-
-            string? elementTypeKind = null;
-            string? elementTypeName = null;
-            string? keyTypeKind = null;
-            string? keyTypeName = null;
-            ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
-
-            if (typeKind is "list" or "array")
-            {
-                ITypeSymbol? elementType;
-                if (prop.Type is IArrayTypeSymbol arrType)
-                    elementType = arrType.ElementType;
-                else if (prop.Type is INamedTypeSymbol ntsElem && ntsElem.TypeArguments.Length == 1)
-                    elementType = ntsElem.TypeArguments[0];
-                else
-                    continue;
-
-                var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(elementType);
-                if (ek is null)
-                    continue;
-                elementTypeKind = ek;
-                elementTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek, elementType);
-                if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
-                    nestedProperties = ExtractNestedProperties(eNtsObj, useCamelCase);
-            }
-            else if (typeKind is "dict")
-            {
-                if (prop.Type is INamedTypeSymbol ntsDict && ntsDict.TypeArguments.Length == 2)
-                {
-                    var keyType = ntsDict.TypeArguments[0];
-                    var valType = ntsDict.TypeArguments[1];
-                    var (kk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(keyType);
-                    var (vk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(valType);
-                    if (kk is null || vk is null)
-                        continue;
-                    keyTypeKind = kk;
-                    keyTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(kk, keyType);
-                    elementTypeKind = vk;
-                    elementTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vk, valType);
-                    if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
-                        nestedProperties = ExtractNestedProperties(vNtsObj);
-                }
-                else
-                    continue;
-            }
-            else if (typeKind is "object" && prop.Type is INamedTypeSymbol objNts)
-            {
-                nestedProperties = ExtractNestedProperties(objNts);
-            }
-
-            properties.Add(
-                new PropertyInfo(
-                    prop.Name,
-                    GetJsonPropertyName(prop)
-                        ?? (useCamelCase ? ToCamelCase(prop.Name) : prop.Name),
-                    typeKind,
-                    prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    isNullable,
-                    elementTypeKind,
-                    elementTypeName,
-                    keyTypeKind,
-                    keyTypeName,
-                    nestedProperties,
-                    GetJsonConverterType(prop),
-                    GetDateTimeFormat(prop)
-                )
-            );
-        }
-
-        return new TypeInfo(
-            namedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            ns,
-            namedType.Name,
-            properties.ToImmutableArray()
-        );
-    }
-
-    // ── Nested property extraction ──
-
-    private static ImmutableArray<PropertyInfo> ExtractNestedProperties(
-        INamedTypeSymbol type,
-        bool useCamelCase = false
-    )
-    {
-        var list = new List<PropertyInfo>();
-        foreach (var member in type.GetMembers())
-        {
-            if (member is not IPropertySymbol prop)
-                continue;
-            if (prop.DeclaredAccessibility != Accessibility.Public)
-                continue;
-            if (prop.IsStatic || prop.IsIndexer)
-                continue;
-            if (prop.IsReadOnly && prop.SetMethod is null)
-                continue;
-            if (prop.GetMethod is null)
-                continue;
-            if (HasJsonIgnore(prop))
-                continue;
-
-            var (typeKind, isNullable, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(prop.Type);
-            if (typeKind is null)
-                continue;
-
-            string? elementTypeKind = null;
-            string? elementTypeName = null;
-            string? keyTypeKind = null;
-            string? keyTypeName = null;
-            ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
-
-            if (typeKind is "list" or "array")
-            {
-                ITypeSymbol? elementType;
-                if (prop.Type is IArrayTypeSymbol arrType)
-                    elementType = arrType.ElementType;
-                else if (prop.Type is INamedTypeSymbol ntsElem && ntsElem.TypeArguments.Length == 1)
-                    elementType = ntsElem.TypeArguments[0];
-                else
-                    continue;
-
-                var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(elementType);
-                if (ek is null)
-                    continue;
-                elementTypeKind = ek;
-                elementTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek, elementType);
-                if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
-                    nestedProperties = ExtractNestedProperties(eNtsObj, useCamelCase);
-            }
-            else if (typeKind is "dict")
-            {
-                if (prop.Type is INamedTypeSymbol ntsDict && ntsDict.TypeArguments.Length == 2)
-                {
-                    var keyType = ntsDict.TypeArguments[0];
-                    var valType = ntsDict.TypeArguments[1];
-                    var (kk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(keyType);
-                    var (vk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(valType);
-                    if (kk is null || vk is null)
-                        continue;
-                    keyTypeKind = kk;
-                    keyTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(kk, keyType);
-                    elementTypeKind = vk;
-                    elementTypeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vk, valType);
-                    if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
-                        nestedProperties = ExtractNestedProperties(vNtsObj);
-                }
-                else
-                    continue;
-            }
-            else if (typeKind is "object" && prop.Type is INamedTypeSymbol objNts)
-            {
-                nestedProperties = ExtractNestedProperties(objNts);
-            }
-
-            list.Add(
-                new PropertyInfo(
-                    prop.Name,
-                    GetJsonPropertyName(prop)
-                        ?? (useCamelCase ? ToCamelCase(prop.Name) : prop.Name),
-                    typeKind,
-                    prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    isNullable,
-                    elementTypeKind,
-                    elementTypeName,
-                    keyTypeKind,
-                    keyTypeName,
-                    nestedProperties,
-                    GetJsonConverterType(prop),
-                    GetDateTimeFormat(prop)
-                )
-            );
-        }
-        return list.ToImmutableArray();
-    }
+    private static TypeInfo? Transform(GeneratorSyntaxContext ctx) =>
+        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
 
     // ── Attribute helpers ──
 
@@ -327,7 +100,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
-    private static bool HasJsonCamelCase(INamedTypeSymbol type)
+    private static bool HasJsonCamelCase(ITypeSymbol type)
     {
         foreach (var attr in type.GetAttributes())
         {
@@ -340,21 +113,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string ToCamelCase(string name)
-    {
-        if (name.Length == 0)
-            return name;
-        // Handle consecutive uppercase (e.g., "XMLParser" → "xmlParser")
-        int upperCount = 0;
-        while (upperCount < name.Length && char.IsUpper(name[upperCount]))
-            upperCount++;
-        if (upperCount <= 1)
-            return char.ToLowerInvariant(name[0]) + name.Substring(1);
-        // Convert all but last uppercase to lowercase
-        int keepUpper = upperCount > 1 && upperCount < name.Length ? upperCount - 1 : upperCount;
-        return name.Substring(0, keepUpper).ToLowerInvariant() + name.Substring(keepUpper);
-    }
-
     // ── Source generation ──
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
@@ -364,7 +122,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         // Collect all unique nested object types (M×N dedup: emit once, reference from parents)
         var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
         foreach (var type in types)
-            CollectNestedTypes(type, nestedTypes);
+            PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(type, nestedTypes);
 
         // Generate inner helpers for shared nested types
         foreach (var kv in nestedTypes)
@@ -372,7 +130,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var fullName = kv.Key;
             var props = kv.Value;
             var cleanName = fullName.Replace("global::", "");
-            var shortName = ShortName(cleanName);
+            var shortName = PicoSerDe.Gen.GenInfrastructure.ShortName(cleanName);
             spc.AddSource(
                 $"{shortName}_JsonInner.g.cs",
                 SourceText.From(GenerateInnerHelper(cleanName, shortName, props), Encoding.UTF8)
@@ -390,67 +148,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 SourceText.From(source, Encoding.UTF8)
             );
         }
-    }
-
-    private static void CollectNestedTypes(
-        TypeInfo type,
-        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes
-    )
-    {
-        foreach (var prop in type.Properties)
-        {
-            if (prop.TypeKind == "object" && !string.IsNullOrEmpty(prop.TypeFullName))
-                AddNestedType(prop.TypeFullName, prop.NestedProperties, nestedTypes);
-            if (
-                (prop.TypeKind == "list" || prop.TypeKind == "array")
-                && prop.ElementTypeKind == "object"
-                && !string.IsNullOrEmpty(prop.ElementTypeName)
-            )
-                AddNestedType(prop.ElementTypeName!, prop.NestedProperties, nestedTypes);
-            if (
-                prop.TypeKind == "dict"
-                && prop.ElementTypeKind == "object"
-                && !string.IsNullOrEmpty(prop.ElementTypeName)
-            )
-                AddNestedType(prop.ElementTypeName!, prop.NestedProperties, nestedTypes);
-        }
-    }
-
-    private static void AddNestedType(
-        string fullName,
-        ImmutableArray<PropertyInfo> props,
-        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes
-    )
-    {
-        if (nestedTypes.ContainsKey(fullName))
-            return;
-        nestedTypes[fullName] = props;
-
-        // Recursively collect nested types from this nested type's properties
-        foreach (var np in props)
-        {
-            if (np.TypeKind == "object" && !string.IsNullOrEmpty(np.TypeFullName))
-                AddNestedType(np.TypeFullName, np.NestedProperties, nestedTypes);
-            if (
-                (np.TypeKind == "list" || np.TypeKind == "array")
-                && np.ElementTypeKind == "object"
-                && !string.IsNullOrEmpty(np.ElementTypeName)
-            )
-                AddNestedType(np.ElementTypeName!, np.NestedProperties, nestedTypes);
-            if (
-                np.TypeKind == "dict"
-                && np.ElementTypeKind == "object"
-                && !string.IsNullOrEmpty(np.ElementTypeName)
-            )
-                AddNestedType(np.ElementTypeName!, np.NestedProperties, nestedTypes);
-        }
-    }
-
-    private static string ShortName(string fullName)
-    {
-        var name = fullName.Replace("global::", "");
-        var lastDot = name.LastIndexOf('.');
-        return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
     }
 
     private static string GenerateInnerHelper(
@@ -747,7 +444,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = ShortName(prop.TypeFullName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.TypeFullName!);
                 sb.Append(indent);
                 sb.Append("if (");
                 sb.Append(effectiveAccessor);
@@ -845,7 +542,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = ShortName(prop.ElementTypeName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.ElementTypeName!);
                 sb.Append(indent);
                 sb.Append(sn);
                 sb.Append("JsonInner.Serialize(jw, ");
@@ -1266,7 +963,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = ShortName(prop.TypeFullName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.TypeFullName!);
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.Null)");
                 sb.Append(indent);
@@ -1414,7 +1111,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = ShortName(prop.ElementTypeName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.ElementTypeName!);
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.Append(".Add(");
@@ -1672,7 +1369,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = ShortName(prop.ElementTypeName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.ElementTypeName!);
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.Null)");
                 sb.Append(indent);
@@ -1730,44 +1427,4 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("}");
     }
 
-    // ── Data types ──
-
-    internal readonly record struct TypeInfo(
-        string FullyQualifiedName,
-        string Namespace,
-        string Name,
-        ImmutableArray<PropertyInfo> Properties
-    )
-    {
-        public bool Equals(TypeInfo other) =>
-            FullyQualifiedName == other.FullyQualifiedName
-            && Namespace == other.Namespace
-            && Name == other.Name
-            && Properties.SequenceEqual(other.Properties);
-
-        public override int GetHashCode()
-        {
-            var hash = FullyQualifiedName.GetHashCode();
-            hash = (hash * 397) ^ Namespace.GetHashCode();
-            hash = (hash * 397) ^ Name.GetHashCode();
-            foreach (var p in Properties)
-                hash = (hash * 397) ^ p.GetHashCode();
-            return hash;
-        }
-    }
-
-    internal readonly record struct PropertyInfo(
-        string Name,
-        string JsonName,
-        string TypeKind,
-        string TypeFullName,
-        bool IsNullable,
-        string? ElementTypeKind,
-        string? ElementTypeName,
-        string? KeyTypeKind,
-        string? KeyTypeName,
-        ImmutableArray<PropertyInfo> NestedProperties,
-        string? ConverterTypeFullName,
-        string? DateTimeFormat = null
-    );
 }
