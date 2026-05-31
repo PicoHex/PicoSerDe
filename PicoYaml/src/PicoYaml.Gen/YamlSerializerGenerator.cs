@@ -15,23 +15,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         ctx.RegisterSourceOutput(p.Collect(), GenerateAll);
     }
 
-    private static bool IsC(SyntaxNode n)
-    {
-        if (n is not InvocationExpressionSyntax { Expression: var e })
-            return false;
-        var nm = e switch
-        {
-            MemberAccessExpressionSyntax { Name: var nn } => nn,
-            _ => null
-        };
-        var t = nm switch
-        {
-            GenericNameSyntax g => g.Identifier.Text,
-            SimpleNameSyntax s => s.Identifier.Text,
-            _ => null
-        };
-        return t is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
-    }
+    private static bool IsC(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
     private static TypeInfo? Tf(GeneratorSyntaxContext ctx)
     {
@@ -72,7 +56,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 k = "string";
             if (k is null)
                 continue;
-            var jsonName = GetYamlKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name);
+            var jsonName = GetYamlKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
 
             string? elemTk = null;
             string? elemTf = null;
@@ -193,19 +177,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string ToCamelCase(string name)
-    {
-        if (name.Length == 0)
-            return name;
-        int upperCount = 0;
-        while (upperCount < name.Length && char.IsUpper(name[upperCount]))
-            upperCount++;
-        if (upperCount <= 1)
-            return char.ToLowerInvariant(name[0]) + name.Substring(1);
-        int keepUpper = upperCount > 1 && upperCount < name.Length ? upperCount - 1 : upperCount;
-        return name.Substring(0, keepUpper).ToLowerInvariant() + name.Substring(keepUpper);
-    }
-
     private static string? GetYamlDateTimeFormat(IPropertySymbol p)
     {
         foreach (var attr in p.GetAttributes())
@@ -264,7 +235,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             {
                 np2 = ExtractNested(o2, useCamelCase);
             }
-            var nestedJsonName = GetYamlKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name);
+            var nestedJsonName = GetYamlKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
             list.Add(
                 new PropInfo(
                     p.Name,
@@ -341,13 +312,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string ShortName(string fullName)
-    {
-        var name = fullName.Replace("global::", "");
-        var lastDot = name.LastIndexOf('.');
-        return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
-    }
-
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> ts)
     {
         var s = new HashSet<string>();
@@ -363,7 +327,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             var fullName = kv.Key;
             var props = kv.Value;
             var cleanName = fullName.Replace("global::", "");
-            var sn = ShortName(cleanName);
+            var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(cleanName);
             spc.AddSource(
                 $"{sn}_YamlInner.g.cs",
                 SourceText.From(GenerateInnerHelper(cleanName, sn, props), Encoding.UTF8)
@@ -533,7 +497,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "object":
                 if (p.NestedProps.Length > 0 && !HasConverterProp(p.NestedProps))
                 {
-                    var sn = ShortName(p.Tf!);
+                    var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
                     s.Append(ind);
                     s.Append(sn);
                     s.Append("YamlInner.Serialize(yw, ");
@@ -696,7 +660,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "object":
                 if (p.NestedProps.Length > 0)
                 {
-                    var sn = ShortName(p.Tf!);
+                    var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
@@ -844,7 +808,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             // P7: use inner helper for nested objects if available
             if (p.NestedProps.Length > 0)
             {
-                var sn = ShortName(p.Tf!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
                 s.Append(ind);
                 s.Append(sn);
                 s.Append("YamlInner.Serialize(yw, ");
@@ -1097,7 +1061,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         else if (p.Tk is "object" && p.NestedProps.Length > 0)
         {
             // P7: use inner helper for nested objects
-            var sn = ShortName(p.Tf!);
+            var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
