@@ -713,7 +713,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(">(16);");
                 s.Append(ind);
                 s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
-                EmitFastPathOrLoop(s, p, t, ".Add", ind, ref c);
+                s.Append(ind);
+                s.AppendLine(
+                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
+                );
+                ReadDeserElem(s, p, t, ".Add", ind + "        ", ref c);
                 s.Append(ind);
                 s.AppendLine("    } }");
                 break;
@@ -724,7 +728,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(">(16);");
                 s.Append(ind);
                 s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
-                EmitFastPathOrLoop(s, p, "__l", ".Add", ind, ref c);
+                s.Append(ind);
+                s.AppendLine(
+                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
+                );
+                ReadDeserElem(s, p, "__l", ".Add", ind + "        ", ref c);
                 s.Append(ind);
                 s.AppendLine("    } }");
                 s.Append(ind);
@@ -858,79 +866,6 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(op);
                 s.AppendLine("(default!);");
                 break;
-        }
-    }
-
-    /// <summary>Emits fast-path array read or fallback reader loop for eligible element types.</summary>
-    static void EmitFastPathOrLoop(
-        StringBuilder s,
-        PropInfo p,
-        string listVar,
-        string op,
-        string ind,
-        ref int c
-    )
-    {
-        if (p.ElementTypeKind is "int32" or "int64" or "float64" or "boolean")
-        {
-            var tn = p.ElementTypeKind switch
-            {
-                "int32" => "int",
-                "int64" => "long",
-                "float64" => "double",
-                _ => "bool"
-            };
-            var fm = p.ElementTypeKind switch
-            {
-                "int32" => "TryReadInt32Array",
-                "int64" => "TryReadInt64Array",
-                "float64" => "TryReadDoubleArray",
-                _ => "TryReadBoolArray"
-            };
-            s.Append(ind);
-            s.Append("    var __buf = new ");
-            s.Append(tn);
-            s.AppendLine("[256];");
-            s.Append(ind);
-            s.Append("    var __n = reader.");
-            s.Append(fm);
-            s.AppendLine("(__buf);");
-            s.Append(ind);
-            s.AppendLine("    if (__n > 0)");
-            s.Append(ind);
-            s.AppendLine("    {");
-            s.Append(ind);
-            s.AppendLine("        for (int __i = 0; __i < __n; __i++)");
-            s.Append(ind);
-            s.Append("            ");
-            s.Append(listVar);
-            s.Append(op);
-            s.AppendLine("(__buf[__i]);");
-            s.Append(ind);
-            s.AppendLine("    }");
-            s.Append(ind);
-            s.AppendLine("    else");
-            s.Append(ind);
-            s.AppendLine("    {");
-            s.Append(ind);
-            s.AppendLine("        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)");
-            s.Append(ind);
-            s.AppendLine("        {");
-            ReadDeserElem(s, p, listVar, op, ind + "            ", ref c);
-            s.Append(ind);
-            s.AppendLine("        }");
-            s.Append(ind);
-            s.AppendLine("    }");
-        }
-        else
-        {
-            s.Append(ind);
-            s.AppendLine("    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)");
-            s.Append(ind);
-            s.AppendLine("    {");
-            ReadDeserElem(s, p, listVar, op, ind + "        ", ref c);
-            s.Append(ind);
-            s.AppendLine("    }");
         }
     }
 }
