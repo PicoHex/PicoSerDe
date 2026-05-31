@@ -20,26 +20,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         );
     }
 
-    private static bool IsCandidate(SyntaxNode node)
-    {
-        if (node is not InvocationExpressionSyntax { Expression: var e })
-            return false;
-        var name = e switch
-        {
-            MemberAccessExpressionSyntax { Name: var n } => n,
-            MemberBindingExpressionSyntax { Name: var n } => n,
-            _ => null
-        };
-        return name switch
-        {
-            GenericNameSyntax gn => gn.Identifier.Text,
-            SimpleNameSyntax sn => sn.Identifier.Text,
-            _ => null
-        }
-            is "Serialize"
-                or "SerializeToUtf8Bytes"
-                or "Deserialize";
-    }
+    private static bool IsCandidate(SyntaxNode node) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(node);
 
     private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
     {
@@ -132,7 +113,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             props.Add(
                 new PropInfo(
                     p.Name,
-                    GetKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name),
+                    GetKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name),
                     kind,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     nullable,
@@ -171,19 +152,6 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 return true;
         }
         return false;
-    }
-
-    private static string ToCamelCase(string name)
-    {
-        if (name.Length == 0)
-            return name;
-        int upperCount = 0;
-        while (upperCount < name.Length && char.IsUpper(name[upperCount]))
-            upperCount++;
-        if (upperCount <= 1)
-            return char.ToLowerInvariant(name[0]) + name.Substring(1);
-        int keepUpper = upperCount > 1 && upperCount < name.Length ? upperCount - 1 : upperCount;
-        return name.Substring(0, keepUpper).ToLowerInvariant() + name.Substring(keepUpper);
     }
 
     private static string? GetIniDateTimeFormat(IPropertySymbol p)
@@ -261,7 +229,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             list.Add(
                 new PropInfo(
                     p.Name,
-                    GetKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name),
+                    GetKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name),
                     k,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     n,
