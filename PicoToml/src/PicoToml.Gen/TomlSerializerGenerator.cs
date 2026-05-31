@@ -16,23 +16,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(providers.Collect(), GenerateAll);
     }
 
-    private static bool IsCandidate(SyntaxNode n)
-    {
-        if (n is not InvocationExpressionSyntax { Expression: var e })
-            return false;
-        var nm = e switch
-        {
-            MemberAccessExpressionSyntax { Name: var nn } => nn,
-            _ => null
-        };
-        var txt = nm switch
-        {
-            GenericNameSyntax g => g.Identifier.Text,
-            SimpleNameSyntax s => s.Identifier.Text,
-            _ => null
-        };
-        return txt is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
-    }
+    private static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
     private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
     {
@@ -78,7 +62,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 k = "string";
             if (k is null)
                 continue;
-            var jsonName = GetTomlKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name);
+            var jsonName = GetTomlKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
 
             string? elemTk = null;
             string? elemTf = null;
@@ -208,9 +192,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string ToCamelCase(string name) =>
-        name.Length > 0 ? char.ToLowerInvariant(name[0]) + name.Substring(1) : name;
-
     private static string? GetTomlDateTimeFormat(IPropertySymbol p)
     {
         foreach (var attr in p.GetAttributes())
@@ -276,7 +257,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             list.Add(
                 new PropInfo(
                     p.Name,
-                    GetTomlKey(p) ?? (useCamelCase ? ToCamelCase(p.Name) : p.Name),
+                    GetTomlKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name),
                     k,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     elemTk2,
@@ -305,7 +286,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             var fullName = kv.Key;
             var props = kv.Value;
-            var shortName = ShortName(fullName);
+            var shortName = PicoSerDe.Gen.GenInfrastructure.ShortName(fullName);
             spc.AddSource(
                 $"{shortName}_TomlInner.g.cs",
                 SourceText.From(GenInner(fullName, shortName, props), Encoding.UTF8)
@@ -344,13 +325,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 }
             }
         }
-    }
-
-    static string ShortName(string fqn)
-    {
-        var n = fqn.Replace("global::", "");
-        var i = n.LastIndexOf('.');
-        return i >= 0 ? n.Substring(i + 1) : n;
     }
 
     static string GenInner(string fqn, string shortName, ImmutableArray<PropInfo> props)
@@ -614,7 +588,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             if (p.NestedProps.Length > 0)
             {
-                var sn = ShortName(p.Tf!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
                 s.Append(indent);
                 s.Append("tw.WriteTable(\"");
                 s.Append(p.Jn);
@@ -662,7 +636,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     {
         if (op.NestedProps.Length > 0)
         {
-            var sn = ShortName(op.Tf!);
+            var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(op.Tf!);
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
