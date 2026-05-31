@@ -1066,25 +1066,53 @@ public ref struct YamlReader
 
     public int TryReadInt32ArrayFast(Span<int> dest)
     {
-        if (_isSequence) return 0;
+        if (_isSequence)
+            return 0;
         var p = _position;
         var d = _data;
         var len = d.Length;
-        if (p >= len || d[p] != (byte)'[') return 0;
+        if (p >= len || d[p] != (byte)'[')
+            return 0;
         p++;
         int count = 0;
         while (p < len && count < dest.Length)
         {
             byte b = d[p];
-            if (b <= 32) { p = SimdHelpers.SkipWhitespace(d, p); continue; }
-            if (b == (byte)']') { p++; break; }
-            if (b == (byte)',') { p++; continue; }
+            if (b <= 32)
+            {
+                p = SimdHelpers.SkipWhitespace(d, p);
+                continue;
+            }
+            if (b == (byte)']')
+            {
+                p++;
+                break;
+            }
+            if (b == (byte)',')
+            {
+                p++;
+                continue;
+            }
             bool neg = false;
-            if (b == (byte)'-') { neg = true; p++; if (p >= len) return 0; b = d[p]; }
-            if (b < (byte)'0' || b > (byte)'9') return 0;
+            if (b == (byte)'-')
+            {
+                neg = true;
+                p++;
+                if (p >= len)
+                    return 0;
+                b = d[p];
+            }
+            if (b < (byte)'0' || b > (byte)'9')
+                return 0;
             int v = 0;
-            do { v = v * 10 + (b - (byte)'0'); p++; if (p >= len) break; b = d[p]; }
-            while (b >= (byte)'0' && b <= (byte)'9');
+            do
+            {
+                v = v * 10 + (b - (byte)'0');
+                p++;
+                if (p >= len)
+                    break;
+                b = d[p];
+            } while (b >= (byte)'0' && b <= (byte)'9');
             dest[count++] = neg ? -v : v;
         }
         _position = p;
@@ -1093,25 +1121,53 @@ public ref struct YamlReader
 
     public int TryReadInt64ArrayFast(Span<long> dest)
     {
-        if (_isSequence) return 0;
+        if (_isSequence)
+            return 0;
         var p = _position;
         var d = _data;
         var len = d.Length;
-        if (p >= len || d[p] != (byte)'[') return 0;
+        if (p >= len || d[p] != (byte)'[')
+            return 0;
         p++;
         int count = 0;
         while (p < len && count < dest.Length)
         {
             byte b = d[p];
-            if (b <= 32) { p = SimdHelpers.SkipWhitespace(d, p); continue; }
-            if (b == (byte)']') { p++; break; }
-            if (b == (byte)',') { p++; continue; }
+            if (b <= 32)
+            {
+                p = SimdHelpers.SkipWhitespace(d, p);
+                continue;
+            }
+            if (b == (byte)']')
+            {
+                p++;
+                break;
+            }
+            if (b == (byte)',')
+            {
+                p++;
+                continue;
+            }
             bool neg = false;
-            if (b == (byte)'-') { neg = true; p++; if (p >= len) return 0; b = d[p]; }
-            if (b < (byte)'0' || b > (byte)'9') return 0;
+            if (b == (byte)'-')
+            {
+                neg = true;
+                p++;
+                if (p >= len)
+                    return 0;
+                b = d[p];
+            }
+            if (b < (byte)'0' || b > (byte)'9')
+                return 0;
             long v = 0;
-            do { v = v * 10 + (b - (byte)'0'); p++; if (p >= len) break; b = d[p]; }
-            while (b >= (byte)'0' && b <= (byte)'9');
+            do
+            {
+                v = v * 10 + (b - (byte)'0');
+                p++;
+                if (p >= len)
+                    break;
+                b = d[p];
+            } while (b >= (byte)'0' && b <= (byte)'9');
             dest[count++] = neg ? -v : v;
         }
         _position = p;
@@ -1120,22 +1176,55 @@ public ref struct YamlReader
 
     public int TryReadBoolArrayFast(Span<bool> dest)
     {
-        if (_isSequence) return 0;
+        if (_isSequence)
+            return 0;
         var p = _position;
         var d = _data;
         var len = d.Length;
-        if (p >= len || d[p] != (byte)'[') return 0;
+        if (p >= len || d[p] != (byte)'[')
+            return 0;
         p++;
         int count = 0;
         while (p < len && count < dest.Length)
         {
             byte b = d[p];
-            if (b <= 32) { p = SimdHelpers.SkipWhitespace(d, p); continue; }
-            if (b == (byte)']') { p++; break; }
-            if (b == (byte)',') { p++; continue; }
-            if (b == (byte)'t') { if (p + 3 >= len || d[p+1] != 'r' || d[p+2] != 'u' || d[p+3] != 'e') return 0; p += 4; dest[count++] = true; }
-            else if (b == (byte)'f') { if (p + 4 >= len || d[p+1] != 'a' || d[p+2] != 'l' || d[p+3] != 's' || d[p+4] != 'e') return 0; p += 5; dest[count++] = false; }
-            else return 0;
+            if (b <= 32)
+            {
+                p = SimdHelpers.SkipWhitespace(d, p);
+                continue;
+            }
+            if (b == (byte)']')
+            {
+                p++;
+                break;
+            }
+            if (b == (byte)',')
+            {
+                p++;
+                continue;
+            }
+            if (b == (byte)'t')
+            {
+                if (p + 3 >= len || d[p + 1] != 'r' || d[p + 2] != 'u' || d[p + 3] != 'e')
+                    return 0;
+                p += 4;
+                dest[count++] = true;
+            }
+            else if (b == (byte)'f')
+            {
+                if (
+                    p + 4 >= len
+                    || d[p + 1] != 'a'
+                    || d[p + 2] != 'l'
+                    || d[p + 3] != 's'
+                    || d[p + 4] != 'e'
+                )
+                    return 0;
+                p += 5;
+                dest[count++] = false;
+            }
+            else
+                return 0;
         }
         _position = p;
         return count;

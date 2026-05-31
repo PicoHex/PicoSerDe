@@ -859,53 +859,53 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 var listAcc =
                     prop.TypeKind == "list" ? $"{target}.{prop.Name}" : $"__list_{prop.Name}";
 
-                if (prop.ElementTypeKind == "int32")
+                if (prop.ElementTypeKind == "int32" || prop.ElementTypeKind == "int64" || prop.ElementTypeKind == "boolean")
                 {
-                    // Inline loop: directly access raw buffer, skip all Reader overhead
+                    var typeName = prop.ElementTypeKind switch
+                    {
+                        "int32" => "int",
+                        "int64" => "long",
+                        _ => "bool"
+                    };
+                    var fastMethod = prop.ElementTypeKind switch
+                    {
+                        "int32" => "TryReadInt32ArrayFast",
+                        "int64" => "TryReadInt64ArrayFast",
+                        _ => "TryReadBoolArrayFast"
+                    };
                     sb.Append(indent);
-                    sb.AppendLine("    var __d = reader.RawBuffer;");
+                    sb.Append("    var __buf = new ");
+                    sb.Append(typeName);
+                    sb.AppendLine("[256];");
                     sb.Append(indent);
-                    sb.AppendLine("    var __p = reader.RawPos;");
+                    sb.Append("    var __n = reader.");
+                    sb.Append(fastMethod);
+                    sb.AppendLine("(__buf);");
                     sb.Append(indent);
-                    sb.AppendLine("    var __e = __d.Length;");
-                    sb.Append(indent);
-                    sb.AppendLine("    while (__p < __e)");
+                    sb.AppendLine("    if (__n > 0)");
                     sb.Append(indent);
                     sb.AppendLine("    {");
                     sb.Append(indent);
-                    sb.AppendLine("        byte __b = __d[__p];");
+                    sb.AppendLine("        for (int __i = 0; __i < __n; __i++)");
                     sb.Append(indent);
-                    sb.AppendLine("        if (__b <= 32) { __p++; continue; }");
-                    sb.Append(indent);
-                    sb.AppendLine("        if (__b == (byte)']') { __p++; break; }");
-                    sb.Append(indent);
-                    sb.AppendLine("        if (__b == (byte)',') { __p++; continue; }");
-                    sb.Append(indent);
-                    sb.AppendLine("        bool __neg = false;");
-                    sb.Append(indent);
-                    sb.AppendLine(
-                        "        if (__b == (byte)'-') { __neg = true; __p++; __b = __d[__p]; }"
-                    );
-                    sb.Append(indent);
-                    sb.AppendLine(
-                        "        if (__b < (byte)'0' || __b > (byte)'9') { __p++; continue; }"
-                    );
-                    sb.Append(indent);
-                    sb.AppendLine("        int __v = 0;");
-                    sb.Append(indent);
-                    sb.AppendLine(
-                        "        do { __v = __v * 10 + (__b - (byte)'0'); __p++; if (__p >= __e) break; __b = __d[__p]; } while (__b >= (byte)'0' && __b <= (byte)'9');"
-                    );
-                    sb.Append(indent);
-                    sb.AppendLine("        if (__neg) __v = -__v;");
-                    sb.Append(indent);
-                    sb.Append("        ");
+                    sb.Append("            ");
                     sb.Append(listAcc);
-                    sb.AppendLine(".Add(__v);");
+                    sb.AppendLine(".Add(__buf[__i]);");
                     sb.Append(indent);
                     sb.AppendLine("    }");
                     sb.Append(indent);
-                    sb.AppendLine("    reader.SetRawPos(__p);");
+                    sb.AppendLine("    else");
+                    sb.Append(indent);
+                    sb.AppendLine("    {");
+                    sb.Append(indent);
+                    sb.AppendLine("        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)");
+                    sb.Append(indent);
+                    sb.AppendLine("        {");
+                    EmitDeserializeElementAdd(sb, prop, listAcc, indent + "            ", nestLevel);
+                    sb.Append(indent);
+                    sb.AppendLine("        }");
+                    sb.Append(indent);
+                    sb.AppendLine("    }");
                 }
                 else
                 {
