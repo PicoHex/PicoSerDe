@@ -17,7 +17,10 @@ public class IniReaderSimdTests
             """;
         var bytes = Encoding.UTF8.GetBytes(ini);
 
-        string k1, v1, k2, v2;
+        string k1,
+            v1,
+            k2,
+            v2;
         using (var reader = new IniReader(bytes))
         {
             reader.Read();
@@ -78,7 +81,8 @@ public class IniReaderSimdTests
             """;
         var bytes = Encoding.UTF8.GetBytes(ini);
 
-        string key, value;
+        string key,
+            value;
         using (var reader = new IniReader(bytes))
         {
             reader.Read();

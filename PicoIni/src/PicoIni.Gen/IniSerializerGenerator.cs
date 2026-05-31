@@ -20,7 +20,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         );
     }
 
-    private static bool IsCandidate(SyntaxNode node) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(node);
+    private static bool IsCandidate(SyntaxNode node) =>
+        PicoSerDe.Gen.GenInfrastructure.IsCandidate(node);
 
     private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
     {
@@ -113,7 +114,12 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             props.Add(
                 new PropInfo(
                     p.Name,
-                    GetKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name),
+                    GetKey(p)
+                        ?? (
+                            useCamelCase
+                                ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name)
+                                : p.Name
+                        ),
                     kind,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     nullable,
@@ -229,7 +235,12 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             list.Add(
                 new PropInfo(
                     p.Name,
-                    GetKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name),
+                    GetKey(p)
+                        ?? (
+                            useCamelCase
+                                ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name)
+                                : p.Name
+                        ),
                     k,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     n,

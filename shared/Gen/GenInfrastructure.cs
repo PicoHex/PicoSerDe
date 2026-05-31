@@ -113,13 +113,16 @@ internal static class GenInfrastructure
     public static TypeInfo? TransformType(
         GeneratorSyntaxContext ctx,
         FormatConfig config,
-        AttributeHelpers attrs)
+        AttributeHelpers attrs
+    )
     {
         if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method)
             return null;
 
-        if (method.ContainingType.Name != config.SerializerClassName
-            || method.ContainingType.ContainingNamespace?.ToDisplayString() != config.Namespace)
+        if (
+            method.ContainingType.Name != config.SerializerClassName
+            || method.ContainingType.ContainingNamespace?.ToDisplayString() != config.Namespace
+        )
             return null;
 
         if (method.TypeArguments.Length != 1)
@@ -155,7 +158,10 @@ internal static class GenInfrastructure
             if (attrs.HasIgnore(prop))
                 continue;
 
-            var (typeKind, isNullable, innerTypeSymbol) = TypeKindResolver.Resolve(prop.Type, config.FormatTag);
+            var (typeKind, isNullable, innerTypeSymbol) = TypeKindResolver.Resolve(
+                prop.Type,
+                config.FormatTag
+            );
             if (typeKind is null)
                 continue;
 
@@ -198,7 +204,11 @@ internal static class GenInfrastructure
                     elementTypeKind = vk;
                     elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
-                        nestedProperties = ExtractNestedProperties(vNtsObj, attrs, config.FormatTag);
+                        nestedProperties = ExtractNestedProperties(
+                            vNtsObj,
+                            attrs,
+                            config.FormatTag
+                        );
                 }
                 else
                     continue;
@@ -208,20 +218,23 @@ internal static class GenInfrastructure
                 nestedProperties = ExtractNestedProperties(objNts, attrs, config.FormatTag);
             }
 
-            properties.Add(new PropertyInfo(
-                prop.Name,
-                attrs.GetCustomName(prop) ?? (useCamelCase ? ToCamelCase(prop.Name) : prop.Name),
-                typeKind,
-                prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                isNullable,
-                elementTypeKind,
-                elementTypeName,
-                keyTypeKind,
-                keyTypeName,
-                nestedProperties,
-                attrs.GetConverterType(prop),
-                attrs.GetDateTimeFormat(prop)
-            ));
+            properties.Add(
+                new PropertyInfo(
+                    prop.Name,
+                    attrs.GetCustomName(prop)
+                        ?? (useCamelCase ? ToCamelCase(prop.Name) : prop.Name),
+                    typeKind,
+                    prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    isNullable,
+                    elementTypeKind,
+                    elementTypeName,
+                    keyTypeKind,
+                    keyTypeName,
+                    nestedProperties,
+                    attrs.GetConverterType(prop),
+                    attrs.GetDateTimeFormat(prop)
+                )
+            );
         }
 
         return new TypeInfo(
@@ -235,7 +248,8 @@ internal static class GenInfrastructure
     public static ImmutableArray<PropertyInfo> ExtractNestedProperties(
         INamedTypeSymbol type,
         AttributeHelpers attrs,
-        string formatTag)
+        string formatTag
+    )
     {
         var list = new List<PropertyInfo>();
         foreach (var member in type.GetMembers())
@@ -306,39 +320,46 @@ internal static class GenInfrastructure
                 nestedProperties = ExtractNestedProperties(objNts, attrs, formatTag);
             }
 
-            list.Add(new PropertyInfo(
-                prop.Name,
-                attrs.GetCustomName(prop) ?? prop.Name,
-                typeKind,
-                prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                isNullable,
-                elementTypeKind,
-                elementTypeName,
-                keyTypeKind,
-                keyTypeName,
-                nestedProperties,
-                attrs.GetConverterType(prop),
-                attrs.GetDateTimeFormat(prop)
-            ));
+            list.Add(
+                new PropertyInfo(
+                    prop.Name,
+                    attrs.GetCustomName(prop) ?? prop.Name,
+                    typeKind,
+                    prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    isNullable,
+                    elementTypeKind,
+                    elementTypeName,
+                    keyTypeKind,
+                    keyTypeName,
+                    nestedProperties,
+                    attrs.GetConverterType(prop),
+                    attrs.GetDateTimeFormat(prop)
+                )
+            );
         }
         return list.ToImmutableArray();
     }
 
     public static void CollectNestedTypes(
         TypeInfo type,
-        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes)
+        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes
+    )
     {
         foreach (var prop in type.Properties)
         {
             if (prop.TypeKind == "object" && !string.IsNullOrEmpty(prop.TypeFullName))
                 AddNestedType(prop.TypeFullName, prop.NestedProperties, nestedTypes);
-            if ((prop.TypeKind == "list" || prop.TypeKind == "array")
+            if (
+                (prop.TypeKind == "list" || prop.TypeKind == "array")
                 && prop.ElementTypeKind == "object"
-                && !string.IsNullOrEmpty(prop.ElementTypeName))
+                && !string.IsNullOrEmpty(prop.ElementTypeName)
+            )
                 AddNestedType(prop.ElementTypeName!, prop.NestedProperties, nestedTypes);
-            if (prop.TypeKind == "dict"
+            if (
+                prop.TypeKind == "dict"
                 && prop.ElementTypeKind == "object"
-                && !string.IsNullOrEmpty(prop.ElementTypeName))
+                && !string.IsNullOrEmpty(prop.ElementTypeName)
+            )
                 AddNestedType(prop.ElementTypeName!, prop.NestedProperties, nestedTypes);
         }
     }
@@ -346,7 +367,8 @@ internal static class GenInfrastructure
     private static void AddNestedType(
         string fullName,
         ImmutableArray<PropertyInfo> props,
-        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes)
+        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes
+    )
     {
         if (nestedTypes.ContainsKey(fullName))
             return;
@@ -356,13 +378,17 @@ internal static class GenInfrastructure
         {
             if (np.TypeKind == "object" && !string.IsNullOrEmpty(np.TypeFullName))
                 AddNestedType(np.TypeFullName, np.NestedProperties, nestedTypes);
-            if ((np.TypeKind == "list" || np.TypeKind == "array")
+            if (
+                (np.TypeKind == "list" || np.TypeKind == "array")
                 && np.ElementTypeKind == "object"
-                && !string.IsNullOrEmpty(np.ElementTypeName))
+                && !string.IsNullOrEmpty(np.ElementTypeName)
+            )
                 AddNestedType(np.ElementTypeName!, np.NestedProperties, nestedTypes);
-            if (np.TypeKind == "dict"
+            if (
+                np.TypeKind == "dict"
                 && np.ElementTypeKind == "object"
-                && !string.IsNullOrEmpty(np.ElementTypeName))
+                && !string.IsNullOrEmpty(np.ElementTypeName)
+            )
                 AddNestedType(np.ElementTypeName!, np.NestedProperties, nestedTypes);
         }
     }

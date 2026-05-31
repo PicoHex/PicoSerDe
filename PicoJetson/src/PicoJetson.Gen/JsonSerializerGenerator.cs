@@ -1,20 +1,22 @@
 namespace PicoJetson.Gen;
 
-using TypeInfo = PicoSerDe.Gen.TypeInfo;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
+using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
 [Generator(LanguageNames.CSharp)]
 public sealed class JsonSerializerGenerator : IIncrementalGenerator
 {
-    private static readonly PicoSerDe.Gen.FormatConfig Config = new("JsonSerializer", "PicoJetson", "json");
+    private static readonly PicoSerDe.Gen.FormatConfig Config =
+        new("JsonSerializer", "PicoJetson", "json");
 
-    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
-        HasJsonCamelCase,
-        GetJsonPropertyName,
-        HasJsonIgnore,
-        GetJsonConverterType,
-        GetDateTimeFormat
-    );
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
+        new(
+            HasJsonCamelCase,
+            GetJsonPropertyName,
+            HasJsonIgnore,
+            GetJsonConverterType,
+            GetDateTimeFormat
+        );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -35,7 +37,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     // ── Candidate detection ──
 
-    private static bool IsCandidate(SyntaxNode node) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(node);
+    private static bool IsCandidate(SyntaxNode node) =>
+        PicoSerDe.Gen.GenInfrastructure.IsCandidate(node);
 
     private static TypeInfo? Transform(GeneratorSyntaxContext ctx) =>
         PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
@@ -1426,5 +1429,4 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
         sb.AppendLine("}");
     }
-
 }
