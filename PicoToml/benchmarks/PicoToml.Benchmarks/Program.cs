@@ -1,7 +1,3 @@
-using PicoBench;
-using PicoBench.Formatters;
-using Tommy;
-
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoToml vs Tommy — Performance Comparison");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");

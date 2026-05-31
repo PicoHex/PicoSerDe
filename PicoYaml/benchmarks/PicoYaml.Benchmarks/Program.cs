@@ -1,6 +1,3 @@
-using PicoBench;
-using PicoBench.Formatters;
-
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoYaml — Self Benchmark (AOT)");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");

@@ -1,8 +1,6 @@
 // Unified TypeKindResolver — shared across all 5 format source generators
 // Each SG project includes this file via <Compile Include>
 
-using Microsoft.CodeAnalysis;
-
 namespace PicoSerDe.Gen;
 
 internal static class TypeKindResolver

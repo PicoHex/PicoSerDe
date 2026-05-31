@@ -1,7 +1,3 @@
-using System.Numerics;
-using System.Runtime.CompilerServices;
-using System.Runtime.Intrinsics;
-
 namespace PicoSerDe.Core;
 
 public static class SimdHelpers
