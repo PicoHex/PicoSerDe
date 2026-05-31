@@ -60,6 +60,14 @@ public ref struct MsgPackReader
     public TokenType TokenType => _tokenType;
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
 
+    /// <summary>Direct buffer access for optimized generated code (span mode only).</summary>
+    public ReadOnlySpan<byte> RawBuffer => _isSequence ? default : _data;
+
+    /// <summary>Direct position access for optimized generated code (span mode only).</summary>
+    public int RawPos => _isSequence ? -1 : _position;
+
+    public void SetRawPos(int pos) { _position = pos; }
+
     public ReadOnlySpan<byte> GetStringRaw() => _valueSpan;
 
     // ── Mode-agnostic helpers ──
