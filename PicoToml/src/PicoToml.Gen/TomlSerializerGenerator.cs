@@ -286,10 +286,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             var fullName = kv.Key;
             var props = kv.Value;
-            var shortName = PicoSerDe.Gen.GenInfrastructure.ShortName(fullName);
+            var safeName = PicoSerDe.Gen.GenInfrastructure.SafeName(fullName);
             spc.AddSource(
-                $"{shortName}_TomlInner.g.cs",
-                SourceText.From(GenInner(fullName, shortName, props), Encoding.UTF8)
+                $"{safeName}_TomlInner.g.cs",
+                SourceText.From(GenInner(fullName, safeName, props), Encoding.UTF8)
             );
         }
 
@@ -588,14 +588,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             if (p.NestedProps.Length > 0)
             {
-                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", p.Tf!);
                 s.Append(indent);
                 s.Append("tw.WriteTable(\"");
                 s.Append(p.Jn);
                 s.AppendLine("\");");
                 s.Append(indent);
                 s.Append(sn);
-                s.Append("TomlInner.Serialize(tw, ");
+                s.Append(".Serialize(tw, ");
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
@@ -636,14 +636,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     {
         if (op.NestedProps.Length > 0)
         {
-            var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(op.Tf!);
+            var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", op.Tf!);
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
             s.Append(op.Name);
             s.Append(" = ");
             s.Append(sn);
-            s.AppendLine("TomlInner.Deserialize(ref r);");
+            s.AppendLine(".Deserialize(ref r);");
         }
     }
 

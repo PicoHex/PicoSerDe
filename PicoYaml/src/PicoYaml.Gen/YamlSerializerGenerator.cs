@@ -331,7 +331,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             var fullName = kv.Key;
             var props = kv.Value;
             var cleanName = fullName.Replace("global::", "");
-            var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(cleanName);
+            var sn = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanName);
             spc.AddSource(
                 $"{sn}_YamlInner.g.cs",
                 SourceText.From(GenerateInnerHelper(cleanName, sn, props), Encoding.UTF8)
@@ -501,10 +501,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "object":
                 if (p.NestedProps.Length > 0 && !HasConverterProp(p.NestedProps))
                 {
-                    var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
+                    var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.Tf!);
                     s.Append(ind);
                     s.Append(sn);
-                    s.Append("YamlInner.Serialize(yw, ");
+                    s.Append(".Serialize(yw, ");
                     s.Append(accessor);
                     s.AppendLine(");");
                 }
@@ -664,14 +664,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "object":
                 if (p.NestedProps.Length > 0)
                 {
-                    var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
+                    var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.Tf!);
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
                     s.Append(p.Name);
                     s.Append(" = ");
                     s.Append(sn);
-                    s.AppendLine("YamlInner.Deserialize(ref reader);");
+                    s.AppendLine(".Deserialize(ref reader);");
                 }
                 break;
             default:
@@ -812,10 +812,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             // P7: use inner helper for nested objects if available
             if (p.NestedProps.Length > 0)
             {
-                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.Tf!);
                 s.Append(ind);
                 s.Append(sn);
-                s.Append("YamlInner.Serialize(yw, ");
+                s.Append(".Serialize(yw, ");
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
@@ -1065,14 +1065,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         else if (p.Tk is "object" && p.NestedProps.Length > 0)
         {
             // P7: use inner helper for nested objects
-            var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(p.Tf!);
+            var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.Tf!);
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
             s.Append(p.Name);
             s.Append(" = ");
             s.Append(sn);
-            s.AppendLine("YamlInner.Deserialize(ref r);");
+            s.AppendLine(".Deserialize(ref r);");
         }
         else if (p.Tk is "dict")
         {
