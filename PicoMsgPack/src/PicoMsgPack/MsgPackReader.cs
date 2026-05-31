@@ -66,7 +66,10 @@ public ref struct MsgPackReader
     /// <summary>Direct position access for optimized generated code (span mode only).</summary>
     public int RawPos => _isSequence ? -1 : _position;
 
-    public void SetRawPos(int pos) { _position = pos; }
+    public void SetRawPos(int pos)
+    {
+        _position = pos;
+    }
 
     public ReadOnlySpan<byte> GetStringRaw() => _valueSpan;
 

@@ -56,7 +56,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 k = "string";
             if (k is null)
                 continue;
-            var jsonName = GetYamlKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
+            var jsonName =
+                GetYamlKey(p)
+                ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
 
             string? elemTk = null;
             string? elemTf = null;
@@ -235,7 +237,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             {
                 np2 = ExtractNested(o2, useCamelCase);
             }
-            var nestedJsonName = GetYamlKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
+            var nestedJsonName =
+                GetYamlKey(p)
+                ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
             list.Add(
                 new PropInfo(
                     p.Name,
