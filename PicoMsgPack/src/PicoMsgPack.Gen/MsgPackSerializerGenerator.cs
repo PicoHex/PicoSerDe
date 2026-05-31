@@ -862,12 +862,31 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     }
 
     /// <summary>Emits fast-path array read or fallback reader loop for eligible element types.</summary>
-    static void EmitFastPathOrLoop(StringBuilder s, PropInfo p, string listVar, string op, string ind, ref int c)
+    static void EmitFastPathOrLoop(
+        StringBuilder s,
+        PropInfo p,
+        string listVar,
+        string op,
+        string ind,
+        ref int c
+    )
     {
         if (p.ElementTypeKind is "int32" or "int64" or "float64" or "boolean")
         {
-            var tn = p.ElementTypeKind switch { "int32" => "int", "int64" => "long", "float64" => "double", _ => "bool" };
-            var fm = p.ElementTypeKind switch { "int32" => "TryReadInt32Array", "int64" => "TryReadInt64Array", "float64" => "TryReadDoubleArray", _ => "TryReadBoolArray" };
+            var tn = p.ElementTypeKind switch
+            {
+                "int32" => "int",
+                "int64" => "long",
+                "float64" => "double",
+                _ => "bool"
+            };
+            var fm = p.ElementTypeKind switch
+            {
+                "int32" => "TryReadInt32Array",
+                "int64" => "TryReadInt64Array",
+                "float64" => "TryReadDoubleArray",
+                _ => "TryReadBoolArray"
+            };
             s.Append(ind);
             s.Append("    var __buf = new ");
             s.Append(tn);
