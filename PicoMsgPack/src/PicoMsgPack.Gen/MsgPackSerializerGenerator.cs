@@ -19,13 +19,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         );
     }
 
-    static bool IsCandidate(SyntaxNode n) =>
-        n
-            is InvocationExpressionSyntax
-            {
-                Expression: MemberAccessExpressionSyntax { Name: GenericNameSyntax gn }
-            }
-        && gn.Identifier.Text is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
+    static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
     static TypeInfo? Transform(GeneratorSyntaxContext ctx)
     {
