@@ -66,9 +66,7 @@ public static class SimdHelpers
             {
                 ref readonly var src = ref data[position];
                 var chunk = Vector128.LoadUnsafe(in src);
-                var isWs =
-                    Vector128.Equals(chunk, spaceVec)
-                    | Vector128.Equals(chunk, tabVec);
+                var isWs = Vector128.Equals(chunk, spaceVec) | Vector128.Equals(chunk, tabVec);
                 var bits = isWs.ExtractMostSignificantBits();
 
                 if (bits == 0xFFFF)

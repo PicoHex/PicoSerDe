@@ -36,7 +36,21 @@ public class MsgPackReaderFastPathTests
     public async Task TryReadInt32Array_MixedFormats()
     {
         // fixarray(4) + [fixint 127, int8 -128, int16 300, int32 100000]
-        var data = new byte[] { 0x94, 0x7F, 0xD0, 0x80, 0xD1, 0x01, 0x2C, 0xD2, 0x00, 0x01, 0x86, 0xA0 };
+        var data = new byte[]
+        {
+            0x94,
+            0x7F,
+            0xD0,
+            0x80,
+            0xD1,
+            0x01,
+            0x2C,
+            0xD2,
+            0x00,
+            0x01,
+            0x86,
+            0xA0
+        };
         var reader = new MsgPackReader(data);
         // TryReadXxxArrayFast reads the array header internally
         var __dest = new int[4];
@@ -80,15 +94,18 @@ public class MsgPackReaderFastPathTests
     public async Task TryReadDoubleArray_Basic()
     {
         // fixarray(2) + [float64 1.5, float64 -3.0]
-        double v1 = 1.5, v2 = -3.0;
+        double v1 = 1.5,
+            v2 = -3.0;
         var buf = new byte[1 + 2 * 9];
         buf[0] = 0x92;
         buf[1] = 0xCB;
         BitConverter.GetBytes(v1).CopyTo(buf, 2);
-        if (BitConverter.IsLittleEndian) Array.Reverse(buf, 2, 8);
+        if (BitConverter.IsLittleEndian)
+            Array.Reverse(buf, 2, 8);
         buf[10] = 0xCB;
         BitConverter.GetBytes(v2).CopyTo(buf, 11);
-        if (BitConverter.IsLittleEndian) Array.Reverse(buf, 11, 8);
+        if (BitConverter.IsLittleEndian)
+            Array.Reverse(buf, 11, 8);
 
         var reader = new MsgPackReader(buf);
         // TryReadXxxArrayFast reads the array header internally

@@ -1,4 +1,3 @@
-
 Console.WriteLine("=== PicoMsgPack Sample ===\n");
 
 // ═══ 1. Zero-Attribute Models (all auto-numbered by declaration order) ═══

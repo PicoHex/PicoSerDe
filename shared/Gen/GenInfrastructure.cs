@@ -101,7 +101,8 @@ internal static class GenInfrastructure
     {
         var lastDot = typeFullName.LastIndexOf('.');
         var safeName = SafeName(typeFullName);
-        if (lastDot <= 0) return $"{safeName}{suffix}";
+        if (lastDot <= 0)
+            return $"{safeName}{suffix}";
         var ns = typeFullName.Substring(0, lastDot);
         return $"{ns}.{safeName}{suffix}";
     }

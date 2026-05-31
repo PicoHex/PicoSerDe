@@ -859,7 +859,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 var listAcc =
                     prop.TypeKind == "list" ? $"{target}.{prop.Name}" : $"__list_{prop.Name}";
 
-                if (prop.ElementTypeKind == "int32" || prop.ElementTypeKind == "int64" || prop.ElementTypeKind == "boolean")
+                if (
+                    prop.ElementTypeKind == "int32"
+                    || prop.ElementTypeKind == "int64"
+                    || prop.ElementTypeKind == "boolean"
+                )
                 {
                     var typeName = prop.ElementTypeKind switch
                     {
@@ -898,10 +902,18 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(indent);
                     sb.AppendLine("    {");
                     sb.Append(indent);
-                    sb.AppendLine("        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)");
+                    sb.AppendLine(
+                        "        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+                    );
                     sb.Append(indent);
                     sb.AppendLine("        {");
-                    EmitDeserializeElementAdd(sb, prop, listAcc, indent + "            ", nestLevel);
+                    EmitDeserializeElementAdd(
+                        sb,
+                        prop,
+                        listAcc,
+                        indent + "            ",
+                        nestLevel
+                    );
                     sb.Append(indent);
                     sb.AppendLine("        }");
                     sb.Append(indent);
