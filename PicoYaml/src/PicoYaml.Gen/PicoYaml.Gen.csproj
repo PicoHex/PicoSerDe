@@ -32,7 +32,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\shared\IsExternalInit.cs" Link="IsExternalInit.cs" />
-    <Compile Include="..\..\..\shared\TypeKindResolver.cs" Link="TypeKindResolver.cs" />
+    <Compile Include="..\..\..\shared\Gen\IsExternalInit.cs" Link="Gen\IsExternalInit.cs" />
+    <Compile Include="..\..\..\shared\Gen\TypeKindResolver.cs" Link="Gen\TypeKindResolver.cs" />
   </ItemGroup>
 </Project>
