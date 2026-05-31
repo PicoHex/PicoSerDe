@@ -50,4 +50,42 @@ public static class SimdHelpers
         }
         return position;
     }
+
+    /// <summary>SIMD-accelerated skip of spaces and tabs only (newlines remain significant). Used by INI reader.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int SkipSpacesAndTabs(ReadOnlySpan<byte> data, int position)
+    {
+        int len = data.Length;
+
+        if (Vector128.IsHardwareAccelerated)
+        {
+            var spaceVec = Vector128.Create((byte)0x20);
+            var tabVec = Vector128.Create((byte)0x09);
+
+            while (position + 16 <= len)
+            {
+                ref readonly var src = ref data[position];
+                var chunk = Vector128.LoadUnsafe(in src);
+                var isWs =
+                    Vector128.Equals(chunk, spaceVec)
+                    | Vector128.Equals(chunk, tabVec);
+                var bits = isWs.ExtractMostSignificantBits();
+
+                if (bits == 0xFFFF)
+                {
+                    position += 16;
+                    continue;
+                }
+
+                position += BitOperations.TrailingZeroCount(~bits);
+                return position;
+            }
+        }
+
+        while (position < len && data[position] is (byte)' ' or (byte)'\t')
+        {
+            position++;
+        }
+        return position;
+    }
 }

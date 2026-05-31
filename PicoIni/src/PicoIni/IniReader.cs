@@ -247,7 +247,7 @@ public ref struct IniReader
             }
             if (b is (byte)' ' or (byte)'\t')
             {
-                _position++;
+                _position = PicoSerDe.Core.SimdHelpers.SkipSpacesAndTabs(_data, _position);
                 continue;
             }
             if (b == (byte)'[')
