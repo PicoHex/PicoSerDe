@@ -34,5 +34,6 @@
   <ItemGroup>
     <Compile Include="..\..\..\shared\Gen\IsExternalInit.cs" Link="Gen\IsExternalInit.cs" />
     <Compile Include="..\..\..\shared\Gen\TypeKindResolver.cs" Link="Gen\TypeKindResolver.cs" />
+    <Compile Include="..\..\..\shared\Gen\GenInfrastructure.cs" Link="Gen\GenInfrastructure.cs" />
   </ItemGroup>
 </Project>

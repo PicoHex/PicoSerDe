@@ -31,9 +31,10 @@
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.*" PrivateAssets="all" />
   </ItemGroup>
 
-    <ItemGroup>
-        <Compile Include="..\..\..\shared\Gen\IsExternalInit.cs" Link="Gen\IsExternalInit.cs" />
-        <Compile Include="..\..\..\shared\Gen\TypeKindResolver.cs" Link="Gen\TypeKindResolver.cs" />
+<ItemGroup>
+    <Compile Include="..\..\..\shared\Gen\IsExternalInit.cs" Link="Gen\IsExternalInit.cs" />
+    <Compile Include="..\..\..\shared\Gen\TypeKindResolver.cs" Link="Gen\TypeKindResolver.cs" />
+    <Compile Include="..\..\..\shared\Gen\GenInfrastructure.cs" Link="Gen\GenInfrastructure.cs" />
   </ItemGroup>
 
 </Project>
