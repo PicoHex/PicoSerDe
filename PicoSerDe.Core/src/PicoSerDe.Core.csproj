@@ -23,7 +23,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="..\..\shared\SimdHelpers.cs" Link="SimdHelpers.cs" />
         <Compile Include="..\..\shared\TextHelpers.cs" Link="TextHelpers.cs" />
     </ItemGroup>
 

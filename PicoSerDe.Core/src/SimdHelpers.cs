@@ -4,7 +4,7 @@ using System.Runtime.Intrinsics;
 
 namespace PicoSerDe.Core;
 
-internal static class SimdHelpers
+public static class SimdHelpers
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int SkipWhitespace(ReadOnlySpan<byte> data, int position)

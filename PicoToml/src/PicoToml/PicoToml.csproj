@@ -26,8 +26,4 @@
         <InternalsVisibleTo Include="PicoToml.Tests" />
     </ItemGroup>
 
-    <ItemGroup>
-        <Compile Include="..\..\..\shared\SimdHelpers.cs" Link="SimdHelpers.cs" />
-    </ItemGroup>
-
 </Project>
