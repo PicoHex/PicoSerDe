@@ -62,7 +62,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 k = "string";
             if (k is null)
                 continue;
-            var jsonName = GetTomlKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
+            var jsonName =
+                GetTomlKey(p)
+                ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
 
             string? elemTk = null;
             string? elemTf = null;
@@ -257,7 +259,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             list.Add(
                 new PropInfo(
                     p.Name,
-                    GetTomlKey(p) ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name),
+                    GetTomlKey(p)
+                        ?? (
+                            useCamelCase
+                                ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name)
+                                : p.Name
+                        ),
                     k,
                     p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     elemTk2,

@@ -551,6 +551,147 @@ public ref struct MsgPackReader
             _rentedBuffer = null;
         }
     }
+
+    // ── Fast path array reading (used by source generators) ──
+
+    /// <summary>Decode MsgPack integer from current position, advance position.</summary>
+    private int DecodeInt32(ref int p)
+    {
+        int len = _data.Length;
+        if (p >= len) return 0;
+        byte b = _data[p++];
+        if (b <= 0x7F) return b;
+        if (b >= 0xE0) return b - 256;
+        if (b == 0xD0 && p < len) return (sbyte)_data[p++];
+        if (b == 0xD1 && p + 1 < len) { short v = (short)(_data[p] << 8 | _data[p + 1]); p += 2; return v; }
+        if (b == 0xD2 && p + 3 < len) { int v = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3]; p += 4; return v; }
+        // int64 or unsupported → caller should fallback
+        return 0;
+    }
+
+    /// <summary>Fast path: read int32 array directly from buffer. Returns count read, or 0 to fallback.</summary>
+    
+    public int TryReadInt32Array(Span<int> dest)
+    {
+        if (_isSequence) return 0;
+        var p = _position;
+        var len = _data.Length;
+        if (p >= len) return 0;
+        byte hdr = _data[p++];
+        int count;
+        if (hdr >= 0x90 && hdr <= 0x9F) count = hdr - 0x90;
+        else if (hdr == 0xDC && p + 1 < len) { count = _data[p] << 8 | _data[p + 1]; p += 2; }
+        else if (hdr == 0xDD && p + 3 < len) { count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3]; p += 4; }
+        else return 0;
+        if (count > dest.Length) return 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (p >= len) return 0;
+            if (p < len && _data[p] == 0xD3) return 0;
+            dest[i] = DecodeInt32(ref p);
+        }
+        _position = p;
+        return count;
+    }
+
+    /// <summary>Fast path: read int64 array directly from buffer.</summary>
+    
+    public int TryReadInt64Array(Span<long> dest)
+    {
+        if (_isSequence) return 0;
+        var p = _position;
+        var len = _data.Length;
+        if (p >= len) return 0;
+        byte hdr = _data[p++];
+        int count;
+        if (hdr >= 0x90 && hdr <= 0x9F) count = hdr - 0x90;
+        else if (hdr == 0xDC && p + 1 < len) { count = _data[p] << 8 | _data[p + 1]; p += 2; }
+        else if (hdr == 0xDD && p + 3 < len) { count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3]; p += 4; }
+        else return 0;
+        if (count > dest.Length) return 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (p >= len) return 0;
+            long v;
+            byte b = _data[p++];
+            if (b <= 0x7F) v = b;
+            else if (b >= 0xE0) v = b - 256;
+            else if (b == 0xD0 && p < len) v = (sbyte)_data[p++];
+            else if (b == 0xD1 && p + 1 < len) { v = (short)(_data[p] << 8 | _data[p + 1]); p += 2; }
+            else if (b == 0xD2 && p + 3 < len) { v = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3]; p += 4; }
+            else if (b == 0xD3 && p + 7 < len) { v = (long)_data[p] << 56 | (long)_data[p + 1] << 48 | (long)_data[p + 2] << 40 | (long)_data[p + 3] << 32 | (long)_data[p + 4] << 24 | (long)_data[p + 5] << 16 | (long)_data[p + 6] << 8 | _data[p + 7]; p += 8; }
+            else return 0;
+            dest[i] = v;
+        }
+        _position = p;
+        return count;
+    }
+
+    /// <summary>Fast path: read double array directly from buffer.</summary>
+    
+    public int TryReadDoubleArray(Span<double> dest)
+    {
+        if (_isSequence) return 0;
+        var p = _position;
+        var len = _data.Length;
+        if (p >= len) return 0;
+        byte hdr = _data[p++];
+        int count;
+        if (hdr >= 0x90 && hdr <= 0x9F) count = hdr - 0x90;
+        else if (hdr == 0xDC && p + 1 < len) { count = _data[p] << 8 | _data[p + 1]; p += 2; }
+        else if (hdr == 0xDD && p + 3 < len) { count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3]; p += 4; }
+        else return 0;
+        if (count > dest.Length) return 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (p >= len) return 0;
+            byte b = _data[p++];
+            if (b == 0xCB && p + 7 < len)
+            {
+                var bytes = new byte[8];
+                for (int j = 0; j < 8; j++) bytes[j] = _data[p + 7 - j];
+                p += 8;
+                dest[i] = BitConverter.Int64BitsToDouble(BitConverter.ToInt64(bytes, 0));
+            }
+            else if (b == 0xCA && p + 3 < len)
+            {
+                var bytes = new byte[4];
+                for (int j = 0; j < 4; j++) bytes[j] = _data[p + 3 - j];
+                p += 4;
+                dest[i] = BitConverter.Int32BitsToSingle(BitConverter.ToInt32(bytes, 0));
+            }
+            else return 0;
+        }
+        _position = p;
+        return count;
+    }
+
+    /// <summary>Fast path: read bool array directly from buffer.</summary>
+    
+    public int TryReadBoolArray(Span<bool> dest)
+    {
+        if (_isSequence) return 0;
+        var p = _position;
+        var len = _data.Length;
+        if (p >= len) return 0;
+        byte hdr = _data[p++];
+        int count;
+        if (hdr >= 0x90 && hdr <= 0x9F) count = hdr - 0x90;
+        else if (hdr == 0xDC && p + 1 < len) { count = _data[p] << 8 | _data[p + 1]; p += 2; }
+        else if (hdr == 0xDD && p + 3 < len) { count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3]; p += 4; }
+        else return 0;
+        if (count > dest.Length) return 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (p >= len) return 0;
+            byte b = _data[p++];
+            if (b == 0xC3) dest[i] = true;
+            else if (b == 0xC2) dest[i] = false;
+            else return 0;
+        }
+        _position = p;
+        return count;
+    }
 }
 
 [System.Runtime.CompilerServices.InlineArray(64)]
