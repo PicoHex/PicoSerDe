@@ -90,6 +90,21 @@ internal static class GenInfrastructure
         return methodName is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
     }
 
+    /// <summary>Converts a fully qualified type name to a safe identifier (replaces . and :: with _).</summary>
+    public static string SafeName(string fullName)
+    {
+        return fullName.Replace("global::", "").Replace('.', '_');
+    }
+
+    /// <summary>Returns the fully qualified inner helper class name (e.g. "global::Ns.Sub_TypeJsonInner").</summary>
+    public static string InnerClassName(string suffix, string typeFullName)
+    {
+        var lastDot = typeFullName.LastIndexOf('.');
+        var ns = lastDot > 0 ? typeFullName.Substring(0, lastDot) : "global";
+        var safeName = SafeName(typeFullName);
+        return $"{ns}.{safeName}{suffix}";
+    }
+
     public static string ShortName(string fullName)
     {
         var name = fullName.Replace("global::", "");

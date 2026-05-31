@@ -81,6 +81,14 @@ public class CompanyB
     public SharedAddress? Branch { get; set; }
 }
 
+// Cross-namespace collision test (see CollisionNs1.cs / CollisionNs2.cs)
+public class CollisionModel
+{
+    public string Name { get; set; } = "";
+    public CollisionNs1.CollisionAddress? Home { get; set; }
+    public CollisionNs2.CollisionAddress? Work { get; set; }
+}
+
 public class GeneratorTests
 {
     public class Product
@@ -921,5 +929,21 @@ public class GeneratorTests
         await Assert.That(result!.Name).IsEqualTo("Globex");
         await Assert.That(result.Branch!.Street).IsEqualTo("2 Oak Ave");
         await Assert.That(result.Branch.City).IsEqualTo("LA");
+    }
+
+    [Test]
+    public async Task CrossNamespace_CollisionAddress_RoundTrip()
+    {
+        var model = new CollisionModel
+        {
+            Name = "test",
+            Home = new CollisionNs1.CollisionAddress { Line = "123 Main" },
+            Work = new CollisionNs2.CollisionAddress { Code = "90210" }
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var result = JsonSerializer.Deserialize<CollisionModel>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("test");
+        await Assert.That(result.Home!.Line).IsEqualTo("123 Main");
+        await Assert.That(result.Work!.Code).IsEqualTo("90210");
     }
 }

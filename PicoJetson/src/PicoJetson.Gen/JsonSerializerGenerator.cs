@@ -133,10 +133,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var fullName = kv.Key;
             var props = kv.Value;
             var cleanName = fullName.Replace("global::", "");
-            var shortName = PicoSerDe.Gen.GenInfrastructure.ShortName(cleanName);
+            var safeName = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanName);
             spc.AddSource(
-                $"{shortName}_JsonInner.g.cs",
-                SourceText.From(GenerateInnerHelper(cleanName, shortName, props), Encoding.UTF8)
+                $"{safeName}_JsonInner.g.cs",
+                SourceText.From(GenerateInnerHelper(cleanName, safeName, props), Encoding.UTF8)
             );
         }
 
@@ -447,7 +447,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.TypeFullName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("JsonInner", prop.TypeFullName!);
                 sb.Append(indent);
                 sb.Append("if (");
                 sb.Append(effectiveAccessor);
@@ -457,7 +457,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.Append("    ");
                 sb.Append(sn);
-                sb.Append("JsonInner.Serialize(jw, ");
+                sb.Append(".Serialize(jw, ");
                 sb.Append(effectiveAccessor);
                 sb.AppendLine(");");
                 break;
@@ -545,10 +545,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.ElementTypeName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("JsonInner", prop.ElementTypeName!);
                 sb.Append(indent);
                 sb.Append(sn);
-                sb.Append("JsonInner.Serialize(jw, ");
+                sb.Append(".Serialize(jw, ");
                 sb.Append(itemVar);
                 sb.AppendLine(");");
                 break;
@@ -966,7 +966,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.TypeFullName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("JsonInner", prop.TypeFullName!);
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.Null)");
                 sb.Append(indent);
@@ -984,7 +984,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(prop.Name);
                 sb.Append(" = ");
                 sb.Append(sn);
-                sb.AppendLine("JsonInner.Deserialize(ref reader);");
+                sb.AppendLine(".Deserialize(ref reader);");
                 break;
             }
         }
@@ -1114,12 +1114,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.ElementTypeName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("JsonInner", prop.ElementTypeName!);
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.Append(".Add(");
                 sb.Append(sn);
-                sb.AppendLine("JsonInner.Deserialize(ref reader));");
+                sb.AppendLine(".Deserialize(ref reader));");
                 break;
             }
             default:
@@ -1372,7 +1372,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe.Gen.GenInfrastructure.ShortName(prop.ElementTypeName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("JsonInner", prop.ElementTypeName!);
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.Null)");
                 sb.Append(indent);
@@ -1390,7 +1390,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(keyVar);
                 sb.Append("] = ");
                 sb.Append(sn);
-                sb.AppendLine("JsonInner.Deserialize(ref reader);");
+                sb.AppendLine(".Deserialize(ref reader);");
                 break;
             }
             default:
