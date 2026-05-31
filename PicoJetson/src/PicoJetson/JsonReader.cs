@@ -932,8 +932,7 @@ public ref struct JsonReader
         var d = _data;
         var len = d.Length;
         if (p >= len) return 0;
-    
-        p++;
+
         int count = 0;
         while (p < len && count < dest.Length)
         {
@@ -988,8 +987,7 @@ public ref struct JsonReader
         var d = _data;
         var len = d.Length;
         if (p >= len) return 0;
-    
-        p++;
+
         int count = 0;
         while (p < len && count < dest.Length)
         {
@@ -1044,8 +1042,6 @@ public ref struct JsonReader
         var d = _data;
         var len = d.Length;
         if (p >= len) return 0;
-    
-        p++;
         int count = 0;
         while (p < len && count < dest.Length)
         {
