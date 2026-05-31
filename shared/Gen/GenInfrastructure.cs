@@ -100,8 +100,9 @@ internal static class GenInfrastructure
     public static string InnerClassName(string suffix, string typeFullName)
     {
         var lastDot = typeFullName.LastIndexOf('.');
-        var ns = lastDot > 0 ? typeFullName.Substring(0, lastDot) : "global";
         var safeName = SafeName(typeFullName);
+        if (lastDot <= 0) return $"{safeName}{suffix}";
+        var ns = typeFullName.Substring(0, lastDot);
         return $"{ns}.{safeName}{suffix}";
     }
 
