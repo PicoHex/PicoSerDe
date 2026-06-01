@@ -1,132 +1,59 @@
 namespace PicoToml.Gen;
 
+using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
+using TypeInfo = PicoSerDe.Gen.TypeInfo;
+
 [Generator(LanguageNames.CSharp)]
 public sealed class TomlSerializerGenerator : IIncrementalGenerator
 {
+    private static readonly PicoSerDe.Gen.FormatConfig Config =
+        new("TomlSerializer", "PicoToml", "toml");
+
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
+        new(
+            HasTomlCamelCase,
+            GetTomlKey,
+            HasTomlIgnore,
+            GetTomlConverter,
+            GetTomlDateTimeFormat,
+            OverrideKindWithStringOnConverter: true
+        );
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        var providers = context
+        var typeProviders = context
             .SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (n, _) => IsCandidate(n),
                 transform: static (ctx, _) => Transform(ctx)
             )
-            .Where(static t => t.HasValue)
+            .Where(static t => t is not null)
             .Select(static (t, _) => t!.Value);
-        context.RegisterSourceOutput(providers.Collect(), GenerateAll);
+
+        context.RegisterSourceOutput(
+            typeProviders.Collect(),
+            static (spc, types) => GenerateAll(spc, types)
+        );
     }
 
     private static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
-    private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
+    private static TypeInfo? Transform(GeneratorSyntaxContext ctx) =>
+        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+
+    // ── Attribute helpers ──
+
+    private static bool HasTomlCamelCase(ITypeSymbol type)
     {
-        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
-            return null;
-        if (
-            m.ContainingType.Name != "TomlSerializer"
-            || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoToml"
-        )
-            return null;
-        if (m.TypeArguments.Length != 1)
-            return null;
-        var t = m.TypeArguments[0];
-        if (t.SpecialType != SpecialType.None)
-            return null;
-        if (t is not INamedTypeSymbol nt)
-            return null;
-        if (nt.ContainingType is not null)
-            return null;
-        var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
-        if (ns == "<global namespace>")
-            ns = "";
-        var useCamelCase = HasTomlCamelCase(nt);
-        var props = new List<PropInfo>();
-        foreach (var member in nt.GetMembers())
+        foreach (var attr in type.GetAttributes())
         {
-            if (member is not IPropertySymbol p)
-                continue;
-            if (p.DeclaredAccessibility != Accessibility.Public)
-                continue;
-            if (p.IsStatic || p.IsIndexer)
-                continue;
-            if (p.IsReadOnly && p.SetMethod is null)
-                continue;
-            if (p.GetMethod is null)
-                continue;
-            if (HasTomlIgnore(p))
-                continue;
-            var converterType = GetTomlConverter(p);
-            var (k, isNullable, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
-            // If converter is present, override type kind to avoid object/table serialization
-            if (converterType is not null)
-                k = "string";
-            if (k is null)
-                continue;
-            var jsonName =
-                GetTomlKey(p)
-                ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
-
-            string? elemTk = null;
-            string? elemTf = null;
-            string? keyTk = null;
-            string? keyTf = null;
-            ImmutableArray<PropInfo> nestedProps = default;
-            if (k is "list" or "array")
-            {
-                if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
-                {
-                    var et = nts.TypeArguments[0];
-                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
-                    elemTk = ek;
-                    elemTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
-                }
-                else if (p.Type is IArrayTypeSymbol ats)
-                {
-                    var et = ats.ElementType;
-                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
-                    elemTk = ek;
-                    elemTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
-                }
-            }
-            else if (k is "object" && p.Type is INamedTypeSymbol objNts)
-            {
-                nestedProps = ExtractNested(objNts, useCamelCase);
-            }
-            else if (k is "dict" && p.Type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2)
-            {
-                var kt = nd.TypeArguments[0];
-                var vt = nd.TypeArguments[1];
-                var (ktk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(kt);
-                var (vtk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(vt);
-                keyTk = ktk;
-                keyTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ktk ?? "string", kt);
-                elemTk = vtk;
-                elemTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vtk ?? "string", vt);
-            }
-
-            props.Add(
-                new PropInfo(
-                    p.Name,
-                    jsonName,
-                    k,
-                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    elemTk,
-                    elemTf,
-                    isNullable,
-                    nestedProps,
-                    keyTk,
-                    keyTf,
-                    converterType,
-                    GetTomlDateTimeFormat(p)
-                )
-            );
+            if (
+                attr.AttributeClass?.Name == "TomlCamelCaseAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
+            )
+                return true;
         }
-        return new TypeInfo(
-            nt.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            ns,
-            nt.Name,
-            props.ToImmutableArray()
-        );
+        return false;
     }
 
     private static string? GetTomlKey(IPropertySymbol p)
@@ -171,7 +98,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     && attr.ConstructorArguments[0].Value is INamedTypeSymbol nts
                 )
                     return nts.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                // Fallback: try to get type from AttributeData
                 if (attr.AttributeClass?.TypeArguments.Length == 1)
                     return attr.AttributeClass
                         .TypeArguments[0]
@@ -179,19 +105,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             }
         }
         return null;
-    }
-
-    private static bool HasTomlCamelCase(INamedTypeSymbol type)
-    {
-        foreach (var attr in type.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "TomlCamelCaseAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
-            )
-                return true;
-        }
-        return false;
     }
 
     private static string? GetTomlDateTimeFormat(IPropertySymbol p)
@@ -209,86 +122,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
-    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol type, bool useCamelCase)
-    {
-        var list = new List<PropInfo>();
-        foreach (var member in type.GetMembers())
-        {
-            if (member is not IPropertySymbol p)
-                continue;
-            if (p.DeclaredAccessibility != Accessibility.Public)
-                continue;
-            if (p.IsStatic || p.IsIndexer)
-                continue;
-            if (p.IsReadOnly && p.SetMethod is null)
-                continue;
-            if (p.GetMethod is null)
-                continue;
-            if (HasTomlIgnore(p))
-                continue;
-            var nestedConverter = GetTomlConverter(p);
-            var (k, isNullable, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
-            if (nestedConverter is not null)
-                k = "string";
-            if (k is null)
-                continue;
-            string? elemTk2 = null,
-                elemTf2 = null;
-            ImmutableArray<PropInfo> nested2 = default;
-            if (k is "list" or "array")
-            {
-                if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
-                {
-                    var et = nts.TypeArguments[0];
-                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
-                    elemTk2 = ek;
-                    elemTf2 = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
-                }
-                else if (p.Type is IArrayTypeSymbol ats)
-                {
-                    var et = ats.ElementType;
-                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
-                    elemTk2 = ek;
-                    elemTf2 = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
-                }
-            }
-            else if (k is "object" && p.Type is INamedTypeSymbol objNts2)
-            {
-                nested2 = ExtractNested(objNts2, useCamelCase);
-            }
-            list.Add(
-                new PropInfo(
-                    p.Name,
-                    GetTomlKey(p)
-                        ?? (
-                            useCamelCase
-                                ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name)
-                                : p.Name
-                        ),
-                    k,
-                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    elemTk2,
-                    elemTf2,
-                    isNullable,
-                    nested2,
-                    null,
-                    null,
-                    GetTomlConverter(p),
-                    GetTomlDateTimeFormat(p)
-                )
-            );
-        }
-        return list.ToImmutableArray();
-    }
+    // ── Source generation ──
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
-        // Collect unique nested types for inner helper generation
-        var nestedTypes = new Dictionary<string, ImmutableArray<PropInfo>>();
+        var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
         foreach (var t in types)
-            CollectNested(t, nestedTypes);
+            PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(t, nestedTypes);
 
-        // Generate inner helpers for shared nested types
         foreach (var kv in nestedTypes)
         {
             var fullName = kv.Key;
@@ -303,7 +144,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         var seen = new HashSet<string>();
         foreach (var t in types)
         {
-            if (seen.Add(t.Fqn))
+            if (seen.Add(t.FullyQualifiedName))
                 spc.AddSource(
                     $"{t.Name}_TomlSerializer.g.cs",
                     SourceText.From(Gen(t), Encoding.UTF8)
@@ -311,30 +152,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    static void CollectNested(TypeInfo t, Dictionary<string, ImmutableArray<PropInfo>> d)
-    {
-        foreach (var p in t.Props)
-        {
-            if (p.Tk == "object" && !string.IsNullOrEmpty(p.Tf) && p.NestedProps.Length > 0)
-            {
-                if (!d.ContainsKey(p.Tf))
-                {
-                    d[p.Tf] = p.NestedProps;
-                    // Recursively collect deeper nested types
-                    foreach (var np in p.NestedProps)
-                        if (
-                            np.Tk == "object"
-                            && !string.IsNullOrEmpty(np.Tf)
-                            && np.NestedProps.Length > 0
-                            && !d.ContainsKey(np.Tf)
-                        )
-                            d[np.Tf] = np.NestedProps;
-                }
-            }
-        }
-    }
-
-    static string GenInner(string fqn, string shortName, ImmutableArray<PropInfo> props)
+    static string GenInner(string fqn, string shortName, ImmutableArray<PropertyInfo> props)
     {
         var clean = fqn.Replace("global::", "");
         var s = new StringBuilder();
@@ -353,15 +171,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(shortName);
         s.AppendLine("TomlInner {");
 
-        // Serialize
         s.Append("    internal static void Serialize(TomlWriter tw, ");
         s.Append(clean);
         s.AppendLine(" value) {");
-        foreach (var p in props.OrderBy(x => x.Jn))
+        foreach (var p in props.OrderBy(x => x.JsonName))
             EmitSerializeProp(s, p, "value", "        ");
         s.AppendLine("    }");
 
-        // Deserialize
         s.Append("    internal static ");
         s.Append(clean);
         s.AppendLine(" Deserialize(ref TomlReader r) {");
@@ -371,13 +187,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        while (r.Read() && r.TokenType != TokenType.ObjectEnd) {");
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
-        var sorted = props.OrderBy(x => x.Jn).ToImmutableArray();
+        var sorted = props.OrderBy(x => x.JsonName).ToImmutableArray();
         for (int i = 0; i < sorted.Length; i++)
         {
             s.Append("                ");
             s.Append(i == 0 ? "if" : "else if");
             s.Append(" (TextHelpers.Eq(k, \"");
-            s.Append(sorted[i].Jn);
+            s.Append(sorted[i].JsonName);
             s.AppendLine("\"u8)) {");
             EmitDeserializeProp(s, sorted[i], "o", "                    ");
             s.AppendLine("                }");
@@ -398,16 +214,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             "using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;"
         );
         s.AppendLine("using PicoSerDe.Core; using PicoToml;");
-        if (!string.IsNullOrEmpty(t.Ns))
+        if (!string.IsNullOrEmpty(t.Namespace))
         {
             s.AppendLine();
             s.Append("namespace ");
-            s.Append(t.Ns);
+            s.Append(t.Namespace);
             s.AppendLine(";");
         }
         s.AppendLine();
 
-        // Serializer
         s.Append("file sealed class ");
         s.Append(t.Name);
         s.Append("_TomlSer : ISerializer<");
@@ -417,13 +232,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(t.Name);
         s.AppendLine(" v) {");
         s.AppendLine("        var tw = new TomlWriter(w);");
-        foreach (var p in t.Props)
-        {
+        foreach (var p in t.Properties)
             EmitSerializeProp(s, p, "v", "        ");
-        }
         s.AppendLine("    } }");
 
-        // Deserializer
         s.Append("file sealed class ");
         s.Append(t.Name);
         s.Append("_TomlDes : IDeserializer<");
@@ -439,13 +251,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        while (r.Read()) {");
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
-        var scalarProps = t.Props.Where(x => x.Tk != "object" && x.Tk != "dict").ToImmutableArray();
+        var scalarProps = t.Properties
+            .Where(x => x.TypeKind != "object" && x.TypeKind != "dict")
+            .ToImmutableArray();
         for (int i = 0; i < scalarProps.Length; i++)
         {
             s.Append("                ");
             s.Append(i == 0 ? "if" : "else if");
             s.Append(" (TextHelpers.Eq(k, \"");
-            s.Append(scalarProps[i].Jn);
+            s.Append(scalarProps[i].JsonName);
             s.AppendLine("\"u8)) {");
             EmitDeserializeProp(s, scalarProps[i], "o", "                    ");
             s.AppendLine("                }");
@@ -453,31 +267,28 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         if (scalarProps.Length > 0)
             s.AppendLine("                else { }");
         s.AppendLine("            }");
-        // Handle table headers (nested objects + dicts)
-        var objProps = t.Props.Where(x => x.Tk == "object").ToImmutableArray();
-        var dictProps = t.Props.Where(x => x.Tk == "dict").ToImmutableArray();
+        var objProps = t.Properties.Where(x => x.TypeKind == "object").ToImmutableArray();
+        var dictProps = t.Properties.Where(x => x.TypeKind == "dict").ToImmutableArray();
         if (objProps.Length > 0 || dictProps.Length > 0)
         {
             s.AppendLine("            else if (r.TokenType == TokenType.ObjectStart) {");
             s.AppendLine("                var tbl = r.TablePath;");
-            // Object table headers
             for (int i = 0; i < objProps.Length; i++)
             {
                 s.Append("                ");
                 s.Append(i == 0 && dictProps.Length == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(tbl, \"");
-                s.Append(objProps[i].Jn);
+                s.Append(objProps[i].JsonName);
                 s.AppendLine("\"u8)) {");
                 EmitNestedObjectRead(s, objProps[i], "o", "                    ");
                 s.AppendLine("                }");
             }
-            // Dict table headers
             for (int i = 0; i < dictProps.Length; i++)
             {
                 s.Append("                ");
                 s.Append(i == 0 && objProps.Length == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(tbl, \"");
-                s.Append(dictProps[i].Jn);
+                s.Append(dictProps[i].JsonName);
                 s.AppendLine("\"u8)) {");
                 EmitDictRead(s, dictProps[i], "o", "                    ");
                 s.AppendLine("                }");
@@ -488,7 +299,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        return o;");
         s.AppendLine("    } }");
 
-        // Registration
         s.Append("file static class ");
         s.Append(t.Name);
         s.Append("_Reg { [ModuleInitializer] internal static void R() { TomlSerializer.Register<");
@@ -501,13 +311,18 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
-    private static void EmitSerializeProp(StringBuilder s, PropInfo p, string target, string indent)
+    private static void EmitSerializeProp(
+        StringBuilder s,
+        PropertyInfo p,
+        string target,
+        string indent
+    )
     {
-        if (p.ConverterType is not null)
+        if (p.ConverterTypeFullName is not null)
         {
             s.Append(indent);
             s.Append("var __cnv = new ");
-            s.Append(p.ConverterType);
+            s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(indent);
             s.AppendLine("var __bw = new System.Buffers.ArrayBufferWriter<byte>();");
@@ -519,18 +334,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(");");
             s.Append(indent);
             s.Append("tw.WriteKeyValue(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.Append("\", System.Text.Encoding.UTF8.GetString(__bw.WrittenSpan));");
             s.AppendLine();
             return;
         }
 
-        if (p.Tk is "list" or "array")
+        if (p.TypeKind is "list" or "array")
         {
-            var ename = p.Name;
             s.Append(indent);
             s.Append("tw.WriteStartArray(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.AppendLine("\"u8);");
             s.Append(indent);
             s.Append("foreach (var __item in ");
@@ -546,11 +360,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(indent);
             s.AppendLine("tw.WriteEndArray();");
         }
-        else if (p.Tk is "dict")
+        else if (p.TypeKind is "dict")
         {
             s.Append(indent);
             s.Append("tw.WriteTable(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.AppendLine("\");");
             s.Append(indent);
             s.Append("foreach (var __kvp in ");
@@ -564,16 +378,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("    tw.WriteKeyValue(__kvp.Key, ");
             EmitValueAccessor(
                 s,
-                new PropInfo(
+                new PropertyInfo(
                     "",
                     "",
-                    p.ElemTk ?? "string",
+                    p.ElementTypeKind ?? "string",
                     "",
-                    null,
-                    null,
                     false,
-                    default,
                     null,
+                    null,
+                    null,
+                    null,
+                    default,
                     null
                 ),
                 "__kvp.Value"
@@ -582,14 +397,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(indent);
             s.AppendLine("}");
         }
-        else if (p.Tk is "object")
+        else if (p.TypeKind is "object")
         {
-            if (p.NestedProps.Length > 0)
+            if (p.NestedProperties.Length > 0)
             {
-                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", p.Tf!);
+                var sn = PicoSerDe
+                    .Gen
+                    .GenInfrastructure
+                    .InnerClassName("TomlInner", p.TypeFullName!);
                 s.Append(indent);
                 s.Append("tw.WriteTable(\"");
-                s.Append(p.Jn);
+                s.Append(p.JsonName);
                 s.AppendLine("\");");
                 s.Append(indent);
                 s.Append(sn);
@@ -612,9 +430,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("{");
             s.Append(indent);
             s.Append("    tw.WriteKeyValue(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.Append("\", ");
-            EmitValueAccessor(s, p, target + "." + p.Name + ".Value");
+            EmitValueAccessor(s, p, $"{target}.{p.Name}.Value");
             s.AppendLine(");");
             s.Append(indent);
             s.AppendLine("}");
@@ -623,18 +441,23 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(indent);
             s.Append("tw.WriteKeyValue(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.Append("\", ");
-            EmitValueAccessor(s, p, target + "." + p.Name);
+            EmitValueAccessor(s, p, $"{target}.{p.Name}");
             s.AppendLine(");");
         }
     }
 
-    private static void EmitNestedObjectRead(StringBuilder s, PropInfo op, string tgt, string pad)
+    private static void EmitNestedObjectRead(
+        StringBuilder s,
+        PropertyInfo op,
+        string tgt,
+        string pad
+    )
     {
-        if (op.NestedProps.Length > 0)
+        if (op.NestedProperties.Length > 0)
         {
-            var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", op.Tf!);
+            var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", op.TypeFullName!);
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
@@ -645,22 +468,22 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitDictRead(StringBuilder s, PropInfo dp, string tgt, string pad)
+    private static void EmitDictRead(StringBuilder s, PropertyInfo dp, string tgt, string pad)
     {
         s.Append(pad);
         s.Append(tgt);
         s.Append('.');
         s.Append(dp.Name);
         s.Append(" ??= new System.Collections.Generic.Dictionary<");
-        s.Append(dp.KeyTf ?? "string");
+        s.Append(dp.KeyTypeName ?? "string");
         s.Append(", ");
-        s.Append(dp.ElemTf ?? "int");
+        s.Append(dp.ElementTypeName ?? "int");
         s.AppendLine(">();");
         s.Append(pad);
         s.AppendLine("while (r.Read() && r.TokenType == TokenType.PropertyName) {");
         s.Append(pad);
         s.Append("    var __dk = Encoding.UTF8.GetString(r.KeySpan);");
-        switch (dp.ElemTk)
+        switch (dp.ElementTypeKind)
         {
             case "int32":
                 s.AppendLine();
@@ -794,7 +617,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
                 s.Append(pad);
                 s.Append("    System.Enum.TryParse<");
-                s.Append(dp.ElemTf ?? "object");
+                s.Append(dp.ElementTypeName ?? "object");
                 s.AppendLine(">(__raw, out var __dv);");
                 s.Append(pad);
                 s.Append("    ");
@@ -817,9 +640,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("}");
     }
 
-    private static void EmitValueAccessor(StringBuilder s, PropInfo p, string accessor)
+    private static void EmitValueAccessor(StringBuilder s, PropertyInfo p, string accessor)
     {
-        switch (p.Tk)
+        switch (p.TypeKind)
         {
             case "datetime":
                 s.Append(accessor);
@@ -856,9 +679,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitSerializeListElement(StringBuilder s, PropInfo p, string indent)
+    private static void EmitSerializeListElement(StringBuilder s, PropertyInfo p, string indent)
     {
-        switch (p.ElemTk)
+        switch (p.ElementTypeKind)
         {
             case "string":
                 s.Append(indent);
@@ -887,13 +710,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitDeserializeProp(StringBuilder s, PropInfo p, string tgt, string pad)
+    private static void EmitDeserializeProp(StringBuilder s, PropertyInfo p, string tgt, string pad)
     {
-        if (p.ConverterType is not null)
+        if (p.ConverterTypeFullName is not null)
         {
             s.Append(pad);
             s.Append("var __cnv = new ");
-            s.Append(p.ConverterType);
+            s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(pad);
             s.Append(tgt);
@@ -903,14 +726,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (p.Tk is "list" or "array")
+        if (p.TypeKind is "list" or "array")
         {
-            // Use temp List<T> for all list types (interfaces like IReadOnlyList don't have Add)
             s.Append(pad);
             s.Append("var __tmpList = new System.Collections.Generic.List<");
-            s.Append(p.ElemTf ?? "object");
+            s.Append(p.ElementTypeName ?? "object");
             s.AppendLine(">(16);");
-            // Read array tokens
             s.Append(pad);
             s.AppendLine("if (r.Read() && r.TokenType == TokenType.ArrayStart)");
             s.Append(pad);
@@ -924,19 +745,18 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("    }");
             s.Append(pad);
             s.AppendLine("}");
-            // Assign back
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
             s.Append(p.Name);
             s.Append(" = __tmpList");
-            if (p.Tk == "array")
+            if (p.TypeKind == "array")
                 s.Append(".ToArray()");
             s.AppendLine(";");
         }
         else
         {
-            switch (p.Tk)
+            switch (p.TypeKind)
             {
                 case "string":
                     s.Append(pad);
@@ -1064,71 +884,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitDeserializeListElement(
-        StringBuilder s,
-        PropInfo p,
-        string tgt,
-        string pad
-    )
+    private static void EmitDeserializeListElementTemp(StringBuilder s, PropertyInfo p, string pad)
     {
-        switch (p.ElemTk)
-        {
-            case "string":
-                s.Append(pad);
-                s.Append(tgt);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(".Add(Encoding.UTF8.GetString(r.ValueSpan));");
-                break;
-            case "int32":
-                s.Append(pad);
-                s.AppendLine("r.TryGetInt32(out var __ev);");
-                s.Append(pad);
-                s.Append(tgt);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(".Add(__ev);");
-                break;
-            case "int64":
-                s.Append(pad);
-                s.AppendLine("r.TryGetInt64(out var __ev);");
-                s.Append(pad);
-                s.Append(tgt);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(".Add(__ev);");
-                break;
-            case "float64":
-                s.Append(pad);
-                s.AppendLine("r.TryGetFloat64(out var __ev);");
-                s.Append(pad);
-                s.Append(tgt);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(".Add(__ev);");
-                break;
-            case "boolean":
-                s.Append(pad);
-                s.AppendLine("r.TryGetBool(out var __ev);");
-                s.Append(pad);
-                s.Append(tgt);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(".Add(__ev);");
-                break;
-            default:
-                s.Append(pad);
-                s.Append(tgt);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(".Add(Encoding.UTF8.GetString(r.ValueSpan));");
-                break;
-        }
-    }
-
-    private static void EmitDeserializeListElementTemp(StringBuilder s, PropInfo p, string pad)
-    {
-        switch (p.ElemTk)
+        switch (p.ElementTypeKind)
         {
             case "string":
                 s.Append(pad);
@@ -1164,26 +922,4 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 break;
         }
     }
-
-    internal readonly record struct TypeInfo(
-        string Fqn,
-        string Ns,
-        string Name,
-        ImmutableArray<PropInfo> Props
-    );
-
-    internal readonly record struct PropInfo(
-        string Name,
-        string Jn,
-        string Tk,
-        string Tf,
-        string? ElemTk,
-        string? ElemTf,
-        bool IsNullable,
-        ImmutableArray<PropInfo> NestedProps,
-        string? KeyTk,
-        string? KeyTf,
-        string? ConverterType = null,
-        string? DateTimeFormat = null
-    );
 }

@@ -48,7 +48,10 @@ internal readonly record struct PropertyInfo(
     string? KeyTypeName,
     ImmutableArray<PropertyInfo> NestedProperties,
     string? ConverterTypeFullName,
-    string? DateTimeFormat = null
+    string? DateTimeFormat = null,
+    int? IntKey = null,
+    string? SectionName = null,
+    string? Comment = null
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -57,7 +60,11 @@ public readonly record struct AttributeHelpers(
     Func<IPropertySymbol, string?> GetCustomName,
     Func<IPropertySymbol, bool> HasIgnore,
     Func<IPropertySymbol, string?> GetConverterType,
-    Func<IPropertySymbol, string?> GetDateTimeFormat
+    Func<IPropertySymbol, string?> GetDateTimeFormat,
+    Func<IPropertySymbol, int?>? GetIntKey = null,
+    Func<IPropertySymbol, string?>? GetSectionName = null,
+    Func<ITypeSymbol, string?>? GetComment = null,
+    bool OverrideKindWithStringOnConverter = false
 );
 
 internal static class GenInfrastructure
@@ -153,6 +160,7 @@ internal static class GenInfrastructure
 
         var useCamelCase = attrs.HasCamelCase(namedType);
         var properties = new List<PropertyInfo>();
+        int autoKey = 0;
 
         foreach (var member in namedType.GetMembers())
         {
@@ -169,12 +177,16 @@ internal static class GenInfrastructure
             if (attrs.HasIgnore(prop))
                 continue;
 
+            // Optionally override kind when a converter is attached
+            var converterType = attrs.GetConverterType(prop);
             var (typeKind, isNullable, innerTypeSymbol) = TypeKindResolver.Resolve(
                 prop.Type,
                 config.FormatTag
             );
             if (typeKind is null)
                 continue;
+            if (converterType is not null && attrs.OverrideKindWithStringOnConverter)
+                typeKind = "string";
 
             string? elementTypeKind = null;
             string? elementTypeName = null;
@@ -242,8 +254,13 @@ internal static class GenInfrastructure
                     keyTypeKind,
                     keyTypeName,
                     nestedProperties,
-                    attrs.GetConverterType(prop),
-                    attrs.GetDateTimeFormat(prop)
+                    converterType,
+                    attrs.GetDateTimeFormat(prop),
+                    IntKey: (attrs.GetIntKey is not null)
+                        ? (attrs.GetIntKey(prop) ?? autoKey++)
+                        : null,
+                    SectionName: attrs.GetSectionName?.Invoke(prop),
+                    Comment: attrs.GetComment?.Invoke(prop.ContainingType)
                 )
             );
         }
@@ -263,6 +280,7 @@ internal static class GenInfrastructure
     )
     {
         var list = new List<PropertyInfo>();
+        int autoKey = 0;
         foreach (var member in type.GetMembers())
         {
             if (member is not IPropertySymbol prop)
@@ -278,9 +296,14 @@ internal static class GenInfrastructure
             if (attrs.HasIgnore(prop))
                 continue;
 
+            var nestedConverter = attrs.GetConverterType(prop);
             var (typeKind, isNullable, _) = TypeKindResolver.Resolve(prop.Type, formatTag);
             if (typeKind is null)
                 continue;
+            if (nestedConverter is not null && attrs.OverrideKindWithStringOnConverter)
+                typeKind = "string";
+
+            var useCamelCase = attrs.HasCamelCase(type);
 
             string? elementTypeKind = null;
             string? elementTypeName = null;
@@ -334,7 +357,8 @@ internal static class GenInfrastructure
             list.Add(
                 new PropertyInfo(
                     prop.Name,
-                    attrs.GetCustomName(prop) ?? prop.Name,
+                    attrs.GetCustomName(prop)
+                        ?? (useCamelCase ? ToCamelCase(prop.Name) : prop.Name),
                     typeKind,
                     prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     isNullable,
@@ -343,8 +367,13 @@ internal static class GenInfrastructure
                     keyTypeKind,
                     keyTypeName,
                     nestedProperties,
-                    attrs.GetConverterType(prop),
-                    attrs.GetDateTimeFormat(prop)
+                    nestedConverter,
+                    attrs.GetDateTimeFormat(prop),
+                    IntKey: (attrs.GetIntKey is not null)
+                        ? (attrs.GetIntKey(prop) ?? autoKey++)
+                        : null,
+                    SectionName: attrs.GetSectionName?.Invoke(prop),
+                    Comment: attrs.GetComment?.Invoke(prop.ContainingType)
                 )
             );
         }

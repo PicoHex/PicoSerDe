@@ -1,8 +1,24 @@
 namespace PicoYaml.Gen;
 
+using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
+using TypeInfo = PicoSerDe.Gen.TypeInfo;
+
 [Generator(LanguageNames.CSharp)]
 public sealed class YamlSerializerGenerator : IIncrementalGenerator
 {
+    private static readonly PicoSerDe.Gen.FormatConfig Config =
+        new("YamlSerializer", "PicoYaml", "yaml");
+
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
+        new(
+            HasYamlCamelCase,
+            GetYamlKey,
+            HasYamlIgnore,
+            GetYamlConverter,
+            GetYamlDateTimeFormat,
+            OverrideKindWithStringOnConverter: true
+        );
+
     public void Initialize(IncrementalGeneratorInitializationContext ctx)
     {
         var p = ctx.SyntaxProvider
@@ -17,111 +33,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
     private static bool IsC(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
-    private static TypeInfo? Tf(GeneratorSyntaxContext ctx)
-    {
-        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
-            return null;
-        if (
-            m.ContainingType.Name != "YamlSerializer"
-            || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoYaml"
-        )
-            return null;
-        if (m.TypeArguments.Length != 1)
-            return null;
-        var t = m.TypeArguments[0];
-        if (t.SpecialType != SpecialType.None)
-            return null;
-        if (t is not INamedTypeSymbol nt)
-            return null;
-        if (nt.ContainingType is not null)
-            return null;
-        var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
-        if (ns == "<global namespace>")
-            ns = "";
-        var useCamelCase = HasYamlCamelCase(nt);
-        var props = new List<PropInfo>();
-        foreach (var mem in nt.GetMembers())
-        {
-            if (mem is not IPropertySymbol p)
-                continue;
-            if (p.DeclaredAccessibility != Accessibility.Public || p.IsStatic || p.IsIndexer)
-                continue;
-            if (p.GetMethod is null || (p.IsReadOnly && p.SetMethod is null))
-                continue;
-            if (HasYamlIgnore(p))
-                continue;
-            var converterType = GetYamlConverter(p);
-            var (k, isNullable, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
-            if (converterType is not null)
-                k = "string";
-            if (k is null)
-                continue;
-            var jsonName =
-                GetYamlKey(p)
-                ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
+    private static TypeInfo? Tf(GeneratorSyntaxContext ctx) =>
+        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
 
-            string? elemTk = null;
-            string? elemTf = null;
-            string? keyTk = null;
-            string? keyTf = null;
-            ImmutableArray<PropInfo> nestedProps = default;
-            if (k is "list" or "array")
-            {
-                if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
-                {
-                    var et = nts.TypeArguments[0];
-                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
-                    elemTk = ek;
-                    elemTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
-                }
-                else if (p.Type is IArrayTypeSymbol ats)
-                {
-                    var et = ats.ElementType;
-                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
-                    elemTk = ek;
-                    elemTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
-                }
-            }
-            else if (k is "object" && p.Type is INamedTypeSymbol objNts)
-            {
-                nestedProps = ExtractNested(objNts, useCamelCase);
-            }
-            else if (k is "dict" && p.Type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2)
-            {
-                var kt = nd.TypeArguments[0];
-                var vt = nd.TypeArguments[1];
-                var (ktk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(kt);
-                var (vtk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(vt);
-                keyTk = ktk;
-                keyTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ktk ?? "string", kt);
-                elemTk = vtk;
-                elemTf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vtk ?? "string", vt);
-            }
-
-            props.Add(
-                new PropInfo(
-                    p.Name,
-                    jsonName,
-                    k,
-                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    elemTk,
-                    elemTf,
-                    isNullable,
-                    nestedProps,
-                    keyTk,
-                    keyTf,
-                    converterType,
-                    GetYamlDateTimeFormat(p)
-                )
-            );
-        }
-        return new TypeInfo(
-            nt.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            ns,
-            nt.Name,
-            props.ToImmutableArray()
-        );
-    }
+    // ── Attribute helpers ──
 
     private static string? GetYamlKey(IPropertySymbol p)
     {
@@ -166,7 +81,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
-    private static bool HasYamlCamelCase(INamedTypeSymbol type)
+    private static bool HasYamlCamelCase(ITypeSymbol type)
     {
         foreach (var attr in type.GetAttributes())
         {
@@ -194,151 +109,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
-    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol type, bool useCamelCase)
-    {
-        var list = new List<PropInfo>();
-        foreach (var m in type.GetMembers())
-        {
-            if (m is not IPropertySymbol p)
-                continue;
-            if (p.DeclaredAccessibility != Accessibility.Public || p.IsStatic || p.IsIndexer)
-                continue;
-            if (p.GetMethod is null || (p.IsReadOnly && p.SetMethod is null))
-                continue;
-            if (HasYamlIgnore(p))
-                continue;
-            var nestedConverter = GetYamlConverter(p);
-            var (k, isNullable, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
-            if (nestedConverter is not null)
-                k = "string";
-            if (k is null)
-                continue;
-            string? ekt = null,
-                etf = null;
-            string? kkt = null,
-                ktf = null;
-            ImmutableArray<PropInfo> np2 = default;
-            if (k is "list" or "array")
-            {
-                if (p.Type is INamedTypeSymbol nts && nts.TypeArguments.Length == 1)
-                {
-                    var et = nts.TypeArguments[0];
-                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
-                    ekt = ek;
-                    etf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
-                }
-                else if (p.Type is IArrayTypeSymbol ats)
-                {
-                    var et = ats.ElementType;
-                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
-                    ekt = ek;
-                    etf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek ?? "string", et);
-                }
-            }
-            else if (k is "object" && p.Type is INamedTypeSymbol o2)
-            {
-                np2 = ExtractNested(o2, useCamelCase);
-            }
-            else if (k is "dict" && p.Type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2)
-            {
-                var kt = nd.TypeArguments[0];
-                var vt = nd.TypeArguments[1];
-                var (ktk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(kt);
-                var (vtk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(vt);
-                kkt = ktk;
-                ktf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ktk ?? "string", kt);
-                ekt = vtk;
-                etf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vtk ?? "int", vt);
-            }
-            var nestedJsonName =
-                GetYamlKey(p)
-                ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
-            list.Add(
-                new PropInfo(
-                    p.Name,
-                    nestedJsonName,
-                    k,
-                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    ekt,
-                    etf,
-                    isNullable,
-                    np2,
-                    kkt,
-                    ktf,
-                    nestedConverter,
-                    GetYamlDateTimeFormat(p)
-                )
-            );
-        }
-        return list.ToImmutableArray();
-    }
-
-    // P7: Collect shared nested types to avoid code duplication (inner helper pattern)
-    private static void CollectNestedTypes(
-        TypeInfo type,
-        Dictionary<string, ImmutableArray<PropInfo>> nestedTypes
-    )
-    {
-        foreach (var prop in type.Props)
-        {
-            if (prop.Tk == "object" && !string.IsNullOrEmpty(prop.Tf))
-                AddNestedType(prop.Tf, prop.NestedProps, nestedTypes);
-            if (
-                (prop.Tk == "list" || prop.Tk == "array")
-                && prop.ElemTk == "object"
-                && !string.IsNullOrEmpty(prop.ElemTf)
-            )
-                AddNestedType(prop.ElemTf!, prop.NestedProps, nestedTypes);
-            if (prop.Tk == "dict" && prop.ElemTk == "object" && !string.IsNullOrEmpty(prop.ElemTf))
-                AddNestedType(prop.ElemTf!, prop.NestedProps, nestedTypes);
-        }
-    }
-
-    private static void AddNestedType(
-        string fullName,
-        ImmutableArray<PropInfo> props,
-        Dictionary<string, ImmutableArray<PropInfo>> nestedTypes
-    )
-    {
-        if (props.IsDefaultOrEmpty)
-            return;
-        if (nestedTypes.ContainsKey(fullName))
-            return;
-        nestedTypes[fullName] = props;
-
-        foreach (var np in props)
-        {
-            if (np.Tk == "object" && !string.IsNullOrEmpty(np.Tf))
-                AddNestedType(np.Tf, np.NestedProps, nestedTypes);
-            if (
-                (np.Tk == "list" || np.Tk == "array")
-                && np.ElemTk == "object"
-                && !string.IsNullOrEmpty(np.ElemTf)
-            )
-                AddNestedType(np.ElemTf!, np.NestedProps, nestedTypes);
-            if (np.Tk == "dict" && np.ElemTk == "object" && !string.IsNullOrEmpty(np.ElemTf))
-                AddNestedType(np.ElemTf!, np.NestedProps, nestedTypes);
-        }
-    }
-
-    private static bool HasConverterProp(ImmutableArray<PropInfo> props)
-    {
-        foreach (var p in props)
-            if (p.ConverterType is not null)
-                return true;
-        return false;
-    }
+    // ── Source generation ──
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> ts)
     {
         var s = new HashSet<string>();
 
-        // P7: Collect nested types for deduplication
-        var nestedTypes = new Dictionary<string, ImmutableArray<PropInfo>>();
+        var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
         foreach (var t in ts)
-            CollectNestedTypes(t, nestedTypes);
+            PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(t, nestedTypes);
 
-        // P7: Generate inner helpers for shared nested types
         foreach (var kv in nestedTypes)
         {
             var fullName = kv.Key;
@@ -352,14 +132,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
 
         foreach (var t in ts)
-            if (s.Add(t.Fqn))
+            if (s.Add(t.FullyQualifiedName))
                 spc.AddSource($"{t.Name}_Yaml.g.cs", SourceText.From(Gen(t), Encoding.UTF8));
     }
 
     private static string GenerateInnerHelper(
         string fullName,
         string shortName,
-        ImmutableArray<PropInfo> props
+        ImmutableArray<PropertyInfo> props
     )
     {
         var sb = new StringBuilder();
@@ -384,7 +164,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("YamlInner");
         sb.AppendLine("{");
 
-        // Serialize helper
         sb.Append("    internal static void Serialize(YamlWriter yw, ");
         sb.Append(fullName);
         sb.AppendLine(" value)");
@@ -393,7 +172,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         foreach (var prop in props)
         {
             sb.Append("        yw.WritePropertyName(\"");
-            sb.Append(prop.Jn);
+            sb.Append(prop.JsonName);
             sb.AppendLine("\"u8);");
             EmitSerializeInline(sb, prop, "value." + prop.Name, "        ");
         }
@@ -401,7 +180,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // Deserialize helper
         sb.Append("    internal static ");
         sb.Append(fullName);
         sb.AppendLine(" Deserialize(ref YamlReader reader)");
@@ -423,7 +201,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             sb.Append("                ");
             sb.Append(kw);
             sb.Append(" (TextHelpers.Eq(nk, \"");
-            sb.Append(np.Jn);
+            sb.Append(np.JsonName);
             sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
             EmitDeserializeInline(sb, np, "obj", "                    ");
@@ -439,17 +217,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
     private static void EmitSerializeInline(
         StringBuilder s,
-        PropInfo p,
+        PropertyInfo p,
         string accessor,
         string ind
     )
     {
-        if (p.ConverterType is not null)
+        if (p.ConverterTypeFullName is not null)
         {
-            // Converters in inner helpers: create temp buffer, write, output as string
             s.Append(ind);
             s.Append("{ var __tmp = new ArrayBufferWriter<byte>(); var __cnv = new ");
-            s.Append(p.ConverterType);
+            s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(ind);
             s.Append("  __cnv.Write(__tmp, ");
@@ -459,7 +236,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("  yw.WriteString(__tmp.WrittenSpan); }");
             return;
         }
-        switch (p.Tk)
+        switch (p.TypeKind)
         {
             case "string":
                 s.Append(ind);
@@ -512,30 +289,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".ToString()));");
                 break;
             case "object":
-                if (p.NestedProps.Length > 0 && !HasConverterProp(p.NestedProps))
+                if (p.NestedProperties.Length > 0)
                 {
-                    var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.Tf!);
+                    var sn = PicoSerDe
+                        .Gen
+                        .GenInfrastructure
+                        .InnerClassName("YamlInner", p.TypeFullName!);
                     s.Append(ind);
                     s.Append(sn);
                     s.Append(".Serialize(yw, ");
                     s.Append(accessor);
                     s.AppendLine(");");
-                }
-                else if (p.NestedProps.Length > 0)
-                {
-                    // Has converter — inline serialization
-                    s.Append(ind);
-                    s.AppendLine("yw.WriteStartMapping();");
-                    foreach (var np in p.NestedProps)
-                    {
-                        s.Append(ind);
-                        s.Append("    yw.WritePropertyName(\"");
-                        s.Append(np.Jn);
-                        s.AppendLine("\"u8);");
-                        EmitSerializeInline(s, np, accessor + "." + np.Name, ind + "    ");
-                    }
-                    s.Append(ind);
-                    s.AppendLine("yw.WriteEndMapping();");
                 }
                 else
                 {
@@ -553,7 +317,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("{");
                 s.Append(ind);
                 s.Append("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
-                if (p.ElemTk == "string")
+                if (p.ElementTypeKind == "string")
                     s.Append("__item");
                 else
                     s.Append("__item.ToString()");
@@ -573,8 +337,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
                 s.Append(ind);
-                s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));");
-                s.AppendLine();
+                s.AppendLine("    yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));");
                 s.Append(ind);
                 s.AppendLine("}");
                 s.Append(ind);
@@ -589,13 +352,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitDeserializeInline(StringBuilder s, PropInfo p, string tgt, string pad)
+    private static void EmitDeserializeInline(
+        StringBuilder s,
+        PropertyInfo p,
+        string tgt,
+        string pad
+    )
     {
-        if (p.ConverterType is not null)
+        if (p.ConverterTypeFullName is not null)
         {
             s.Append(pad);
             s.Append("var __cnv = new ");
-            s.Append(p.ConverterType);
+            s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(pad);
             s.Append(tgt);
@@ -604,7 +372,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(" = __cnv.Read(ref reader);");
             return;
         }
-        switch (p.Tk)
+        switch (p.TypeKind)
         {
             case "string":
                 s.Append(pad);
@@ -699,7 +467,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append('.');
                 s.Append(p.Name);
                 s.Append(" = Enum.Parse<");
-                s.Append(p.Tf);
+                s.Append(p.TypeFullName);
                 s.AppendLine(">(Encoding.UTF8.GetString(reader.ValueSpan));");
                 break;
             case "decimal":
@@ -712,9 +480,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 );
                 break;
             case "object":
-                if (p.NestedProps.Length > 0)
+                if (p.NestedProperties.Length > 0)
                 {
-                    var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.Tf!);
+                    var sn = PicoSerDe
+                        .Gen
+                        .GenInfrastructure
+                        .InnerClassName("YamlInner", p.TypeFullName!);
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
@@ -723,7 +494,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(sn);
                     s.AppendLine(".Deserialize(ref reader);");
                 }
-                if (p.NestedProps.Length == 0)
+                if (p.NestedProperties.Length == 0)
                 {
                     s.Append(pad);
                     s.Append(tgt);
@@ -736,7 +507,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "array":
                 s.Append(pad);
                 s.Append("var __tmpList = new System.Collections.Generic.List<");
-                s.Append(p.ElemTf ?? "object");
+                s.Append(p.ElementTypeName ?? "object");
                 s.AppendLine(">(16);");
                 s.Append(pad);
                 s.AppendLine("while (reader.Read() && reader.TokenType == TokenType.String) {");
@@ -749,7 +520,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append('.');
                 s.Append(p.Name);
                 s.Append(" = __tmpList");
-                if (p.Tk == "array")
+                if (p.TypeKind == "array")
                     s.Append(".ToArray()");
                 s.AppendLine(";");
                 break;
@@ -759,9 +530,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append('.');
                 s.Append(p.Name);
                 s.Append(" ??= new System.Collections.Generic.Dictionary<");
-                s.Append(p.KeyTf ?? "string");
+                s.Append(p.KeyTypeName ?? "string");
                 s.Append(", ");
-                s.Append(p.ElemTf ?? "int");
+                s.Append(p.ElementTypeName ?? "int");
                 s.AppendLine(">();");
                 s.Append(pad);
                 s.AppendLine("if (reader.Read() && reader.TokenType == TokenType.ObjectStart) {");
@@ -771,7 +542,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 );
                 s.Append(pad);
                 s.AppendLine("        var __dk = Encoding.UTF8.GetString(reader.KeySpan);");
-                if (p.ElemTk == "int32")
+                if (p.ElementTypeKind == "int32")
                 {
                     s.Append(pad);
                     s.AppendLine("        reader.TryGetInt32(out var __dv);");
@@ -814,17 +585,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             "using System; using System.Buffers; using System.Text; using System.Runtime.CompilerServices;"
         );
         sb.AppendLine("using PicoSerDe.Core; using PicoYaml;");
-        if (!string.IsNullOrEmpty(t.Ns))
+        if (!string.IsNullOrEmpty(t.Namespace))
         {
             sb.AppendLine();
             sb.Append("namespace ");
-            sb.Append(t.Ns);
+            sb.Append(t.Namespace);
             sb.AppendLine(";");
         }
         sb.AppendLine();
         sb.AppendLine();
 
-        // Serializer
         sb.Append("file sealed class ");
         sb.Append(t.Name);
         sb.Append("_YS : ISerializer<");
@@ -834,13 +604,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append(t.Name);
         sb.AppendLine(" v) {");
         sb.AppendLine("        var yw = new YamlWriter(w);");
-        foreach (var p in t.Props)
-        {
+        foreach (var p in t.Properties)
             EmitSerialize(sb, p, "v", "        ");
-        }
         sb.AppendLine("    } }");
 
-        // Deserializer
         sb.Append("file sealed class ");
         sb.Append(t.Name);
         sb.Append("_YD : IDeserializer<");
@@ -860,13 +627,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("                continue;");
         sb.AppendLine("            }");
         sb.AppendLine("            var k = r.KeySpan;");
-        for (int i = 0; i < t.Props.Length; i++)
+        for (int i = 0; i < t.Properties.Length; i++)
         {
-            var p = t.Props[i];
+            var p = t.Properties[i];
             sb.Append("            ");
             sb.Append(i == 0 ? "if" : "else if");
             sb.Append(" (TextHelpers.Eq(k, \"");
-            sb.Append(p.Jn);
+            sb.Append(p.JsonName);
             sb.AppendLine("\"u8)) {");
             EmitDeserialize(sb, p, "o", "                ");
             sb.AppendLine("            }");
@@ -875,7 +642,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        return o;");
         sb.AppendLine("    } }");
 
-        // Registration
         sb.Append("file static class ");
         sb.Append(t.Name);
         sb.Append("_YR { [ModuleInitializer] internal static void R() { YamlSerializer.Register<");
@@ -888,17 +654,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
-    private static void EmitSerialize(StringBuilder s, PropInfo p, string target, string ind)
+    private static void EmitSerialize(StringBuilder s, PropertyInfo p, string target, string ind)
     {
-        if (p.ConverterType is not null)
+        if (p.ConverterTypeFullName is not null)
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.AppendLine("\"u8);");
             s.Append(ind);
             s.Append("var __cnv = new ");
-            s.Append(p.ConverterType);
+            s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(ind);
             s.Append("__cnv.Write(w, ");
@@ -909,14 +675,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (p.Tk is "list" or "array")
+        if (p.TypeKind is "list" or "array")
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.AppendLine("\"u8);");
             s.Append(ind);
-            s.AppendLine("foreach (var __item in v.");
+            s.Append("foreach (var __item in v.");
             s.Append(p.Name);
             s.AppendLine(")");
             s.Append(ind);
@@ -925,16 +691,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(ind);
             s.AppendLine("}");
         }
-        else if (p.Tk is "object")
+        else if (p.TypeKind is "object")
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.AppendLine("\"u8);");
-            // P7: use inner helper for nested objects if available
-            if (p.NestedProps.Length > 0)
+            if (p.NestedProperties.Length > 0)
             {
-                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.Tf!);
+                var sn = PicoSerDe
+                    .Gen
+                    .GenInfrastructure
+                    .InnerClassName("YamlInner", p.TypeFullName!);
                 s.Append(ind);
                 s.Append(sn);
                 s.Append(".Serialize(yw, ");
@@ -951,11 +719,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("yw.WriteEndMapping();");
             }
         }
-        else if (p.Tk is "dict")
+        else if (p.TypeKind is "dict")
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.AppendLine("\"u8);");
             s.Append(ind);
             s.AppendLine("yw.WriteStartMapping();");
@@ -969,7 +737,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("{");
             s.Append(ind);
             s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
-            if (p.ElemTk == "int32")
+            if (p.ElementTypeKind == "int32")
             {
                 s.Append(ind);
                 s.AppendLine("    yw.WriteNumber(__kvp.Value);");
@@ -996,10 +764,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("{");
             s.Append(ind);
             s.Append("    yw.WritePropertyName(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.AppendLine("\"u8);");
-            string valAccessor = target + "." + p.Name + ".Value";
-            switch (p.Tk)
+            string valAccessor = $"{target}.{p.Name}.Value";
+            switch (p.TypeKind)
             {
                 case "string":
                     s.Append(ind);
@@ -1059,9 +827,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.Jn);
+            s.Append(p.JsonName);
             s.AppendLine("\"u8);");
-            switch (p.Tk)
+            switch (p.TypeKind)
             {
                 case "string":
                     s.Append(ind);
@@ -1131,9 +899,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitSerializeListElement(StringBuilder s, PropInfo p, string ind)
+    private static void EmitSerializeListElement(StringBuilder s, PropertyInfo p, string ind)
     {
-        switch (p.ElemTk)
+        switch (p.ElementTypeKind)
         {
             case "string":
                 s.Append(ind);
@@ -1146,13 +914,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitDeserialize(StringBuilder s, PropInfo p, string tgt, string pad)
+    private static void EmitDeserialize(StringBuilder s, PropertyInfo p, string tgt, string pad)
     {
-        if (p.ConverterType is not null)
+        if (p.ConverterTypeFullName is not null)
         {
             s.Append(pad);
             s.Append("var __cnv = new ");
-            s.Append(p.ConverterType);
+            s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(pad);
             s.Append(tgt);
@@ -1164,11 +932,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (p.Tk is "list" or "array")
+        if (p.TypeKind is "list" or "array")
         {
             s.Append(pad);
             s.Append("var __tmpList = new System.Collections.Generic.List<");
-            s.Append(p.ElemTf ?? "object");
+            s.Append(p.ElementTypeName ?? "object");
             s.AppendLine(">(16);");
             s.Append(pad);
             s.AppendLine("while (r.Read() && r.TokenType == TokenType.String) {");
@@ -1180,14 +948,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append('.');
             s.Append(p.Name);
             s.Append(" = __tmpList");
-            if (p.Tk == "array")
+            if (p.TypeKind == "array")
                 s.Append(".ToArray()");
             s.AppendLine(";");
         }
-        else if (p.Tk is "object" && p.NestedProps.Length > 0)
+        else if (p.TypeKind is "object" && p.NestedProperties.Length > 0)
         {
-            // P7: use inner helper for nested objects
-            var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.Tf!);
+            var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.TypeFullName!);
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
@@ -1196,16 +963,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(sn);
             s.AppendLine(".Deserialize(ref r);");
         }
-        else if (p.Tk is "dict")
+        else if (p.TypeKind is "dict")
         {
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
             s.Append(p.Name);
             s.Append(" ??= new System.Collections.Generic.Dictionary<");
-            s.Append(p.KeyTf ?? "string");
+            s.Append(p.KeyTypeName ?? "string");
             s.Append(", ");
-            s.Append(p.ElemTf ?? "int");
+            s.Append(p.ElementTypeName ?? "int");
             s.AppendLine(">();");
             s.Append(pad);
             s.AppendLine("if (r.Read() && r.TokenType == TokenType.ObjectStart) {");
@@ -1213,7 +980,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName) {");
             s.Append(pad);
             s.AppendLine("        var __dk = Encoding.UTF8.GetString(r.KeySpan);");
-            if (p.ElemTk == "int32")
+            if (p.ElementTypeKind == "int32")
             {
                 s.Append(pad);
                 s.AppendLine("        r.TryGetInt32(out var __dv);");
@@ -1240,7 +1007,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
         else
         {
-            switch (p.Tk)
+            switch (p.TypeKind)
             {
                 case "string":
                     s.Append(pad);
@@ -1335,7 +1102,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append('.');
                     s.Append(p.Name);
                     s.Append(" = System.Enum.Parse<");
-                    s.Append(p.Tf);
+                    s.Append(p.TypeFullName);
                     s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "decimal":
@@ -1360,9 +1127,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitDeserializeListElementTemp(StringBuilder s, PropInfo p, string pad)
+    private static void EmitDeserializeListElementTemp(StringBuilder s, PropertyInfo p, string pad)
     {
-        switch (p.ElemTk)
+        switch (p.ElementTypeKind)
         {
             case "string":
                 s.Append(pad);
@@ -1380,26 +1147,4 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
         }
     }
-
-    internal readonly record struct TypeInfo(
-        string Fqn,
-        string Ns,
-        string Name,
-        ImmutableArray<PropInfo> Props
-    );
-
-    internal readonly record struct PropInfo(
-        string Name,
-        string Jn,
-        string Tk,
-        string Tf,
-        string? ElemTk,
-        string? ElemTf,
-        bool IsNullable,
-        ImmutableArray<PropInfo> NestedProps = default,
-        string? KeyTk = null,
-        string? KeyTf = null,
-        string? ConverterType = null,
-        string? DateTimeFormat = null
-    );
 }

@@ -1,153 +1,53 @@
 namespace PicoIni.Gen;
 
+using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
+using TypeInfo = PicoSerDe.Gen.TypeInfo;
+
 [Generator(LanguageNames.CSharp)]
 public sealed class IniSerializerGenerator : IIncrementalGenerator
 {
+    private static readonly PicoSerDe.Gen.FormatConfig Config =
+        new("IniSerializer", "PicoIni", "ini");
+
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
+        new(
+            HasIniCamelCase,
+            GetIniKey,
+            HasIniIgnore,
+            GetIniConverter,
+            GetIniDateTimeFormat,
+            GetSectionName: GetIniSection,
+            GetComment: GetIniComment
+        );
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        var providers = context
+        var typeProviders = context
             .SyntaxProvider
             .CreateSyntaxProvider(
-                predicate: static (n, _) => IsCandidate(n),
+                predicate: static (node, _) => IsCandidate(node),
                 transform: static (ctx, _) => Transform(ctx)
             )
-            .Where(static t => t.HasValue)
+            .Where(static t => t is not null)
             .Select(static (t, _) => t!.Value);
 
         context.RegisterSourceOutput(
-            providers.Collect(),
+            typeProviders.Collect(),
             static (spc, types) => GenerateAll(spc, types)
         );
     }
 
+    // ── Candidate detection ──
+
     private static bool IsCandidate(SyntaxNode node) =>
         PicoSerDe.Gen.GenInfrastructure.IsCandidate(node);
 
-    private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
-    {
-        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
-            return null;
-        if (
-            m.ContainingType.Name != "IniSerializer"
-            || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoIni"
-        )
-            return null;
-        if (m.TypeArguments.Length != 1)
-            return null;
+    private static TypeInfo? Transform(GeneratorSyntaxContext ctx) =>
+        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
 
-        var t = m.TypeArguments[0];
-        if (t.SpecialType != SpecialType.None)
-            return null;
-        if (t is not INamedTypeSymbol nt)
-            return null;
+    // ── Attribute helpers ──
 
-        var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
-        if (ns == "<global namespace>")
-            ns = "";
-        var useCamelCase = HasIniCamelCase(nt);
-        var props = new List<PropInfo>();
-
-        foreach (var member in nt.GetMembers())
-        {
-            if (member is not IPropertySymbol p)
-                continue;
-            if (p.DeclaredAccessibility != Accessibility.Public)
-                continue;
-            if (p.IsStatic || p.IsIndexer)
-                continue;
-            if (p.IsReadOnly && p.SetMethod is null)
-                continue;
-            if (p.GetMethod is null)
-                continue;
-            if (HasAttr(p, "IniIgnoreAttribute"))
-                continue;
-
-            var (kind, nullable, inner) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
-            if (kind is null)
-                continue;
-
-            string? elemKind = null,
-                elemName = null,
-                keyKind = null,
-                keyName = null;
-            ImmutableArray<PropInfo> nested = ImmutableArray<PropInfo>.Empty;
-
-            if (kind is "list" or "array")
-            {
-                ITypeSymbol? et = p.Type switch
-                {
-                    IArrayTypeSymbol a => a.ElementType,
-                    INamedTypeSymbol n2 => n2.TypeArguments[0],
-                    _ => null
-                };
-                if (et is not null)
-                {
-                    var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et);
-                    if (ek is not null)
-                    {
-                        elemKind = ek;
-                        elemName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ek, et);
-                    }
-                }
-            }
-            else if (
-                kind is "dict"
-                && p.Type is INamedTypeSymbol nd
-                && nd.TypeArguments.Length == 2
-            )
-            {
-                var (kk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(nd.TypeArguments[0]);
-                var (vk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(nd.TypeArguments[1]);
-                if (kk is not null && vk is not null)
-                {
-                    keyKind = kk;
-                    keyName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(kk, nd.TypeArguments[0]);
-                    elemKind = vk;
-                    elemName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vk, nd.TypeArguments[1]);
-                }
-            }
-            else if (kind is "object" && p.Type is INamedTypeSymbol onts)
-            {
-                nested = ExtractNested(onts, useCamelCase);
-            }
-
-            props.Add(
-                new PropInfo(
-                    p.Name,
-                    GetKey(p)
-                        ?? (
-                            useCamelCase
-                                ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name)
-                                : p.Name
-                        ),
-                    kind,
-                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    nullable,
-                    elemKind,
-                    elemName,
-                    keyKind,
-                    keyName,
-                    GetSection(p),
-                    GetConv(p),
-                    nested,
-                    GetIniDateTimeFormat(p)
-                )
-            );
-        }
-
-        return new TypeInfo(
-            nt.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            ns,
-            nt.Name,
-            props.ToImmutableArray()
-        );
-    }
-
-    private static string? GetKey(IPropertySymbol p) => GetStrAttr(p, "IniKeyAttribute");
-
-    private static string? GetSection(IPropertySymbol p) => GetStrAttr(p, "IniSectionAttribute");
-
-    private static bool HasIniCamelCase(INamedTypeSymbol type)
+    private static bool HasIniCamelCase(ITypeSymbol type)
     {
         foreach (var attr in type.GetAttributes())
         {
@@ -160,9 +60,52 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string? GetIniDateTimeFormat(IPropertySymbol p)
+    private static string? GetIniKey(IPropertySymbol prop)
     {
-        foreach (var attr in p.GetAttributes())
+        foreach (var attr in prop.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "IniKeyAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
+                && attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Value is string name
+            )
+                return name;
+        }
+        return null;
+    }
+
+    private static bool HasIniIgnore(IPropertySymbol prop)
+    {
+        foreach (var attr in prop.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "IniIgnoreAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
+            )
+                return true;
+        }
+        return false;
+    }
+
+    private static string? GetIniConverter(IPropertySymbol prop)
+    {
+        foreach (var attr in prop.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "IniConverterAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
+                && attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Value is INamedTypeSymbol ct
+            )
+                return ct.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        }
+        return null;
+    }
+
+    private static string? GetIniDateTimeFormat(IPropertySymbol prop)
+    {
+        foreach (var attr in prop.GetAttributes())
         {
             if (
                 attr.AttributeClass?.Name == "IniDateTimeFormatAttribute"
@@ -175,89 +118,37 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
-    private static string? GetStrAttr(IPropertySymbol p, string attrName)
+    private static string? GetIniSection(IPropertySymbol prop)
     {
-        foreach (var a in p.GetAttributes())
-            if (
-                a.AttributeClass?.Name == attrName
-                && a.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-                && a.ConstructorArguments.Length == 1
-                && a.ConstructorArguments[0].Value is string s
-            )
-                return s;
-        return null;
-    }
-
-    private static bool HasAttr(IPropertySymbol p, string attrName)
-    {
-        foreach (var a in p.GetAttributes())
-            if (
-                a.AttributeClass?.Name == attrName
-                && a.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-            )
-                return true;
-        return false;
-    }
-
-    private static string? GetConv(IPropertySymbol p)
-    {
-        foreach (var a in p.GetAttributes())
-            if (
-                a.AttributeClass?.Name == "IniConverterAttribute"
-                && a.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-                && a.ConstructorArguments.Length == 1
-                && a.ConstructorArguments[0].Value is INamedTypeSymbol ct
-            )
-                return ct.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        return null;
-    }
-
-    private static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol t, bool useCamelCase)
-    {
-        var list = new List<PropInfo>();
-        foreach (var m in t.GetMembers())
+        foreach (var attr in prop.GetAttributes())
         {
-            if (m is not IPropertySymbol p)
-                continue;
-            if (p.DeclaredAccessibility != Accessibility.Public)
-                continue;
-            if (p.IsStatic || p.IsIndexer)
-                continue;
-            if (p.IsReadOnly && p.SetMethod is null)
-                continue;
-            if (p.GetMethod is null)
-                continue;
-            if (HasAttr(p, "IniIgnoreAttribute"))
-                continue;
-            var (k, n, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type);
-            if (k is null)
-                continue;
-            list.Add(
-                new PropInfo(
-                    p.Name,
-                    GetKey(p)
-                        ?? (
-                            useCamelCase
-                                ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name)
-                                : p.Name
-                        ),
-                    k,
-                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    n,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    ImmutableArray<PropInfo>.Empty
-                )
-            );
+            if (
+                attr.AttributeClass?.Name == "IniSectionAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
+                && attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Value is string name
+            )
+                return name;
         }
-        return list.ToImmutableArray();
+        return null;
     }
 
-    // ── Code emission ──
+    private static string? GetIniComment(ITypeSymbol type)
+    {
+        foreach (var attr in type.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "IniCommentAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
+                && attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Value is string text
+            )
+                return text;
+        }
+        return null;
+    }
+
+    // ── Source generation ──
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
@@ -334,11 +225,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    } }");
         s.AppendLine();
 
-        var top = new List<PropInfo>();
+        var top = new List<PropertyInfo>();
         foreach (var p in type.Properties)
             if (p.TypeKind != "object")
                 top.Add(p);
-        var sec = new List<PropInfo>();
+        var sec = new List<PropertyInfo>();
         foreach (var p in type.Properties)
             if (p.TypeKind == "object")
                 sec.Add(p);
@@ -381,7 +272,6 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         }
         if (sec.Count > 0)
         {
-            // Section key matching (when inside a section)
             for (int si = 0; si < sec.Count; si++)
             {
                 foreach (var np in sec[si].NestedProperties)
@@ -444,14 +334,13 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
-    private static void WriteValue(StringBuilder s, PropInfo p, string acc)
+    private static void WriteValue(StringBuilder s, PropertyInfo p, string acc)
     {
         switch (p.TypeKind)
         {
             case "string":
                 s.Append(acc);
                 break;
-            // All other types: pass raw value — IniWriter has typed overloads
             case "int32":
             case "int64":
             case "float64":
@@ -497,7 +386,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitRead(StringBuilder s, PropInfo p, string target, string pad)
+    private static void EmitRead(StringBuilder s, PropertyInfo p, string target, string pad)
     {
         if (p.ConverterTypeFullName is not null)
         {
@@ -646,7 +535,6 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(" ??= new System.Collections.Generic.List<");
                 s.Append(p.ElementTypeName);
                 s.AppendLine(">(16);");
-                // Generate backslash-aware split for comma-containing elements
                 s.Append(pad);
                 s.AppendLine("var __raw = Encoding.UTF8.GetString(reader.GetStringRaw());");
                 s.Append(pad);
@@ -728,52 +616,4 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
         }
     }
-
-    private static void WriteParseElem(StringBuilder s, PropInfo p)
-    {
-        switch (p.ElementTypeKind)
-        {
-            case "string":
-                s.Append("__s");
-                break;
-            case "int32":
-                s.Append("int.Parse(__s)");
-                break;
-            case "int64":
-                s.Append("long.Parse(__s)");
-                break;
-            case "float64":
-                s.Append("double.Parse(__s)");
-                break;
-            case "boolean":
-                s.Append("bool.Parse(__s)");
-                break;
-            default:
-                s.Append("");
-                break;
-        }
-    }
 }
-
-internal readonly record struct TypeInfo(
-    string FullyQualifiedName,
-    string Namespace,
-    string Name,
-    ImmutableArray<PropInfo> Properties
-);
-
-internal readonly record struct PropInfo(
-    string Name,
-    string JsonName,
-    string TypeKind,
-    string TypeFullName,
-    bool IsNullable,
-    string? ElementTypeKind,
-    string? ElementTypeName,
-    string? KeyTypeKind,
-    string? KeyTypeName,
-    string? SectionName,
-    string? ConverterTypeFullName,
-    ImmutableArray<PropInfo> NestedProperties,
-    string? DateTimeFormat = null
-);

@@ -1,173 +1,70 @@
 namespace PicoMsgPack.Gen;
 
+using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
+using TypeInfo = PicoSerDe.Gen.TypeInfo;
+
 [Generator(LanguageNames.CSharp)]
 public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 {
+    private static readonly PicoSerDe.Gen.FormatConfig Config =
+        new("MsgPackSerializer", "PicoMsgPack", "msgpack");
+
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
+        new(
+            _ => false,
+            _ => null,
+            HasMsgPackIgnore,
+            GetMsgPackConverter,
+            _ => null,
+            GetIntKey: GetMsgPackKey,
+            OverrideKindWithStringOnConverter: true
+        );
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        var providers = context
+        var typeProviders = context
             .SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (n, _) => IsCandidate(n),
                 transform: static (ctx, _) => Transform(ctx)
             )
-            .Where(static t => t.HasValue)
+            .Where(static t => t is not null)
             .Select(static (t, _) => t!.Value);
+
         context.RegisterSourceOutput(
-            providers.Collect(),
+            typeProviders.Collect(),
             static (spc, types) => GenerateAll(spc, types)
         );
     }
 
     static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
-    static TypeInfo? Transform(GeneratorSyntaxContext ctx)
+    static TypeInfo? Transform(GeneratorSyntaxContext ctx) =>
+        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+
+    // ── Attribute helpers ──
+
+    static bool HasMsgPackIgnore(IPropertySymbol p)
     {
-        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
-            return null;
-        if (
-            m.ContainingType.Name != "MsgPackSerializer"
-            || m.ContainingType.ContainingNamespace?.ToDisplayString() != "PicoMsgPack"
-        )
-            return null;
-        if (
-            m.TypeArguments.Length != 1
-            || m.TypeArguments[0] is not INamedTypeSymbol nt
-            || nt.SpecialType != SpecialType.None
-        )
-            return null;
-
-        var ns = nt.ContainingNamespace?.ToDisplayString() ?? "";
-        if (ns == "<global namespace>")
-            ns = "";
-        var props = new List<PropInfo>();
-        int ak = 0;
-
-        foreach (var member in nt.GetMembers())
-        {
-            if (
-                member is not IPropertySymbol p
-                || p.DeclaredAccessibility != Accessibility.Public
-                || p.IsStatic
-                || p.IsIndexer
-            )
-                continue;
-            if (p.IsReadOnly && p.SetMethod is null)
-                continue;
-            if (p.GetMethod is null || HasAttr(p, "MsgPackIgnoreAttribute"))
-                continue;
-
-            var converterType = GetConverter(p);
-            var (kind, nullable, inner) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type, "msgpack");
-            // If converter is present, override kind to string for generic serialization
-            if (converterType is not null)
-                kind = "string";
-            if (kind is null)
-                continue;
-
-            int key = GetKey(p) ?? ak++;
-            string? ek = null,
-                en = null;
-            ImmutableArray<PropInfo> nested = ImmutableArray<PropInfo>.Empty;
-
-            if (kind is "list" or "array")
-            {
-                ITypeSymbol? et = p.Type switch
-                {
-                    IArrayTypeSymbol a => a.ElementType,
-                    INamedTypeSymbol n2 when n2.TypeArguments.Length == 1 => n2.TypeArguments[0],
-                    _ => null
-                };
-                if (et is not null)
-                {
-                    var (kk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(et, "msgpack");
-                    if (kk is not null)
-                    {
-                        ek = kk;
-                        en = PicoSerDe.Gen.TypeKindResolver.MapTypeName(kk, et);
-                        if (kk == "object" && et is INamedTypeSymbol eo)
-                            nested = ExtractNested(eo);
-                    }
-                }
-            }
-            else if (
-                kind == "dict"
-                && p.Type is INamedTypeSymbol nd
-                && nd.TypeArguments.Length == 2
-            )
-            {
-                var (vk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(nd.TypeArguments[1]);
-                if (vk is not null)
-                {
-                    ek = vk;
-                    en = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vk, nd.TypeArguments[1]);
-                }
-            }
-            else if (kind == "object" && p.Type is INamedTypeSymbol onts)
-            {
-                nested = ExtractNested(onts);
-            }
-
-            props.Add(
-                new PropInfo(
-                    p.Name,
-                    key,
-                    kind,
-                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    nullable,
-                    ek,
-                    en,
-                    nested,
-                    converterType
-                )
-            );
-        }
-
-        return new TypeInfo(
-            nt.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            ns,
-            nt.Name,
-            props.ToImmutableArray()
-        );
+        foreach (var a in p.GetAttributes())
+            if (a.AttributeClass?.Name == "MsgPackIgnoreAttribute")
+                return true;
+        return false;
     }
 
-    static ImmutableArray<PropInfo> ExtractNested(INamedTypeSymbol t)
+    static string? GetMsgPackConverter(IPropertySymbol p)
     {
-        var l = new List<PropInfo>();
-        int ak = 0;
-        foreach (var m in t.GetMembers())
-        {
+        foreach (var a in p.GetAttributes())
             if (
-                m is not IPropertySymbol p
-                || p.DeclaredAccessibility != Accessibility.Public
-                || p.IsStatic
-                || p.IsIndexer
+                a.AttributeClass?.Name == "MsgPackConverterAttribute"
+                && a.ConstructorArguments.Length >= 1
+                && a.ConstructorArguments[0].Value is INamedTypeSymbol ct
             )
-                continue;
-            if (p.IsReadOnly && p.SetMethod is null)
-                continue;
-            if (p.GetMethod is null || HasAttr(p, "MsgPackIgnoreAttribute"))
-                continue;
-            var (k, n, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(p.Type, "msgpack");
-            if (k is null)
-                continue;
-            l.Add(
-                new PropInfo(
-                    p.Name,
-                    GetKey(p) ?? ak++,
-                    k,
-                    p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    n,
-                    null,
-                    null,
-                    ImmutableArray<PropInfo>.Empty
-                )
-            );
-        }
-        return l.ToImmutableArray();
+                return ct.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return null;
     }
 
-    static int? GetKey(IPropertySymbol p)
+    static int? GetMsgPackKey(IPropertySymbol p)
     {
         foreach (var a in p.GetAttributes())
             if (
@@ -179,25 +76,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
-    static bool HasAttr(IPropertySymbol p, string n)
-    {
-        foreach (var a in p.GetAttributes())
-            if (a.AttributeClass?.Name == n)
-                return true;
-        return false;
-    }
-
-    static string? GetConverter(IPropertySymbol p)
-    {
-        foreach (var a in p.GetAttributes())
-            if (
-                a.AttributeClass?.Name == "MsgPackConverterAttribute"
-                && a.ConstructorArguments.Length >= 1
-                && a.ConstructorArguments[0].Value is INamedTypeSymbol ct
-            )
-                return ct.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        return null;
-    }
+    // ── Source generation ──
 
     static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
@@ -230,9 +109,8 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         }
         s.AppendLine();
 
-        var sorted = type.Properties.OrderBy(p => p.Key).ToImmutableArray();
+        var sorted = type.Properties.OrderBy(p => p.IntKey ?? 0).ToImmutableArray();
 
-        // === Serializer ===
         s.Append("file readonly struct ");
         s.Append(type.Name);
         s.Append("MsgPackSerializer : ISerializer<");
@@ -247,14 +125,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         foreach (var p in sorted)
         {
             s.Append("        mw.WriteInt32(");
-            s.Append(p.Key);
+            s.Append(p.IntKey ?? 0);
             s.AppendLine(");");
             WriteSer(s, p, $"value.{p.Name}", "        ", ref c);
         }
         s.AppendLine("        mw.WriteEndObject(); } }");
         s.AppendLine();
 
-        // === Deserializer ===
         s.Append("file readonly struct ");
         s.Append(type.Name);
         s.Append("MsgPackDeserializer : IDeserializer<");
@@ -273,7 +150,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         foreach (var p in sorted)
         {
             s.Append("                case ");
-            s.Append(p.Key);
+            s.Append(p.IntKey ?? 0);
             s.AppendLine(":");
             WriteDeser(s, p, "obj", "                ", ref c);
             s.AppendLine("                    break;");
@@ -282,7 +159,6 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        return obj; } }");
         s.AppendLine();
 
-        // === Registration ===
         s.Append("file static class ");
         s.Append(type.Name);
         s.AppendLine("__Reg {");
@@ -297,7 +173,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
-    static void WriteSer(StringBuilder s, PropInfo p, string a, string ind, ref int c)
+    static void WriteSer(StringBuilder s, PropertyInfo p, string a, string ind, ref int c)
     {
         if (p.ConverterTypeFullName is not null)
         {
@@ -328,7 +204,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             c++;
             return;
         }
-        bool needsNullCheck = p.TypeKind == "string"; // string can always be null
+        bool needsNullCheck = p.TypeKind == "string";
         if (p.IsNullable && p.TypeKind != "string")
         {
             s.Append(ind);
@@ -449,7 +325,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append("if (");
                 s.Append(a);
                 s.AppendLine(" == null) mw.WriteNull(); else {");
-                var ns = p.NestedProperties.OrderBy(n => n.Key).ToImmutableArray();
+                var ns = p.NestedProperties.OrderBy(n => n.IntKey ?? 0).ToImmutableArray();
                 s.Append(ind);
                 s.Append("    mw.WriteStartObject(");
                 s.Append(ns.Length);
@@ -458,7 +334,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 {
                     s.Append(ind);
                     s.Append("    mw.WriteInt32(");
-                    s.Append(n.Key);
+                    s.Append(n.IntKey ?? 0);
                     s.AppendLine(");");
                     WriteSer(s, n, $"{a}.{n.Name}", ind + "    ", ref c);
                 }
@@ -480,7 +356,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    static void WriteSerElem(StringBuilder s, PropInfo p, string a, string ind, ref int c)
+    static void WriteSerElem(StringBuilder s, PropertyInfo p, string a, string ind, ref int c)
     {
         switch (p.ElementTypeKind)
         {
@@ -523,7 +399,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    static void WriteDeser(StringBuilder s, PropInfo p, string target, string ind, ref int c)
+    static void WriteDeser(StringBuilder s, PropertyInfo p, string target, string ind, ref int c)
     {
         var t = $"{target}.{p.Name}";
         if (p.ConverterTypeFullName is not null)
@@ -790,12 +666,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(
                     "        reader.TryGetInt32(out var __nk); reader.Read(); switch (__nk) {"
                 );
-                var ns = p.NestedProperties.OrderBy(n => n.Key).ToImmutableArray();
+                var ns = p.NestedProperties.OrderBy(n => n.IntKey ?? 0).ToImmutableArray();
                 foreach (var n in ns)
                 {
                     s.Append(ind);
                     s.Append("            case ");
-                    s.Append(n.Key);
+                    s.Append(n.IntKey ?? 0);
                     s.AppendLine(":");
                     WriteDeser(s, n, "__o", ind + "                ", ref c);
                     s.Append(ind);
@@ -813,7 +689,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
     static void ReadDeserElem(
         StringBuilder s,
-        PropInfo p,
+        PropertyInfo p,
         string target,
         string op,
         string ind,
@@ -869,22 +745,3 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         }
     }
 }
-
-internal readonly record struct TypeInfo(
-    string FullyQualifiedName,
-    string Namespace,
-    string Name,
-    ImmutableArray<PropInfo> Properties
-);
-
-internal readonly record struct PropInfo(
-    string Name,
-    int Key,
-    string TypeKind,
-    string TypeFullName,
-    bool IsNullable,
-    string? ElementTypeKind,
-    string? ElementTypeName,
-    ImmutableArray<PropInfo> NestedProperties,
-    string? ConverterTypeFullName = null
-);
