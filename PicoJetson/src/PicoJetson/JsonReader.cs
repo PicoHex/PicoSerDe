@@ -698,9 +698,13 @@ public ref struct JsonReader
         var start = _position;
         if (_data[_position] == (byte)'-')
             _position++;
+        // Strict JSON: reject leading zeros (RFC 8259 §6)
+        int firstDigitPos = _position;
         bool isFloat = false;
         while (_position < _data.Length && IsDigit(_data[_position]))
             _position++;
+        if (_position > firstDigitPos + 1 && _data[firstDigitPos] == (byte)'0')
+            throw new FormatException($"Leading zeros are not allowed at offset {firstDigitPos}");
         if (_position < _data.Length && _data[_position] == (byte)'.')
         {
             isFloat = true;
@@ -734,11 +738,21 @@ public ref struct JsonReader
                 buf[di++] = (byte)'-';
                 _seqReader.Advance(1);
             }
+            // Strict JSON: reject leading zeros
+            bool firstIsZero = false;
+            int digitCount = 0;
             while (!_seqReader.End && IsDigit(_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex]))
             {
+                if (
+                    ++digitCount == 1
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'0'
+                )
+                    firstIsZero = true;
                 buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                 _seqReader.Advance(1);
             }
+            if (digitCount > 1 && firstIsZero)
+                throw new FormatException("Leading zeros are not allowed");
             if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'.')
             {
                 isFloat = true;

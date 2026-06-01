@@ -408,3 +408,38 @@ public class IniCommentEmitTests
         await Assert.That(ini).Contains("Top-level config file");
     }
 }
+
+// ── Nested section support ──
+
+public class IniDeepSection
+{
+    public string Name { get; set; } = "";
+    public int Port { get; set; }
+}
+
+public class IniParentWithNestedSection
+{
+    public string AppName { get; set; } = "";
+    public IniDeepSection Server { get; set; } = new();
+}
+
+public class IniNestedSectionTests
+{
+    [Test]
+    public async Task NestedSection_RoundTrip_PreservesNestedValues()
+    {
+        var original = new IniParentWithNestedSection
+        {
+            AppName = "MyApp",
+            Server = new IniDeepSection { Name = "db", Port = 5432 }
+        };
+        var ini = IniSerializer.Serialize(original);
+        var bytes = Encoding.UTF8.GetBytes(ini);
+        var result = IniSerializer.Deserialize<IniParentWithNestedSection>(bytes);
+
+        await Assert.That(result!.AppName).IsEqualTo("MyApp");
+        await Assert.That(result.Server).IsNotNull();
+        await Assert.That(result.Server.Name).IsEqualTo("db");
+        await Assert.That(result.Server.Port).IsEqualTo(5432);
+    }
+}

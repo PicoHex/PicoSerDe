@@ -40,6 +40,32 @@ public class JsonReaderTests
     }
 
     [Test]
+    public async Task ReadLeadingZeroInteger_ThrowsFormatException()
+    {
+        var r = new JsonReader("01"u8);
+        try
+        {
+            r.Read();
+            throw new Exception("Expected FormatException");
+        }
+        catch (FormatException) { }
+        await Assert.That(true).IsTrue();
+    }
+
+    [Test]
+    public async Task ReadLeadingZeroNegative_ThrowsFormatException()
+    {
+        var r = new JsonReader("-01"u8);
+        try
+        {
+            r.Read();
+            throw new Exception("Expected FormatException");
+        }
+        catch (FormatException) { }
+        await Assert.That(true).IsTrue();
+    }
+
+    [Test]
     public async Task ReadNegativeInteger_ReturnsInt32()
     {
         var r = new JsonReader("-17"u8);
