@@ -255,3 +255,83 @@ public class IniDateTimeFormatTests
         await Assert.That(result!.Date).IsEqualTo(new DateTime(2024, 6, 15));
     }
 }
+
+// ── Bug: INI list serialization uses comma-join/split, corrupting comma-containing elements ──
+
+public class IniListPoco
+{
+    public List<string> Tags { get; set; } = new();
+}
+
+public class IniStringListPoco
+{
+    public string[] Items { get; set; } = Array.Empty<string>();
+}
+
+public class IniListRoundTripTests
+{
+    [Test]
+    public async Task ListString_RoundTrip_PreservesCommaContainingElements()
+    {
+        var original = new IniListPoco
+        {
+            Tags = new List<string> { "hello, world", "foo", "bar,baz" }
+        };
+        var ini = IniSerializer.Serialize(original);
+        var bytes = Encoding.UTF8.GetBytes(ini);
+        var result = IniSerializer.Deserialize<IniListPoco>(bytes);
+
+        await Assert.That(result!.Tags).Count().IsEqualTo(3);
+        await Assert.That(result.Tags[0]).IsEqualTo("hello, world");
+        await Assert.That(result.Tags[1]).IsEqualTo("foo");
+        await Assert.That(result.Tags[2]).IsEqualTo("bar,baz");
+    }
+
+    [Test]
+    public async Task ArrayString_RoundTrip_PreservesCommaContainingElements()
+    {
+        var original = new IniStringListPoco { Items = new[] { "a,b", "c", "d,e,f" } };
+        var ini = IniSerializer.Serialize(original);
+        var bytes = Encoding.UTF8.GetBytes(ini);
+        var result = IniSerializer.Deserialize<IniStringListPoco>(bytes);
+
+        await Assert.That(result!.Items).Count().IsEqualTo(3);
+        await Assert.That(result.Items[0]).IsEqualTo("a,b");
+        await Assert.That(result.Items[1]).IsEqualTo("c");
+        await Assert.That(result.Items[2]).IsEqualTo("d,e,f");
+    }
+
+    [Test]
+    public async Task ListString_RoundTrip_SimpleNoCommas_StillWorks()
+    {
+        var original = new IniListPoco
+        {
+            Tags = new List<string> { "alpha", "beta", "gamma" }
+        };
+        var ini = IniSerializer.Serialize(original);
+        var bytes = Encoding.UTF8.GetBytes(ini);
+        var result = IniSerializer.Deserialize<IniListPoco>(bytes);
+
+        await Assert.That(result!.Tags).Count().IsEqualTo(3);
+        await Assert.That(result.Tags[0]).IsEqualTo("alpha");
+        await Assert.That(result.Tags[1]).IsEqualTo("beta");
+        await Assert.That(result.Tags[2]).IsEqualTo("gamma");
+    }
+
+    [Test]
+    public async Task ListInt32_RoundTrip_WorksWithCommaFreeValues()
+    {
+        var original = new IniListPoco
+        {
+            Tags = new List<string> { "1", "2", "3" }
+        };
+        var ini = IniSerializer.Serialize(original);
+        var bytes = Encoding.UTF8.GetBytes(ini);
+        var result = IniSerializer.Deserialize<IniListPoco>(bytes);
+
+        await Assert.That(result!.Tags).Count().IsEqualTo(3);
+        await Assert.That(result.Tags).Contains("1");
+        await Assert.That(result.Tags).Contains("2");
+        await Assert.That(result.Tags).Contains("3");
+    }
+}

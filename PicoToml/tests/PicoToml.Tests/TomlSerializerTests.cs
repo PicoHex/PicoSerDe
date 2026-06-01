@@ -57,6 +57,26 @@ public class DictPoco
     public Dictionary<string, int> Scores { get; set; } = new();
 }
 
+public class DictStringLongPoco
+{
+    public Dictionary<string, long> Counts { get; set; } = new();
+}
+
+public class DictStringDoublePoco
+{
+    public Dictionary<string, double> Ratings { get; set; } = new();
+}
+
+public class DictStringBoolPoco
+{
+    public Dictionary<string, bool> Flags { get; set; } = new();
+}
+
+public class DictStringStringPoco
+{
+    public Dictionary<string, string> Metadata { get; set; } = new();
+}
+
 public class DecimalPoco
 {
     public decimal Price { get; set; }
@@ -239,5 +259,61 @@ public class TomlSerializerTests
         await Assert.That(result!.Scores).IsNotNull();
         await Assert.That(result.Scores.Count).IsEqualTo(3);
         await Assert.That(result.Scores[0]).IsEqualTo(10);
+    }
+
+    [Test]
+    public async Task RoundTrip_DictStringLong()
+    {
+        var original = new DictStringLongPoco
+        {
+            Counts = new Dictionary<string, long> { ["x"] = 100L, ["y"] = 200L }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<DictStringLongPoco>(bytes);
+        await Assert.That(result!.Counts.Count).IsEqualTo(2);
+        await Assert.That(result.Counts["x"]).IsEqualTo(100L);
+        await Assert.That(result.Counts["y"]).IsEqualTo(200L);
+    }
+
+    [Test]
+    public async Task RoundTrip_DictStringDouble()
+    {
+        var original = new DictStringDoublePoco
+        {
+            Ratings = new Dictionary<string, double> { ["a"] = 4.5, ["b"] = 3.2 }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<DictStringDoublePoco>(bytes);
+        await Assert.That(result!.Ratings.Count).IsEqualTo(2);
+        await Assert.That(result.Ratings["a"]).IsEqualTo(4.5);
+        await Assert.That(result.Ratings["b"]).IsEqualTo(3.2);
+    }
+
+    [Test]
+    public async Task RoundTrip_DictStringBool()
+    {
+        var original = new DictStringBoolPoco
+        {
+            Flags = new Dictionary<string, bool> { ["enabled"] = true, ["visible"] = false }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<DictStringBoolPoco>(bytes);
+        await Assert.That(result!.Flags.Count).IsEqualTo(2);
+        await Assert.That(result.Flags["enabled"]).IsTrue();
+        await Assert.That(result.Flags["visible"]).IsFalse();
+    }
+
+    [Test]
+    public async Task RoundTrip_DictStringString()
+    {
+        var original = new DictStringStringPoco
+        {
+            Metadata = new Dictionary<string, string> { ["env"] = "prod", ["ver"] = "1.0" }
+        };
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<DictStringStringPoco>(bytes);
+        await Assert.That(result!.Metadata.Count).IsEqualTo(2);
+        await Assert.That(result.Metadata["env"]).IsEqualTo("prod");
+        await Assert.That(result.Metadata["ver"]).IsEqualTo("1.0");
     }
 }

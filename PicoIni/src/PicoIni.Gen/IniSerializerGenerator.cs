@@ -486,7 +486,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             case "array":
                 s.Append("string.Join(\",\", ");
                 s.Append(acc);
-                s.Append(')');
+                s.Append(
+                    ".Select(__s => __s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")))"
+                );
                 break;
             default:
                 s.Append(acc);
@@ -644,27 +646,85 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(" ??= new System.Collections.Generic.List<");
                 s.Append(p.ElementTypeName);
                 s.AppendLine(">(16);");
+                // Generate backslash-aware split for comma-containing elements
                 s.Append(pad);
-                s.Append(
-                    "foreach (var __s in Encoding.UTF8.GetString(reader.GetStringRaw()).Split(',')) "
-                );
+                s.AppendLine("var __raw = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                s.Append(pad);
+                s.AppendLine("int __p = 0, __seg = 0;");
+                s.Append(pad);
+                s.AppendLine("while (__p < __raw.Length) {");
+                s.Append(pad);
+                s.AppendLine("    if (__raw[__p] == '\\\\' && __p + 1 < __raw.Length) __p += 2;");
+                s.Append(pad);
+                s.AppendLine("    else if (__raw[__p] == ',') {");
+                s.Append(pad);
+                s.Append("        ");
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.Append(".Add(");
-                WriteParseElem(s, p);
-                s.AppendLine(");");
+                s.AppendLine(
+                    ".Add(__raw.Substring(__seg, __p - __seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\"));"
+                );
+                s.Append(pad);
+                s.AppendLine("        __seg = ++__p;");
+                s.Append(pad);
+                s.AppendLine("    }");
+                s.Append(pad);
+                s.AppendLine("    else __p++;");
+                s.Append(pad);
+                s.AppendLine("}");
+                s.Append(pad);
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(
+                    ".Add(__raw.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\"));"
+                );
                 break;
             case "array":
                 s.Append(pad);
+                s.Append("var __tmpList_");
+                s.Append(p.Name);
+                s.Append(" = new System.Collections.Generic.List<");
+                s.Append(p.ElementTypeName);
+                s.AppendLine(">(16);");
+                s.Append(pad);
+                s.AppendLine("var __raw = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                s.Append(pad);
+                s.AppendLine("int __p = 0, __seg = 0;");
+                s.Append(pad);
+                s.AppendLine("while (__p < __raw.Length) {");
+                s.Append(pad);
+                s.AppendLine("    if (__raw[__p] == '\\\\' && __p + 1 < __raw.Length) __p += 2;");
+                s.Append(pad);
+                s.AppendLine("    else if (__raw[__p] == ',') {");
+                s.Append(pad);
+                s.Append("        __tmpList_");
+                s.Append(p.Name);
+                s.AppendLine(
+                    ".Add(__raw.Substring(__seg, __p - __seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\"));"
+                );
+                s.Append(pad);
+                s.AppendLine("        __seg = ++__p;");
+                s.Append(pad);
+                s.AppendLine("    }");
+                s.Append(pad);
+                s.AppendLine("    else __p++;");
+                s.Append(pad);
+                s.AppendLine("}");
+                s.Append(pad);
+                s.Append("__tmpList_");
+                s.Append(p.Name);
+                s.AppendLine(
+                    ".Add(__raw.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\"));"
+                );
+                s.Append(pad);
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.Append(
-                    " = Encoding.UTF8.GetString(reader.GetStringRaw()).Split(',').Select(__s => "
-                );
-                WriteParseElem(s, p);
-                s.AppendLine(").ToArray();");
+                s.Append(" = __tmpList_");
+                s.Append(p.Name);
+                s.AppendLine(".ToArray();");
                 break;
         }
     }

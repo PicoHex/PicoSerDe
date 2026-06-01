@@ -49,6 +49,30 @@ public class YamlDictModel
     public Dictionary<string, int> Scores { get; set; } = new();
 }
 
+public class YamlNestedWithList
+{
+    public string Street { get; set; } = "";
+    public List<string> Tags { get; set; } = new();
+}
+
+public class YamlOuterWithNestedList
+{
+    public string Name { get; set; } = "";
+    public YamlNestedWithList Child { get; set; } = new();
+}
+
+public class YamlNestedWithDict
+{
+    public string Label { get; set; } = "";
+    public Dictionary<string, int> Counts { get; set; } = new();
+}
+
+public class YamlOuterWithNestedDict
+{
+    public string Name { get; set; } = "";
+    public YamlNestedWithDict Child { get; set; } = new();
+}
+
 public class TemporalExYaml
 {
     public DateOnly Date { get; set; }
@@ -246,5 +270,50 @@ public class YamlSerializerTests
 
         await Assert.That(text).Contains("Name");
         await Assert.That(text).Contains("Test");
+    }
+
+    [Test]
+    public async Task RoundTrip_NestedObjectWithList()
+    {
+        var original = new YamlOuterWithNestedList
+        {
+            Name = "Parent",
+            Child = new YamlNestedWithList
+            {
+                Street = "Main St",
+                Tags = new List<string> { "a", "b", "c" }
+            }
+        };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var result = YamlSerializer.Deserialize<YamlOuterWithNestedList>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Parent");
+        await Assert.That(result.Child.Street).IsEqualTo("Main St");
+        await Assert.That(result.Child.Tags).IsNotNull();
+        await Assert.That(result.Child.Tags.Count).IsEqualTo(3);
+        await Assert.That(result.Child.Tags[0]).IsEqualTo("a");
+        await Assert.That(result.Child.Tags[1]).IsEqualTo("b");
+        await Assert.That(result.Child.Tags[2]).IsEqualTo("c");
+    }
+
+    [Test]
+    public async Task RoundTrip_NestedObjectWithDict()
+    {
+        var original = new YamlOuterWithNestedDict
+        {
+            Name = "Parent",
+            Child = new YamlNestedWithDict
+            {
+                Label = "Stats",
+                Counts = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 }
+            }
+        };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
+        var result = YamlSerializer.Deserialize<YamlOuterWithNestedDict>(bytes);
+        await Assert.That(result!.Name).IsEqualTo("Parent");
+        await Assert.That(result.Child.Label).IsEqualTo("Stats");
+        await Assert.That(result.Child.Counts).IsNotNull();
+        await Assert.That(result.Child.Counts.Count).IsEqualTo(2);
+        await Assert.That(result.Child.Counts["x"]).IsEqualTo(1);
+        await Assert.That(result.Child.Counts["y"]).IsEqualTo(2);
     }
 }

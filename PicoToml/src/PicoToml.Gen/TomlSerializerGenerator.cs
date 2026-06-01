@@ -348,9 +348,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(clean.Substring(0, lastDot));
             s.AppendLine(";");
         }
-        s.AppendLine(
-            "file static class __T { internal static bool __Tk(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) { byte x = a[i], y = b[i]; if (x != y && (x | 0x20) != (y | 0x20)) return false; } return true; } }"
-        );
         s.AppendLine();
         s.Append("internal static class ");
         s.Append(shortName);
@@ -379,7 +376,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.Append("                ");
             s.Append(i == 0 ? "if" : "else if");
-            s.Append(" (__T.__Tk(k, \"");
+            s.Append(" (TextHelpers.Eq(k, \"");
             s.Append(sorted[i].Jn);
             s.AppendLine("\"u8)) {");
             EmitDeserializeProp(s, sorted[i], "o", "                    ");
@@ -408,12 +405,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(t.Ns);
             s.AppendLine(";");
         }
-        s.AppendLine();
-        s.AppendLine("file static class __T {");
-        s.AppendLine(
-            "    internal static bool __Tk(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if ((a[i] | 0x20) != (b[i] | 0x20)) return false; return true; }"
-        );
-        s.AppendLine("}");
         s.AppendLine();
 
         // Serializer
@@ -453,7 +444,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.Append("                ");
             s.Append(i == 0 ? "if" : "else if");
-            s.Append(" (__T.__Tk(k, \"");
+            s.Append(" (TextHelpers.Eq(k, \"");
             s.Append(scalarProps[i].Jn);
             s.AppendLine("\"u8)) {");
             EmitDeserializeProp(s, scalarProps[i], "o", "                    ");
@@ -474,7 +465,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             {
                 s.Append("                ");
                 s.Append(i == 0 && dictProps.Length == 0 ? "if" : "else if");
-                s.Append(" (__T.__Tk(tbl, \"");
+                s.Append(" (TextHelpers.Eq(tbl, \"");
                 s.Append(objProps[i].Jn);
                 s.AppendLine("\"u8)) {");
                 EmitNestedObjectRead(s, objProps[i], "o", "                    ");
@@ -485,7 +476,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             {
                 s.Append("                ");
                 s.Append(i == 0 && objProps.Length == 0 ? "if" : "else if");
-                s.Append(" (__T.__Tk(tbl, \"");
+                s.Append(" (TextHelpers.Eq(tbl, \"");
                 s.Append(dictProps[i].Jn);
                 s.AppendLine("\"u8)) {");
                 EmitDictRead(s, dictProps[i], "o", "                    ");
@@ -669,27 +660,158 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("while (r.Read() && r.TokenType == TokenType.PropertyName) {");
         s.Append(pad);
         s.Append("    var __dk = Encoding.UTF8.GetString(r.KeySpan);");
-        if (dp.ElemTk == "int32")
+        switch (dp.ElemTk)
         {
-            s.AppendLine();
-            s.Append(pad);
-            s.AppendLine("    r.TryGetInt32(out var __dv);");
-            s.Append(pad);
-            s.Append("    ");
-            s.Append(tgt);
-            s.Append('.');
-            s.Append(dp.Name);
-            s.AppendLine("[__dk] = __dv;");
-        }
-        else
-        {
-            s.AppendLine();
-            s.Append(pad);
-            s.Append("    ");
-            s.Append(tgt);
-            s.Append('.');
-            s.Append(dp.Name);
-            s.AppendLine("[__dk] = Encoding.UTF8.GetString(r.ValueSpan);");
+            case "int32":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    r.TryGetInt32(out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "int64":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    r.TryGetInt64(out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "float64":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    r.TryGetFloat64(out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "boolean":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    r.TryGetBool(out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "datetime":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.Append(pad);
+                s.AppendLine(
+                    "    System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dv);"
+                );
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "guid":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.Append(pad);
+                s.AppendLine("    System.Guid.TryParse(__raw, out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "decimal":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.Append(pad);
+                s.AppendLine(
+                    "    decimal.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, out var __dv);"
+                );
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "dateonly":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.Append(pad);
+                s.AppendLine("    System.DateOnly.TryParse(__raw, out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "timeonly":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.Append(pad);
+                s.AppendLine("    System.TimeOnly.TryParse(__raw, out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "timespan":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.Append(pad);
+                s.AppendLine("    System.TimeSpan.TryParse(__raw, out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            case "enum":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.Append(pad);
+                s.Append("    System.Enum.TryParse<");
+                s.Append(dp.ElemTf ?? "object");
+                s.AppendLine(">(__raw, out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
+            default:
+                s.AppendLine();
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = Encoding.UTF8.GetString(r.ValueSpan);");
+                break;
         }
         s.Append(pad);
         s.AppendLine("}");

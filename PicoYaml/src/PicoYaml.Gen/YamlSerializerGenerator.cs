@@ -215,6 +215,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 continue;
             string? ekt = null,
                 etf = null;
+            string? kkt = null,
+                ktf = null;
             ImmutableArray<PropInfo> np2 = default;
             if (k is "list" or "array")
             {
@@ -237,6 +239,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             {
                 np2 = ExtractNested(o2, useCamelCase);
             }
+            else if (k is "dict" && p.Type is INamedTypeSymbol nd && nd.TypeArguments.Length == 2)
+            {
+                var kt = nd.TypeArguments[0];
+                var vt = nd.TypeArguments[1];
+                var (ktk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(kt);
+                var (vtk, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(vt);
+                kkt = ktk;
+                ktf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(ktk ?? "string", kt);
+                ekt = vtk;
+                etf = PicoSerDe.Gen.TypeKindResolver.MapTypeName(vtk ?? "int", vt);
+            }
             var nestedJsonName =
                 GetYamlKey(p)
                 ?? (useCamelCase ? PicoSerDe.Gen.GenInfrastructure.ToCamelCase(p.Name) : p.Name);
@@ -250,8 +263,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     etf,
                     isNullable,
                     np2,
-                    null,
-                    null,
+                    kkt,
+                    ktf,
                     nestedConverter,
                     GetYamlDateTimeFormat(p)
                 )
@@ -530,6 +543,43 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine("yw.WriteNull();");
                 }
                 break;
+            case "list":
+            case "array":
+                s.Append(ind);
+                s.Append("foreach (var __item in ");
+                s.Append(accessor);
+                s.AppendLine(")");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.Append("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
+                if (p.ElemTk == "string")
+                    s.Append("__item");
+                else
+                    s.Append("__item.ToString()");
+                s.AppendLine("));");
+                s.Append(ind);
+                s.AppendLine("}");
+                break;
+            case "dict":
+                s.Append(ind);
+                s.AppendLine("yw.WriteStartMapping();");
+                s.Append(ind);
+                s.Append("foreach (var __kvp in ");
+                s.Append(accessor);
+                s.AppendLine(")");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
+                s.Append(ind);
+                s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));");
+                s.AppendLine();
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("yw.WriteEndMapping();");
+                break;
             default:
                 s.Append(ind);
                 s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
@@ -673,6 +723,78 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(sn);
                     s.AppendLine(".Deserialize(ref reader);");
                 }
+                if (p.NestedProps.Length == 0)
+                {
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = default!;");
+                }
+                break;
+            case "list":
+            case "array":
+                s.Append(pad);
+                s.Append("var __tmpList = new System.Collections.Generic.List<");
+                s.Append(p.ElemTf ?? "object");
+                s.AppendLine(">(16);");
+                s.Append(pad);
+                s.AppendLine("while (reader.Read() && reader.TokenType == TokenType.String) {");
+                s.Append(pad);
+                s.AppendLine("    __tmpList.Add(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.Append(pad);
+                s.AppendLine("}");
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.Append(" = __tmpList");
+                if (p.Tk == "array")
+                    s.Append(".ToArray()");
+                s.AppendLine(";");
+                break;
+            case "dict":
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.Append(" ??= new System.Collections.Generic.Dictionary<");
+                s.Append(p.KeyTf ?? "string");
+                s.Append(", ");
+                s.Append(p.ElemTf ?? "int");
+                s.AppendLine(">();");
+                s.Append(pad);
+                s.AppendLine("if (reader.Read() && reader.TokenType == TokenType.ObjectStart) {");
+                s.Append(pad);
+                s.AppendLine(
+                    "    while (reader.Read() && reader.TokenType == TokenType.PropertyName) {"
+                );
+                s.Append(pad);
+                s.AppendLine("        var __dk = Encoding.UTF8.GetString(reader.KeySpan);");
+                if (p.ElemTk == "int32")
+                {
+                    s.Append(pad);
+                    s.AppendLine("        reader.TryGetInt32(out var __dv);");
+                    s.Append(pad);
+                    s.Append("        ");
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine("[__dk] = __dv;");
+                }
+                else
+                {
+                    s.Append(pad);
+                    s.Append("        ");
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine("[__dk] = Encoding.UTF8.GetString(reader.ValueSpan);");
+                }
+                s.Append(pad);
+                s.AppendLine("    }");
+                s.Append(pad);
+                s.AppendLine("} // exits at ObjectEnd");
                 break;
             default:
                 s.Append(pad);
