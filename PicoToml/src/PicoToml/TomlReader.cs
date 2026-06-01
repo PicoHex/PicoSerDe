@@ -131,6 +131,26 @@ public ref struct TomlReader
             v = 0;
             return false;
         }
+        // TOML special float values
+        if (_valueSpan.SequenceEqual("inf"u8) || _valueSpan.SequenceEqual("+inf"u8))
+        {
+            v = double.PositiveInfinity;
+            return true;
+        }
+        if (_valueSpan.SequenceEqual("-inf"u8))
+        {
+            v = double.NegativeInfinity;
+            return true;
+        }
+        if (
+            _valueSpan.SequenceEqual("nan"u8)
+            || _valueSpan.SequenceEqual("+nan"u8)
+            || _valueSpan.SequenceEqual("-nan"u8)
+        )
+        {
+            v = double.NaN;
+            return true;
+        }
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 

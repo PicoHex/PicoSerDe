@@ -52,4 +52,48 @@ public class TomlReaderEdgeTests
         await Assert.That(names).Contains("banana");
         await Assert.That(names.Count).IsEqualTo(2);
     }
+
+    [Test]
+    public async Task SpecialFloat_Inf()
+    {
+        var toml = "v = inf"u8;
+        var reader = new TomlReader(toml);
+        reader.Read();
+        var ok = reader.TryGetFloat64(out var v);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(double.IsPositiveInfinity(v)).IsTrue();
+    }
+
+    [Test]
+    public async Task SpecialFloat_PlusInf()
+    {
+        var toml = "v = +inf"u8;
+        var reader = new TomlReader(toml);
+        reader.Read();
+        var ok = reader.TryGetFloat64(out var v);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(double.IsPositiveInfinity(v)).IsTrue();
+    }
+
+    [Test]
+    public async Task SpecialFloat_MinusInf()
+    {
+        var toml = "v = -inf"u8;
+        var reader = new TomlReader(toml);
+        reader.Read();
+        var ok = reader.TryGetFloat64(out var v);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(double.IsNegativeInfinity(v)).IsTrue();
+    }
+
+    [Test]
+    public async Task SpecialFloat_NaN()
+    {
+        var toml = "v = nan"u8;
+        var reader = new TomlReader(toml);
+        reader.Read();
+        var ok = reader.TryGetFloat64(out var v);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(double.IsNaN(v)).IsTrue();
+    }
 }
