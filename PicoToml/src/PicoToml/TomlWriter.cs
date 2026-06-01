@@ -6,6 +6,8 @@ public ref struct TomlWriter
     private long _bytesWritten;
     private int _arrayDepth;
     private long _arrayCommaMask;
+    private int _inlineDepth;
+    private long _inlineCommaMask;
 
     public TomlWriter(IBufferWriter<byte> buffer)
     {
@@ -13,6 +15,8 @@ public ref struct TomlWriter
         _bytesWritten = 0;
         _arrayDepth = 0;
         _arrayCommaMask = 0;
+        _inlineDepth = 0;
+        _inlineCommaMask = 0;
     }
 
     public long BytesWritten => _bytesWritten;
@@ -151,6 +155,31 @@ public ref struct TomlWriter
             WriteNewLine();
     }
 
+    // ── Inline table writing ──
+
+    public void WriteStartInlineTable(string key)
+    {
+        WriteRaw(Encoding.UTF8.GetBytes(key));
+        WriteRaw(" = { "u8);
+        _inlineDepth++;
+    }
+
+    public void WriteEndInlineTable()
+    {
+        _inlineDepth--;
+        _inlineCommaMask &= ~(1L << _inlineDepth);
+        WriteRaw(" }"u8);
+        if (_inlineDepth == 0)
+            WriteNewLine();
+    }
+
+    private void InlineBeforeValue()
+    {
+        if ((_inlineCommaMask & (1L << (_inlineDepth - 1))) != 0)
+            WriteRaw(", "u8);
+        _inlineCommaMask |= (1L << (_inlineDepth - 1));
+    }
+
     public void WriteArrayValue(int value)
     {
         ArrayBeforeValue();
@@ -208,6 +237,8 @@ public ref struct TomlWriter
 
     private void WriteKey(ReadOnlySpan<byte> utf8)
     {
+        if (_inlineDepth > 0)
+            InlineBeforeValue();
         if (NeedsKeyQuoting(utf8))
         {
             WriteByte((byte)'"');
@@ -257,6 +288,8 @@ public ref struct TomlWriter
 
     private void WriteNewLine()
     {
+        if (_inlineDepth > 0)
+            return; // no newlines inside inline tables
         WriteByte((byte)'\n');
     }
 }

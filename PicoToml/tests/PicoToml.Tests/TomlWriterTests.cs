@@ -77,4 +77,17 @@ public class TomlWriterTests
         var result = Encoding.UTF8.GetString(buf.WrittenSpan);
         await Assert.That(result).IsEqualTo("matrix = [[1, 2], [3, 4]]\n");
     }
+
+    [Test]
+    public async Task WriteInlineTable_ProducesBraceSyntax()
+    {
+        var buf = new ArrayBufferWriter<byte>(256);
+        var w = new TomlWriter(buf);
+        w.WriteStartInlineTable("point");
+        w.WriteKeyValue("x", 10);
+        w.WriteKeyValue("y", 20);
+        w.WriteEndInlineTable();
+        var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+        await Assert.That(result).IsEqualTo("point = { x = 10, y = 20 }\n");
+    }
 }
