@@ -568,11 +568,36 @@ public ref struct JsonReader
 
     private static bool ContainsBackslash(ReadOnlySpan<byte> span)
     {
-        if (Vector128.IsHardwareAccelerated && span.Length >= 16)
+        ref var ptr = ref MemoryMarshal.GetReference(span);
+        int i = 0;
+
+        if (Vector512.IsHardwareAccelerated && span.Length >= 64)
+        {
+            var slash = Vector512.Create((byte)'\\');
+            for (; i + 64 <= span.Length; i += 64)
+            {
+                var chunk = Vector512.LoadUnsafe(ref Unsafe.Add(ref ptr, i));
+                if (Vector512.Equals(chunk, slash) != Vector512<byte>.Zero)
+                    return true;
+            }
+            span = span[i..];
+            i = 0;
+        }
+        else if (Vector256.IsHardwareAccelerated && span.Length >= 32)
+        {
+            var slash = Vector256.Create((byte)'\\');
+            for (; i + 32 <= span.Length; i += 32)
+            {
+                var chunk = Vector256.LoadUnsafe(ref Unsafe.Add(ref ptr, i));
+                if (Vector256.Equals(chunk, slash) != Vector256<byte>.Zero)
+                    return true;
+            }
+            span = span[i..];
+            i = 0;
+        }
+        else if (Vector128.IsHardwareAccelerated && span.Length >= 16)
         {
             var slash = Vector128.Create((byte)'\\');
-            ref var ptr = ref MemoryMarshal.GetReference(span);
-            int i = 0;
             for (; i + 16 <= span.Length; i += 16)
             {
                 var chunk = Vector128.LoadUnsafe(ref Unsafe.Add(ref ptr, i));

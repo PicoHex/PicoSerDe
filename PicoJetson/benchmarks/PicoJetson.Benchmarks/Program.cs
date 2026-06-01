@@ -132,6 +132,84 @@ var deserCol = Benchmark.Compare(
 );
 PrintComparison(deserCol);
 
+// --- 9. Large flat POCO (50 fields, whitespace-heavy) ---
+var largeFlat = new LargeFlatPoco
+{
+    F01 = "value-01",
+    F02 = "value-02",
+    F03 = "value-03",
+    F04 = "value-04",
+    F05 = "value-05",
+    F06 = "value-06",
+    F07 = "value-07",
+    F08 = "value-08",
+    F09 = "value-09",
+    F10 = "value-10",
+    N01 = 1,
+    N02 = 2,
+    N03 = 3,
+    N04 = 4,
+    N05 = 5,
+    N06 = 6,
+    N07 = 7,
+    N08 = 8,
+    N09 = 9,
+    N10 = 10,
+    B01 = true,
+    B02 = false,
+    B03 = true,
+    B04 = false,
+    B05 = true,
+    D01 = 1.1,
+    D02 = 2.2,
+    D03 = 3.3,
+    D04 = 4.4,
+    D05 = 5.5
+};
+var largeFlatBytesPico = JsonSerializer.SerializeToUtf8Bytes(largeFlat);
+var largeFlatBytesStj = StjJson.SerializeToUtf8Bytes(largeFlat, ctx.LargeFlatPoco);
+
+var serLargeFlat = Benchmark.Compare(
+    "LargeFlat 50-fields — Serialize",
+    "PicoJetson",
+    () => JsonSerializer.SerializeToUtf8Bytes(largeFlat),
+    "System.Text.Json",
+    () => StjJson.SerializeToUtf8Bytes(largeFlat, ctx.LargeFlatPoco)
+);
+PrintComparison(serLargeFlat);
+
+var deserLargeFlat = Benchmark.Compare(
+    "LargeFlat 50-fields — Deserialize",
+    "PicoJetson",
+    () => JsonSerializer.Deserialize<LargeFlatPoco>(largeFlatBytesPico),
+    "System.Text.Json",
+    () => StjJson.Deserialize(largeFlatBytesStj, ctx.LargeFlatPoco)
+);
+PrintComparison(deserLargeFlat);
+
+// --- 10. Large string (1KB, no escapes → exercises ContainsBackslash fast-path) ---
+var largeString = new LargeStringPoco { Body = new string('x', 1024) };
+var largeStringBytesPico = JsonSerializer.SerializeToUtf8Bytes(largeString);
+var largeStringBytesStj = StjJson.SerializeToUtf8Bytes(largeString, ctx.LargeStringPoco);
+
+var serLargeStr = Benchmark.Compare(
+    "LargeString 1KB — Serialize",
+    "PicoJetson",
+    () => JsonSerializer.SerializeToUtf8Bytes(largeString),
+    "System.Text.Json",
+    () => StjJson.SerializeToUtf8Bytes(largeString, ctx.LargeStringPoco)
+);
+PrintComparison(serLargeStr);
+
+var deserLargeStr = Benchmark.Compare(
+    "LargeString 1KB — Deserialize",
+    "PicoJetson",
+    () => JsonSerializer.Deserialize<LargeStringPoco>(largeStringBytesPico),
+    "System.Text.Json",
+    () => StjJson.Deserialize(largeStringBytesStj, ctx.LargeStringPoco)
+);
+PrintComparison(deserLargeStr);
+
 // ═══ Summary ═══
 
 Console.WriteLine();
@@ -147,7 +225,11 @@ Console.WriteLine(
             serNested,
             deserNested,
             serCol,
-            deserCol
+            deserCol,
+            serLargeFlat,
+            deserLargeFlat,
+            serLargeStr,
+            deserLargeStr
         }
     )
 );
@@ -170,4 +252,6 @@ static void PrintComparison(ComparisonResult c)
 [JsonSerializable(typeof(NestedPoco))]
 [JsonSerializable(typeof(NestedAddress))]
 [JsonSerializable(typeof(CollectionPoco))]
+[JsonSerializable(typeof(LargeFlatPoco))]
+[JsonSerializable(typeof(LargeStringPoco))]
 internal partial class StjContext : JsonSerializerContext { }
