@@ -608,9 +608,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.Append(" = Enum.Parse<");
+                s.Append(" = Enum.TryParse<");
                 s.Append(p.TypeFullName);
-                s.AppendLine(">(Encoding.UTF8.GetString(reader.GetStringRaw()));");
+                s.AppendLine(
+                    ">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __ev) ? __ev : default;"
+                );
                 break;
             case "dateonly":
                 s.Append(pad);

@@ -443,3 +443,29 @@ public class IniNestedSectionTests
         await Assert.That(result.Server.Port).IsEqualTo(5432);
     }
 }
+
+// ── Enum safety ──
+
+public enum IniTestColor
+{
+    Red,
+    Green,
+    Blue
+}
+
+public class IniEnumPoco
+{
+    public IniTestColor Color { get; set; }
+}
+
+public class IniEnumSafetyTests
+{
+    [Test]
+    public async Task Enum_InvalidValue_DoesNotThrow()
+    {
+        var ini = "Color = Purple"u8.ToArray();
+        var result = IniSerializer.Deserialize<IniEnumPoco>(ini);
+        // Should not throw — invalid enum values should just leave default
+        await Assert.That(result!.Color).IsEqualTo(IniTestColor.Red); // default = 0 = Red
+    }
+}
