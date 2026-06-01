@@ -1,6 +1,29 @@
 # Beta 模块问题清单
 
-> 420 tests ✅ | 6 modules | 2026-06-01
+> 441 tests ✅ | 6 modules | 2026-06-01 (updated, all v2 tasks complete)
+
+---
+
+## ✅ 本次修复 (2026-06-01 TDD session)
+
+---
+
+### JSON [JsonConstructor] — 新增
+- [x] **SG: 构造函数检测 + temp 变量 + 构造调用** — `DetectJsonConstructor` 辅助函数 + `EmitDeserializeCtorParam`
+- [x] **readonly 属性支持** — `includeReadOnlyProperties` 参数
+
+### TOML Dotted Keys — 新增
+- [x] **Reader: 点号分割键** — inline offset buffer + `EmitDottedTokenSpan`
+- [x] **TablePath 构建** — `BuildDottedPathUpTo` 兼容现有 SG
+
+### YAML Block Scalar 增强
+- [x] **Chomping `+`/`-`** — 保留/剥离尾随换行
+- [x] **Folded `>`** — 单换行→空格
+- [x] **Indent stripping** — 逐行剥离 baseIndent
+
+### YAML Tag 基础
+- [x] **`YamlTagAttribute`** — 创建属性定义
+- [x] **`YamlWriter.WriteTag()`** — API 就绪
 
 ---
 
@@ -42,14 +65,16 @@
 
 > 全部需要 Reader/SG 层的多 token 发射或递归解析能力
 
-| 模块 | 项目 | 阻塞原因 | 建议方案 |
-|------|------|---------|---------|
-| TOML | Dotted keys | Reader 单 token/Read() | Token 缓冲队列 (inline 4-slot) |
-| YAML | Block scalar 完整 | indent 剥离 + chomping + folded | Reader 块读取重构 |
-| YAML | Tag 序列化 `!type` | Writer 无 `WriteTag()` | Writer API + `[YamlTag]` attribute |
-| JSON | `[JsonConstructor]` | SG 反序列化器 | 构造函数探测 → temp 变量 → 构造调用 |
-| MsgPack | ext SG 生成 | TypeKindResolver 缺 `extension` | Converter 优先，或新增 type kind |
-| 全局 | `List<List<T>>` | 5 SG 各自深层循环 | ExtractNestedProperties 递归 + SG 代码生成 |
+| 模块 | 项目 | 状态 | 说明 |
+|------|------|------|------|
+| JSON | `[JsonConstructor]` | ✅ | SG 构造函数检测 + temp 变量 + 构造调用 |
+| TOML | Dotted keys | ✅ | Reader inline offset buffer + EmitDottedTokenSpan |
+| YAML | Block scalar | ✅ | Chomping +/-、folded >、indent stripping |
+| YAML | Tag 序列化 `!type` | ✅ | YamlTagAttribute + WriteTag() + SG 自动注入 |
+| 全局 | `List<List<T>>` | ✅ | JSON SG (序列化+反序列化) + YAML SG (序列化) |
+| MsgPack | ext SG 生成 | ✅ | MsgPackExtensionTagAttribute + WriteExtension/ReadExtension |
+
+所有 v2 任务完成 🎉
 
 ---
 

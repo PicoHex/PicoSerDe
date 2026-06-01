@@ -35,6 +35,19 @@ public ref struct TomlReader
     private int _depth;
     private readonly int _maxDepth;
 
+    // Inline dotted-key token buffer — stores offsets into _keySpan
+    private bool _dottedActive;
+    private int _dottedPartCount;
+    private int _dottedPartIndex;
+    private int _dottedO0,
+        _dottedL0,
+        _dottedO1,
+        _dottedL1,
+        _dottedO2,
+        _dottedL2,
+        _dottedO3,
+        _dottedL3;
+
     public TomlReader(ReadOnlySpan<byte> data)
     {
         _data = data;
@@ -57,6 +70,9 @@ public ref struct TomlReader
         _bufCount = 0;
         _depth = 0;
         _maxDepth = 256;
+        _dottedActive = false;
+        _dottedPartCount = 0;
+        _dottedPartIndex = 0;
     }
 
     public TomlReader(ReadOnlySequence<byte> data)
@@ -81,6 +97,9 @@ public ref struct TomlReader
         _bufCount = 0;
         _depth = 0;
         _maxDepth = 256;
+        _dottedActive = false;
+        _dottedPartCount = 0;
+        _dottedPartIndex = 0;
     }
 
     public TokenType TokenType => _tokenType;
@@ -291,6 +310,10 @@ public ref struct TomlReader
 
     private bool ReadSpan()
     {
+        // Drain dotted key buffer first
+        if (_dottedActive)
+            return EmitDottedTokenSpan();
+
         if (_inInlineTable)
             return ReadInlineTableSpan();
         if (_inArray)
@@ -323,6 +346,173 @@ public ref struct TomlReader
             }
             if (!lineWasComment)
                 return false;
+        }
+    }
+
+    // ── Dotted key emission ──
+
+    /// <summary>
+    /// Emits the next token from the dotted-key buffer.
+    /// For "a.b.c = value", emits: ObjectStart("a") → ObjectStart("b") → PropertyName("c") + value.
+    /// </summary>
+    private bool EmitDottedTokenSpan()
+    {
+        if (_dottedPartIndex < _dottedPartCount - 1)
+        {
+            // Emit ObjectStart for an intermediate dotted key part
+            var off = GetDottedOffset(_dottedPartIndex);
+            var len = GetDottedLength(_dottedPartIndex);
+            _keySpan = _data.Slice(off, len);
+            // Build full dotted path up to this part for tablePath
+            _tablePath = BuildDottedPathUpTo(_dottedPartIndex);
+            _dottedPartIndex++;
+            _depth++;
+            if (_depth > _maxDepth)
+                throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
+            _tokenType = TokenType.ObjectStart;
+            return true;
+        }
+        else if (_dottedPartIndex == _dottedPartCount - 1)
+        {
+            // Emit PropertyName for the final dotted key part (value was already stored)
+            var off = GetDottedOffset(_dottedPartIndex);
+            var len = GetDottedLength(_dottedPartIndex);
+            _keySpan = _data.Slice(off, len);
+            _dottedActive = false;
+            _tokenType = TokenType.PropertyName;
+            return true;
+        }
+        _dottedActive = false;
+        return false;
+    }
+
+    private ReadOnlySpan<byte> BuildDottedPathUpTo(int endPart)
+    {
+        int totalLen = 0;
+        for (int i = 0; i <= endPart; i++)
+        {
+            if (i > 0)
+                totalLen++; // dot
+            totalLen += GetDottedLength(i);
+        }
+        // Use rented buffer for the composed path (tracked by existing _rb0.._rb7)
+        var buf = ArrayPool<byte>.Shared.Rent(totalLen);
+        RentTrack(buf);
+        int w = 0;
+        for (int i = 0; i <= endPart; i++)
+        {
+            if (i > 0)
+                buf[w++] = (byte)'.';
+            var off = GetDottedOffset(i);
+            var len = GetDottedLength(i);
+            _data.Slice(off, len).CopyTo(buf.AsSpan(w));
+            w += len;
+        }
+        return buf.AsSpan(0, totalLen);
+    }
+
+    private void RentTrack(byte[] buf)
+    {
+        _rentedBuffer = buf;
+        switch (_bufCount++)
+        {
+            case 0:
+                _rb0 = buf;
+                break;
+            case 1:
+                _rb1 = buf;
+                break;
+            case 2:
+                _rb2 = buf;
+                break;
+            case 3:
+                _rb3 = buf;
+                break;
+            case 4:
+                _rb4 = buf;
+                break;
+            case 5:
+                _rb5 = buf;
+                break;
+            case 6:
+                _rb6 = buf;
+                break;
+            default:
+                _rb7 = buf;
+                break;
+        }
+    }
+
+    private int GetDottedOffset(int idx) =>
+        idx switch
+        {
+            0 => _dottedO0,
+            1 => _dottedO1,
+            2 => _dottedO2,
+            _ => _dottedO3
+        };
+
+    private int GetDottedLength(int idx) =>
+        idx switch
+        {
+            0 => _dottedL0,
+            1 => _dottedL1,
+            2 => _dottedL2,
+            _ => _dottedL3
+        };
+
+    /// <summary>Splits a dotted key like "a.b.c" into parts and stores offsets for emission.</summary>
+    private void TrySplitDottedKey(ReadOnlySpan<byte> key, int keyStart)
+    {
+        // Count dots to determine part count
+        int dotCount = 0;
+        for (int i = 0; i < key.Length; i++)
+            if (key[i] == (byte)'.')
+                dotCount++;
+
+        if (dotCount == 0 || dotCount > 3)
+            return; // no dots or too many parts (max 4)
+
+        _dottedPartCount = dotCount + 1;
+        _dottedPartIndex = 0;
+        _dottedActive = true;
+
+        // Store offsets/lengths for each part
+        int partIdx = 0;
+        int segStart = keyStart;
+        for (int i = 0; i <= key.Length; i++)
+        {
+            if (i == key.Length || key[i] == (byte)'.')
+            {
+                var segLen = (keyStart + i) - segStart;
+                SetDottedPart(partIdx, segStart, segLen);
+                partIdx++;
+                if (i < key.Length)
+                    segStart = keyStart + i + 1; // skip the dot
+            }
+        }
+    }
+
+    private void SetDottedPart(int idx, int offset, int length)
+    {
+        switch (idx)
+        {
+            case 0:
+                _dottedO0 = offset;
+                _dottedL0 = length;
+                break;
+            case 1:
+                _dottedO1 = offset;
+                _dottedL1 = length;
+                break;
+            case 2:
+                _dottedO2 = offset;
+                _dottedL2 = length;
+                break;
+            default:
+                _dottedO3 = offset;
+                _dottedL3 = length;
+                break;
         }
     }
 
@@ -404,6 +594,13 @@ public ref struct TomlReader
 
         ReadValueSpan();
         SkipLineSpan();
+        TrySplitDottedKey(_keySpan, keyStart);
+        if (_dottedActive)
+        {
+            // Emit first dotted token directly (next Read() will drain the rest)
+            EmitDottedTokenSpan();
+            return true;
+        }
         _tokenType = TokenType.PropertyName;
         return true;
     }

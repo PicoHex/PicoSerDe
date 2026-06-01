@@ -40,8 +40,64 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     private static bool IsCandidate(SyntaxNode node) =>
         PicoSerDe.Gen.GenInfrastructure.IsCandidate(node);
 
-    private static TypeInfo? Transform(GeneratorSyntaxContext ctx) =>
-        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+    private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
+    {
+        // Detect [JsonConstructor] first to know if we should include read-only props
+        bool hasCtor = false;
+        if (
+            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is IMethodSymbol method
+            && method.TypeArguments.Length == 1
+            && method.TypeArguments[0] is INamedTypeSymbol namedType
+        )
+        {
+            foreach (var ctor in namedType.Constructors)
+            {
+                if (ctor.DeclaredAccessibility != Accessibility.Public)
+                    continue;
+                foreach (var attr in ctor.GetAttributes())
+                {
+                    if (attr.AttributeClass?.Name == "JsonConstructorAttribute")
+                    {
+                        hasCtor = true;
+                        break;
+                    }
+                }
+                if (hasCtor)
+                    break;
+            }
+        }
+
+        var info = PicoSerDe
+            .Gen
+            .GenInfrastructure
+            .TransformType(ctx, Config, Attrs, includeReadOnlyProperties: hasCtor);
+        if (info is not { } ti)
+            return null;
+
+        if (!hasCtor)
+            return ti;
+
+        // Check for [JsonConstructor] on the target type
+        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method2)
+            return ti;
+        if (method2.TypeArguments.Length != 1)
+            return ti;
+        var typeArg = method2.TypeArguments[0];
+        if (typeArg is not INamedTypeSymbol namedType2)
+            return ti;
+
+        var ctorParams = PicoSerDe
+            .Gen
+            .GenInfrastructure
+            .DetectJsonConstructor(namedType2, Config.FormatTag);
+        if (ctorParams is not { } cp)
+            return ti;
+
+        return ti with
+        {
+            CtorParams = cp
+        };
+    }
 
     // ── Attribute helpers ──
 
@@ -418,7 +474,30 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(")");
                 sb.Append(indent);
                 sb.AppendLine("{");
-                EmitSerializeElement(sb, prop, "__item", indent + "    ");
+                // Check for nested list: NestedProperties contains inner element info
+                if (
+                    prop.NestedProperties.Length > 0
+                    && prop.NestedProperties[0].TypeKind != "object"
+                )
+                {
+                    // Nested List<List<T>>: emit inner array + inner foreach
+                    var innerProp = prop.NestedProperties[0];
+                    sb.Append(indent);
+                    sb.AppendLine("    jw.WriteStartArray();");
+                    sb.Append(indent);
+                    sb.AppendLine("    foreach (var __inner in __item)");
+                    sb.Append(indent);
+                    sb.AppendLine("    {");
+                    EmitSerializeElement(sb, innerProp, "__inner", indent + "        ");
+                    sb.Append(indent);
+                    sb.AppendLine("    }");
+                    sb.Append(indent);
+                    sb.AppendLine("    jw.WriteEndArray();");
+                }
+                else
+                {
+                    EmitSerializeElement(sb, prop, "__item", indent + "    ");
+                }
                 sb.Append(indent);
                 sb.AppendLine("}");
                 sb.Append(indent);
@@ -572,6 +651,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     private static void EmitDeserializer(StringBuilder sb, TypeInfo type)
     {
+        var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
+
         sb.Append("    file readonly struct ");
         sb.Append(type.Name);
         sb.Append("JsonDeserializer : IDeserializer<");
@@ -583,9 +664,37 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(" Deserialize(ReadOnlySpan<byte> data)");
         sb.AppendLine("        {");
         sb.AppendLine("            var reader = new JsonReader(data);");
-        sb.Append("            var obj = new ");
-        sb.Append(type.Name);
-        sb.AppendLine("();");
+
+        if (hasCtor)
+        {
+            // Declare temp variables for constructor parameters
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            {
+                var cp = type.CtorParams[ci];
+                var typeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                var defaultVal = cp.TypeKind switch
+                {
+                    "string" => "null!",
+                    "int32" or "int64" or "float64" => "0",
+                    "boolean" => "false",
+                    _ => "default!"
+                };
+                sb.Append("            ");
+                sb.Append(typeName);
+                sb.Append(" __cp_");
+                sb.Append(ci);
+                sb.Append(" = ");
+                sb.Append(defaultVal);
+                sb.AppendLine(";");
+            }
+        }
+        else
+        {
+            sb.Append("            var obj = new ");
+            sb.Append(type.Name);
+            sb.AppendLine("();");
+        }
+
         sb.AppendLine("            reader.Read();");
         sb.AppendLine(
             "            while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
@@ -605,7 +714,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(prop.JsonName);
             sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
-            EmitDeserializeProperty(sb, prop, "obj", "                    ");
+
+            if (hasCtor)
+            {
+                // Map JSON property to constructor parameter by name
+                EmitDeserializeCtorParam(sb, prop, type, "                    ");
+            }
+            else
+            {
+                EmitDeserializeProperty(sb, prop, "obj", "                    ");
+            }
+
             sb.AppendLine("                }");
         }
 
@@ -615,9 +734,121 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("                reader.TrySkip();");
 
         sb.AppendLine("            }");
-        sb.AppendLine("            return obj;");
+
+        if (hasCtor)
+        {
+            sb.Append("            return new ");
+            sb.Append(type.Name);
+            sb.Append("(");
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            {
+                if (ci > 0)
+                    sb.Append(", ");
+                sb.Append("__cp_");
+                sb.Append(ci);
+            }
+            sb.AppendLine(");");
+        }
+        else
+        {
+            sb.AppendLine("            return obj;");
+        }
+
         sb.AppendLine("        }");
         sb.AppendLine("    }");
+    }
+
+    /// <summary>Emit assignment to a constructor parameter temp variable.</summary>
+    private static void EmitDeserializeCtorParam(
+        StringBuilder sb,
+        PropertyInfo prop,
+        TypeInfo type,
+        string indent
+    )
+    {
+        // Find matching constructor parameter by case-insensitive name
+        int matchIdx = -1;
+        for (int ci = 0; ci < type.CtorParams.Length; ci++)
+        {
+            if (
+                string.Equals(
+                    type.CtorParams[ci].Name,
+                    prop.Name,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                matchIdx = ci;
+                break;
+            }
+        }
+        if (matchIdx < 0)
+        {
+            // No matching ctor param — skip this property
+            sb.Append(indent);
+            sb.AppendLine("reader.TrySkip();");
+            return;
+        }
+
+        var cp = type.CtorParams[matchIdx];
+        var target = $"__cp_{matchIdx}";
+
+        switch (cp.TypeKind)
+        {
+            case "string":
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                break;
+            case "int32":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetInt32(out var __v);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __v;");
+                break;
+            case "int64":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetInt64(out var __v);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __v;");
+                break;
+            case "float64":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetFloat64(out var __v);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __v;");
+                break;
+            case "boolean":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetBool(out var __v);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __v;");
+                break;
+            case "enum":
+                sb.Append(indent);
+                sb.AppendLine(
+                    "var __rawStr = System.Text.Encoding.UTF8.GetString(reader.GetStringRaw());"
+                );
+                sb.Append(indent);
+                sb.Append("System.Enum.TryParse<");
+                sb.Append(cp.TypeFullName);
+                sb.AppendLine(">(__rawStr, out var __ev);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __ev;");
+                break;
+            default:
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(
+                    " = Encoding.UTF8.GetString(reader.GetStringRaw()) switch {} /* TODO */;"
+                );
+                break;
+        }
     }
 
     private static void EmitDeserializeProperty(
@@ -859,7 +1090,65 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 var listAcc =
                     prop.TypeKind == "list" ? $"{target}.{prop.Name}" : $"__list_{prop.Name}";
 
+                // Handle nested List<List<T>>
                 if (
+                    prop.NestedProperties.Length > 0
+                    && prop.NestedProperties[0].TypeKind != "object"
+                )
+                {
+                    var innerProp = prop.NestedProperties[0];
+                    var innerTypeName = innerProp.TypeKind switch
+                    {
+                        "string" => "string",
+                        "int32" => "int",
+                        "int64" => "long",
+                        "float64" => "double",
+                        "boolean" => "bool",
+                        _ => "object"
+                    };
+                    sb.Append(indent);
+                    sb.AppendLine(
+                        "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+                    );
+                    sb.Append(indent);
+                    sb.AppendLine("    {");
+                    sb.Append(indent);
+                    sb.Append("        var __inner_");
+                    sb.Append(prop.Name);
+                    sb.Append(" = new System.Collections.Generic.List<");
+                    sb.Append(innerTypeName);
+                    sb.AppendLine(">(8);");
+                    sb.Append(indent);
+                    sb.AppendLine("        if (reader.TokenType == TokenType.ArrayStart)");
+                    sb.Append(indent);
+                    sb.AppendLine("        {");
+                    sb.Append(indent);
+                    sb.AppendLine(
+                        "            while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+                    );
+                    sb.Append(indent);
+                    sb.AppendLine("            {");
+                    EmitDeserializeElementAdd(
+                        sb,
+                        innerProp,
+                        $"__inner_{prop.Name}",
+                        indent + "                ",
+                        0
+                    );
+                    sb.Append(indent);
+                    sb.AppendLine("            }");
+                    sb.Append(indent);
+                    sb.AppendLine("        }");
+                    sb.Append(indent);
+                    sb.Append("        ");
+                    sb.Append(listAcc);
+                    sb.Append(".Add(__inner_");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(");");
+                    sb.Append(indent);
+                    sb.AppendLine("    }");
+                }
+                else if (
                     prop.ElementTypeKind == "int32"
                     || prop.ElementTypeKind == "int64"
                     || prop.ElementTypeKind == "boolean"
@@ -1039,6 +1328,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(indent);
             sb.AppendLine("}");
         }
+    }
+
+    /// <summary>Emits value write for a nested list inner element (simplified — emits jw.WriteNumber).</summary>
+    private static void EmitNestedListElement(StringBuilder sb, string indent, string itemVar)
+    {
+        sb.Append(indent);
+        sb.Append("jw.WriteNumber(");
+        sb.Append(itemVar);
+        sb.AppendLine(");");
     }
 
     private static void EmitDeserializeElementAdd(

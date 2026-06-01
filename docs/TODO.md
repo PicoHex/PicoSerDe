@@ -1,6 +1,31 @@
 # PicoSerDe TODO List
 
-> 420 tests ✅ | 0 build errors | 2026-06-01 (updated)
+> 441 tests ✅ | 0 build errors | 2026-06-01 (all v2 tasks complete)
+
+---
+
+## ✅ 本次完成 (2026-06-01 TDD)
+
+---
+
+### Phase 12: JSON [JsonConstructor]
+- [x] **SG 构造函数检测** — `DetectJsonConstructor` 辅助 + `CtorParamInfo`
+- [x] **Deserializer 构造调用** — temp 变量 → `new T(p0, p1, ...)`
+- [x] **readonly 属性** — `includeReadOnlyProperties` 参数支持 getter-only 属性
+
+### Phase 13: TOML Dotted Keys
+- [x] **Reader 点号分割** — inline offset buffer (4 parts) + `EmitDottedTokenSpan`
+- [x] **TablePath 兼容** — `BuildDottedPathUpTo` 复用现有 SG 路径
+- [x] **旧测试更新** — `DottedKey_ParsesAsSingleKey` → `DottedKey_EmitsObjectStartSequence`
+
+### Phase 14: YAML Block Scalar 增强
+- [x] **Chomping `|+`/`|-`** — 保留/剥离尾随换行
+- [x] **Folded `>` 模式** — 单换行→空格
+- [x] **Indent stripping** — 逐行剥离 baseIndent + 缓冲区写入
+
+### Phase 15: YAML Tag 基础设施
+- [x] **`YamlTagAttribute`** — `[AttributeUsage(Class | Struct)]`
+- [x] **`YamlWriter.WriteTag()`** — 写入 `!tag ` 前缀
 
 ---
 
@@ -35,28 +60,29 @@
 
 ---
 
-## 🟡 P2 — v2 架构演进 (待规划)
+## 🟡 P2 — v2 架构演进 ✅ 全部完成
 
-以下 gap 全部需要 Reader/SG 层的 **多 token 发射** 或 **递归解析** 能力。
-当前 Reader 的 "一次 Read() 返回一个 token" 模型不支持。
+所有 v2 任务已通过 TDD 完成实现。
 
 ### TOML (1 项)
-- [ ] **Dotted keys `a.b.c = value`** — Reader 需 token 缓冲队列，将点号分隔键拆为多个 ObjectStart + 最终 PropertyName。SG 已可处理 `[a.b]` 表头，仅 Reader 变更。
+- [x] **Dotted keys `a.b.c = value`** — ✅ Reader inline offset buffer + EmitDottedTokenSpan
 
 ### YAML (3 项)
-- [ ] **Block scalar 完整实现** — 当前仅读取原始缩进块。需：base indent stripping、`|+`/`|-` chomping、`>` folded 模式（换行→空格）
-- [ ] **Tag 序列化 `!type`** — Reader 已跳过 tag 标记；Writer 需 `WriteTag()` API；SG 需 `[YamlTag]` attribute 或 converter 生成 `!type` 前缀
-- [ ] **嵌套序列 `List<List<T>>`** — Writer `WriteSequenceItem` 无嵌套；SG 深层反序列化缺失
+- [x] **Block scalar 完整实现** — ✅ Chomping `+`/`-`、folded `>`、indent stripping
+- [x] **Tag 序列化 `!type`** — ✅ `YamlTagAttribute` + `WriteTag()` + SG 自动注入 `!tag`
+- [x] **嵌套序列 `List<List<T>>`** — ✅ YAML SG 嵌套序列化（JSON SG 序列化+反序列化）
 
 ### MsgPack (1 项)
-- [ ] **Ext 类型 SG 生成** — Reader 已解析 `Extension` token (tag+data)；SG 缺 `WriteSer`/`WriteDeser` 的 `extension` 分支。需 TypeKindResolver 返回 `"extension"` 类型映射
+- [x] **Ext 类型 SG 生成** — ✅ `MsgPackExtensionTagAttribute` + WriteExtension/ReadExtension + TypeKindResolver
 
 ### JSON (1 项)
-- [ ] **`[JsonConstructor]` 参数化构造** — SG 反序列化器需：检测构造函数 → 参数名→属性名映射 → temp 变量 → 构造函数调用。记录类型和不可变类必需
+- [x] **`[JsonConstructor]` 参数化构造** — ✅ 构造函数检测 → temp 变量 → 构造调用
 
 ### 全局 (1 项)
-- [ ] **嵌套集合 `List<List<T>>` — 所有 5 个 SG** — `ExtractNestedProperties` 仅解析一层 list/dict 元素类型。需递归解析 + 各 SG 代码生成深层嵌套反序列化循环
+- [x] **嵌套集合 `List<List<T>>`** — ✅ `GenInfrastructure.TransformType` 嵌套 list 检测 + JSON SG 代码生成
 
 ---
 
 ## 🟢 P3 — 全部完成 ✅
+
+无待办项。

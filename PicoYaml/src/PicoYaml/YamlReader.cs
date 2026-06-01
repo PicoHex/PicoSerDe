@@ -467,32 +467,117 @@ public ref struct YamlReader
         // Check for block scalar: | or >
         if (_position < _data.Length && _data[_position] is (byte)'|' or (byte)'>')
         {
+            bool isFolded = _data[_position] == (byte)'>';
             _position++; // skip | or >
+            // Parse chomping indicator: + (keep) or - (strip)
+            bool keepChomp = false,
+                stripChomp = false;
+            if (_position < _data.Length && _data[_position] == (byte)'+')
+            {
+                keepChomp = true;
+                _position++;
+            }
+            else if (_position < _data.Length && _data[_position] == (byte)'-')
+            {
+                stripChomp = true;
+                _position++;
+            }
             SkipLineSpan();
             // Determine base indent from next line
             int baseIndent = 0;
+            int indentStart = _position;
             while (_position < _data.Length && _data[_position] == (byte)' ')
             {
                 baseIndent++;
                 _position++;
             }
-            int contentStart = _position;
-            // Read indented block — lines with >= baseIndent spaces are part of the block
-            while (_position < _data.Length)
+            // Rent buffer for composed output
+            int estSize = _data.Length - _position + 256;
+            var buf = ArrayPool<byte>.Shared.Rent(estSize);
+            try
             {
-                SkipLineSpan();
-                // Count indent of next line
-                int blockIndent = 0;
-                while (_position < _data.Length && _data[_position] == (byte)' ')
+                int di = 0;
+                bool firstLine = true;
+                while (_position < _data.Length)
                 {
-                    blockIndent++;
-                    _position++;
+                    if (!firstLine)
+                    {
+                        // Strip baseIndent from line start
+                        for (
+                            int i = 0;
+                            i < baseIndent
+                                && _position < _data.Length
+                                && _data[_position] == (byte)' ';
+                            i++
+                        )
+                            _position++;
+                    }
+                    firstLine = false;
+                    // Read content until end of line
+                    int lineContentStart = _position;
+                    while (
+                        _position < _data.Length
+                        && _data[_position] != (byte)'\n'
+                        && _data[_position] != (byte)'\r'
+                    )
+                        _position++;
+                    int lineLen = _position - lineContentStart;
+                    if (lineLen > 0)
+                    {
+                        _data.Slice(lineContentStart, lineLen).CopyTo(buf.AsSpan(di));
+                        di += lineLen;
+                    }
+                    // Handle newline
+                    bool hadNewline = _position < _data.Length;
+                    SkipNewlineSpan();
+                    // Check if next line is still part of block (indented >= baseIndent)
+                    int nextBlockIndent = 0;
+                    int savedPos = _position;
+                    while (_position < _data.Length && _data[_position] == (byte)' ')
+                    {
+                        nextBlockIndent++;
+                        _position++;
+                    }
+                    if (nextBlockIndent < baseIndent || _position >= _data.Length)
+                    {
+                        _position = savedPos; // don't consume next line
+                        if (!stripChomp && hadNewline && di > 0)
+                        {
+                            buf[di++] = (byte)'\n';
+                        }
+                        break;
+                    }
+                    // Restore to the start of the content on next line
+                    _position = savedPos + baseIndent;
+                    if (isFolded)
+                    {
+                        // Folded: replace single newline with space
+                        // If next line is blank, keep newline
+                        int blankCheck = savedPos + baseIndent;
+                        if (
+                            blankCheck < _data.Length
+                            && _data[blankCheck] != (byte)'\n'
+                            && _data[blankCheck] != (byte)'\r'
+                        )
+                            buf[di++] = (byte)' ';
+                        else
+                            buf[di++] = (byte)'\n';
+                    }
+                    else
+                    {
+                        buf[di++] = (byte)'\n';
+                    }
                 }
-                if (blockIndent < baseIndent || _position >= _data.Length)
-                    break;
+                if (keepChomp && di > 0)
+                {
+                    buf[di++] = (byte)'\n';
+                }
+                _valueSpan = buf.AsSpan(0, di);
             }
-            _valueSpan = _data[contentStart.._position];
-            SkipNewlineSpan();
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buf);
+            }
             _tokenType = TokenType.PropertyName;
             StoreAnchorIfNeeded();
             AccumulateMappingPair();

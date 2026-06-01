@@ -39,8 +39,40 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
     static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
-    static TypeInfo? Transform(GeneratorSyntaxContext ctx) =>
-        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+    static TypeInfo? Transform(GeneratorSyntaxContext ctx)
+    {
+        var info = PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+        if (info is not { } ti)
+            return info;
+
+        // Check for [MsgPackExtensionTag] on properties and override type kind
+        if (
+            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method
+            || method.TypeArguments.Length != 1
+            || method.TypeArguments[0] is not INamedTypeSymbol namedType
+        )
+            return ti;
+
+        var props = ti.Properties;
+        var builder = ImmutableArray.CreateBuilder<PropertyInfo>();
+        bool changed = false;
+        foreach (var p in props)
+        {
+            var member = namedType.GetMembers(p.Name).FirstOrDefault();
+            if (member is IPropertySymbol ps)
+            {
+                var extTag = GetMsgPackExtensionTag(ps);
+                if (extTag.HasValue)
+                {
+                    builder.Add(p with { TypeKind = "extension", ExtensionTag = extTag });
+                    changed = true;
+                    continue;
+                }
+            }
+            builder.Add(p);
+        }
+        return changed ? ti with { Properties = builder.ToImmutable() } : ti;
+    }
 
     // ── Attribute helpers ──
 
@@ -61,6 +93,18 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 && a.ConstructorArguments[0].Value is INamedTypeSymbol ct
             )
                 return ct.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return null;
+    }
+
+    static byte? GetMsgPackExtensionTag(IPropertySymbol p)
+    {
+        foreach (var a in p.GetAttributes())
+            if (
+                a.AttributeClass?.Name == "MsgPackExtensionTagAttribute"
+                && a.ConstructorArguments.Length == 1
+                && a.ConstructorArguments[0].Value is byte tag
+            )
+                return tag;
         return null;
     }
 
@@ -294,6 +338,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             case "bytes":
                 s.Append(ind);
                 s.Append("mw.WriteBytes(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            case "extension":
+                s.Append(ind);
+                s.Append("mw.WriteExtension(");
+                s.Append(p.ExtensionTag ?? 0);
+                s.Append(", ");
                 s.Append(a);
                 s.AppendLine(");");
                 break;
@@ -577,6 +629,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(" = __e;");
                 break;
             case "bytes":
+                s.Append(ind);
+                s.Append(t);
+                s.AppendLine(" = reader.GetStringRaw().ToArray();");
+                break;
+            case "extension":
                 s.Append(ind);
                 s.Append(t);
                 s.AppendLine(" = reader.GetStringRaw().ToArray();");

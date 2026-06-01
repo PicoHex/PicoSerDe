@@ -150,6 +150,8 @@ internal static class TypeKindResolver
             "decimal" => "decimal",
             "bytes" => "byte[]",
             "enum" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "list" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "array" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "object" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             _ => "object",
         };

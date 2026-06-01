@@ -33,8 +33,35 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
     private static bool IsC(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
-    private static TypeInfo? Tf(GeneratorSyntaxContext ctx) =>
-        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+    private static TypeInfo? Tf(GeneratorSyntaxContext ctx)
+    {
+        var info = PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+        if (info is not { } ti)
+            return null;
+
+        // Detect [YamlTag] on the target type
+        if (
+            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method
+            || method.TypeArguments.Length != 1
+            || method.TypeArguments[0] is not INamedTypeSymbol namedType
+        )
+            return ti;
+
+        foreach (var attr in namedType.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "YamlTagAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoYaml"
+                && attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Value is string tag
+            )
+            {
+                return ti with { TypeTag = tag };
+            }
+        }
+
+        return ti;
+    }
 
     // ── Attribute helpers ──
 
@@ -309,21 +336,58 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
-                s.Append(ind);
-                s.Append("foreach (var __item in ");
-                s.Append(accessor);
-                s.AppendLine(")");
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.Append("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
-                if (p.ElementTypeKind == "string")
-                    s.Append("__item");
+                // Check for nested List<List<T>>
+                if (p.NestedProperties.Length > 0 && p.NestedProperties[0].TypeKind != "object")
+                {
+                    s.Append(ind);
+                    s.AppendLine("yw.WriteStartSequence();");
+                    s.Append(ind);
+                    s.Append("foreach (var __item in ");
+                    s.Append(accessor);
+                    s.AppendLine(")");
+                    s.Append(ind);
+                    s.AppendLine("{");
+                    s.Append(ind);
+                    s.AppendLine("    yw.WriteStartSequence();");
+                    s.Append(ind);
+                    s.AppendLine("    foreach (var __inner in __item)");
+                    s.Append(ind);
+                    s.AppendLine("    {");
+                    var innerKind = p.NestedProperties[0].TypeKind;
+                    s.Append(ind);
+                    s.Append("        yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
+                    if (innerKind == "string")
+                        s.Append("__inner");
+                    else
+                        s.Append("__inner.ToString()");
+                    s.AppendLine("));");
+                    s.Append(ind);
+                    s.AppendLine("    }");
+                    s.Append(ind);
+                    s.AppendLine("    yw.WriteEndSequence();");
+                    s.Append(ind);
+                    s.AppendLine("}");
+                    s.Append(ind);
+                    s.AppendLine("yw.WriteEndSequence();");
+                }
                 else
-                    s.Append("__item.ToString()");
-                s.AppendLine("));");
-                s.Append(ind);
-                s.AppendLine("}");
+                {
+                    s.Append(ind);
+                    s.Append("foreach (var __item in ");
+                    s.Append(accessor);
+                    s.AppendLine(")");
+                    s.Append(ind);
+                    s.AppendLine("{");
+                    s.Append(ind);
+                    s.Append("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
+                    if (p.ElementTypeKind == "string")
+                        s.Append("__item");
+                    else
+                        s.Append("__item.ToString()");
+                    s.AppendLine("));");
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
                 break;
             case "dict":
                 s.Append(ind);
@@ -604,6 +668,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append(t.Name);
         sb.AppendLine(" v) {");
         sb.AppendLine("        var yw = new YamlWriter(w);");
+        if (t.TypeTag is { } tag && tag.Length > 0)
+        {
+            sb.Append("        yw.WriteTag(\"");
+            sb.Append(tag);
+            sb.AppendLine("\");");
+        }
         foreach (var p in t.Properties)
             EmitSerialize(sb, p, "v", "        ");
         sb.AppendLine("    } }");

@@ -219,6 +219,13 @@ public ref struct YamlWriter
         WriteNewLine();
     }
 
+    /// <summary>Writes an explicit tag like !person before a value or mapping.</summary>
+    public void WriteTag(string tag)
+    {
+        WriteRaw(Encoding.UTF8.GetBytes(tag));
+        WriteByte((byte)' ');
+    }
+
     private void WriteRaw(ReadOnlySpan<byte> utf8)
     {
         _buffer.Write(utf8);

@@ -241,13 +241,31 @@ public class TomlReaderTests
     }
 
     [Test]
-    public async Task DottedKey_ParsesAsSingleKey()
+    public async Task DottedKey_EmitsObjectStartSequence()
     {
-        var r = new TomlReader("a.b.c = 1\n"u8);
-        r.Read();
-        var key = Encoding.UTF8.GetString(r.KeySpan);
-        var val = Encoding.UTF8.GetString(r.ValueSpan);
-        await Assert.That(key).IsEqualTo("a.b.c");
-        await Assert.That(val).IsEqualTo("1");
+        var toml = "a.b.c = 1\n"u8;
+        var r = new TomlReader(toml);
+        // Dotted key emits: ObjectStart("a") → ObjectStart("b") → PropertyName("c") + value
+        var ok1 = r.Read();
+        var tt1 = r.TokenType;
+        var key1 = Encoding.UTF8.GetString(r.KeySpan);
+        var ok2 = r.Read();
+        var tt2 = r.TokenType;
+        var key2 = Encoding.UTF8.GetString(r.KeySpan);
+        var ok3 = r.Read();
+        var tt3 = r.TokenType;
+        var key3 = Encoding.UTF8.GetString(r.KeySpan);
+        r.TryGetInt32(out var val);
+
+        await Assert.That(ok1).IsTrue();
+        await Assert.That(tt1).IsEqualTo(TokenType.ObjectStart);
+        await Assert.That(key1).IsEqualTo("a");
+        await Assert.That(ok2).IsTrue();
+        await Assert.That(tt2).IsEqualTo(TokenType.ObjectStart);
+        await Assert.That(key2).IsEqualTo("b");
+        await Assert.That(ok3).IsTrue();
+        await Assert.That(tt3).IsEqualTo(TokenType.PropertyName);
+        await Assert.That(key3).IsEqualTo("c");
+        await Assert.That(val).IsEqualTo(1);
     }
 }

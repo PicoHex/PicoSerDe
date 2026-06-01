@@ -15,14 +15,18 @@ internal readonly record struct TypeInfo(
     string FullyQualifiedName,
     string Namespace,
     string Name,
-    ImmutableArray<PropertyInfo> Properties
+    ImmutableArray<PropertyInfo> Properties,
+    ImmutableArray<CtorParamInfo> CtorParams = default,
+    string? TypeTag = null
 )
 {
     public bool Equals(TypeInfo other) =>
         FullyQualifiedName == other.FullyQualifiedName
         && Namespace == other.Namespace
         && Name == other.Name
-        && Properties.SequenceEqual(other.Properties);
+        && Properties.SequenceEqual(other.Properties)
+        && CtorParams.SequenceEqual(other.CtorParams)
+        && TypeTag == other.TypeTag;
 
     public override int GetHashCode()
     {
@@ -31,9 +35,19 @@ internal readonly record struct TypeInfo(
         hash = (hash * 397) ^ Name.GetHashCode();
         foreach (var p in Properties)
             hash = (hash * 397) ^ p.GetHashCode();
+        foreach (var cp in CtorParams)
+            hash = (hash * 397) ^ cp.GetHashCode();
         return hash;
     }
 }
+
+/// <summary>Constructor parameter info for [JsonConstructor] support.</summary>
+internal readonly record struct CtorParamInfo(
+    string Name,
+    string TypeKind,
+    string TypeFullName,
+    string? DateTimeFormat = null
+);
 
 /// <summary>Shared property descriptor used by all 5 format SGs.</summary>
 internal readonly record struct PropertyInfo(
@@ -51,7 +65,9 @@ internal readonly record struct PropertyInfo(
     string? DateTimeFormat = null,
     int? IntKey = null,
     string? SectionName = null,
-    string? Comment = null
+    string? Comment = null,
+    string? NestedElementTypeKind = null,
+    byte? ExtensionTag = null
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -132,7 +148,8 @@ internal static class GenInfrastructure
     public static TypeInfo? TransformType(
         GeneratorSyntaxContext ctx,
         FormatConfig config,
-        AttributeHelpers attrs
+        AttributeHelpers attrs,
+        bool includeReadOnlyProperties = false
     )
     {
         if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method)
@@ -171,7 +188,7 @@ internal static class GenInfrastructure
                 continue;
             if (prop.IsStatic || prop.IsIndexer)
                 continue;
-            if (prop.IsReadOnly && prop.SetMethod is null)
+            if (!includeReadOnlyProperties && prop.IsReadOnly && prop.SetMethod is null)
                 continue;
             if (prop.GetMethod is null)
                 continue;
@@ -210,7 +227,42 @@ internal static class GenInfrastructure
                     continue;
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
-                if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
+                // Detect nested List<List<T>> pattern
+                if (
+                    (ek is "list" or "array")
+                    && elementType is INamedTypeSymbol ntsNested
+                    && ntsNested.TypeArguments.Length == 1
+                )
+                {
+                    var nestedElem = ntsNested.TypeArguments[0];
+                    var (nek, _, _) = TypeKindResolver.Resolve(nestedElem, config.FormatTag);
+                    if (nek is not null)
+                    {
+                        // Store inner element type as NestedElementTypeKind
+                        elementTypeKind = "list"; // mark as nested list
+                        elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
+                        var nip = new List<PropertyInfo>();
+                        nip.Add(
+                            new PropertyInfo(
+                                Name: "__nested",
+                                JsonName: "__nested",
+                                TypeKind: nek,
+                                TypeFullName: nestedElem.ToDisplayString(
+                                    SymbolDisplayFormat.FullyQualifiedFormat
+                                ),
+                                IsNullable: false,
+                                ElementTypeKind: nek,
+                                ElementTypeName: TypeKindResolver.MapTypeName(nek, nestedElem),
+                                KeyTypeKind: null,
+                                KeyTypeName: null,
+                                NestedProperties: default,
+                                ConverterTypeFullName: null
+                            )
+                        );
+                        nestedProperties = nip.ToImmutableArray();
+                    }
+                }
+                else if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
                     nestedProperties = ExtractNestedProperties(eNtsObj, attrs, config.FormatTag);
             }
             else if (typeKind is "dict")
@@ -328,7 +380,41 @@ internal static class GenInfrastructure
                     continue;
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
-                if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
+                // Detect nested List<List<T>> pattern in nested properties too
+                if (
+                    (ek is "list" or "array")
+                    && elementType is INamedTypeSymbol ntsNested2
+                    && ntsNested2.TypeArguments.Length == 1
+                )
+                {
+                    var nestedElem2 = ntsNested2.TypeArguments[0];
+                    var (nek2, _, _) = TypeKindResolver.Resolve(nestedElem2, formatTag);
+                    if (nek2 is not null)
+                    {
+                        elementTypeKind = "list";
+                        elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
+                        var nip2 = new List<PropertyInfo>();
+                        nip2.Add(
+                            new PropertyInfo(
+                                Name: "__nested",
+                                JsonName: "__nested",
+                                TypeKind: nek2,
+                                TypeFullName: nestedElem2.ToDisplayString(
+                                    SymbolDisplayFormat.FullyQualifiedFormat
+                                ),
+                                IsNullable: false,
+                                ElementTypeKind: nek2,
+                                ElementTypeName: TypeKindResolver.MapTypeName(nek2, nestedElem2),
+                                KeyTypeKind: null,
+                                KeyTypeName: null,
+                                NestedProperties: default,
+                                ConverterTypeFullName: null
+                            )
+                        );
+                        nestedProperties = nip2.ToImmutableArray();
+                    }
+                }
+                else if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
                     nestedProperties = ExtractNestedProperties(eNtsObj, attrs, formatTag);
             }
             else if (typeKind is "dict")
@@ -433,5 +519,46 @@ internal static class GenInfrastructure
             )
                 AddNestedType(np.ElementTypeName!, np.NestedProperties, nestedTypes);
         }
+    }
+
+    /// <summary>Detects [JsonConstructor] attribute and returns ctor param info.</summary>
+    public static ImmutableArray<CtorParamInfo>? DetectJsonConstructor(
+        INamedTypeSymbol type,
+        string formatTag
+    )
+    {
+        foreach (var ctor in type.Constructors)
+        {
+            if (ctor.DeclaredAccessibility != Accessibility.Public)
+                continue;
+            bool hasAttr = false;
+            foreach (var attr in ctor.GetAttributes())
+            {
+                if (attr.AttributeClass?.Name == "JsonConstructorAttribute")
+                {
+                    hasAttr = true;
+                    break;
+                }
+            }
+            if (!hasAttr)
+                continue;
+
+            var ctorParams = new List<CtorParamInfo>();
+            foreach (var param in ctor.Parameters)
+            {
+                var (typeKind, _, _) = TypeKindResolver.Resolve(param.Type, formatTag);
+                if (typeKind is null)
+                    continue;
+                ctorParams.Add(
+                    new CtorParamInfo(
+                        param.Name,
+                        typeKind,
+                        param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                    )
+                );
+            }
+            return ctorParams.ToImmutableArray();
+        }
+        return null;
     }
 }
