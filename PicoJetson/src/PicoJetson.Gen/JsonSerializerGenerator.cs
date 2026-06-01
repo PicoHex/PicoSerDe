@@ -874,12 +874,43 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(target);
                 sb.AppendLine(" = __dec;");
                 break;
+            case "dateonly":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
+                sb.Append(indent);
+                sb.AppendLine("System.DateOnly.TryParse(__strValue, out var __dov);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __dov;");
+                break;
+            case "timeonly":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
+                sb.Append(indent);
+                sb.AppendLine("System.TimeOnly.TryParse(__strValue, out var __tov);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __tov;");
+                break;
+            case "timespan":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
+                sb.Append(indent);
+                sb.AppendLine("System.TimeSpan.TryParse(__strValue, out var __tsv);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __tsv;");
+                break;
             default:
                 sb.Append(indent);
                 sb.Append(target);
-                sb.AppendLine(
-                    " = default!; // TODO: unsupported ctor param type kind '" + cp.TypeKind + "'"
-                );
+                sb.AppendLine(" = default!; // unsupported ctor param type: " + cp.TypeKind);
                 break;
         }
     }

@@ -29,11 +29,11 @@
 
 ## ✅ 已修复 (2026-05-31 ~ 2026-06-01)
 
-### MsgPack (3/4 已修复)
+### MsgPack (4/4 已修复)
 - [x] **Reader: 构造器堆分配** — `new int[64]`/`new bool[64]` → `[InlineArray(64)]` struct
 - [x] **SG: `static _varCounter` 改局部** — static→`ref int` 参数传递
 - [x] **SG: bytes 支持** — TypeKindResolver + SG WriteBytes/ReadBytes
-- [ ] **SG: 支持 ext 扩展类型** — → P2 v2 规划
+- [x] **SG: 支持 ext 扩展类型** — ✅ TDD session 完成 (MsgPackExtensionTagAttribute + WriteExtension)
 
 ### TOML (3/3 已修复)
 - [x] **Reader: `goto StartSpan` 重构** — goto→结构化 `while(true)+flag`
