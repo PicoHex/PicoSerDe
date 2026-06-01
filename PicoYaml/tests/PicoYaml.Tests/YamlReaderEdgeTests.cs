@@ -211,4 +211,20 @@ public class YamlReaderEdgeTests
             }
         }
     }
+
+    [Test]
+    public async Task DocEndMarker_ClosesDocument()
+    {
+        var yaml = "a: 1\n...\nb: 2"u8;
+        var reader = new YamlReader(yaml);
+        var keys = new List<string>();
+        while (reader.Read())
+        {
+            if (reader.TokenType == TokenType.PropertyName)
+                keys.Add(Encoding.UTF8.GetString(reader.KeySpan));
+        }
+        // 'a' should be read, but 'b' is in a new doc after ... — reader should not reach it
+        await Assert.That(keys).Contains("a");
+        await Assert.That(keys).DoesNotContain("b");
+    }
 }
