@@ -227,4 +227,16 @@ public class YamlReaderEdgeTests
         await Assert.That(keys).Contains("a");
         await Assert.That(keys).DoesNotContain("b");
     }
+
+    [Test]
+    public async Task BlockScalar_Literal_PreservesContent()
+    {
+        var yaml = "text: |\n  line one\n  line two\n"u8;
+        var reader = new YamlReader(yaml);
+        reader.Read();
+        var val = Encoding.UTF8.GetString(reader.ValueSpan);
+        // Block scalar captures indented content — base indent stripped by full impl
+        await Assert.That(val).Contains("line one");
+        await Assert.That(val).Contains("line two");
+    }
 }

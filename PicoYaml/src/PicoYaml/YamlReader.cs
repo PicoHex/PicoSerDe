@@ -463,6 +463,41 @@ public ref struct YamlReader
         _position++;
         if (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;
+
+        // Check for block scalar: | or >
+        if (_position < _data.Length && _data[_position] is (byte)'|' or (byte)'>')
+        {
+            _position++; // skip | or >
+            SkipLineSpan();
+            // Determine base indent from next line
+            int baseIndent = 0;
+            while (_position < _data.Length && _data[_position] == (byte)' ')
+            {
+                baseIndent++;
+                _position++;
+            }
+            int contentStart = _position;
+            // Read indented block — lines with >= baseIndent spaces are part of the block
+            while (_position < _data.Length)
+            {
+                SkipLineSpan();
+                // Count indent of next line
+                int blockIndent = 0;
+                while (_position < _data.Length && _data[_position] == (byte)' ')
+                {
+                    blockIndent++;
+                    _position++;
+                }
+                if (blockIndent < baseIndent || _position >= _data.Length)
+                    break;
+            }
+            _valueSpan = _data[contentStart.._position];
+            SkipNewlineSpan();
+            _tokenType = TokenType.PropertyName;
+            StoreAnchorIfNeeded();
+            AccumulateMappingPair();
+            return true;
+        }
         int afterKey = _position;
 
         // Check for &anchor before value
