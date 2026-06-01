@@ -17,7 +17,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             GetIniConverter,
             GetIniDateTimeFormat,
             GetSectionName: GetIniSection,
-            GetComment: GetIniComment
+            GetComment: GetIniComment,
+            GetPropertyComment: GetIniPropertyComment
         );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -148,6 +149,21 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return null;
     }
 
+    private static string? GetIniPropertyComment(IPropertySymbol prop)
+    {
+        foreach (var attr in prop.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "IniCommentAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
+                && attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Value is string text
+            )
+                return text;
+        }
+        return null;
+    }
+
     // ── Source generation ──
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
@@ -188,11 +204,26 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine(" value) {");
         s.AppendLine("        var iw = new IniWriter(writer);");
 
+        // Emit class-level comment if any property has one (they share the same containing type)
+        var typeComment = type.Properties.Select(p => p.Comment).FirstOrDefault(c => c is not null);
+        if (typeComment is not null)
+        {
+            s.Append("        iw.WriteComment(\"");
+            s.Append(typeComment);
+            s.AppendLine("\");");
+        }
+
         // Top-level properties first
         foreach (var p in type.Properties)
         {
-            if (p.TypeKind == "object")
+            if (p.TypeKind == "object" || p.TypeKind == "dict")
                 continue;
+            if (p.Comment is not null)
+            {
+                s.Append("        iw.WriteComment(\"");
+                s.Append(p.Comment);
+                s.AppendLine("\");");
+            }
             s.Append("        iw.WriteKeyValue(\"");
             s.Append(p.JsonName);
             s.Append("\"u8, ");
@@ -200,7 +231,29 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine(");");
         }
 
-        // Sections after
+        // Dicts as sections (before objects)
+        bool dictFirst = true;
+        foreach (var p in type.Properties)
+        {
+            if (p.TypeKind != "dict")
+                continue;
+            if (!dictFirst)
+                s.AppendLine("        iw.WriteBlankLine();");
+            s.Append("        iw.WriteSection(\"");
+            s.Append(p.JsonName);
+            s.AppendLine("\"u8);");
+            s.Append("        foreach (var __kvp in value.");
+            s.Append(p.Name);
+            s.AppendLine(")");
+            s.AppendLine("        {");
+            s.Append("            iw.WriteKeyValue(__kvp.Key, ");
+            WriteValue(s, p, "__kvp.Value");
+            s.AppendLine(");");
+            s.AppendLine("        }");
+            dictFirst = false;
+        }
+
+        // Sections after (nested objects)
         bool first = true;
         foreach (var p in type.Properties)
         {
@@ -227,12 +280,16 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
 
         var top = new List<PropertyInfo>();
         foreach (var p in type.Properties)
-            if (p.TypeKind != "object")
+            if (p.TypeKind != "object" && p.TypeKind != "dict")
                 top.Add(p);
         var sec = new List<PropertyInfo>();
         foreach (var p in type.Properties)
             if (p.TypeKind == "object")
                 sec.Add(p);
+        var dicts = new List<PropertyInfo>();
+        foreach (var p in type.Properties)
+            if (p.TypeKind == "dict")
+                dicts.Add(p);
 
         // Deserializer
         s.Append("file readonly struct ");
@@ -247,7 +304,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append("        var obj = new ");
         s.Append(type.Name);
         s.AppendLine("();");
-        if (sec.Count > 0)
+        if (sec.Count > 0 || dicts.Count > 0)
             s.AppendLine("        int __sec = -1;");
         s.AppendLine("        while (reader.Read()) {");
         s.AppendLine("            if (reader.TokenType == TokenType.PropertyName) {");
@@ -270,7 +327,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("                }");
             }
         }
-        if (sec.Count > 0)
+        if (sec.Count > 0 || dicts.Count > 0)
         {
             for (int si = 0; si < sec.Count; si++)
             {
@@ -285,9 +342,43 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(" }");
                 }
             }
+            // Dict section key matching — match any key within the dict section
+            for (int di = 0; di < dicts.Count; di++)
+            {
+                s.Append("                else if (__sec == ");
+                s.Append(sec.Count + di);
+                s.AppendLine(") {");
+                s.Append("                    obj.");
+                s.Append(dicts[di].Name);
+                s.Append(" ??= new System.Collections.Generic.Dictionary<");
+                s.Append(dicts[di].KeyTypeName ?? "string");
+                s.Append(", ");
+                s.Append(dicts[di].ElementTypeName ?? "int");
+                s.AppendLine(">();");
+                s.Append("                    { var __dk = Encoding.UTF8.GetString(__k); ");
+                if (dicts[di].ElementTypeKind == "int32")
+                {
+                    s.Append("reader.TryGetInt32(out var __dv); obj.");
+                    s.Append(dicts[di].Name);
+                    s.AppendLine("[__dk] = __dv; }");
+                }
+                else if (dicts[di].ElementTypeKind == "string")
+                {
+                    s.Append("obj.");
+                    s.Append(dicts[di].Name);
+                    s.AppendLine("[__dk] = Encoding.UTF8.GetString(reader.GetStringRaw()); }");
+                }
+                else
+                {
+                    s.Append("obj.");
+                    s.Append(dicts[di].Name);
+                    s.AppendLine("[__dk] = Encoding.UTF8.GetString(reader.GetStringRaw()); }");
+                }
+                s.AppendLine("                }");
+            }
         }
         s.AppendLine("            }");
-        if (sec.Count > 0)
+        if (sec.Count > 0 || dicts.Count > 0)
         {
             s.AppendLine("            else if (reader.TokenType == TokenType.ObjectStart) {");
             s.AppendLine("                __sec = -1;");
@@ -296,7 +387,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             {
                 var sn = sec[i].SectionName ?? sec[i].JsonName;
                 s.Append("                ");
-                s.Append(i == 0 ? "if" : "else if");
+                s.Append(i == 0 && dicts.Count == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(reader.GetStringRaw(), \"");
                 s.Append(sn);
                 s.AppendLine("\"u8)) {");
@@ -307,6 +398,25 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("();");
                 s.Append("                    __sec = ");
                 s.Append(i);
+                s.AppendLine(";");
+                s.AppendLine("                }");
+            }
+            for (int i = 0; i < dicts.Count; i++)
+            {
+                s.Append("                ");
+                s.Append(i == 0 && sec.Count == 0 ? "if" : "else if");
+                s.Append(" (TextHelpers.Eq(reader.GetStringRaw(), \"");
+                s.Append(dicts[i].JsonName);
+                s.AppendLine("\"u8)) {");
+                s.Append("                    obj.");
+                s.Append(dicts[i].Name);
+                s.Append(" ??= new System.Collections.Generic.Dictionary<");
+                s.Append(dicts[i].KeyTypeName ?? "string");
+                s.Append(", ");
+                s.Append(dicts[i].ElementTypeName ?? "int");
+                s.AppendLine(">();");
+                s.Append("                    __sec = ");
+                s.Append(sec.Count + i);
                 s.AppendLine(";");
                 s.AppendLine("                }");
             }

@@ -64,6 +64,7 @@ public readonly record struct AttributeHelpers(
     Func<IPropertySymbol, int?>? GetIntKey = null,
     Func<IPropertySymbol, string?>? GetSectionName = null,
     Func<ITypeSymbol, string?>? GetComment = null,
+    Func<IPropertySymbol, string?>? GetPropertyComment = null,
     bool OverrideKindWithStringOnConverter = false
 );
 
@@ -260,7 +261,8 @@ internal static class GenInfrastructure
                         ? (attrs.GetIntKey(prop) ?? autoKey++)
                         : null,
                     SectionName: attrs.GetSectionName?.Invoke(prop),
-                    Comment: attrs.GetComment?.Invoke(prop.ContainingType)
+                    Comment: attrs.GetPropertyComment?.Invoke(prop)
+                        ?? attrs.GetComment?.Invoke(prop.ContainingType)
                 )
             );
         }

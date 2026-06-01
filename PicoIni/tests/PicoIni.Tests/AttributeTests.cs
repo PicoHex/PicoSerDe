@@ -335,3 +335,76 @@ public class IniListRoundTripTests
         await Assert.That(result.Tags).Contains("3");
     }
 }
+
+// ── Dict support ──
+
+public class IniDictPoco
+{
+    public string Name { get; set; } = "";
+    public Dictionary<string, int> Scores { get; set; } = new();
+}
+
+public class IniDictRoundTripTests
+{
+    [Test]
+    public async Task DictStringInt_RoundTrip_Works()
+    {
+        var original = new IniDictPoco
+        {
+            Name = "D",
+            Scores = new Dictionary<string, int> { ["alice"] = 10, ["bob"] = 20 }
+        };
+        var ini = IniSerializer.Serialize(original);
+        var bytes = Encoding.UTF8.GetBytes(ini);
+        var result = IniSerializer.Deserialize<IniDictPoco>(bytes);
+
+        await Assert.That(result!.Name).IsEqualTo("D");
+        await Assert.That(result.Scores).IsNotNull();
+        await Assert.That(result.Scores.Count).IsEqualTo(2);
+        await Assert.That(result.Scores["alice"]).IsEqualTo(10);
+        await Assert.That(result.Scores["bob"]).IsEqualTo(20);
+    }
+
+    [Test]
+    public async Task DictStringInt_Serialize_ContainsRepeatedKeys()
+    {
+        var original = new IniDictPoco
+        {
+            Name = "D",
+            Scores = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 }
+        };
+        var ini = IniSerializer.Serialize(original);
+        await Assert.That(ini).Contains("Scores");
+        await Assert.That(ini).Contains("1");
+        await Assert.That(ini).Contains("2");
+    }
+}
+
+// ── Comment serialization ──
+
+[IniComment("Top-level config file")]
+public class IniCommentPoco
+{
+    [IniComment("The server hostname")]
+    public string Host { get; set; } = "";
+    public int Port { get; set; }
+}
+
+public class IniCommentEmitTests
+{
+    [Test]
+    public async Task Serialize_EmitsCommentBeforeProperty()
+    {
+        var original = new IniCommentPoco { Host = "localhost", Port = 8080 };
+        var ini = IniSerializer.Serialize(original);
+        await Assert.That(ini).Contains("The server hostname");
+    }
+
+    [Test]
+    public async Task Serialize_EmitsClassLevelComment()
+    {
+        var original = new IniCommentPoco { Host = "localhost", Port = 8080 };
+        var ini = IniSerializer.Serialize(original);
+        await Assert.That(ini).Contains("Top-level config file");
+    }
+}
