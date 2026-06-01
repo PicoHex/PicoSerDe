@@ -32,22 +32,104 @@ public ref struct YamlReader
         _rb7;
     private int _bufCount;
 
-    // Anchor/alias support
-    private Dictionary<string, StoredAnchor>? _anchors;
+    // Anchor/alias support — inline storage, zero heap allocation
+    private const int MaxAnchors = 4;
+    private const int MaxAnchorPairs = 8;
+
+    private string? _a0Name,
+        _a1Name,
+        _a2Name,
+        _a3Name;
+    private bool _a0IsMapping,
+        _a1IsMapping,
+        _a2IsMapping,
+        _a3IsMapping;
+    private byte[]? _a0Scalar,
+        _a1Scalar,
+        _a2Scalar,
+        _a3Scalar;
+
+    // Inline mapping pairs per anchor (max 8 per anchor)
+    private byte[]? _a0k0,
+        _a0v0,
+        _a0k1,
+        _a0v1,
+        _a0k2,
+        _a0v2,
+        _a0k3,
+        _a0v3,
+        _a0k4,
+        _a0v4,
+        _a0k5,
+        _a0v5,
+        _a0k6,
+        _a0v6,
+        _a0k7,
+        _a0v7;
+    private byte[]? _a1k0,
+        _a1v0,
+        _a1k1,
+        _a1v1,
+        _a1k2,
+        _a1v2,
+        _a1k3,
+        _a1v3,
+        _a1k4,
+        _a1v4,
+        _a1k5,
+        _a1v5,
+        _a1k6,
+        _a1v6,
+        _a1k7,
+        _a1v7;
+    private byte[]? _a2k0,
+        _a2v0,
+        _a2k1,
+        _a2v1,
+        _a2k2,
+        _a2v2,
+        _a2k3,
+        _a2v3,
+        _a2k4,
+        _a2v4,
+        _a2k5,
+        _a2v5,
+        _a2k6,
+        _a2v6,
+        _a2k7,
+        _a2v7;
+    private byte[]? _a3k0,
+        _a3v0,
+        _a3k1,
+        _a3v1,
+        _a3k2,
+        _a3v2,
+        _a3k3,
+        _a3v3,
+        _a3k4,
+        _a3v4,
+        _a3k5,
+        _a3v5,
+        _a3k6,
+        _a3v6,
+        _a3k7,
+        _a3v7;
+    private int _a0pairs,
+        _a1pairs,
+        _a2pairs,
+        _a3pairs;
+    private int _anchorCount;
     private string? _pendingAnchorName;
     private string? _pendingMappingAnchor;
     private string? _nextAnchorName;
-    private List<(byte[] Key, byte[] Value)>? _currentMappingPairs;
-    private List<(byte[] Key, byte[] Value)>? _replayPairs;
-    private int _replayIndex;
 
-    private struct StoredAnchor
-    {
-        public bool IsMapping;
-        public TokenType ScalarType;
-        public byte[] ScalarValue;
-        public List<(byte[] Key, byte[] Value)>? MappingPairs;
-    }
+    // Current mapping accumulator — uses anchor 0's pair slots
+    private int _curPairCount;
+
+    // Replay state
+    private int _replayAnchorIdx;
+    private int _replayIndex;
+    private int _replayPairCount;
 
     public YamlReader(ReadOnlySpan<byte> data)
     {
@@ -99,14 +181,21 @@ public ref struct YamlReader
 
     public bool Read()
     {
-        if (_replayPairs is not null && _replayIndex < _replayPairs.Count)
+        if (_replayAnchorIdx >= -1 && _replayIndex < _replayPairCount)
         {
-            var pair = _replayPairs[_replayIndex++];
+            (byte[] Key, byte[] Value) pair;
+            if (_replayAnchorIdx == -1)
+                pair = GetAccumulatorPair(_replayIndex++);
+            else
+                pair = GetAnchorPair(_replayAnchorIdx, _replayIndex++);
             _keySpan = pair.Key;
             _valueSpan = pair.Value;
             _tokenType = TokenType.PropertyName;
-            if (_replayIndex >= _replayPairs.Count)
-                _replayPairs = null;
+            if (_replayIndex >= _replayPairCount)
+            {
+                _replayAnchorIdx = -1;
+                _replayPairCount = 0;
+            }
             return true;
         }
         return _isSequence ? ReadSeq() : ReadSpan();
@@ -462,25 +551,31 @@ public ref struct YamlReader
                 var aliasName = Encoding.UTF8.GetString(_data[aliasStart.._position]);
 
                 // P3 fix: resolve self-referencing alias from pending mapping anchor
-                if (_pendingMappingAnchor == aliasName && _currentMappingPairs is not null)
+                if (_pendingMappingAnchor == aliasName && _curPairCount > 0)
                 {
-                    // Snapshot current pairs for replay (anchor not yet finalized)
-                    _replayPairs = new List<(byte[], byte[])>(_currentMappingPairs);
-                    _replayIndex = 0;
-                    _valueSpan = default;
-                }
-                else if (_anchors is null || !_anchors.TryGetValue(aliasName, out var stored))
-                    throw new FormatException(
-                        $"Unresolved alias '*{aliasName}' at offset {BytesConsumed}"
-                    );
-                else if (stored.IsMapping && stored.MappingPairs is not null)
-                {
-                    _replayPairs = stored.MappingPairs;
+                    // Replay from current accumulator (a0's slots)
+                    _replayAnchorIdx = -1; // special: use a0 accumulator
+                    _replayPairCount = _curPairCount;
                     _replayIndex = 0;
                     _valueSpan = default;
                 }
                 else
-                    _valueSpan = stored.ScalarValue;
+                {
+                    int anchorIdx = FindAnchorIdx(aliasName);
+                    if (anchorIdx < 0)
+                        throw new FormatException(
+                            $"Unresolved alias '*{aliasName}' at offset {BytesConsumed}"
+                        );
+                    if (IsAnchorMapping(anchorIdx))
+                    {
+                        _replayAnchorIdx = anchorIdx;
+                        _replayPairCount = GetAnchorPairCount(anchorIdx);
+                        _replayIndex = 0;
+                        _valueSpan = default;
+                    }
+                    else
+                        _valueSpan = GetAnchorScalar(anchorIdx);
+                }
                 SkipNewlineSpan();
             }
             else
@@ -1045,33 +1140,297 @@ public ref struct YamlReader
         return s[st..e];
     }
 
+    private bool IsAnchorMapping(int idx)
+    {
+        return idx switch
+        {
+            0 => _a0IsMapping,
+            1 => _a1IsMapping,
+            2 => _a2IsMapping,
+            _ => _a3IsMapping
+        };
+    }
+
+    private int GetAnchorPairCount(int idx)
+    {
+        return idx switch
+        {
+            0 => _a0pairs,
+            1 => _a1pairs,
+            2 => _a2pairs,
+            _ => _a3pairs
+        };
+    }
+
+    private byte[] GetAnchorScalar(int idx)
+    {
+        return idx switch
+        {
+            0 => _a0Scalar!,
+            1 => _a1Scalar!,
+            2 => _a2Scalar!,
+            _ => _a3Scalar!
+        };
+    }
+
+    // ── Anchor storage helpers (inline, zero heap allocation) ──
+
+    private int FindAnchorIdx(string name)
+    {
+        if (_a0Name == name)
+            return 0;
+        if (_a1Name == name)
+            return 1;
+        if (_a2Name == name)
+            return 2;
+        if (_a3Name == name)
+            return 3;
+        return -1;
+    }
+
+    private void SetScalarAnchor(string name, byte[] scalar)
+    {
+        if (_a0Name is null)
+        {
+            _a0Name = name;
+            _a0IsMapping = false;
+            _a0Scalar = scalar;
+            _a0pairs = 0;
+            _anchorCount++;
+            return;
+        }
+        if (_a1Name is null)
+        {
+            _a1Name = name;
+            _a1IsMapping = false;
+            _a1Scalar = scalar;
+            _a1pairs = 0;
+            _anchorCount++;
+            return;
+        }
+        if (_a2Name is null)
+        {
+            _a2Name = name;
+            _a2IsMapping = false;
+            _a2Scalar = scalar;
+            _a2pairs = 0;
+            _anchorCount++;
+            return;
+        }
+        if (_a3Name is null)
+        {
+            _a3Name = name;
+            _a3IsMapping = false;
+            _a3Scalar = scalar;
+            _a3pairs = 0;
+            _anchorCount++;
+            return;
+        }
+        throw new FormatException($"Too many anchors (max {MaxAnchors})");
+    }
+
+    private void AddPairToAnchor(
+        ref int pairCount,
+        ref byte[]? k0,
+        ref byte[]? v0,
+        ref byte[]? k1,
+        ref byte[]? v1,
+        ref byte[]? k2,
+        ref byte[]? v2,
+        ref byte[]? k3,
+        ref byte[]? v3,
+        ref byte[]? k4,
+        ref byte[]? v4,
+        ref byte[]? k5,
+        ref byte[]? v5,
+        ref byte[]? k6,
+        ref byte[]? v6,
+        ref byte[]? k7,
+        ref byte[]? v7,
+        byte[] key,
+        byte[] value
+    )
+    {
+        switch (pairCount++)
+        {
+            case 0:
+                k0 = key;
+                v0 = value;
+                break;
+            case 1:
+                k1 = key;
+                v1 = value;
+                break;
+            case 2:
+                k2 = key;
+                v2 = value;
+                break;
+            case 3:
+                k3 = key;
+                v3 = value;
+                break;
+            case 4:
+                k4 = key;
+                v4 = value;
+                break;
+            case 5:
+                k5 = key;
+                v5 = value;
+                break;
+            case 6:
+                k6 = key;
+                v6 = value;
+                break;
+            default:
+                k7 = key;
+                v7 = value;
+                break;
+        }
+    }
+
+    private void SetMappingAnchor(
+        string name,
+        int pairCount,
+        byte[]? k0,
+        byte[]? v0,
+        byte[]? k1,
+        byte[]? v1,
+        byte[]? k2,
+        byte[]? v2,
+        byte[]? k3,
+        byte[]? v3,
+        byte[]? k4,
+        byte[]? v4,
+        byte[]? k5,
+        byte[]? v5,
+        byte[]? k6,
+        byte[]? v6,
+        byte[]? k7,
+        byte[]? v7
+    )
+    {
+        if (_a0Name is null)
+        {
+            _a0Name = name;
+            _a0IsMapping = true;
+            _a0pairs = pairCount;
+            _a0k0 = k0;
+            _a0v0 = v0;
+            _a0k1 = k1;
+            _a0v1 = v1;
+            _a0k2 = k2;
+            _a0v2 = v2;
+            _a0k3 = k3;
+            _a0v3 = v3;
+            _a0k4 = k4;
+            _a0v4 = v4;
+            _a0k5 = k5;
+            _a0v5 = v5;
+            _a0k6 = k6;
+            _a0v6 = v6;
+            _a0k7 = k7;
+            _a0v7 = v7;
+            _anchorCount++;
+            return;
+        }
+        if (_a1Name is null)
+        {
+            _a1Name = name;
+            _a1IsMapping = true;
+            _a1pairs = pairCount;
+            _a1k0 = k0;
+            _a1v0 = v0;
+            _a1k1 = k1;
+            _a1v1 = v1;
+            _a1k2 = k2;
+            _a1v2 = v2;
+            _a1k3 = k3;
+            _a1v3 = v3;
+            _a1k4 = k4;
+            _a1v4 = v4;
+            _a1k5 = k5;
+            _a1v5 = v5;
+            _a1k6 = k6;
+            _a1v6 = v6;
+            _a1k7 = k7;
+            _a1v7 = v7;
+            _anchorCount++;
+            return;
+        }
+        if (_a2Name is null)
+        {
+            _a2Name = name;
+            _a2IsMapping = true;
+            _a2pairs = pairCount;
+            _a2k0 = k0;
+            _a2v0 = v0;
+            _a2k1 = k1;
+            _a2v1 = v1;
+            _a2k2 = k2;
+            _a2v2 = v2;
+            _a2k3 = k3;
+            _a2v3 = v3;
+            _a2k4 = k4;
+            _a2v4 = v4;
+            _a2k5 = k5;
+            _a2v5 = v5;
+            _a2k6 = k6;
+            _a2v6 = v6;
+            _a2k7 = k7;
+            _a2v7 = v7;
+            _anchorCount++;
+            return;
+        }
+        if (_a3Name is null)
+        {
+            _a3Name = name;
+            _a3IsMapping = true;
+            _a3pairs = pairCount;
+            _a3k0 = k0;
+            _a3v0 = v0;
+            _a3k1 = k1;
+            _a3v1 = v1;
+            _a3k2 = k2;
+            _a3v2 = v2;
+            _a3k3 = k3;
+            _a3v3 = v3;
+            _a3k4 = k4;
+            _a3v4 = v4;
+            _a3k5 = k5;
+            _a3v5 = v5;
+            _a3k6 = k6;
+            _a3v6 = v6;
+            _a3k7 = k7;
+            _a3v7 = v7;
+            _anchorCount++;
+            return;
+        }
+        throw new FormatException($"Too many anchors (max {MaxAnchors})");
+    }
+
     private void StoreAnchorIfNeeded()
     {
-        if (_pendingAnchorName is not null)
+        if (_pendingAnchorName is null)
+            return;
+
+        if (FindAnchorIdx(_pendingAnchorName) >= 0)
+            throw new FormatException(
+                $"Duplicate anchor '&{_pendingAnchorName}' at offset {BytesConsumed}"
+            );
+
+        if (_anchorCount >= MaxAnchors)
+            throw new FormatException($"Too many anchors (max {MaxAnchors})");
+
+        if (_valueSpan.IsEmpty)
         {
-            _anchors ??= new Dictionary<string, StoredAnchor>();
-            if (_anchors.ContainsKey(_pendingAnchorName))
-                throw new FormatException(
-                    $"Duplicate anchor '&{_pendingAnchorName}' at offset {BytesConsumed}"
-                );
-
-            // Empty value + pending anchor → mapping anchor (defer until ObjectEnd)
-            if (_valueSpan.IsEmpty)
-            {
-                _nextAnchorName = _pendingAnchorName;
-                _pendingAnchorName = null;
-                _currentMappingPairs = new List<(byte[], byte[])>();
-                return;
-            }
-
-            _anchors[_pendingAnchorName] = new StoredAnchor
-            {
-                IsMapping = false,
-                ScalarType = _tokenType,
-                ScalarValue = _valueSpan.ToArray(),
-            };
+            _nextAnchorName = _pendingAnchorName;
             _pendingAnchorName = null;
+            _curPairCount = 0;
+            return;
         }
+
+        SetScalarAnchor(_pendingAnchorName, _valueSpan.ToArray());
+        _pendingAnchorName = null;
     }
 
     private void AccumulateMappingPair()
@@ -1080,27 +1439,166 @@ public ref struct YamlReader
         {
             _pendingMappingAnchor = _nextAnchorName;
             _nextAnchorName = null;
-            return; // skip the mapping's own key
+            return;
         }
-        if (_pendingMappingAnchor is not null && _currentMappingPairs is not null)
+        if (_pendingMappingAnchor is not null && _curPairCount < MaxAnchorPairs)
         {
-            _currentMappingPairs.Add((_keySpan.ToArray(), _valueSpan.ToArray()));
+            // Use anchor 0's pair slots as temporary accumulator
+            AddPairToAnchor(
+                ref _curPairCount,
+                ref _a0k0,
+                ref _a0v0,
+                ref _a0k1,
+                ref _a0v1,
+                ref _a0k2,
+                ref _a0v2,
+                ref _a0k3,
+                ref _a0v3,
+                ref _a0k4,
+                ref _a0v4,
+                ref _a0k5,
+                ref _a0v5,
+                ref _a0k6,
+                ref _a0v6,
+                ref _a0k7,
+                ref _a0v7,
+                _keySpan.ToArray(),
+                _valueSpan.ToArray()
+            );
         }
     }
 
     private void FinalizeMappingAnchor()
     {
-        if (_pendingMappingAnchor is not null && _currentMappingPairs is not null)
+        if (_pendingMappingAnchor is null || _curPairCount == 0)
+            return;
+
+        SetMappingAnchor(
+            _pendingMappingAnchor,
+            _curPairCount,
+            _a0k0,
+            _a0v0,
+            _a0k1,
+            _a0v1,
+            _a0k2,
+            _a0v2,
+            _a0k3,
+            _a0v3,
+            _a0k4,
+            _a0v4,
+            _a0k5,
+            _a0v5,
+            _a0k6,
+            _a0v6,
+            _a0k7,
+            _a0v7
+        );
+        _pendingMappingAnchor = null;
+        _curPairCount = 0;
+    }
+
+    private (byte[] Key, byte[] Value) GetAccumulatorPair(int i)
+    {
+        return i switch
         {
-            _anchors ??= new Dictionary<string, StoredAnchor>();
-            _anchors[_pendingMappingAnchor] = new StoredAnchor
-            {
-                IsMapping = true,
-                MappingPairs = _currentMappingPairs,
-            };
-            _pendingMappingAnchor = null;
-            _currentMappingPairs = null;
-        }
+            0 => (_a0k0!, _a0v0!),
+            1 => (_a0k1!, _a0v1!),
+            2 => (_a0k2!, _a0v2!),
+            3 => (_a0k3!, _a0v3!),
+            4 => (_a0k4!, _a0v4!),
+            5 => (_a0k5!, _a0v5!),
+            6 => (_a0k6!, _a0v6!),
+            _ => (_a0k7!, _a0v7!)
+        };
+    }
+
+    private (byte[] Key, byte[] Value) GetAnchorPair(int anchorIdx, int i)
+    {
+        return anchorIdx switch
+        {
+            0
+                => i switch
+                {
+                    0 => (_a0k0!, _a0v0!),
+                    1 => (_a0k1!, _a0v1!),
+                    2 => (_a0k2!, _a0v2!),
+                    3 => (_a0k3!, _a0v3!),
+                    4 => (_a0k4!, _a0v4!),
+                    5 => (_a0k5!, _a0v5!),
+                    6 => (_a0k6!, _a0v6!),
+                    _ => (_a0k7!, _a0v7!)
+                },
+            1
+                => i switch
+                {
+                    0 => (_a1k0!, _a1v0!),
+                    1 => (_a1k1!, _a1v1!),
+                    2 => (_a1k2!, _a1v2!),
+                    3 => (_a1k3!, _a1v3!),
+                    4 => (_a1k4!, _a1v4!),
+                    5 => (_a1k5!, _a1v5!),
+                    6 => (_a1k6!, _a1v6!),
+                    _ => (_a1k7!, _a1v7!)
+                },
+            2
+                => i switch
+                {
+                    0 => (_a2k0!, _a2v0!),
+                    1 => (_a2k1!, _a2v1!),
+                    2 => (_a2k2!, _a2v2!),
+                    3 => (_a2k3!, _a2v3!),
+                    4 => (_a2k4!, _a2v4!),
+                    5 => (_a2k5!, _a2v5!),
+                    6 => (_a2k6!, _a2v6!),
+                    _ => (_a2k7!, _a2v7!)
+                },
+            _
+                => i switch
+                {
+                    0 => (_a3k0!, _a3v0!),
+                    1 => (_a3k1!, _a3v1!),
+                    2 => (_a3k2!, _a3v2!),
+                    3 => (_a3k3!, _a3v3!),
+                    4 => (_a3k4!, _a3v4!),
+                    5 => (_a3k5!, _a3v5!),
+                    6 => (_a3k6!, _a3v6!),
+                    _ => (_a3k7!, _a3v7!)
+                }
+        };
+    }
+
+    private (byte[] Key, byte[] Value) GetPair(
+        ref int idx,
+        ref byte[]? k0,
+        ref byte[]? v0,
+        ref byte[]? k1,
+        ref byte[]? v1,
+        ref byte[]? k2,
+        ref byte[]? v2,
+        ref byte[]? k3,
+        ref byte[]? v3,
+        ref byte[]? k4,
+        ref byte[]? v4,
+        ref byte[]? k5,
+        ref byte[]? v5,
+        ref byte[]? k6,
+        ref byte[]? v6,
+        ref byte[]? k7,
+        ref byte[]? v7,
+        int i
+    )
+    {
+        return i switch
+        {
+            0 => (k0!, v0!),
+            1 => (k1!, v1!),
+            2 => (k2!, v2!),
+            3 => (k3!, v3!),
+            4 => (k4!, v4!),
+            5 => (k5!, v5!),
+            6 => (k6!, v6!),
+            _ => (k7!, v7!)
+        };
     }
 
     // ── Fast path array reading (used by source generators) ──

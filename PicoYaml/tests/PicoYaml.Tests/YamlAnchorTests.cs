@@ -190,4 +190,28 @@ public class YamlAnchorTests
         // After fix: no exception should be thrown
         await Assert.That(ex).IsNull();
     }
+
+    // Multi-anchor inline storage test
+    [Test]
+    public async Task MultipleAnchors_WithinInlineLimit_AllResolve()
+    {
+        var yaml = "a: &a1 Alice\nb: &a2 Bob\nc: &a3 Charlie\nx: *a1\ny: *a2\nz: *a3"u8.ToArray();
+        var results = new Dictionary<string, string>();
+        using (var reader = new YamlReader(yaml))
+        {
+            while (reader.Read())
+            {
+                if (reader.TokenType == TokenType.PropertyName)
+                {
+                    var k = Encoding.UTF8.GetString(reader.KeySpan);
+                    var v = Encoding.UTF8.GetString(reader.ValueSpan);
+                    if (k is "x" or "y" or "z")
+                        results[k] = v;
+                }
+            }
+        }
+        await Assert.That(results["x"]).IsEqualTo("Alice");
+        await Assert.That(results["y"]).IsEqualTo("Bob");
+        await Assert.That(results["z"]).IsEqualTo("Charlie");
+    }
 }
