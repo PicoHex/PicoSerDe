@@ -841,11 +841,44 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(target);
                 sb.AppendLine(" = __ev;");
                 break;
+            case "datetime":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                );
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __dt;");
+                break;
+            case "guid":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("System.Guid.TryParse(__rawBytes, out var __g);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __g;");
+                break;
+            case "decimal":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "decimal.TryParse(__rawBytes, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __dec);"
+                );
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __dec;");
+                break;
             default:
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(
-                    " = Encoding.UTF8.GetString(reader.GetStringRaw()) switch {} /* TODO */;"
+                    " = default!; // TODO: unsupported ctor param type kind '" + cp.TypeKind + "'"
                 );
                 break;
         }
