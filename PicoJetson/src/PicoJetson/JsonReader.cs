@@ -16,7 +16,14 @@ public ref struct JsonReader
     private readonly int _maxDepth;
     private ReadOnlySpan<byte> _valueSpan;
     private byte[]? _rentedBuffer;
-    private byte[]?[] _rentedBuffers;
+    private byte[]? _rb0,
+        _rb1,
+        _rb2,
+        _rb3,
+        _rb4,
+        _rb5,
+        _rb6,
+        _rb7;
     private int _bufCount;
 
     public JsonReader(ReadOnlySpan<byte> data, int maxDepth = 256)
@@ -30,7 +37,7 @@ public ref struct JsonReader
         _maxDepth = maxDepth;
         _valueSpan = default;
         _rentedBuffer = null;
-        _rentedBuffers = new byte[]?[8];
+        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
         _bufCount = 0;
     }
 
@@ -45,7 +52,7 @@ public ref struct JsonReader
         _maxDepth = maxDepth;
         _valueSpan = default;
         _rentedBuffer = null;
-        _rentedBuffers = new byte[]?[8];
+        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
         _bufCount = 0;
     }
 
@@ -922,22 +929,56 @@ public ref struct JsonReader
 
     private void ReturnBuffer()
     {
-        for (int i = 0; i < _bufCount; i++)
-        {
-            if (_rentedBuffers[i] is not null)
-            {
-                ArrayPool<byte>.Shared.Return(_rentedBuffers[i]!);
-                _rentedBuffers[i] = null;
-            }
-        }
+        ReturnBuf(ref _rb0);
+        ReturnBuf(ref _rb1);
+        ReturnBuf(ref _rb2);
+        ReturnBuf(ref _rb3);
+        ReturnBuf(ref _rb4);
+        ReturnBuf(ref _rb5);
+        ReturnBuf(ref _rb6);
+        ReturnBuf(ref _rb7);
         _bufCount = 0;
         _rentedBuffer = null;
     }
 
+    private static void ReturnBuf(ref byte[]? buf)
+    {
+        if (buf is not null)
+        {
+            ArrayPool<byte>.Shared.Return(buf);
+            buf = null;
+        }
+    }
+
     private void TrackBuffer(byte[] buf)
     {
-        if (_bufCount < _rentedBuffers!.Length)
-            _rentedBuffers[_bufCount++] = buf;
+        switch (_bufCount++)
+        {
+            case 0:
+                _rb0 = buf;
+                break;
+            case 1:
+                _rb1 = buf;
+                break;
+            case 2:
+                _rb2 = buf;
+                break;
+            case 3:
+                _rb3 = buf;
+                break;
+            case 4:
+                _rb4 = buf;
+                break;
+            case 5:
+                _rb5 = buf;
+                break;
+            case 6:
+                _rb6 = buf;
+                break;
+            default:
+                _rb7 = buf;
+                break;
+        }
         _rentedBuffer = buf;
     }
 
@@ -949,7 +990,7 @@ public ref struct JsonReader
     // ── Fast path array reading (used by source generators) ──
 
     /// <summary>Fast path: read int32 array from raw buffer (span mode only). Returns count read, or 0 to fallback.</summary>
-    public int TryReadInt32ArrayFast(Span<int> dest)
+    public int TryReadInt32ArrayFast(scoped Span<int> dest)
     {
         if (_isSequence)
             return 0;
@@ -1005,7 +1046,7 @@ public ref struct JsonReader
     }
 
     /// <summary>Fast path: read int64 array from raw buffer (span mode only).</summary>
-    public int TryReadInt64ArrayFast(Span<long> dest)
+    public int TryReadInt64ArrayFast(scoped Span<long> dest)
     {
         if (_isSequence)
             return 0;
@@ -1061,7 +1102,7 @@ public ref struct JsonReader
     }
 
     /// <summary>Fast path: read bool array from raw buffer (span mode only).</summary>
-    public int TryReadBoolArrayFast(Span<bool> dest)
+    public int TryReadBoolArrayFast(scoped Span<bool> dest)
     {
         if (_isSequence)
             return 0;

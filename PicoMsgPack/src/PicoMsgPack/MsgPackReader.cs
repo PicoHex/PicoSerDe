@@ -14,7 +14,7 @@ public ref struct MsgPackReader
     private TokenType _tokenType;
     private ReadOnlySpan<byte> _valueSpan;
     private byte[]? _rentedBuffer;
-    private byte[] _singleByteBuffer; // pre-allocated 1-byte array to avoid heap alloc per int
+    private byte _singleByte; // inline field used via MemoryMarshal.CreateSpan for zero-allocation single-byte values
     private IntStack64 _elementStack;
     private byte _tag; // for Extension tokens
     private int _depth;
@@ -32,7 +32,7 @@ public ref struct MsgPackReader
         _tokenType = TokenType.None;
         _valueSpan = default;
         _rentedBuffer = null;
-        _singleByteBuffer = new byte[1];
+        // _singleByte is init to 0 by default, no allocation needed
         _elementStack = default;
         _tag = 0;
         _isMapStack = default;
@@ -49,7 +49,7 @@ public ref struct MsgPackReader
         _tokenType = TokenType.None;
         _valueSpan = default;
         _rentedBuffer = null;
-        _singleByteBuffer = new byte[1];
+        // _singleByte is init to 0 by default, no allocation needed
         _elementStack = default;
         _tag = 0;
         _isMapStack = default;
@@ -174,8 +174,8 @@ public ref struct MsgPackReader
         // Positive fixint 0x00-0x7F
         if (b <= 0x7F)
         {
-            _singleByteBuffer[0] = b;
-            _valueSpan = _singleByteBuffer;
+            _singleByte = b;
+            _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
             _tokenType = TokenType.Int32;
             CountElement();
             return true;
@@ -204,8 +204,8 @@ public ref struct MsgPackReader
         // Negative fixint 0xE0-0xFF
         if (b >= 0xE0)
         {
-            _singleByteBuffer[0] = b;
-            _valueSpan = _singleByteBuffer;
+            _singleByte = b;
+            _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
             _tokenType = TokenType.Int32;
             CountElement();
             return true;
@@ -219,8 +219,8 @@ public ref struct MsgPackReader
                 return true;
             case 0xC2:
             case 0xC3:
-                _singleByteBuffer[0] = b;
-                _valueSpan = _singleByteBuffer;
+                _singleByte = b;
+                _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
                 _tokenType = TokenType.Bool;
                 CountElement();
                 return true;

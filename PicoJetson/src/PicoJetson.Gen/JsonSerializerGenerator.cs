@@ -878,7 +878,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         _ => "TryReadBoolArrayFast"
                     };
                     sb.Append(indent);
-                    sb.Append("    var __buf = new ");
+                    sb.Append("    Span<");
+                    sb.Append(typeName);
+                    sb.Append("> __buf = stackalloc ");
                     sb.Append(typeName);
                     sb.AppendLine("[256];");
                     sb.Append(indent);
