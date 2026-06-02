@@ -1574,9 +1574,6 @@ public ref struct YamlReader
         }
         if (_pendingMappingAnchor is not null && _curPairCount < MaxAnchorPairs)
         {
-            // Safety: prevent runaway accumulation from self-referencing merge keys
-            if (_curPairCount >= MaxAnchorPairs)
-                return;
             // Use anchor 0's pair slots as temporary accumulator
             AddPairToAnchor(
                 ref _curPairCount,
