@@ -6,7 +6,7 @@
         <IsPackable>false</IsPackable>
         <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     </PropertyGroup>
-    <ItemGroup><PackageReference Include="TUnit" Version="1.*" /></ItemGroup>
+    <ItemGroup><PackageReference Include="TUnit" Version="1.48.*" /></ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\..\src\PicoYaml\PicoYaml.csproj" />
         <ProjectReference Include="..\..\src\PicoYaml.Gen\PicoYaml.Gen.csproj"
