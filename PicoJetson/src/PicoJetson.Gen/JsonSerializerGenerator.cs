@@ -474,25 +474,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(")");
                 sb.Append(indent);
                 sb.AppendLine("{");
-                // Check for nested list: NestedProperties contains inner element info
-                if (
-                    prop.NestedProperties.Length > 0
-                    && prop.NestedProperties[0].TypeKind != "object"
-                )
+                // Check for nested list: NestedProperties contains wrapper(s)
+                if (prop.NestedProperties.Length > 0 && IsNestedList(prop))
                 {
-                    // Nested List<List<T>>: emit inner array + inner foreach
-                    var innerProp = prop.NestedProperties[0];
-                    sb.Append(indent);
-                    sb.AppendLine("    jw.WriteStartArray();");
-                    sb.Append(indent);
-                    sb.AppendLine("    foreach (var __inner in __item)");
-                    sb.Append(indent);
-                    sb.AppendLine("    {");
-                    EmitSerializeElement(sb, innerProp, "__inner", indent + "        ");
-                    sb.Append(indent);
-                    sb.AppendLine("    }");
-                    sb.Append(indent);
-                    sb.AppendLine("    jw.WriteEndArray();");
+                    EmitNestedListSerialize(
+                        sb,
+                        prop.NestedProperties[0],
+                        "__item",
+                        indent + "    "
+                    );
                 }
                 else
                 {
@@ -1154,63 +1144,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 var listAcc =
                     prop.TypeKind == "list" ? $"{target}.{prop.Name}" : $"__list_{prop.Name}";
 
-                // Handle nested List<List<T>>
-                if (
-                    prop.NestedProperties.Length > 0
-                    && prop.NestedProperties[0].TypeKind != "object"
-                )
+                // Handle nested List<List<...<T>>> recursively
+                if (IsNestedList(prop))
                 {
-                    var innerProp = prop.NestedProperties[0];
-                    var innerTypeName = innerProp.TypeKind switch
-                    {
-                        "string" => "string",
-                        "int32" => "int",
-                        "int64" => "long",
-                        "float64" => "double",
-                        "boolean" => "bool",
-                        _ => "object"
-                    };
-                    sb.Append(indent);
-                    sb.AppendLine(
-                        "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-                    );
-                    sb.Append(indent);
-                    sb.AppendLine("    {");
-                    sb.Append(indent);
-                    sb.Append("        var __inner_");
-                    sb.Append(prop.Name);
-                    sb.Append(" = new System.Collections.Generic.List<");
-                    sb.Append(innerTypeName);
-                    sb.AppendLine(">(8);");
-                    sb.Append(indent);
-                    sb.AppendLine("        if (reader.TokenType == TokenType.ArrayStart)");
-                    sb.Append(indent);
-                    sb.AppendLine("        {");
-                    sb.Append(indent);
-                    sb.AppendLine(
-                        "            while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-                    );
-                    sb.Append(indent);
-                    sb.AppendLine("            {");
-                    EmitDeserializeElementAdd(
+                    EmitNestedListDeserialize(
                         sb,
-                        innerProp,
-                        $"__inner_{prop.Name}",
-                        indent + "                ",
+                        prop.NestedProperties[0],
+                        listAcc,
+                        prop.Name,
+                        indent + "    ",
                         0
                     );
-                    sb.Append(indent);
-                    sb.AppendLine("            }");
-                    sb.Append(indent);
-                    sb.AppendLine("        }");
-                    sb.Append(indent);
-                    sb.Append("        ");
-                    sb.Append(listAcc);
-                    sb.Append(".Add(__inner_");
-                    sb.Append(prop.Name);
-                    sb.AppendLine(");");
-                    sb.Append(indent);
-                    sb.AppendLine("    }");
                 }
                 else if (
                     prop.ElementTypeKind == "int32"
@@ -1820,4 +1764,142 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
         sb.AppendLine("}");
     }
+
+    // ── Recursive nested-list helpers ──
+
+    /// <summary>Returns true if the property's NestedProperties describe a nested List&lt;List&lt;...&gt;&gt;.</summary>
+    private static bool IsNestedList(PropertyInfo prop) =>
+        prop.NestedProperties.Length > 0
+        && prop.NestedProperties[0].TypeKind != "object"
+        && prop.NestedProperties[0].TypeKind != "dict";
+
+    /// <summary>
+    /// Recursively emits WriteStartArray / foreach / WriteEndArray for nested lists.
+    /// Writes one level per call; recurses into NestedProperties for deeper levels.
+    /// The innermost element is emitted via EmitSerializeElement.
+    /// </summary>
+    private static void EmitNestedListSerialize(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string itemVar,
+        string indent
+    )
+    {
+        sb.Append(indent);
+        sb.AppendLine("jw.WriteStartArray();");
+        sb.Append(indent);
+        sb.Append("foreach (var __inner in ");
+        sb.Append(itemVar);
+        sb.AppendLine(")");
+        sb.Append(indent);
+        sb.AppendLine("{");
+
+        if (IsNestedList(prop))
+        {
+            // Another level of nesting
+            EmitNestedListSerialize(sb, prop.NestedProperties[0], "__inner", indent + "    ");
+        }
+        else
+        {
+            // Base case: emit element directly
+            EmitSerializeElement(sb, prop, "__inner", indent + "    ");
+        }
+
+        sb.Append(indent);
+        sb.AppendLine("}");
+        sb.Append(indent);
+        sb.AppendLine("jw.WriteEndArray();");
+    }
+
+    // ── Recursive nested-list deserialize helper ──
+
+    /// <summary>
+    /// Recursively emits deserialization code for List&lt;List&lt;...&lt;T&gt;&gt;&gt;.
+    /// Each call handles one nesting level: reads ArrayStart, loops over elements,
+    /// and recurses via NestedProperties for deeper levels.
+    /// </summary>
+    private static void EmitNestedListDeserialize(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string parentListAcc,
+        string propName,
+        string indent,
+        int nestLevel
+    )
+    {
+        var innerTypeName = ResolveCSharpTypeName(prop.TypeKind);
+        var innerVar = nestLevel == 0 ? $"__inner_{propName}" : $"__inner_{propName}_{nestLevel}";
+
+        sb.Append(indent);
+        sb.AppendLine("while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        sb.Append(indent);
+        sb.Append("    var ");
+        sb.Append(innerVar);
+        sb.Append(" = new System.Collections.Generic.List<");
+        sb.Append(innerTypeName);
+        sb.AppendLine(">(8);");
+        sb.Append(indent);
+        sb.AppendLine("    if (reader.TokenType == TokenType.ArrayStart)");
+        sb.Append(indent);
+        sb.AppendLine("    {");
+
+        if (IsNestedList(prop))
+        {
+            // Another level of nesting
+            EmitNestedListDeserialize(
+                sb,
+                prop.NestedProperties[0],
+                innerVar,
+                propName,
+                indent + "        ",
+                nestLevel + 1
+            );
+        }
+        else
+        {
+            sb.Append(indent);
+            sb.AppendLine(
+                "        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+            );
+            sb.Append(indent);
+            sb.AppendLine("        {");
+            EmitDeserializeElementAdd(sb, prop, innerVar, indent + "            ", nestLevel);
+            sb.Append(indent);
+            sb.AppendLine("        }");
+        }
+
+        sb.Append(indent);
+        sb.AppendLine("    }");
+        sb.Append(indent);
+        sb.Append("    ");
+        sb.Append(parentListAcc);
+        sb.Append(".Add(");
+        sb.Append(innerVar);
+        sb.AppendLine(");");
+        sb.Append(indent);
+        sb.AppendLine("}");
+    }
+
+    /// <summary>Maps a TypeKind string to its C# type name for code generation.</summary>
+    private static string ResolveCSharpTypeName(string typeKind) =>
+        typeKind switch
+        {
+            "string" => "string",
+            "int32" => "int",
+            "int64" => "long",
+            "float64" => "double",
+            "boolean" => "bool",
+            "datetime" => "System.DateTime",
+            "dateonly" => "System.DateOnly",
+            "timeonly" => "System.TimeOnly",
+            "timespan" => "System.TimeSpan",
+            "guid" => "System.Guid",
+            "decimal" => "decimal",
+            "bytes" => "byte[]",
+            "list" => "object",
+            "array" => "object",
+            _ => "object"
+        };
 }

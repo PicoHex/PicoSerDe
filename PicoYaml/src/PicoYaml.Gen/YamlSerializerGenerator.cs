@@ -336,39 +336,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
-                // Check for nested List<List<T>>
-                if (p.NestedProperties.Length > 0 && p.NestedProperties[0].TypeKind != "object")
+                // Recursively handle nested List<List<...<T>>>
+                if (IsYamlNestedList(p))
                 {
-                    s.Append(ind);
-                    s.AppendLine("yw.WriteStartSequence();");
-                    s.Append(ind);
-                    s.Append("foreach (var __item in ");
-                    s.Append(accessor);
-                    s.AppendLine(")");
-                    s.Append(ind);
-                    s.AppendLine("{");
-                    s.Append(ind);
-                    s.AppendLine("    yw.WriteStartSequence();");
-                    s.Append(ind);
-                    s.AppendLine("    foreach (var __inner in __item)");
-                    s.Append(ind);
-                    s.AppendLine("    {");
-                    var innerKind = p.NestedProperties[0].TypeKind;
-                    s.Append(ind);
-                    s.Append("        yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
-                    if (innerKind == "string")
-                        s.Append("__inner");
-                    else
-                        s.Append("__inner.ToString()");
-                    s.AppendLine("));");
-                    s.Append(ind);
-                    s.AppendLine("    }");
-                    s.Append(ind);
-                    s.AppendLine("    yw.WriteEndSequence();");
-                    s.Append(ind);
-                    s.AppendLine("}");
-                    s.Append(ind);
-                    s.AppendLine("yw.WriteEndSequence();");
+                    EmitYamlNestedListSerialize(s, p.NestedProperties[0], accessor, ind);
                 }
                 else
                 {
@@ -1216,5 +1187,60 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("__tmpList.Add(Encoding.UTF8.GetString(r.ValueSpan));");
                 break;
         }
+    }
+
+    // ── Recursive nested-list helpers ──
+
+    private static bool IsYamlNestedList(PropertyInfo p) =>
+        p.NestedProperties.Length > 0
+        && p.NestedProperties[0].TypeKind != "object"
+        && p.NestedProperties[0].TypeKind != "dict";
+
+    private static void EmitYamlNestedListSerialize(
+        StringBuilder s,
+        PropertyInfo p,
+        string accessor,
+        string ind
+    )
+    {
+        s.Append(ind);
+        s.AppendLine("yw.WriteStartSequence();");
+        s.Append(ind);
+        s.Append("foreach (var __item in ");
+        s.Append(accessor);
+        s.AppendLine(")");
+        s.Append(ind);
+        s.AppendLine("{");
+
+        if (IsYamlNestedList(p))
+        {
+            EmitYamlNestedListSerialize(s, p.NestedProperties[0], "__item", ind + "    ");
+        }
+        else
+        {
+            s.Append(ind);
+            s.AppendLine("    yw.WriteStartSequence();");
+            s.Append(ind);
+            s.AppendLine("    foreach (var __inner in __item)");
+            s.Append(ind);
+            s.AppendLine("    {");
+            var innerKind = p.TypeKind;
+            s.Append(ind);
+            s.Append("        yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
+            if (innerKind == "string")
+                s.Append("__inner");
+            else
+                s.Append("__inner.ToString()");
+            s.AppendLine("));");
+            s.Append(ind);
+            s.AppendLine("    }");
+            s.Append(ind);
+            s.AppendLine("    yw.WriteEndSequence();");
+        }
+
+        s.Append(ind);
+        s.AppendLine("}");
+        s.Append(ind);
+        s.AppendLine("yw.WriteEndSequence();");
     }
 }

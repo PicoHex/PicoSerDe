@@ -268,39 +268,14 @@ internal static class GenInfrastructure
                     continue;
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
-                // Detect nested List<List<T>> pattern
+                // Recursively describe nested List<List<...<T>>> — any depth
                 if (
                     (ek is "list" or "array")
                     && elementType is INamedTypeSymbol ntsNested
                     && ntsNested.TypeArguments.Length == 1
                 )
                 {
-                    var nestedElem = ntsNested.TypeArguments[0];
-                    var (nek, _, _) = TypeKindResolver.Resolve(nestedElem, formatTag);
-                    if (nek is not null)
-                    {
-                        elementTypeKind = "list"; // mark as nested list
-                        elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
-                        var nip = new List<PropertyInfo>();
-                        nip.Add(
-                            new PropertyInfo(
-                                Name: "__nested",
-                                JsonName: "__nested",
-                                TypeKind: nek,
-                                TypeFullName: nestedElem.ToDisplayString(
-                                    SymbolDisplayFormat.FullyQualifiedFormat
-                                ),
-                                IsNullable: false,
-                                ElementTypeKind: nek,
-                                ElementTypeName: TypeKindResolver.MapTypeName(nek, nestedElem),
-                                KeyTypeKind: null,
-                                KeyTypeName: null,
-                                NestedProperties: default,
-                                ConverterTypeFullName: null
-                            )
-                        );
-                        nestedProperties = nip.ToImmutableArray();
-                    }
+                    nestedProperties = BuildNestedListElement(ntsNested, formatTag, attrs);
                 }
                 else if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
                 {
@@ -359,6 +334,57 @@ internal static class GenInfrastructure
             );
         }
         return list;
+    }
+
+    /// <summary>
+    /// Builds a recursive NestedProperties chain for List&lt;List&lt;...&lt;T&gt;&gt;&gt;.
+    /// E.g. List&lt;List&lt;int&gt;&gt; → [PropertyInfo(TypeKind="list", NestedProperties=[PropertyInfo(TypeKind="int32")])].
+    /// The innermost element has its actual TypeKind; each wrapper has TypeKind="list".
+    /// </summary>
+    private static ImmutableArray<PropertyInfo> BuildNestedListElement(
+        INamedTypeSymbol listType,
+        string formatTag,
+        AttributeHelpers attrs
+    )
+    {
+        // listType is a List<T> or similar — extract T
+        if (listType.TypeArguments.Length != 1)
+            return ImmutableArray<PropertyInfo>.Empty;
+
+        var innerType = listType.TypeArguments[0];
+        var (innerKind, _, _) = TypeKindResolver.Resolve(innerType, formatTag);
+        if (innerKind is null)
+            return ImmutableArray<PropertyInfo>.Empty;
+
+        var innerTypeName = TypeKindResolver.MapTypeName(innerKind, innerType);
+        var innerFullName = innerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        ImmutableArray<PropertyInfo> innerNested = ImmutableArray<PropertyInfo>.Empty;
+
+        // If the inner type is also a list, recurse
+        if (
+            (innerKind is "list" or "array")
+            && innerType is INamedTypeSymbol ntsInner
+            && ntsInner.TypeArguments.Length == 1
+        )
+        {
+            innerNested = BuildNestedListElement(ntsInner, formatTag, attrs);
+        }
+
+        var wrapper = new PropertyInfo(
+            Name: "__nested",
+            JsonName: "__nested",
+            TypeKind: innerKind,
+            TypeFullName: innerFullName,
+            IsNullable: false,
+            ElementTypeKind: innerKind,
+            ElementTypeName: innerTypeName,
+            KeyTypeKind: null,
+            KeyTypeName: null,
+            NestedProperties: innerNested,
+            ConverterTypeFullName: null
+        );
+
+        return ImmutableArray.Create(wrapper);
     }
 
     public static void CollectNestedTypes(
