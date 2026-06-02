@@ -145,6 +145,9 @@ internal static class GenInfrastructure
         return name.Substring(0, keepUpper).ToLowerInvariant() + name.Substring(keepUpper);
     }
 
+    // ── Public API (TransformType / ExtractNestedProperties) ──
+    // Both delegate to the shared ExtractProperties core below.
+
     public static TypeInfo? TransformType(
         GeneratorSyntaxContext ctx,
         FormatConfig config,
@@ -177,10 +180,51 @@ internal static class GenInfrastructure
             ns = "";
 
         var useCamelCase = attrs.HasCamelCase(namedType);
-        var properties = new List<PropertyInfo>();
+        var properties = ExtractProperties(
+            namedType,
+            config.FormatTag,
+            attrs,
+            includeReadOnlyProperties,
+            useCamelCase
+        );
+
+        return new TypeInfo(
+            namedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            ns,
+            namedType.Name,
+            properties.ToImmutableArray()
+        );
+    }
+
+    public static ImmutableArray<PropertyInfo> ExtractNestedProperties(
+        INamedTypeSymbol type,
+        AttributeHelpers attrs,
+        string formatTag
+    )
+    {
+        var useCamelCase = attrs.HasCamelCase(type);
+        var properties = ExtractProperties(type, formatTag, attrs, false, useCamelCase);
+        return properties.ToImmutableArray();
+    }
+
+    // ── Shared core: single source of truth for property extraction ──
+
+    /// <summary>
+    /// Extracts serializable properties from <paramref name="type"/>.
+    /// Both TransformType and ExtractNestedProperties delegate here.
+    /// </summary>
+    private static List<PropertyInfo> ExtractProperties(
+        INamedTypeSymbol type,
+        string formatTag,
+        AttributeHelpers attrs,
+        bool includeReadOnlyProperties,
+        bool useCamelCase
+    )
+    {
+        var list = new List<PropertyInfo>();
         int autoKey = 0;
 
-        foreach (var member in namedType.GetMembers())
+        foreach (var member in type.GetMembers())
         {
             if (member is not IPropertySymbol prop)
                 continue;
@@ -197,10 +241,7 @@ internal static class GenInfrastructure
 
             // Optionally override kind when a converter is attached
             var converterType = attrs.GetConverterType(prop);
-            var (typeKind, isNullable, innerTypeSymbol) = TypeKindResolver.Resolve(
-                prop.Type,
-                config.FormatTag
-            );
+            var (typeKind, isNullable, _) = TypeKindResolver.Resolve(prop.Type, formatTag);
             if (typeKind is null)
                 continue;
             if (converterType is not null && attrs.OverrideKindWithStringOnConverter)
@@ -222,7 +263,7 @@ internal static class GenInfrastructure
                 else
                     continue;
 
-                var (ek, _, _) = TypeKindResolver.Resolve(elementType, config.FormatTag);
+                var (ek, _, _) = TypeKindResolver.Resolve(elementType, formatTag);
                 if (ek is null)
                     continue;
                 elementTypeKind = ek;
@@ -235,10 +276,9 @@ internal static class GenInfrastructure
                 )
                 {
                     var nestedElem = ntsNested.TypeArguments[0];
-                    var (nek, _, _) = TypeKindResolver.Resolve(nestedElem, config.FormatTag);
+                    var (nek, _, _) = TypeKindResolver.Resolve(nestedElem, formatTag);
                     if (nek is not null)
                     {
-                        // Store inner element type as NestedElementTypeKind
                         elementTypeKind = "list"; // mark as nested list
                         elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
                         var nip = new List<PropertyInfo>();
@@ -263,7 +303,9 @@ internal static class GenInfrastructure
                     }
                 }
                 else if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
-                    nestedProperties = ExtractNestedProperties(eNtsObj, attrs, config.FormatTag);
+                {
+                    nestedProperties = ExtractNestedProperties(eNtsObj, attrs, formatTag);
+                }
             }
             else if (typeKind is "dict")
             {
@@ -271,8 +313,8 @@ internal static class GenInfrastructure
                 {
                     var keyType = ntsDict.TypeArguments[0];
                     var valType = ntsDict.TypeArguments[1];
-                    var (kk, _, _) = TypeKindResolver.Resolve(keyType, config.FormatTag);
-                    var (vk, _, _) = TypeKindResolver.Resolve(valType, config.FormatTag);
+                    var (kk, _, _) = TypeKindResolver.Resolve(keyType, formatTag);
+                    var (vk, _, _) = TypeKindResolver.Resolve(valType, formatTag);
                     if (kk is null || vk is null)
                         continue;
                     keyTypeKind = kk;
@@ -280,21 +322,19 @@ internal static class GenInfrastructure
                     elementTypeKind = vk;
                     elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
-                        nestedProperties = ExtractNestedProperties(
-                            vNtsObj,
-                            attrs,
-                            config.FormatTag
-                        );
+                        nestedProperties = ExtractNestedProperties(vNtsObj, attrs, formatTag);
                 }
                 else
+                {
                     continue;
+                }
             }
             else if (typeKind is "object" && prop.Type is INamedTypeSymbol objNts)
             {
-                nestedProperties = ExtractNestedProperties(objNts, attrs, config.FormatTag);
+                nestedProperties = ExtractNestedProperties(objNts, attrs, formatTag);
             }
 
-            properties.Add(
+            list.Add(
                 new PropertyInfo(
                     prop.Name,
                     attrs.GetCustomName(prop)
@@ -318,154 +358,7 @@ internal static class GenInfrastructure
                 )
             );
         }
-
-        return new TypeInfo(
-            namedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            ns,
-            namedType.Name,
-            properties.ToImmutableArray()
-        );
-    }
-
-    public static ImmutableArray<PropertyInfo> ExtractNestedProperties(
-        INamedTypeSymbol type,
-        AttributeHelpers attrs,
-        string formatTag
-    )
-    {
-        var list = new List<PropertyInfo>();
-        int autoKey = 0;
-        foreach (var member in type.GetMembers())
-        {
-            if (member is not IPropertySymbol prop)
-                continue;
-            if (prop.DeclaredAccessibility != Accessibility.Public)
-                continue;
-            if (prop.IsStatic || prop.IsIndexer)
-                continue;
-            if (prop.IsReadOnly && prop.SetMethod is null)
-                continue;
-            if (prop.GetMethod is null)
-                continue;
-            if (attrs.HasIgnore(prop))
-                continue;
-
-            var nestedConverter = attrs.GetConverterType(prop);
-            var (typeKind, isNullable, _) = TypeKindResolver.Resolve(prop.Type, formatTag);
-            if (typeKind is null)
-                continue;
-            if (nestedConverter is not null && attrs.OverrideKindWithStringOnConverter)
-                typeKind = "string";
-
-            var useCamelCase = attrs.HasCamelCase(type);
-
-            string? elementTypeKind = null;
-            string? elementTypeName = null;
-            string? keyTypeKind = null;
-            string? keyTypeName = null;
-            ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
-
-            if (typeKind is "list" or "array")
-            {
-                ITypeSymbol? elementType;
-                if (prop.Type is IArrayTypeSymbol arrType)
-                    elementType = arrType.ElementType;
-                else if (prop.Type is INamedTypeSymbol ntsElem && ntsElem.TypeArguments.Length == 1)
-                    elementType = ntsElem.TypeArguments[0];
-                else
-                    continue;
-
-                var (ek, _, _) = TypeKindResolver.Resolve(elementType, formatTag);
-                if (ek is null)
-                    continue;
-                elementTypeKind = ek;
-                elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
-                // Detect nested List<List<T>> pattern in nested properties too
-                if (
-                    (ek is "list" or "array")
-                    && elementType is INamedTypeSymbol ntsNested2
-                    && ntsNested2.TypeArguments.Length == 1
-                )
-                {
-                    var nestedElem2 = ntsNested2.TypeArguments[0];
-                    var (nek2, _, _) = TypeKindResolver.Resolve(nestedElem2, formatTag);
-                    if (nek2 is not null)
-                    {
-                        elementTypeKind = "list";
-                        elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
-                        var nip2 = new List<PropertyInfo>();
-                        nip2.Add(
-                            new PropertyInfo(
-                                Name: "__nested",
-                                JsonName: "__nested",
-                                TypeKind: nek2,
-                                TypeFullName: nestedElem2.ToDisplayString(
-                                    SymbolDisplayFormat.FullyQualifiedFormat
-                                ),
-                                IsNullable: false,
-                                ElementTypeKind: nek2,
-                                ElementTypeName: TypeKindResolver.MapTypeName(nek2, nestedElem2),
-                                KeyTypeKind: null,
-                                KeyTypeName: null,
-                                NestedProperties: default,
-                                ConverterTypeFullName: null
-                            )
-                        );
-                        nestedProperties = nip2.ToImmutableArray();
-                    }
-                }
-                else if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
-                    nestedProperties = ExtractNestedProperties(eNtsObj, attrs, formatTag);
-            }
-            else if (typeKind is "dict")
-            {
-                if (prop.Type is INamedTypeSymbol ntsDict && ntsDict.TypeArguments.Length == 2)
-                {
-                    var keyType = ntsDict.TypeArguments[0];
-                    var valType = ntsDict.TypeArguments[1];
-                    var (kk, _, _) = TypeKindResolver.Resolve(keyType, formatTag);
-                    var (vk, _, _) = TypeKindResolver.Resolve(valType, formatTag);
-                    if (kk is null || vk is null)
-                        continue;
-                    keyTypeKind = kk;
-                    keyTypeName = TypeKindResolver.MapTypeName(kk, keyType);
-                    elementTypeKind = vk;
-                    elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
-                    if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
-                        nestedProperties = ExtractNestedProperties(vNtsObj, attrs, formatTag);
-                }
-                else
-                    continue;
-            }
-            else if (typeKind is "object" && prop.Type is INamedTypeSymbol objNts)
-            {
-                nestedProperties = ExtractNestedProperties(objNts, attrs, formatTag);
-            }
-
-            list.Add(
-                new PropertyInfo(
-                    prop.Name,
-                    attrs.GetCustomName(prop)
-                        ?? (useCamelCase ? ToCamelCase(prop.Name) : prop.Name),
-                    typeKind,
-                    prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    isNullable,
-                    elementTypeKind,
-                    elementTypeName,
-                    keyTypeKind,
-                    keyTypeName,
-                    nestedProperties,
-                    nestedConverter,
-                    attrs.GetDateTimeFormat(prop),
-                    IntKey: (attrs.GetIntKey is not null)
-                        ? (attrs.GetIntKey(prop) ?? autoKey++)
-                        : null,
-                    SectionName: attrs.GetSectionName?.Invoke(prop),
-                    Comment: attrs.GetComment?.Invoke(prop.ContainingType)
-                )
-            );
-        }
-        return list.ToImmutableArray();
+        return list;
     }
 
     public static void CollectNestedTypes(
