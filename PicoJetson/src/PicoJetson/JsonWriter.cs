@@ -13,7 +13,7 @@ public ref struct JsonWriter
     public long BytesWritten => _bytesWritten;
 
     /// <summary>Exposes the underlying buffer for converter support in nested helpers.</summary>
-    internal IBufferWriter<byte> Buffer => _buffer;
+    public IBufferWriter<byte> Buffer => _buffer;
 
     public JsonWriter(IBufferWriter<byte> buffer, bool indented = false, int maxDepth = 63)
     {
