@@ -82,6 +82,16 @@ public class DecimalPoco
     public decimal Price { get; set; }
 }
 
+public class ManyScalarTomlPoco
+{
+    public string Alpha { get; set; } = "";
+    public int Beta { get; set; }
+    public bool Gamma { get; set; }
+    public long Delta { get; set; }
+    public double Epsilon { get; set; }
+    public string Zeta { get; set; } = "";
+}
+
 public class ReadOnlyListPoco
 {
     public IReadOnlyList<int> Scores { get; set; } = new List<int>();
@@ -236,6 +246,30 @@ public class TomlSerializerTests
         await Assert.That(result!.Date).IsEqualTo(new DateOnly(2024, 6, 15));
         await Assert.That(result.Time).IsEqualTo(new TimeOnly(12, 30, 0));
         await Assert.That(result.Duration).IsEqualTo(TimeSpan.FromMinutes(90));
+    }
+
+    [Test]
+    public async Task RoundTrip_ManyScalarPoco_UsesGeneratedDispatch()
+    {
+        var original = new ManyScalarTomlPoco
+        {
+            Alpha = "a",
+            Beta = 2,
+            Gamma = true,
+            Delta = 4,
+            Epsilon = 5.5,
+            Zeta = "z"
+        };
+
+        var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
+        var result = TomlSerializer.Deserialize<ManyScalarTomlPoco>(bytes);
+
+        await Assert.That(result!.Alpha).IsEqualTo("a");
+        await Assert.That(result.Beta).IsEqualTo(2);
+        await Assert.That(result.Gamma).IsTrue();
+        await Assert.That(result.Delta).IsEqualTo(4);
+        await Assert.That(result.Epsilon).IsEqualTo(5.5);
+        await Assert.That(result.Zeta).IsEqualTo("z");
     }
 
     [Test]

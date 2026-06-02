@@ -167,4 +167,38 @@ public class IniSerializerUnifiedTests
         await Assert.That(tt).IsEqualTo(TokenType.PropertyName);
         await Assert.That(b).IsTrue();
     }
+
+    [Test]
+    public async Task ManyScalarConfig_RoundTrip_UsesGeneratedDispatch()
+    {
+        var original = new ManyScalarConfig
+        {
+            Alpha = "a",
+            Beta = 2,
+            Gamma = true,
+            Delta = 4,
+            Epsilon = 5.5,
+            Zeta = "z"
+        };
+
+        var bytes = IniSerializer.SerializeToUtf8Bytes(original);
+        var result = IniSerializer.Deserialize<ManyScalarConfig>(bytes);
+
+        await Assert.That(result!.Alpha).IsEqualTo("a");
+        await Assert.That(result.Beta).IsEqualTo(2);
+        await Assert.That(result.Gamma).IsTrue();
+        await Assert.That(result.Delta).IsEqualTo(4);
+        await Assert.That(result.Epsilon).IsEqualTo(5.5);
+        await Assert.That(result.Zeta).IsEqualTo("z");
+    }
+}
+
+public class ManyScalarConfig
+{
+    public string Alpha { get; set; } = "";
+    public int Beta { get; set; }
+    public bool Gamma { get; set; }
+    public long Delta { get; set; }
+    public double Epsilon { get; set; }
+    public string Zeta { get; set; } = "";
 }
