@@ -87,6 +87,16 @@ public readonly record struct AttributeHelpers(
 
 internal static class GenInfrastructure
 {
+    private static readonly DiagnosticDescriptor UnsupportedTypeWarning =
+        new(
+            id: "PICOSERDE001",
+            title: "Unsupported type skipped during source generation",
+            messageFormat: "Type '{0}' on property '{1}' is not supported by the serializer — the property will be ignored",
+            category: "PicoSerDe",
+            defaultSeverity: DiagnosticSeverity.Warning,
+            isEnabledByDefault: true
+        );
+
     public static bool IsCandidate(SyntaxNode node)
     {
         if (node is not InvocationExpressionSyntax { Expression: var expr })
@@ -232,6 +242,29 @@ internal static class GenInfrastructure
         bool useCamelCase
     )
     {
+        return ExtractProperties(
+            type,
+            formatTag,
+            attrs,
+            includeReadOnlyProperties,
+            useCamelCase,
+            null
+        );
+    }
+
+    /// <summary>
+    /// Extracts serializable properties. If <paramref name="diagnostics"/> is provided,
+    /// emits warnings for skipped members (unsupported types, etc.).
+    /// </summary>
+    private static List<PropertyInfo> ExtractProperties(
+        INamedTypeSymbol type,
+        string formatTag,
+        AttributeHelpers attrs,
+        bool includeReadOnlyProperties,
+        bool useCamelCase,
+        List<Diagnostic>? diagnostics
+    )
+    {
         var list = new List<PropertyInfo>();
         int autoKey = 0;
 
@@ -254,7 +287,17 @@ internal static class GenInfrastructure
             var converterType = attrs.GetConverterType(prop);
             var (typeKind, isNullable, _) = TypeKindResolver.Resolve(prop.Type, formatTag);
             if (typeKind is null)
+            {
+                diagnostics?.Add(
+                    Diagnostic.Create(
+                        UnsupportedTypeWarning,
+                        prop.Locations.FirstOrDefault(),
+                        prop.Type.ToDisplayString(),
+                        prop.Name
+                    )
+                );
                 continue;
+            }
             // NRT annotation: string?, SomeClass?, etc. are not Nullable<T>
             // but have NullableAnnotation.Annotated. Mark them as nullable
             // reference types so SGs emit == null checks instead of .HasValue.
