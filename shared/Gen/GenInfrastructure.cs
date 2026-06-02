@@ -109,6 +109,16 @@ internal static class GenInfrastructure
         return methodName is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
     }
 
+    /// <summary>
+    /// Escapes \\, \", \n, \r, \t for safe embedding in generated C# string literals.
+    /// </summary>
+    public static string EscapeCSharpString(string s) =>
+        s.Replace("\\", "\\\\")
+            .Replace("\"", "\\\"")
+            .Replace("\n", "\\n")
+            .Replace("\r", "\\r")
+            .Replace("\t", "\\t");
+
     /// <summary>Converts a fully qualified type name to a safe identifier (replaces . and :: with _).</summary>
     public static string SafeName(string fullName)
     {

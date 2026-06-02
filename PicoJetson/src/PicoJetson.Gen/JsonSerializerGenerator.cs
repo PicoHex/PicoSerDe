@@ -248,7 +248,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         foreach (var prop in props)
         {
             sb.Append("        jw.WritePropertyName(\"");
-            sb.Append(prop.JsonName);
+            sb.Append(EscapeCSharpString(prop.JsonName));
             sb.AppendLine("\"u8);");
             EmitSerializeProperty(sb, prop, "value." + prop.Name, "        ");
         }
@@ -277,7 +277,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append("            ");
             sb.Append(kw);
             sb.Append(" (TextHelpers.Eq(__n, \"");
-            sb.Append(np.JsonName);
+            sb.Append(EscapeCSharpString(np.JsonName));
             sb.AppendLine("\"u8))");
             sb.AppendLine("            {");
             EmitDeserializeProperty(sb, np, "obj", "                ");
@@ -341,7 +341,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         foreach (var prop in type.Properties)
         {
             sb.Append("            jw.WritePropertyName(\"");
-            sb.Append(prop.JsonName);
+            sb.Append(EscapeCSharpString(prop.JsonName));
             sb.AppendLine("\"u8);");
             EmitSerializeProperty(sb, prop, $"value.{prop.Name}", "            ");
         }
@@ -715,7 +715,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append("                ");
             sb.Append(keyword);
             sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
-            sb.Append(prop.JsonName);
+            sb.Append(EscapeCSharpString(prop.JsonName));
             sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
 
@@ -1347,7 +1347,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(" (TextHelpers.Eq(");
             sb.Append(propVarName);
             sb.Append(", \"");
-            sb.Append(np.JsonName);
+            sb.Append(EscapeCSharpString(np.JsonName));
             sb.AppendLine("\"u8))");
             sb.Append(indent);
             sb.AppendLine("{");
@@ -1923,4 +1923,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "array" => "object",
             _ => "object"
         };
+
+    /// <summary>
+    /// Escapes \\ and \" for safe embedding in generated C# string literals.
+    /// Also escapes \n, \r, \t, and < 0x20 chars to keep generated C# compilable.
+    /// </summary>
+    private static string EscapeCSharpString(string s) =>
+        s.Replace("\\", "\\\\")
+            .Replace("\"", "\\\"")
+            .Replace("\n", "\\n")
+            .Replace("\r", "\\r")
+            .Replace("\t", "\\t");
 }
