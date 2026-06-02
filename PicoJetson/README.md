@@ -1,6 +1,6 @@
 # PicoJetson
 
-Zero-allocation, AOT-first JSON serializer with SIMD-accelerated parsing and source-generated zero-reflection code.
+AOT-first JSON serializer with SIMD-accelerated parsing and source-generated zero-reflection code.
 
 [![NuGet](https://img.shields.io/nuget/v/PicoJetson)](https://www.nuget.org/packages/PicoJetson)
 

@@ -1,6 +1,6 @@
 # PicoMsgPack
 
-High-performance, AOT-compatible MessagePack serializer with zero-reflection source generation.
+AOT-compatible MessagePack serializer with zero-reflection source generation.
 
 [![NuGet](https://img.shields.io/nuget/v/PicoMsgPack)](https://www.nuget.org/packages/PicoMsgPack)
 

@@ -436,6 +436,17 @@ public class GeneratorTests
         await Assert.That(result.Nickname).IsEqualTo("Test");
     }
 
+    [Test]
+    public async Task Nullable_StringNull_RoundTrip()
+    {
+        // string? = null should serialize as JSON null and deserialize back to null
+        var model = new NullableModel { OptionalAge = null, Nickname = null };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var result = JsonSerializer.Deserialize<NullableModel>(bytes);
+        await Assert.That(result!.OptionalAge).IsNull();
+        await Assert.That(result.Nickname).IsNull();
+    }
+
     // ---------- ListModel manual structs ----------
 
     private readonly struct ListModelJsonSerializer : ISerializer<ListModel>

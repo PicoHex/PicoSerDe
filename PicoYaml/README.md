@@ -1,6 +1,11 @@
 # PicoYaml
 
-The **only AOT-compatible YAML library** for .NET. Zero-reflection source generation with stack-allocated readers/writers.
+The **only AOT-compatible YAML library** for .NET — reflection-free source
+generation with `ref struct` readers/writers. Supports indentation-based
+mapping, flow style, anchors & aliases, and multi-document streams.
+
+**Coverage:** Core YAML 1.2 subset. Complex block scalar combinations,
+advanced merge key patterns, and full tag resolution are not yet supported.
 
 [![NuGet](https://img.shields.io/nuget/v/PicoYaml)](https://www.nuget.org/packages/PicoYaml)
 
@@ -36,7 +41,7 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 ## Features
 
 - **YAML format** — indentation-based, flow style, anchors & aliases
-- **Zero heap allocation** — `ref struct` reader/writer
+- **`ref struct`** reader/writer — stack-allocated on the hot path
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
 - **Only AOT YAML library** — YamlDotNet and VYaml cannot run under NativeAOT
 - **Anchors & aliases** — `&name` / `*name` with self-referencing support
