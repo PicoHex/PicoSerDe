@@ -135,11 +135,6 @@ public ref struct YamlReader
     private const int MaxTokens = 100_000;
     private int _tokenCount;
 
-    // Stall detection: if ReadSpan doesn't advance position after N calls, throw
-    private int _stallPosition;
-    private int _stallCount;
-    private const int MaxStallCount = 10;
-
     public YamlReader(ReadOnlySpan<byte> data)
     {
         _data = data;
@@ -160,8 +155,6 @@ public ref struct YamlReader
         _bufCount = 0;
         _maxDepth = 256;
         _tokenCount = 0;
-        _stallPosition = 0;
-        _stallCount = 0;
     }
 
     public YamlReader(ReadOnlySequence<byte> data)
@@ -184,8 +177,6 @@ public ref struct YamlReader
         _bufCount = 0;
         _maxDepth = 256;
         _tokenCount = 0;
-        _stallPosition = 0;
-        _stallCount = 0;
     }
 
     public TokenType TokenType => _tokenType;
@@ -217,22 +208,6 @@ public ref struct YamlReader
             }
             return true;
         }
-
-        // Stall detection: if ReadSpan/ReadSeq is called repeatedly
-        // without _position advancing, something is wrong.
-        if (_position == _stallPosition)
-        {
-            if (++_stallCount >= MaxStallCount)
-                throw new FormatException(
-                    $"Parser stalled at offset {_position} after {MaxStallCount} attempts; likely infinite loop"
-                );
-        }
-        else
-        {
-            _stallPosition = _position;
-            _stallCount = 0;
-        }
-
         return _isSequence ? ReadSeq() : ReadSpan();
     }
 
