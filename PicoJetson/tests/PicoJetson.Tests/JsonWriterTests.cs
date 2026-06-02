@@ -273,4 +273,62 @@ public class JsonWriterTests
         var result = GetWrittenString(w, buf);
         await Assert.That(result).IsEqualTo("{\"a\":1}");
     }
+
+    // === Code review: property name escaping (#1) ===
+
+    [Test]
+    public async Task WritePropertyName_EscapesQuote()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteStartObject();
+        w.WritePropertyName("he\"llo"u8);
+        w.WriteNull();
+        w.WriteEndObject();
+        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"he\\\"llo\":null}");
+    }
+
+    [Test]
+    public async Task WritePropertyName_EscapesBackslash()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteStartObject();
+        w.WritePropertyName("a\\b"u8);
+        w.WriteNull();
+        w.WriteEndObject();
+        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"a\\\\b\":null}");
+    }
+
+    [Test]
+    public async Task WritePropertyName_EscapesNewline()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteStartObject();
+        w.WritePropertyName("a\nb"u8);
+        w.WriteNull();
+        w.WriteEndObject();
+        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"a\\nb\":null}");
+    }
+
+    // === Code review: control char escaping (#2) ===
+
+    [Test]
+    public async Task WriteString_EscapesControlChar_Null()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteString(new byte[] { (byte)'a', 0x00, (byte)'b' });
+        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("\"a\\u0000b\"");
+    }
+
+    [Test]
+    public async Task WriteString_EscapesControlChar_Escape()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteString(new byte[] { (byte)'x', 0x1B, (byte)'y' });
+        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("\"x\\u001By\"");
+    }
 }

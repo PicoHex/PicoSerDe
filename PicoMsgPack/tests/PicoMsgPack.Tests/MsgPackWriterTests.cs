@@ -149,4 +149,41 @@ public class MsgPackWriterTests
         await Assert.That(tag).IsEqualTo((byte)42);
         await Assert.That(extData).IsEquivalentTo(data);
     }
+
+    // === Code review #8: str32/bin32 support for large strings ===
+
+    [Test]
+    public async Task WriteString_ExceedsUInt16_UsesStr32()
+    {
+        var buf = new ArrayBufferWriter<byte>(70000);
+        var writer = new MsgPackWriter(buf);
+        // Create a string of 65536 'a' bytes — exceeds ushort max
+        var large = new byte[65536];
+        Array.Fill<byte>(large, (byte)'a');
+        writer.WriteString(large);
+
+        var result = buf.WrittenSpan.ToArray();
+        // str32 header: 0xDB + 4-byte big-endian length
+        await Assert.That(result[0]).IsEqualTo((byte)0xDB);
+        var len = (uint)(result[1] << 24 | result[2] << 16 | result[3] << 8 | result[4]);
+        await Assert.That(len).IsEqualTo(65536u);
+        await Assert.That(result[5]).IsEqualTo((byte)'a');
+        await Assert.That(result[^1]).IsEqualTo((byte)'a');
+    }
+
+    [Test]
+    public async Task WriteBytes_ExceedsUInt16_UsesBin32()
+    {
+        var buf = new ArrayBufferWriter<byte>(70000);
+        var writer = new MsgPackWriter(buf);
+        var large = new byte[65536];
+        Array.Fill<byte>(large, (byte)0xFF);
+        writer.WriteBytes(large);
+
+        var result = buf.WrittenSpan.ToArray();
+        // bin32 header: 0xC6 + 4-byte big-endian length
+        await Assert.That(result[0]).IsEqualTo((byte)0xC6);
+        var len = (uint)(result[1] << 24 | result[2] << 16 | result[3] << 8 | result[4]);
+        await Assert.That(len).IsEqualTo(65536u);
+    }
 }

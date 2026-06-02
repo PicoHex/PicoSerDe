@@ -91,7 +91,7 @@ public ref struct MsgPackWriter
             _buffer.Advance(2 + len);
             _bytesWritten += 2 + len;
         }
-        else
+        else if (len <= 65535)
         {
             Span<byte> s = _buffer.GetSpan(3 + len);
             s[0] = 0xDA;
@@ -99,6 +99,15 @@ public ref struct MsgPackWriter
             utf8Value.CopyTo(s.Slice(3));
             _buffer.Advance(3 + len);
             _bytesWritten += 3 + len;
+        }
+        else
+        {
+            Span<byte> s = _buffer.GetSpan(5 + len);
+            s[0] = 0xDB;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(1), (uint)len);
+            utf8Value.CopyTo(s.Slice(5));
+            _buffer.Advance(5 + len);
+            _bytesWritten += 5 + len;
         }
     }
 
@@ -194,7 +203,7 @@ public ref struct MsgPackWriter
             _buffer.Advance(2 + len);
             _bytesWritten += 2 + len;
         }
-        else
+        else if (len <= 65535)
         {
             Span<byte> s = _buffer.GetSpan(3 + len);
             s[0] = 0xC5;
@@ -202,6 +211,15 @@ public ref struct MsgPackWriter
             value.CopyTo(s.Slice(3));
             _buffer.Advance(3 + len);
             _bytesWritten += 3 + len;
+        }
+        else
+        {
+            Span<byte> s = _buffer.GetSpan(5 + len);
+            s[0] = 0xC6;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(1), (uint)len);
+            value.CopyTo(s.Slice(5));
+            _buffer.Advance(5 + len);
+            _bytesWritten += 5 + len;
         }
     }
 

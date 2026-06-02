@@ -366,7 +366,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(prop.ConverterTypeFullName);
             sb.AppendLine("();");
             sb.Append(indent);
-            sb.Append("__conv.Write(writer, ");
+            sb.Append("__conv.Write(jw.Buffer, ");
             sb.Append(accessor);
             sb.AppendLine(");");
             return;

@@ -12,6 +12,9 @@ public ref struct JsonWriter
 
     public long BytesWritten => _bytesWritten;
 
+    /// <summary>Exposes the underlying buffer for converter support in nested helpers.</summary>
+    internal IBufferWriter<byte> Buffer => _buffer;
+
     public JsonWriter(IBufferWriter<byte> buffer, bool indented = false, int maxDepth = 64)
     {
         _buffer = buffer;
@@ -75,8 +78,12 @@ public ref struct JsonWriter
     public void WriteString(ReadOnlySpan<byte> utf8Value)
     {
         BeforeWriteValue();
+        WriteQuotedString(utf8Value);
+    }
+
+    private void WriteQuotedString(ReadOnlySpan<byte> utf8Value)
+    {
         WriteByte((byte)'"');
-        // Scan for escape chars
         int escapeCount = 0;
         foreach (var b in utf8Value)
         {
@@ -90,7 +97,9 @@ public ref struct JsonWriter
         }
         else
         {
-            var escaped = new byte[utf8Value.Length + escapeCount];
+            // Each escape needs at most 5 extra bytes (\\u0000).
+            // Pre-allocate worst-case and truncate.
+            var escaped = new byte[utf8Value.Length + escapeCount * 5];
             int di = 0;
             foreach (var b in utf8Value)
             {
@@ -117,14 +126,36 @@ public ref struct JsonWriter
                         escaped[di++] = (byte)'t';
                         break;
                     default:
-                        escaped[di++] = b;
+                        if (b < 0x20)
+                        {
+                            // \uXXXX for control characters
+                            escaped[di++] = (byte)'\\';
+                            escaped[di++] = (byte)'u';
+                            escaped[di++] = (byte)'0';
+                            escaped[di++] = (byte)'0';
+                            HexToBytes(b, escaped.AsSpan(di));
+                            di += 2;
+                        }
+                        else
+                        {
+                            escaped[di++] = b;
+                        }
                         break;
                 }
             }
-            WriteRaw(escaped);
+            _buffer.Write(escaped.AsSpan(0, di));
+            _bytesWritten += di;
         }
         WriteByte((byte)'"');
     }
+
+    private static void HexToBytes(byte b, Span<byte> dest)
+    {
+        dest[0] = ToHex((b >> 4) & 0xF);
+        dest[1] = ToHex(b & 0xF);
+    }
+
+    private static byte ToHex(int n) => (byte)(n < 10 ? '0' + n : 'A' + n - 10);
 
     public void WriteString(scoped ReadOnlySpan<char> value)
     {
@@ -197,9 +228,7 @@ public ref struct JsonWriter
         _needsComma |= (1UL << _depth);
         if (_indented)
             WriteIndent();
-        WriteByte((byte)'"');
-        WriteRaw(utf8Name);
-        WriteByte((byte)'"');
+        WriteQuotedString(utf8Name);
         WriteRaw(_indented ? ": "u8 : ":"u8);
         _afterPropertyName = true;
     }
