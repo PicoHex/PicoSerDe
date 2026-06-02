@@ -516,4 +516,60 @@ public class JsonReaderTests
             await Assert.That(ex.Message).Contains("depth");
         }
     }
+
+    // === P0 #2: ArrayPool buffer leak — many escaped strings trigger >8 TrackBuffer calls ===
+
+    [Test]
+    public async Task Dispose_ReturnsAllTrackedBuffers()
+    {
+        // JSON with 12 escaped strings forces >8 TrackBuffer calls via UnescapeIfNeeded.
+        // Each "\\n" → actual backslash-n escape → triggers buffer rental.
+        var jsonStr =
+            "{"
+            + "\"a\":\"\\n\","
+            + "\"b\":\"\\n\","
+            + "\"c\":\"\\n\","
+            + "\"d\":\"\\n\","
+            + "\"e\":\"\\n\","
+            + "\"f\":\"\\n\","
+            + "\"g\":\"\\n\","
+            + "\"h\":\"\\n\","
+            + "\"i\":\"\\n\","
+            + "\"j\":\"\\n\","
+            + "\"k\":\"\\n\","
+            + "\"l\":\"\\n\"}";
+
+        var json = Encoding.UTF8.GetBytes(jsonStr);
+        var reader = new JsonReader(json);
+
+        // Read all tokens, collecting values
+        var values = new List<string>();
+        while (reader.Read())
+        {
+            if (reader.TokenType == TokenType.String)
+                values.Add(Encoding.UTF8.GetString(reader.GetStringRaw()));
+        }
+
+        reader.Dispose();
+
+        // Capture values before any await (ref struct can't cross await boundary)
+        var capturedValues = values;
+        var capturedPeak = reader.PeakTrackedBufferCount;
+        var capturedLeaked = reader.LeakedBufferCount;
+        var capturedCount = reader.TrackedBufferCount;
+
+        // All 12 string values should be "\n" (newline)
+        await Assert.That(capturedValues.Count).IsEqualTo(12);
+        foreach (var v in capturedValues)
+            await Assert.That(v).IsEqualTo("\n");
+
+        // Prove >8 buffers were tracked (overflowed the 8-slot tracking array)
+        await Assert.That(capturedPeak).IsGreaterThan(8);
+
+        // Prove all tracked buffers were returned (LeakedBufferCount == 0)
+        await Assert.That(capturedLeaked).IsEqualTo(0);
+
+        // Prove _bufCount was reset
+        await Assert.That(capturedCount).IsEqualTo(0);
+    }
 }

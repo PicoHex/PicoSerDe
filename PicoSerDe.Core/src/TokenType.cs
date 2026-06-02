@@ -11,10 +11,11 @@ public enum TokenType
     Null,
     Bool,
 
-    /// <summary>Reserved for future format support. Not currently emitted by any reader/writer.</summary>
+    // ── Reserved for future format support ──
+    // These enum values are placeholders for potential Int8/Int16/Float16
+    // support (e.g., MsgPack). Not emitted by any current reader/writer.
+    // If unused by v2.1, consider removal or consolidation.
     Int8,
-
-    /// <summary>Reserved for future format support. Not currently emitted by any reader/writer.</summary>
     Int16,
     Int32,
     Int64,
@@ -22,11 +23,12 @@ public enum TokenType
     UInt16,
     UInt32,
     UInt64,
-
-    /// <summary>Reserved for future format support. Not currently emitted by any reader/writer.</summary>
     Float16,
     Float32,
     Float64,
+
+    // ── End reserved block ──
+
     String,
     Bytes,
     Extension,

@@ -63,6 +63,18 @@ public ref struct JsonReader
 
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
 
+    /// <summary>For testing: number of tracked rented buffers (0 after Dispose).</summary>
+    internal int TrackedBufferCount => _bufCount;
+
+    /// <summary>For testing: peak tracked count during reading.</summary>
+    internal int PeakTrackedBufferCount { get; private set; }
+
+    /// <summary>
+    /// For testing: total TrackBuffer calls minus total ReturnBuf calls.
+    /// Should be 0 after Dispose; > 0 indicates a buffer leak.
+    /// </summary>
+    internal int LeakedBufferCount { get; private set; }
+
     /// <summary>Direct buffer access for optimized generated code (span mode only).</summary>
     public ReadOnlySpan<byte> RawBuffer => _isSequence ? default : _data;
 
@@ -955,17 +967,21 @@ public ref struct JsonReader
         _rentedBuffer = null;
     }
 
-    private static void ReturnBuf(ref byte[]? buf)
+    private void ReturnBuf(ref byte[]? buf)
     {
         if (buf is not null)
         {
             ArrayPool<byte>.Shared.Return(buf);
             buf = null;
+            LeakedBufferCount--;
         }
     }
 
     private void TrackBuffer(byte[] buf)
     {
+        LeakedBufferCount++;
+        if (_bufCount > PeakTrackedBufferCount)
+            PeakTrackedBufferCount = _bufCount;
         switch (_bufCount++)
         {
             case 0:
@@ -990,6 +1006,7 @@ public ref struct JsonReader
                 _rb6 = buf;
                 break;
             default:
+                ReturnBuf(ref _rb7);
                 _rb7 = buf;
                 break;
         }

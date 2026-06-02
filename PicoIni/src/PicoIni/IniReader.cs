@@ -221,6 +221,7 @@ public ref struct IniReader
                 _rb6 = buf;
                 break;
             default:
+                ReturnBuf(ref _rb7);
                 _rb7 = buf;
                 break;
         }

@@ -139,6 +139,8 @@ public ref struct MsgPackReader
 
     private void PushLevel(bool isMap, int count)
     {
+        if (_depth >= MaxDepth)
+            throw new FormatException($"Maximum depth of {MaxDepth} exceeded");
         _isMapStack[_depth] = isMap;
         _expectKeyStack[_depth] = isMap;
         _elementStack[_depth] = count;

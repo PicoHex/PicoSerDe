@@ -5,6 +5,12 @@ public static class SerializerExtensions
     [ThreadStatic]
     private static ArrayBufferWriter<byte>? _sharedWriter;
 
+    /// <summary>
+    /// Returns a reusable thread-local writer. NOT reentrant-safe:
+    /// calling Serialize&lt;T&gt; inside a Serialize&lt;U&gt; callback will
+    /// corrupt the shared buffer. Use a separate IBufferWriter&lt;byte&gt;
+    /// for nested serialization scenarios.
+    /// </summary>
     public static ArrayBufferWriter<byte> RentWriter()
     {
         var w = _sharedWriter ??= new ArrayBufferWriter<byte>(1024);
@@ -42,6 +48,8 @@ public static class SerializerExtensions
     {
         var writer = RentWriter();
         serializer.Serialize(writer, value);
+        // NOTE: ToArray() here is unavoidable — async WriteAsync requires
+        // a heap-allocated buffer that outlives the ArrayBufferWriter's span.
         await stream.WriteAsync(writer.WrittenSpan.ToArray(), ct);
     }
 

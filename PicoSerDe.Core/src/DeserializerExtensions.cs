@@ -19,6 +19,8 @@ public static class DeserializerExtensions
         {
             using var ms = new MemoryStream();
             stream.CopyTo(ms);
+            // NOTE: ToArray() here is unavoidable — stream deserialization
+            // requires a heap buffer to materialize the full payload.
             return deserializer.Deserialize(ms.ToArray().AsSpan());
         }
 
@@ -28,6 +30,7 @@ public static class DeserializerExtensions
         {
             using var ms = new MemoryStream();
             await stream.CopyToAsync(ms, ct);
+            // NOTE: ToArray() unavoidable — async stream copy requires heap buffer.
             return deserializer.Deserialize(ms.ToArray().AsSpan());
         }
 

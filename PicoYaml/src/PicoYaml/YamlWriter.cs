@@ -4,15 +4,17 @@ public ref struct YamlWriter
 {
     private IBufferWriter<byte> _buffer;
     private long _bytesWritten;
+    private readonly int _maxDepth;
     private int _depth;
     private bool _afterKey;
 
     public long BytesWritten => _bytesWritten;
 
-    public YamlWriter(IBufferWriter<byte> buffer)
+    public YamlWriter(IBufferWriter<byte> buffer, int maxDepth = 256)
     {
         _buffer = buffer;
         _bytesWritten = 0;
+        _maxDepth = maxDepth;
         _depth = 0;
         _afterKey = false;
     }
@@ -185,6 +187,8 @@ public ref struct YamlWriter
 
     public void WriteStartMapping()
     {
+        if (_depth >= _maxDepth)
+            throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
         if (_afterKey)
         {
             WriteNewLine();

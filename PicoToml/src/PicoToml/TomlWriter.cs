@@ -4,15 +4,17 @@ public ref struct TomlWriter
 {
     private IBufferWriter<byte> _buffer;
     private long _bytesWritten;
+    private readonly int _maxDepth;
     private int _arrayDepth;
     private long _arrayCommaMask;
     private int _inlineDepth;
     private long _inlineCommaMask;
 
-    public TomlWriter(IBufferWriter<byte> buffer)
+    public TomlWriter(IBufferWriter<byte> buffer, int maxDepth = 256)
     {
         _buffer = buffer;
         _bytesWritten = 0;
+        _maxDepth = maxDepth;
         _arrayDepth = 0;
         _arrayCommaMask = 0;
         _inlineDepth = 0;
@@ -135,6 +137,8 @@ public ref struct TomlWriter
 
     public void WriteStartArray(ReadOnlySpan<byte> key)
     {
+        if (_arrayDepth >= _maxDepth)
+            throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
         if (_arrayDepth > 0)
             ArrayBeforeValue();
         if (key.Length > 0)
@@ -159,6 +163,8 @@ public ref struct TomlWriter
 
     public void WriteStartInlineTable(string key)
     {
+        if (_inlineDepth >= _maxDepth)
+            throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
         WriteRaw(Encoding.UTF8.GetBytes(key));
         WriteRaw(" = { "u8);
         _inlineDepth++;

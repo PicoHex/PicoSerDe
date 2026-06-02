@@ -83,7 +83,12 @@ internal static class TypeKindResolver
             SpecialType.System_Int32 => "int32",
             SpecialType.System_Int64 => "int64",
             SpecialType.System_Double => "float64",
-            SpecialType.System_Single => "float64",
+            // NOTE: System.Single (C# float) maps to "float64" intentionally —
+            // the generated code uses double as the universal floating-point
+            // representation. Round-tripping preserves exact values for most
+            // float32 inputs. If lossless float32 is needed, add a separate "float32" kind.
+            SpecialType.System_Single
+                => "float64",
             SpecialType.System_Boolean => "boolean",
             SpecialType.System_DateTime => "datetime",
             SpecialType.System_Decimal => "decimal",

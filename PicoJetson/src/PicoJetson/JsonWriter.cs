@@ -5,17 +5,19 @@ public ref struct JsonWriter
     private IBufferWriter<byte> _buffer;
     private long _bytesWritten;
     private readonly bool _indented;
+    private readonly int _maxDepth;
     private int _depth;
     private ulong _needsComma;
     private bool _afterPropertyName;
 
     public long BytesWritten => _bytesWritten;
 
-    public JsonWriter(IBufferWriter<byte> buffer, bool indented = false)
+    public JsonWriter(IBufferWriter<byte> buffer, bool indented = false, int maxDepth = 64)
     {
         _buffer = buffer;
         _bytesWritten = 0;
         _indented = indented;
+        _maxDepth = maxDepth;
         _depth = 0;
         _needsComma = 0UL;
         _afterPropertyName = false;
@@ -231,6 +233,8 @@ public ref struct JsonWriter
 
     public void WriteStartObject()
     {
+        if (_depth >= _maxDepth)
+            throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
         BeforeWriteValue();
         WriteByte((byte)'{');
         _depth++;
@@ -247,6 +251,8 @@ public ref struct JsonWriter
 
     public void WriteStartArray()
     {
+        if (_depth >= _maxDepth)
+            throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
         BeforeWriteValue();
         WriteByte((byte)'[');
         _depth++;

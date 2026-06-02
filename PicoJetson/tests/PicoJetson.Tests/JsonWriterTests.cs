@@ -216,4 +216,61 @@ public class JsonWriterTests
             await Assert.That(true).IsTrue();
         }
     }
+
+    // === P0 #1: maxDepth guard ===
+
+    [Test]
+    public async Task MaxDepth_Exceeded_ThrowsFormatException()
+    {
+        var buf = new ArrayBufferWriter<byte>(512);
+        var w = new JsonWriter(buf, maxDepth: 64);
+
+        // Fill depth to exactly 64 (guard checks >= 64 before incrementing)
+        for (int i = 0; i < 64; i++)
+            w.WriteStartArray();
+
+        // Depth is now 64 — the next Start should throw
+        try
+        {
+            w.WriteStartArray();
+            // If we reach here, the guard didn't fire
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task MaxDepth_WithinLimit_WritesCorrectly()
+    {
+        var buf = new ArrayBufferWriter<byte>(512);
+        var w = new JsonWriter(buf, maxDepth: 64);
+
+        // Nest 8 levels — well within limit
+        for (int i = 0; i < 8; i++)
+            w.WriteStartArray();
+        w.WriteNumber(42);
+        for (int i = 0; i < 8; i++)
+            w.WriteEndArray();
+
+        var result = GetWrittenString(w, buf);
+        await Assert.That(result).IsEqualTo("[[[[[[[[42]]]]]]]]");
+    }
+
+    [Test]
+    public async Task MaxDepth_Default_AllowsReasonableDepth()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+        w.WriteNumber(1);
+        w.WriteEndObject();
+
+        var result = GetWrittenString(w, buf);
+        await Assert.That(result).IsEqualTo("{\"a\":1}");
+    }
 }

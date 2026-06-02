@@ -229,4 +229,30 @@ public class MsgPackReaderTests
         await Assert.That(v2).IsEqualTo(30);
         await Assert.That(t6).IsEqualTo(TokenType.ObjectEnd);
     }
+
+    // === P1 #3: maxDepth guard ===
+    [Test]
+    public async Task DeepNesting_ExceedsMaxDepth_ThrowsFormatException()
+    {
+        // Build 65 nested 1-element arrays (exceeds IntStack64's 64-element capacity)
+        // Each 0x91 = fixarray(1)
+        var data = new byte[65];
+        for (int i = 0; i < 65; i++)
+            data[i] = 0x91; // fixarray with 1 element
+
+        var reader = new MsgPackReader(data);
+        try
+        {
+            // Read deep enough to exceed depth 64
+            for (int i = 0; i < 64; i++)
+                reader.Read();
+            // The 65th should throw
+            reader.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
 }
