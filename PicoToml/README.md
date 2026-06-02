@@ -1,6 +1,6 @@
 # PicoToml
 
-Zero-allocation, AOT-first TOML serializer with zero-reflection source generation.
+AOT-first, reflection-free TOML serializer.
 
 [![NuGet](https://img.shields.io/nuget/v/PicoToml)](https://www.nuget.org/packages/PicoToml)
 
@@ -35,7 +35,7 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
 ## Features
 
 - **TOML format** — tables, arrays, inline tables, multi-line strings
-- **Zero heap allocation** — `ref struct` reader/writer
+- **`ref struct`** reader/writer — stack-allocated on the hot path
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
 - **Multi-line strings** — basic (`"""`) and literal (`'''`) support
 - **Inline tables** — `{key = value, ...}` syntax
@@ -57,13 +57,15 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
 
 AOT self-contained, .NET 10, 100K iterations:
 
-| Benchmark | PicoToml | Tommy | Ratio |
+| Benchmark | PicoToml | Tommy¹ | Ratio |
 |-----------|:-------:|:-----:|:-----:|
-| Serialize String | 0.8μs | 0.2μs | 0.29x |
-| Deserialize String | 1.4μs | 0.2μs | 0.15x |
-| Nested Serialize | 3.3μs | 0.6μs | 0.20x |
+| Simple Serialize | 0.9μs | 0.3μs | 0.31x |
+| Simple Deserialize | 1.2μs | 0.5μs | 0.48x |
+| Nested Serialize | 2.7μs | 0.6μs | 0.21x |
+| Nested Deserialize | 2.7μs | 0.6μs | 0.23x |
 
-> PicoToml trades JIT peak performance for **full AOT compatibility** — the competitor uses runtime reflection unavailable in AOT.
+> ¹ Tommy uses runtime reflection — incompatible with NativeAOT/trimming.
+> PicoToml prioritizes AOT deployability over JIT peak throughput.
 
 ## Low-Level API
 

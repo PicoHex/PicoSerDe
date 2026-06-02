@@ -1,6 +1,6 @@
 # PicoIni
 
-Zero-allocation, AOT-first INI serializer with zero-reflection source generation.
+AOT-first, reflection-free INI serializer.
 
 [![NuGet](https://img.shields.io/nuget/v/PicoIni)](https://www.nuget.org/packages/PicoIni)
 
@@ -40,7 +40,7 @@ var ini = IniSerializer.Serialize(config);
 ## Features
 
 - **INI format** — sections, key-value pairs, comments (`;` / `#`)
-- **Zero heap allocation** — `ref struct` reader/writer
+- **`ref struct`** reader/writer — stack-allocated on the hot path
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
 - **Quoted values** — with escape sequence support (`\"`, `\n`, `\t`, `\r`, `\\`)
 - **Case-insensitive** property name matching
@@ -63,12 +63,14 @@ var ini = IniSerializer.Serialize(config);
 
 AOT self-contained, .NET 10, 100K iterations:
 
-| Benchmark | PicoIni | ini-parser | Ratio |
+| Benchmark | PicoIni | ini-parser¹ | Ratio |
 |-----------|:------:|:----------:|:-----:|
-| Serialize String | 1.0μs | 0.1μs | 0.13x |
-| Deserialize String | 13.4μs | 0.2μs | 0.01x |
+| Simple Serialize | 1.4μs | 0.2μs | 0.16x |
+| Simple Deserialize | 11.3μs | 0.6μs | 0.05x |
+| Complex Serialize | 2.3μs | 0.5μs | 0.23x |
 
-> PicoIni trades JIT peak performance for **full AOT compatibility** — the competitor uses runtime reflection unavailable in AOT.
+> ¹ ini-parser uses runtime reflection — incompatible with NativeAOT/trimming.
+> PicoIni prioritizes AOT deployability over JIT peak throughput.
 
 ## Low-Level API
 
