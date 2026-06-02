@@ -146,6 +146,11 @@ public ref struct MsgPackReader
 
     private byte[] RentBuf(int size)
     {
+        if (_rentedBuffer is not null)
+        {
+            ArrayPool<byte>.Shared.Return(_rentedBuffer);
+            _rentedBuffer = null;
+        }
         var buf = ArrayPool<byte>.Shared.Rent(size);
         _rentedBuffer = buf;
         return buf;

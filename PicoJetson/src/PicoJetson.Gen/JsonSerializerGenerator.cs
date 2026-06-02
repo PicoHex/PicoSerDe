@@ -666,6 +666,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(" Deserialize(ReadOnlySpan<byte> data)");
         sb.AppendLine("        {");
         sb.AppendLine("            var reader = new JsonReader(data);");
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
 
         if (hasCtor)
         {
@@ -756,6 +758,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("            return obj;");
         }
 
+        sb.AppendLine("            }");
+        sb.AppendLine("            finally");
+        sb.AppendLine("            {");
+        sb.AppendLine("                reader.Dispose();");
+        sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
     }

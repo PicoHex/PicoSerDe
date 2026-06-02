@@ -223,17 +223,16 @@ public class JsonWriterTests
     public async Task MaxDepth_Exceeded_ThrowsFormatException()
     {
         var buf = new ArrayBufferWriter<byte>(512);
-        var w = new JsonWriter(buf, maxDepth: 64);
+        var w = new JsonWriter(buf, maxDepth: 63);
 
-        // Fill depth to exactly 64 (guard checks >= 64 before incrementing)
-        for (int i = 0; i < 64; i++)
+        // Fill depth to 63 (guard checks >= 63 before incrementing)
+        for (int i = 0; i < 63; i++)
             w.WriteStartArray();
 
-        // Depth is now 64 — the next Start should throw
+        // Depth is now 63 — the next Start should throw
         try
         {
             w.WriteStartArray();
-            // If we reach here, the guard didn't fire
             await Assert.That(true).IsFalse();
         }
         catch (FormatException)
@@ -246,7 +245,7 @@ public class JsonWriterTests
     public async Task MaxDepth_WithinLimit_WritesCorrectly()
     {
         var buf = new ArrayBufferWriter<byte>(512);
-        var w = new JsonWriter(buf, maxDepth: 64);
+        var w = new JsonWriter(buf, maxDepth: 63);
 
         // Nest 8 levels — well within limit
         for (int i = 0; i < 8; i++)

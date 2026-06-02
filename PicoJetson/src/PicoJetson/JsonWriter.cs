@@ -15,7 +15,7 @@ public ref struct JsonWriter
     /// <summary>Exposes the underlying buffer for converter support in nested helpers.</summary>
     internal IBufferWriter<byte> Buffer => _buffer;
 
-    public JsonWriter(IBufferWriter<byte> buffer, bool indented = false, int maxDepth = 64)
+    public JsonWriter(IBufferWriter<byte> buffer, bool indented = false, int maxDepth = 63)
     {
         _buffer = buffer;
         _bytesWritten = 0;
@@ -81,7 +81,7 @@ public ref struct JsonWriter
         WriteQuotedString(utf8Value);
     }
 
-    private void WriteQuotedString(ReadOnlySpan<byte> utf8Value)
+    private void WriteQuotedString(scoped ReadOnlySpan<byte> utf8Value)
     {
         WriteByte((byte)'"');
         int escapeCount = 0;
@@ -165,8 +165,8 @@ public ref struct JsonWriter
         {
             Span<byte> buf = stackalloc byte[max];
             int w = Encoding.UTF8.GetBytes(value, buf);
-            WriteByte((byte)'"');
             var slice = buf[..w];
+            WriteByte((byte)'"');
             int escapeCount = 0;
             foreach (var b in slice)
                 if (b is (byte)'"' or (byte)'\\' or < 0x20)
@@ -178,7 +178,7 @@ public ref struct JsonWriter
             }
             else
             {
-                var escaped = new byte[w + escapeCount];
+                var escaped = new byte[w + escapeCount * 5];
                 int di = 0;
                 foreach (var b in slice)
                 {
@@ -205,12 +205,22 @@ public ref struct JsonWriter
                             escaped[di++] = (byte)'t';
                             break;
                         default:
-                            escaped[di++] = b;
+                            if (b < 0x20)
+                            {
+                                escaped[di++] = (byte)'\\';
+                                escaped[di++] = (byte)'u';
+                                escaped[di++] = (byte)'0';
+                                escaped[di++] = (byte)'0';
+                                HexToBytes(b, escaped.AsSpan(di));
+                                di += 2;
+                            }
+                            else
+                                escaped[di++] = b;
                             break;
                     }
                 }
-                _buffer.Write(escaped);
-                _bytesWritten += escaped.Length;
+                _buffer.Write(escaped.AsSpan(0, di));
+                _bytesWritten += di;
             }
             WriteByte((byte)'"');
         }
@@ -221,7 +231,7 @@ public ref struct JsonWriter
         }
     }
 
-    public void WritePropertyName(ReadOnlySpan<byte> utf8Name)
+    public void WritePropertyName(scoped ReadOnlySpan<byte> utf8Name)
     {
         if ((_needsComma & (1UL << _depth)) != 0)
             WriteByte((byte)',');
@@ -235,23 +245,13 @@ public ref struct JsonWriter
 
     public void WritePropertyName(scoped ReadOnlySpan<char> name)
     {
+        // Delegate to the byte overload which does full escaping
         int max = Encoding.UTF8.GetMaxByteCount(name.Length);
         if (max <= 256)
         {
             Span<byte> buf = stackalloc byte[max];
             int w = Encoding.UTF8.GetBytes(name, buf);
-            if ((_needsComma & (1UL << _depth)) != 0)
-                WriteByte((byte)',');
-            _needsComma |= (1UL << _depth);
-            if (_indented)
-                WriteIndent();
-            WriteByte((byte)'"');
-            _buffer.Write(buf[..w]);
-            _bytesWritten += w;
-            WriteByte((byte)'"');
-            _buffer.Write(_indented ? ": "u8 : ":"u8);
-            _bytesWritten += _indented ? 2 : 1;
-            _afterPropertyName = true;
+            WritePropertyName(buf[..w]);
         }
         else
         {
@@ -308,7 +308,7 @@ public ref struct JsonWriter
         _needsComma |= (1UL << _depth);
     }
 
-    private void WriteRaw(ReadOnlySpan<byte> utf8)
+    private void WriteRaw(scoped ReadOnlySpan<byte> utf8)
     {
         _buffer.Write(utf8);
         _bytesWritten += utf8.Length;
