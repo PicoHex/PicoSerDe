@@ -80,3 +80,14 @@ public class LargeStringPoco
 {
     public string Body { get; set; } = "";
 }
+
+/// <summary>Medium model with 6 mixed scalar types — exercises key dispatch optimization.</summary>
+public class MediumScalarPoco
+{
+    public string Alpha { get; set; } = "";
+    public int Beta { get; set; }
+    public bool Gamma { get; set; }
+    public long Delta { get; set; }
+    public double Epsilon { get; set; }
+    public string Zeta { get; set; } = "";
+}
