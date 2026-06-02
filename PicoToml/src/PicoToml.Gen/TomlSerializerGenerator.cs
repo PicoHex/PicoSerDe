@@ -303,7 +303,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         if (props.Length == 0)
             return;
 
-        if (props.Length <= 4)
+        if (props.Length <= 2)
         {
             for (int i = 0; i < props.Length; i++)
             {

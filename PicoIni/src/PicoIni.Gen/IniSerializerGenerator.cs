@@ -503,7 +503,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         string bodyIndent
     )
     {
-        if (props.Count <= 4)
+        if (props.Count <= 2)
         {
             for (int i = 0; i < props.Count; i++)
             {
