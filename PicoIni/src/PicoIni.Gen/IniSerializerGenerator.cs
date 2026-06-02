@@ -526,6 +526,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             return;
         }
 
+        var outerIndent = indent;
         if (guard is not null)
         {
             s.Append(indent);
@@ -571,7 +572,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
 
         if (guard is not null)
         {
-            s.Append(indent[..^4]);
+            s.Append(outerIndent);
             s.AppendLine("}");
         }
     }

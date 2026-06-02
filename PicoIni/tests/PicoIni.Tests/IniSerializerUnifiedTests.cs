@@ -20,16 +20,6 @@ public class IniSerializerUnifiedTests
         public ServerSection Server { get; set; } = new();
     }
 
-    public class ManyScalarConfig
-    {
-        public string Alpha { get; set; } = "";
-        public int Beta { get; set; }
-        public bool Gamma { get; set; }
-        public long Delta { get; set; }
-        public double Epsilon { get; set; }
-        public string Zeta { get; set; } = "";
-    }
-
     private readonly struct SimpleConfigIniSerializer : ISerializer<SimpleConfig>
     {
         public void Serialize(IBufferWriter<byte> writer, SimpleConfig value)
@@ -201,4 +191,14 @@ public class IniSerializerUnifiedTests
         await Assert.That(result.Epsilon).IsEqualTo(5.5);
         await Assert.That(result.Zeta).IsEqualTo("z");
     }
+}
+
+public class ManyScalarConfig
+{
+    public string Alpha { get; set; } = "";
+    public int Beta { get; set; }
+    public bool Gamma { get; set; }
+    public long Delta { get; set; }
+    public double Epsilon { get; set; }
+    public string Zeta { get; set; } = "";
 }
