@@ -543,7 +543,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine(".Length)");
         s.Append(indent);
         s.AppendLine("{");
-        foreach (var group in props.GroupBy(p => Encoding.UTF8.GetByteCount(p.JsonName)).OrderBy(g => g.Key))
+        foreach (
+            var group in props
+                .GroupBy(p => Encoding.UTF8.GetByteCount(p.JsonName))
+                .OrderBy(g => g.Key)
+        )
         {
             s.Append(indent);
             s.Append("    case ");
@@ -558,7 +562,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(" (TextHelpers.Eq(");
                 s.Append(keyVar);
                 s.Append(", \"");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(groupProps[i].JsonName));
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(groupProps[i].JsonName)
+                );
                 s.AppendLine("\"u8)) {");
                 EmitRead(s, groupProps[i], target, bodyIndent + "        ");
                 s.Append(indent);
