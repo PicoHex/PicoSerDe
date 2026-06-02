@@ -138,6 +138,22 @@ NestedPoco TommyDeserNested(string s)
 {
     using var sr = new StringReader(s);
     var t = TOML.Parse(sr);
+    var tags = new List<string>();
+    if (t["Tags"].IsArray)
+    {
+        for (int i = 0; ; i++)
+        {
+            try
+            {
+                var v = t["Tags"][i];
+                tags.Add(v.AsString.Value);
+            }
+            catch
+            {
+                break;
+            }
+        }
+    }
     return new NestedPoco
     {
         Id = (int)t["Id"].AsInteger,
@@ -148,6 +164,6 @@ NestedPoco TommyDeserNested(string s)
             City = t["Address"]["City"].AsString,
             Zip = t["Address"]["Zip"].AsString
         },
-        Tags = ((TomlArray)t["Tags"]).RawArray.Select(n => n.AsString.Value).ToList()
+        Tags = tags
     };
 }
