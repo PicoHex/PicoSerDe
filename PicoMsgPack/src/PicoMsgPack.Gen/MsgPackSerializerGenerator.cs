@@ -248,8 +248,8 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             c++;
             return;
         }
-        bool needsNullCheck = p.TypeKind == "string";
-        if (p.IsNullable && p.TypeKind != "string")
+        bool needsNullCheck = p.TypeKind == "string" || p.IsNullableReference;
+        if (p.IsNullable && !p.IsNullableReference)
         {
             s.Append(ind);
             s.Append("if (");

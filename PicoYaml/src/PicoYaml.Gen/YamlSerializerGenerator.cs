@@ -800,14 +800,23 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);
-            s.AppendLine(".HasValue)");
+            if (p.IsNullableReference)
+            {
+                s.AppendLine(" != null)");
+            }
+            else
+            {
+                s.AppendLine(".HasValue)");
+            }
             s.Append(ind);
             s.AppendLine("{");
             s.Append(ind);
             s.Append("    yw.WritePropertyName(\"");
             s.Append(p.JsonName);
             s.AppendLine("\"u8);");
-            string valAccessor = $"{target}.{p.Name}.Value";
+            string valAccessor = p.IsNullableReference
+                ? $"{target}.{p.Name}"
+                : $"{target}.{p.Name}.Value";
             switch (p.TypeKind)
             {
                 case "string":

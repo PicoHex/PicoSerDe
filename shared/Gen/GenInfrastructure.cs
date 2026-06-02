@@ -67,7 +67,8 @@ internal readonly record struct PropertyInfo(
     string? SectionName = null,
     string? Comment = null,
     string? NestedElementTypeKind = null,
-    byte? ExtensionTag = null
+    byte? ExtensionTag = null,
+    bool IsNullableReference = false
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -244,6 +245,15 @@ internal static class GenInfrastructure
             var (typeKind, isNullable, _) = TypeKindResolver.Resolve(prop.Type, formatTag);
             if (typeKind is null)
                 continue;
+            // NRT annotation: string?, SomeClass?, etc. are not Nullable<T>
+            // but have NullableAnnotation.Annotated. Mark them as nullable
+            // reference types so SGs emit == null checks instead of .HasValue.
+            bool isNrtNullable = false;
+            if (!isNullable && prop.Type.NullableAnnotation == NullableAnnotation.Annotated)
+            {
+                isNullable = true;
+                isNrtNullable = true;
+            }
             if (converterType is not null && attrs.OverrideKindWithStringOnConverter)
                 typeKind = "string";
 
@@ -329,7 +339,8 @@ internal static class GenInfrastructure
                         : null,
                     SectionName: attrs.GetSectionName?.Invoke(prop),
                     Comment: attrs.GetPropertyComment?.Invoke(prop)
-                        ?? attrs.GetComment?.Invoke(prop.ContainingType)
+                        ?? attrs.GetComment?.Invoke(prop.ContainingType),
+                    IsNullableReference: isNrtNullable
                 )
             );
         }

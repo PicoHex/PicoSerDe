@@ -374,8 +374,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
         // Nullable wrapping
         var effectiveAccessor = accessor;
-        if (prop.IsNullable)
+        if (prop.IsNullable && !prop.IsNullableReference)
         {
+            // Value-type Nullable<T>: x.HasValue / x.Value
             sb.Append(indent);
             sb.Append("if (");
             sb.Append(accessor);
@@ -383,6 +384,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(indent);
             sb.AppendLine("{");
             effectiveAccessor = $"{accessor}.Value";
+            indent += "    ";
+        }
+        else if (prop.IsNullable && prop.IsNullableReference)
+        {
+            // Reference-type NRT: x != null
+            sb.Append(indent);
+            sb.Append("if (");
+            sb.Append(accessor);
+            sb.AppendLine(" != null)");
+            sb.Append(indent);
+            sb.AppendLine("{");
             indent += "    ";
         }
 

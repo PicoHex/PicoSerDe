@@ -418,7 +418,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(");");
             }
         }
-        else if (p.IsNullable)
+        else if (p.IsNullable && !p.IsNullableReference)
         {
             s.Append(indent);
             s.Append("if (");
@@ -433,6 +433,25 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(p.JsonName);
             s.Append("\", ");
             EmitValueAccessor(s, p, $"{target}.{p.Name}.Value");
+            s.AppendLine(");");
+            s.Append(indent);
+            s.AppendLine("}");
+        }
+        else if (p.IsNullable && p.IsNullableReference)
+        {
+            s.Append(indent);
+            s.Append("if (");
+            s.Append(target);
+            s.Append('.');
+            s.Append(p.Name);
+            s.AppendLine(" != null)");
+            s.Append(indent);
+            s.AppendLine("{");
+            s.Append(indent);
+            s.Append("    tw.WriteKeyValue(\"");
+            s.Append(p.JsonName);
+            s.Append("\", ");
+            EmitValueAccessor(s, p, $"{target}.{p.Name}");
             s.AppendLine(");");
             s.Append(indent);
             s.AppendLine("}");
