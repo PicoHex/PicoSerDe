@@ -30,12 +30,9 @@ public class FuzzingTests
         };
         foreach (var input in inputs)
         {
-            try
-            {
-                var r = new JsonReader(Encoding.UTF8.GetBytes(input));
-                while (r.Read()) { }
-            }
-            catch (FormatException) { } // expected for some inputs
+            var r = new JsonReader(Encoding.UTF8.GetBytes(input));
+            while (r.Read()) { }
+            // Valid JSON must parse without FormatException
         }
         await Assert.That(true).IsTrue();
     }
