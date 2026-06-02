@@ -34,6 +34,8 @@ jobs:
           - logical-target: osx-arm64
             runs-on: macos-latest
     runs-on: ${{ matrix.runs-on }}
+    # Fail fast instead of letting a hung test run to GitHub's 6h default limit.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -82,6 +84,8 @@ jobs:
             runs-on: macos-latest
             rid: osx-arm64
     runs-on: ${{ matrix.runs-on }}
+    # Fail fast instead of letting a hung publish/run reach GitHub's 6h default limit.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

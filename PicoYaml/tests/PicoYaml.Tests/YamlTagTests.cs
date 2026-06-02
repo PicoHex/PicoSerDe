@@ -29,6 +29,9 @@ public class YamlTagTests
         await Assert.That(str).Contains("!person");
         await Assert.That(str).Contains("Name: Alice");
         await Assert.That(str).Contains("Age: 30");
+        // The tag must terminate its own line; gluing it to the first property
+        // (e.g. "!person Name: ...") produces malformed YAML the reader loops on.
+        await Assert.That(str).StartsWith("!person\n");
     }
 
     [Test]

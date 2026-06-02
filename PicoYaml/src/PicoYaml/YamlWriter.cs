@@ -223,11 +223,14 @@ public ref struct YamlWriter
         WriteNewLine();
     }
 
-    /// <summary>Writes an explicit tag like !person before a value or mapping.</summary>
+    /// <summary>Writes an explicit tag like !person on its own line before a block mapping.</summary>
     public void WriteTag(string tag)
     {
+        // The tag must terminate the line. Emitting it inline (e.g. "!person Name: ...")
+        // produces malformed YAML that the reader cannot parse and loops on. A block node's
+        // tag belongs on its own line, with the mapping following on subsequent lines.
         WriteRaw(Encoding.UTF8.GetBytes(tag));
-        WriteByte((byte)' ');
+        WriteByte((byte)'\n');
     }
 
     private void WriteRaw(ReadOnlySpan<byte> utf8)
