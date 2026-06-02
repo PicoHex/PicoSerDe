@@ -25,16 +25,23 @@ High-performance, AOT-first serialization framework. Five formats, one unified A
 ## Performance Summary
 
 AOT self-contained, .NET 10, 100K iterations, win-x64.
+Numbers for INI/TOML/YAML are PicoSerDe on NativeAOT vs competitors
+on JIT — the competitors cannot run under NativeAOT at all.
 
-| Module | vs Competitor | Wins | Avg Speedup | Best |
-|--------|:------------:|:---:|:-----------:|:----:|
-| PicoJetson | System.Text.Json | 5/8 | **1.35x** | 2.20x |
-| PicoMsgPack | MessagePack-CSharp | 6/8 | **1.40x** | 2.18x |
-| PicoIni | ini-parser | 0/5 | 0.11x | — |
-| PicoToml | Tommy | 0/6 | 0.19x | — |
-| PicoYaml | Self | — | ~0.5x ser/deser | — |
+| Module | vs Competitor | Wins | Avg Speedup | Best | Competitor AOT? |
+|--------|:------------:|:---:|:-----------:|:----:|:---:|
+| PicoJetson | System.Text.Json | 5/8 | **1.35x** | 2.20x | ✅ |
+| PicoMsgPack | MessagePack-CSharp | 6/8 | **1.40x** | 2.18x | ❌ |
+| PicoIni | ini-parser | 0/5 | 0.11x | — | ❌ |
+| PicoToml | Tommy | 0/6 | 0.19x | — | ❌ |
+| PicoYaml | Self | — | ~0.5x ser/deser | — | ❌ |
 
-> INI/TOML/YAML competitors use runtime reflection unavailable in AOT. PicoSerDe trades JIT peak throughput for guaranteed AOT compatibility.
+> INI/TOML/YAML competitors use runtime reflection, dynamic code gen,
+> or unannotated types — all unavailable under NativeAOT. The speedup
+> numbers above are **PicoSerDe on AOT vs competitor on JIT**; PicoSerDe
+> cannot run faster because JIT has access to optimizations that AOT
+> forbids. The real comparison is: PicoSerDe is the **only** option that
+> runs at all in a fully-trimmed, self-contained NativeAOT deployment.
 
 ---
 

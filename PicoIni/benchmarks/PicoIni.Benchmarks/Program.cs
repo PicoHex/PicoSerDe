@@ -1,6 +1,7 @@
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoIni vs ini-parser — Performance Comparison");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
+Console.WriteLine("NOTE: ini-parser uses runtime reflection — incompatible with NativeAOT.");
 Console.WriteLine(new string('=', 60));
 Console.WriteLine();
 
@@ -40,23 +41,11 @@ complexIni.Global["Rating"] = complex
     .ToString(System.Globalization.CultureInfo.InvariantCulture);
 complexIni.Global["IsActive"] = complex.IsActive.ToString();
 
-IniParser.Model.IniData ParseIni(string s)
-{
-    return new IniParser.Parser.IniDataParser().Parse(s);
-}
-byte[] SerIni(IniParser.Model.IniData d)
-{
-    using var ms = new MemoryStream();
-    using var sw = new StreamWriter(ms);
-    parser.WriteData(sw, d);
-    sw.Flush();
-    return ms.ToArray();
-}
-SimplePoco DeserSimple(string s)
-{
-    var d = ParseIni(s);
-    return new SimplePoco { Name = d.Global["Name"], Age = int.Parse(d.Global["Age"]) };
-}
+// Pre-compute outside benchmark loops
+var simpleStrBytes = Encoding.UTF8.GetBytes(simpleStr);
+var complexStrBytes = Encoding.UTF8.GetBytes(complexStr);
+var simpleIniBytes = SerIni(simpleIni);
+var complexIniBytes = SerIni(complexIni);
 
 var results = new List<ComparisonResult>
 {
@@ -64,21 +53,21 @@ var results = new List<ComparisonResult>
         "Simple — Serialize (bytes)",
         "PicoIni",
         () => IniSerializer.SerializeToUtf8Bytes(simple),
-        "ini-parser",
+        "ini-parser¹",
         () => SerIni(simpleIni)
     ),
     Benchmark.Compare(
         "Simple — Deserialize (bytes)",
         "PicoIni",
         () => IniSerializer.Deserialize<SimplePoco>(simpleBytes),
-        "ini-parser",
+        "ini-parser¹",
         () => DeserSimple(simpleStr)
     ),
     Benchmark.Compare(
         "Complex — Serialize (bytes)",
         "PicoIni",
         () => IniSerializer.SerializeToUtf8Bytes(complex),
-        "ini-parser",
+        "ini-parser¹",
         () => SerIni(complexIni)
     ),
     // 文本格式真实场景: string 往返
@@ -86,14 +75,14 @@ var results = new List<ComparisonResult>
         "Simple — SerializeToString",
         "PicoIni",
         () => IniSerializer.Serialize(simple),
-        "ini-parser",
+        "ini-parser¹",
         () => SerIni(simpleIni)
     ),
     Benchmark.Compare(
         "Simple — Deserialize←string",
         "PicoIni",
-        () => IniSerializer.Deserialize<SimplePoco>(Encoding.UTF8.GetBytes(simpleStr)),
-        "ini-parser",
+        () => IniSerializer.Deserialize<SimplePoco>(simpleStrBytes),
+        "ini-parser¹",
         () => DeserSimple(simpleStr)
     ),
 };
@@ -107,5 +96,27 @@ foreach (var c in results)
 }
 
 Console.WriteLine();
+Console.WriteLine("¹ ini-parser uses runtime reflection — incompatible with NativeAOT/trimming.");
 Console.WriteLine(new string('=', 60));
 Console.WriteLine(SummaryFormatter.Format(results));
+
+return;
+
+// ── Helper functions ──
+
+IniParser.Model.IniData ParseIni(string s) => new IniParser.Parser.IniDataParser().Parse(s);
+
+byte[] SerIni(IniParser.Model.IniData d)
+{
+    using var ms = new MemoryStream();
+    using var sw = new StreamWriter(ms);
+    parser.WriteData(sw, d);
+    sw.Flush();
+    return ms.ToArray();
+}
+
+SimplePoco DeserSimple(string s)
+{
+    var d = ParseIni(s);
+    return new SimplePoco { Name = d.Global["Name"], Age = int.Parse(d.Global["Age"]) };
+}

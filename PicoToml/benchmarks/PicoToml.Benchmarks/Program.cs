@@ -1,6 +1,7 @@
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoToml vs Tommy — Performance Comparison");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
+Console.WriteLine("NOTE: Tommy uses runtime reflection — incompatible with NativeAOT.");
 Console.WriteLine(new string('=', 60));
 Console.WriteLine();
 
@@ -37,32 +38,13 @@ var nestedToml = new TomlTable
     ["Tags"] = new TomlArray { "dev", "bench" }
 };
 
-byte[] TommySer(TomlTable t)
-{
-    using var sw = new StringWriter();
-    t.WriteTo(sw);
-    sw.Flush();
-    return Encoding.UTF8.GetBytes(sw.ToString());
-}
-string TommySerStr(TomlTable t)
-{
-    using var sw = new StringWriter();
-    t.WriteTo(sw);
-    sw.Flush();
-    return sw.ToString();
-}
-SimplePoco TommyDeser(string s)
-{
-    using var sr = new StringReader(s);
-    var t = TOML.Parse(sr);
-    return new SimplePoco { Name = t["Name"].AsString, Age = (int)t["Age"].AsInteger };
-}
-NestedPoco TommyDeserNested(string s)
-{
-    using var sr = new StringReader(s);
-    var t = TOML.Parse(sr);
-    return new NestedPoco { Name = t["Name"].AsString };
-}
+// Pre-compute competitor outputs outside benchmark loops
+var simpleTomlBytes = TommySer(simpleToml);
+var simpleTomlStr = TommySerStr(simpleToml);
+var nestedTomlBytes = TommySer(nestedToml);
+var nestedTomlStr = TommySerStr(nestedToml);
+var simpleStrBytes = Encoding.UTF8.GetBytes(simpleStr);
+var nestedStrBytes = Encoding.UTF8.GetBytes(nestedStr);
 
 var results = new List<ComparisonResult>
 {
@@ -71,28 +53,28 @@ var results = new List<ComparisonResult>
         "Simple — Serialize (bytes)",
         "PicoToml",
         () => TomlSerializer.SerializeToUtf8Bytes(simple),
-        "Tommy",
+        "Tommy¹",
         () => TommySer(simpleToml)
     ),
     Benchmark.Compare(
         "Simple — Deserialize (bytes)",
         "PicoToml",
         () => TomlSerializer.Deserialize<SimplePoco>(simpleBytes),
-        "Tommy",
+        "Tommy¹",
         () => TommyDeser(simpleStr)
     ),
     Benchmark.Compare(
         "Nested — Serialize (bytes)",
         "PicoToml",
         () => TomlSerializer.SerializeToUtf8Bytes(nested),
-        "Tommy",
+        "Tommy¹",
         () => TommySer(nestedToml)
     ),
     Benchmark.Compare(
         "Nested — Deserialize (bytes)",
         "PicoToml",
         () => TomlSerializer.Deserialize<NestedPoco>(nestedBytes),
-        "Tommy",
+        "Tommy¹",
         () => TommyDeserNested(nestedStr)
     ),
     // string 往返（文本格式自然输出）
@@ -100,14 +82,14 @@ var results = new List<ComparisonResult>
         "Simple — SerializeToString",
         "PicoToml",
         () => TomlSerializer.Serialize(simple),
-        "Tommy",
+        "Tommy¹",
         () => TommySerStr(simpleToml)
     ),
     Benchmark.Compare(
         "Simple — Deserialize←string",
         "PicoToml",
-        () => TomlSerializer.Deserialize<SimplePoco>(Encoding.UTF8.GetBytes(simpleStr)),
-        "Tommy",
+        () => TomlSerializer.Deserialize<SimplePoco>(simpleStrBytes),
+        "Tommy¹",
         () => TommyDeser(simpleStr)
     ),
 };
@@ -121,5 +103,51 @@ foreach (var c in results)
 }
 
 Console.WriteLine();
+Console.WriteLine("¹ Tommy uses runtime reflection — incompatible with NativeAOT/trimming.");
 Console.WriteLine(new string('=', 60));
 Console.WriteLine(SummaryFormatter.Format(results));
+
+return;
+
+// ── Helper functions ──
+
+byte[] TommySer(TomlTable t)
+{
+    using var sw = new StringWriter();
+    t.WriteTo(sw);
+    sw.Flush();
+    return Encoding.UTF8.GetBytes(sw.ToString());
+}
+
+string TommySerStr(TomlTable t)
+{
+    using var sw = new StringWriter();
+    t.WriteTo(sw);
+    sw.Flush();
+    return sw.ToString();
+}
+
+SimplePoco TommyDeser(string s)
+{
+    using var sr = new StringReader(s);
+    var t = TOML.Parse(sr);
+    return new SimplePoco { Name = t["Name"].AsString, Age = (int)t["Age"].AsInteger };
+}
+
+NestedPoco TommyDeserNested(string s)
+{
+    using var sr = new StringReader(s);
+    var t = TOML.Parse(sr);
+    return new NestedPoco
+    {
+        Id = (int)t["Id"].AsInteger,
+        Name = t["Name"].AsString,
+        Address = new NestedAddress
+        {
+            Street = t["Address"]["Street"].AsString,
+            City = t["Address"]["City"].AsString,
+            Zip = t["Address"]["Zip"].AsString
+        },
+        Tags = ((TomlArray)t["Tags"]).RawArray.Select(n => n.AsString.Value).ToList()
+    };
+}
