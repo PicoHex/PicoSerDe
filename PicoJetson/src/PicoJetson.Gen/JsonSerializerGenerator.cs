@@ -1767,11 +1767,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     // ── Recursive nested-list helpers ──
 
-    /// <summary>Returns true if the property's NestedProperties describe a nested List&lt;List&lt;...&gt;&gt;.</summary>
+    /// <summary>Returns true if the property's element type is itself a list/array (nested collection).</summary>
     private static bool IsNestedList(PropertyInfo prop) =>
-        prop.NestedProperties.Length > 0
-        && prop.NestedProperties[0].TypeKind != "object"
-        && prop.NestedProperties[0].TypeKind != "dict";
+        (prop.ElementTypeKind is "list" or "array") && prop.NestedProperties.Length > 0;
 
     /// <summary>
     /// Recursively emits WriteStartArray / foreach / WriteEndArray for nested lists.
@@ -1827,7 +1825,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         int nestLevel
     )
     {
-        var innerTypeName = ResolveCSharpTypeName(prop.TypeKind);
+        // For nested lists, use ElementTypeName (e.g. "System.Collections.Generic.List<int>");
+        // for primitives, resolve from TypeKind (e.g. "int32" → "int").
+        var innerTypeName = prop.TypeKind is "list" or "array"
+            ? (prop.ElementTypeName ?? "object")
+            : ResolveCSharpTypeName(prop.TypeKind);
         var innerVar = nestLevel == 0 ? $"__inner_{propName}" : $"__inner_{propName}_{nestLevel}";
 
         sb.Append(indent);

@@ -1192,9 +1192,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     // ── Recursive nested-list helpers ──
 
     private static bool IsYamlNestedList(PropertyInfo p) =>
-        p.NestedProperties.Length > 0
-        && p.NestedProperties[0].TypeKind != "object"
-        && p.NestedProperties[0].TypeKind != "dict";
+        (p.ElementTypeKind is "list" or "array") && p.NestedProperties.Length > 0;
 
     private static void EmitYamlNestedListSerialize(
         StringBuilder s,
