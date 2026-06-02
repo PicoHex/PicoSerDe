@@ -100,11 +100,19 @@ public ref struct MsgPackReader
     {
         if (_isSequence)
         {
+            if (_seqReader.Remaining < count)
+                throw new FormatException(
+                    $"Expected {count} bytes, only {_seqReader.Remaining} remaining"
+                );
             var buf = RentBuf(count);
             _seqReader.TryCopyTo(buf.AsSpan(0, count));
             _seqReader.Advance(count);
             return buf.AsSpan(0, count);
         }
+        if (_position + count > _data.Length)
+            throw new FormatException(
+                $"Expected {count} bytes at offset {_position}, only {_data.Length - _position} remaining"
+            );
         var span = _data.Slice(_position, count);
         _position += count;
         return span;
@@ -114,6 +122,10 @@ public ref struct MsgPackReader
     {
         if (_isSequence)
         {
+            if (_seqReader.Remaining < bytes)
+                throw new FormatException(
+                    $"Expected {bytes} length bytes, only {_seqReader.Remaining} remaining"
+                );
             int v = 0;
             for (int i = 0; i < bytes; i++)
             {
@@ -122,6 +134,10 @@ public ref struct MsgPackReader
             }
             return v;
         }
+        if (_position + bytes > _data.Length)
+            throw new FormatException(
+                $"Expected {bytes} length bytes at offset {_position}, only {_data.Length - _position} remaining"
+            );
         int vs = 0;
         for (int i = 0; i < bytes; i++)
             vs = (vs << 8) | _data[_position++];

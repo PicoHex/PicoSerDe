@@ -255,4 +255,40 @@ public class MsgPackReaderTests
             await Assert.That(true).IsTrue();
         }
     }
+
+    // === Code review #7: truncated input boundary checks ===
+
+    [Test]
+    public async Task TruncatedString_ThrowsFormatException()
+    {
+        // str8 header (0xD9) says 10 bytes, but only 3 follow
+        var data = new byte[] { 0xD9, 10, (byte)'a', (byte)'b', (byte)'c' };
+        var reader = new MsgPackReader(data);
+        try
+        {
+            reader.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task TruncatedBinHeader_ThrowsFormatException()
+    {
+        // bin16 header (0xC5) needs 2 length bytes, but only 1 follows
+        var data = new byte[] { 0xC5, 0x00 };
+        var reader = new MsgPackReader(data);
+        try
+        {
+            reader.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
 }

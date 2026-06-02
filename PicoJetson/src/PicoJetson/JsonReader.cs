@@ -97,7 +97,9 @@ public ref struct JsonReader
             AdvanceByte();
             SkipWhitespace();
             if (IsAtEnd())
-                return false;
+                throw new FormatException("Trailing comma at end of document");
+            if (PeekByte() is (byte)'}' or (byte)']')
+                throw new FormatException("Trailing comma before closing bracket");
         }
 
         var b = PeekByte();
@@ -113,6 +115,8 @@ public ref struct JsonReader
                 _depth++;
                 return true;
             case (byte)'}':
+                if (_depth == 0)
+                    throw new FormatException($"Unmatched }} at offset {BytesConsumed}");
                 _tokenType = TokenType.ObjectEnd;
                 AdvanceByte();
                 _depth--;
@@ -127,6 +131,8 @@ public ref struct JsonReader
                 _depth++;
                 return true;
             case (byte)']':
+                if (_depth == 0)
+                    throw new FormatException($"Unmatched ] at offset {BytesConsumed}");
                 _tokenType = TokenType.ArrayEnd;
                 AdvanceByte();
                 _depth--;
@@ -715,14 +721,21 @@ public ref struct JsonReader
         bool isFloat = false;
         while (_position < _data.Length && IsDigit(_data[_position]))
             _position++;
+        if (_position == firstDigitPos)
+            throw new FormatException($"Expected digit at offset {firstDigitPos}");
         if (_position > firstDigitPos + 1 && _data[firstDigitPos] == (byte)'0')
             throw new FormatException($"Leading zeros are not allowed at offset {firstDigitPos}");
         if (_position < _data.Length && _data[_position] == (byte)'.')
         {
             isFloat = true;
             _position++;
+            int fracStart = _position;
             while (_position < _data.Length && IsDigit(_data[_position]))
                 _position++;
+            if (_position == fracStart)
+                throw new FormatException(
+                    $"Expected digit after decimal point at offset {fracStart}"
+                );
         }
         if (_position < _data.Length && (_data[_position] is (byte)'e' or (byte)'E'))
         {
@@ -730,8 +743,11 @@ public ref struct JsonReader
             _position++;
             if (_position < _data.Length && _data[_position] is (byte)'+' or (byte)'-')
                 _position++;
+            int expStart = _position;
             while (_position < _data.Length && IsDigit(_data[_position]))
                 _position++;
+            if (_position == expStart)
+                throw new FormatException($"Expected digit in exponent at offset {expStart}");
         }
         _valueSpan = _data[start.._position];
         _tokenType = isFloat ? TokenType.Float64 : TokenType.Int32;

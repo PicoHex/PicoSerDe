@@ -572,4 +572,134 @@ public class JsonReaderTests
         // Prove _bufCount was reset
         await Assert.That(capturedCount).IsEqualTo(0);
     }
+
+    // === Code review #3: strict structural validation ===
+
+    [Test]
+    public async Task UnmatchedObjectEnd_AtDepthZero_ThrowsFormatException()
+    {
+        var reader = new JsonReader("}"u8);
+        try
+        {
+            reader.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException ex)
+        {
+            await Assert.That(ex.Message).Contains("Unmatched");
+        }
+    }
+
+    [Test]
+    public async Task UnmatchedArrayEnd_AtDepthZero_ThrowsFormatException()
+    {
+        var reader = new JsonReader("]"u8);
+        try
+        {
+            reader.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException ex)
+        {
+            await Assert.That(ex.Message).Contains("Unmatched");
+        }
+    }
+
+    [Test]
+    public async Task TrailingComma_InObject_ThrowsFormatException()
+    {
+        // {"a":1,} — trailing comma before }
+        var reader = new JsonReader("{\"a\":1,}"u8);
+        try
+        {
+            while (reader.Read()) { }
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task TrailingComma_InArray_ThrowsFormatException()
+    {
+        // [1,2,] — trailing comma before ]
+        var reader = new JsonReader("[1,2,]"u8);
+        try
+        {
+            while (reader.Read()) { }
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task TrailingGarbage_AfterRootObject_ThrowsFormatException()
+    {
+        // {}garbage — extra data after valid JSON
+        var reader = new JsonReader("{}g"u8);
+        reader.Read(); // {
+        reader.Read(); // }
+        // Next read should fail because of trailing garbage
+        try
+        {
+            reader.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
+    // === Code review #4: strict number validation ===
+
+    [Test]
+    public async Task LoneMinus_ThrowsFormatException()
+    {
+        var reader = new JsonReader("-"u8);
+        try
+        {
+            reader.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task NumberWithDotButNoFraction_ThrowsFormatException()
+    {
+        var reader = new JsonReader("1."u8);
+        try
+        {
+            reader.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task NumberWithExpButNoDigits_ThrowsFormatException()
+    {
+        var reader = new JsonReader("1e"u8);
+        try
+        {
+            reader.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
 }
