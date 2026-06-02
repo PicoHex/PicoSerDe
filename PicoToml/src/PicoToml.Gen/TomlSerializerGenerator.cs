@@ -193,7 +193,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("                ");
             s.Append(i == 0 ? "if" : "else if");
             s.Append(" (TextHelpers.Eq(k, \"");
-            s.Append(sorted[i].JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(sorted[i].JsonName));
             s.AppendLine("\"u8)) {");
             EmitDeserializeProp(s, sorted[i], "o", "                    ");
             s.AppendLine("                }");
@@ -259,7 +259,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("                ");
             s.Append(i == 0 ? "if" : "else if");
             s.Append(" (TextHelpers.Eq(k, \"");
-            s.Append(scalarProps[i].JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(scalarProps[i].JsonName));
             s.AppendLine("\"u8)) {");
             EmitDeserializeProp(s, scalarProps[i], "o", "                    ");
             s.AppendLine("                }");
@@ -278,7 +278,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append("                ");
                 s.Append(i == 0 && dictProps.Length == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(tbl, \"");
-                s.Append(objProps[i].JsonName);
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(objProps[i].JsonName));
                 s.AppendLine("\"u8)) {");
                 EmitNestedObjectRead(s, objProps[i], "o", "                    ");
                 s.AppendLine("                }");
@@ -288,7 +288,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append("                ");
                 s.Append(i == 0 && objProps.Length == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(tbl, \"");
-                s.Append(dictProps[i].JsonName);
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dictProps[i].JsonName));
                 s.AppendLine("\"u8)) {");
                 EmitDictRead(s, dictProps[i], "o", "                    ");
                 s.AppendLine("                }");
@@ -334,7 +334,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(");");
             s.Append(indent);
             s.Append("tw.WriteKeyValue(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.Append("\", System.Text.Encoding.UTF8.GetString(__bw.WrittenSpan));");
             s.AppendLine();
             return;
@@ -344,7 +344,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(indent);
             s.Append("tw.WriteStartArray(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
             s.Append(indent);
             s.Append("foreach (var __item in ");
@@ -364,7 +364,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(indent);
             s.Append("tw.WriteTable(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\");");
             s.Append(indent);
             s.Append("foreach (var __kvp in ");
@@ -407,7 +407,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     .InnerClassName("TomlInner", p.TypeFullName!);
                 s.Append(indent);
                 s.Append("tw.WriteTable(\"");
-                s.Append(p.JsonName);
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
                 s.AppendLine("\");");
                 s.Append(indent);
                 s.Append(sn);
@@ -430,7 +430,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("{");
             s.Append(indent);
             s.Append("    tw.WriteKeyValue(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.Append("\", ");
             EmitValueAccessor(s, p, $"{target}.{p.Name}.Value");
             s.AppendLine(");");
@@ -449,7 +449,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("{");
             s.Append(indent);
             s.Append("    tw.WriteKeyValue(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.Append("\", ");
             EmitValueAccessor(s, p, $"{target}.{p.Name}");
             s.AppendLine(");");
@@ -460,7 +460,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(indent);
             s.Append("tw.WriteKeyValue(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.Append("\", ");
             EmitValueAccessor(s, p, $"{target}.{p.Name}");
             s.AppendLine(");");

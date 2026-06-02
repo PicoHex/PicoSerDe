@@ -225,7 +225,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("\");");
             }
             s.Append("        iw.WriteKeyValue(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.Append("\"u8, ");
             WriteValue(s, p, $"value.{p.Name}");
             s.AppendLine(");");
@@ -240,7 +240,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             if (!dictFirst)
                 s.AppendLine("        iw.WriteBlankLine();");
             s.Append("        iw.WriteSection(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
             s.Append("        foreach (var __kvp in value.");
             s.Append(p.Name);
@@ -268,7 +268,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             foreach (var np in p.NestedProperties)
             {
                 s.Append("        iw.WriteKeyValue(\"");
-                s.Append(np.JsonName);
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
                 s.Append("\"u8, ");
                 WriteValue(s, np, $"value.{p.Name}.{np.Name}");
                 s.AppendLine(");");
@@ -321,7 +321,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 if (sec.Count > 0)
                     s.Append("__sec < 0 && ");
                 s.Append("TextHelpers.Eq(__k, \"");
-                s.Append(top[i].JsonName);
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(top[i].JsonName));
                 s.AppendLine("\"u8)) {");
                 EmitRead(s, top[i], "obj", "                    ");
                 s.AppendLine("                }");
@@ -336,7 +336,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.Append("                else if (__sec == ");
                     s.Append(si);
                     s.Append(" && TextHelpers.Eq(__k, \"");
-                    s.Append(np.JsonName);
+                    s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
                     s.Append("\"u8)) { ");
                     EmitRead(s, np, $"obj.{sec[si].Name}", "");
                     s.AppendLine(" }");
@@ -406,7 +406,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("                ");
                 s.Append(i == 0 && sec.Count == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(reader.GetStringRaw(), \"");
-                s.Append(dicts[i].JsonName);
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dicts[i].JsonName));
                 s.AppendLine("\"u8)) {");
                 s.Append("                    obj.");
                 s.Append(dicts[i].Name);

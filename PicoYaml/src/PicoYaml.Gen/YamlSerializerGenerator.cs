@@ -199,7 +199,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         foreach (var prop in props)
         {
             sb.Append("        yw.WritePropertyName(\"");
-            sb.Append(prop.JsonName);
+            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
             sb.AppendLine("\"u8);");
             EmitSerializeInline(sb, prop, "value." + prop.Name, "        ");
         }
@@ -228,7 +228,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             sb.Append("                ");
             sb.Append(kw);
             sb.Append(" (TextHelpers.Eq(nk, \"");
-            sb.Append(np.JsonName);
+            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
             sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
             EmitDeserializeInline(sb, np, "obj", "                    ");
@@ -674,7 +674,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             sb.Append("            ");
             sb.Append(i == 0 ? "if" : "else if");
             sb.Append(" (TextHelpers.Eq(k, \"");
-            sb.Append(p.JsonName);
+            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             sb.AppendLine("\"u8)) {");
             EmitDeserialize(sb, p, "o", "                ");
             sb.AppendLine("            }");
@@ -701,7 +701,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
             s.Append(ind);
             s.Append("var __cnv = new ");
@@ -720,7 +720,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
             s.Append(ind);
             s.Append("foreach (var __item in v.");
@@ -736,7 +736,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
             if (p.NestedProperties.Length > 0)
             {
@@ -764,7 +764,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
             s.Append(ind);
             s.AppendLine("yw.WriteStartMapping();");
@@ -812,7 +812,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("{");
             s.Append(ind);
             s.Append("    yw.WritePropertyName(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
             string valAccessor = p.IsNullableReference
                 ? $"{target}.{p.Name}"
@@ -877,7 +877,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
-            s.Append(p.JsonName);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
             switch (p.TypeKind)
             {
