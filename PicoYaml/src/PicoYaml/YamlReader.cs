@@ -131,6 +131,10 @@ public ref struct YamlReader
     private int _replayIndex;
     private int _replayPairCount;
 
+    // Safety: prevents infinite loops in pathological YAML
+    private const int MaxTokens = 100_000;
+    private int _tokenCount;
+
     public YamlReader(ReadOnlySpan<byte> data)
     {
         _data = data;
@@ -150,6 +154,7 @@ public ref struct YamlReader
         _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
         _bufCount = 0;
         _maxDepth = 256;
+        _tokenCount = 0;
     }
 
     public YamlReader(ReadOnlySequence<byte> data)
@@ -171,6 +176,7 @@ public ref struct YamlReader
         _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
         _bufCount = 0;
         _maxDepth = 256;
+        _tokenCount = 0;
     }
 
     public TokenType TokenType => _tokenType;
@@ -181,6 +187,10 @@ public ref struct YamlReader
 
     public bool Read()
     {
+        if (++_tokenCount > MaxTokens)
+            throw new FormatException(
+                $"Exceeded maximum token count of {MaxTokens}; likely an infinite loop in YAML parsing"
+            );
         if (_replayAnchorIdx >= -1 && _replayIndex < _replayPairCount)
         {
             (byte[] Key, byte[] Value) pair;
@@ -1564,6 +1574,9 @@ public ref struct YamlReader
         }
         if (_pendingMappingAnchor is not null && _curPairCount < MaxAnchorPairs)
         {
+            // Safety: prevent runaway accumulation from self-referencing merge keys
+            if (_curPairCount >= MaxAnchorPairs)
+                return;
             // Use anchor 0's pair slots as temporary accumulator
             AddPairToAnchor(
                 ref _curPairCount,
