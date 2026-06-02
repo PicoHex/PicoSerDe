@@ -314,18 +314,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         // Top-level key matching
         if (top.Count > 0)
         {
-            for (int i = 0; i < top.Count; i++)
-            {
-                s.Append(i == 0 ? "                if" : "                else if");
-                s.Append(" (");
-                if (sec.Count > 0)
-                    s.Append("__sec < 0 && ");
-                s.Append("TextHelpers.Eq(__k, \"");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(top[i].JsonName));
-                s.AppendLine("\"u8)) {");
-                EmitRead(s, top[i], "obj", "                    ");
-                s.AppendLine("                }");
-            }
+            EmitKeyDispatch(
+                s,
+                top,
+                "__k",
+                "obj",
+                sec.Count > 0 ? "__sec < 0" : null,
+                "                ",
+                "                    "
+            );
         }
         if (sec.Count > 0 || dicts.Count > 0)
         {
@@ -493,6 +490,89 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(acc);
                 s.Append(".ToString()");
                 break;
+        }
+    }
+
+    private static void EmitKeyDispatch(
+        StringBuilder s,
+        IReadOnlyList<PropertyInfo> props,
+        string keyVar,
+        string target,
+        string? guard,
+        string indent,
+        string bodyIndent
+    )
+    {
+        if (props.Count <= 4)
+        {
+            for (int i = 0; i < props.Count; i++)
+            {
+                s.Append(i == 0 ? indent + "if" : indent + "else if");
+                s.Append(" (");
+                if (guard is not null)
+                {
+                    s.Append(guard);
+                    s.Append(" && ");
+                }
+                s.Append("TextHelpers.Eq(");
+                s.Append(keyVar);
+                s.Append(", \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(props[i].JsonName));
+                s.AppendLine("\"u8)) {");
+                EmitRead(s, props[i], target, bodyIndent);
+                s.Append(indent);
+                s.AppendLine("}");
+            }
+            return;
+        }
+
+        if (guard is not null)
+        {
+            s.Append(indent);
+            s.Append("if (");
+            s.Append(guard);
+            s.AppendLine(") {");
+            indent += "    ";
+            bodyIndent += "    ";
+        }
+
+        s.Append(indent);
+        s.Append("switch (");
+        s.Append(keyVar);
+        s.AppendLine(".Length)");
+        s.Append(indent);
+        s.AppendLine("{");
+        foreach (var group in props.GroupBy(p => Encoding.UTF8.GetByteCount(p.JsonName)).OrderBy(g => g.Key))
+        {
+            s.Append(indent);
+            s.Append("    case ");
+            s.Append(group.Key);
+            s.AppendLine(":");
+            var groupProps = group.OrderBy(p => p.JsonName).ToArray();
+            for (int i = 0; i < groupProps.Length; i++)
+            {
+                s.Append(indent);
+                s.Append("        ");
+                s.Append(i == 0 ? "if" : "else if");
+                s.Append(" (TextHelpers.Eq(");
+                s.Append(keyVar);
+                s.Append(", \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(groupProps[i].JsonName));
+                s.AppendLine("\"u8)) {");
+                EmitRead(s, groupProps[i], target, bodyIndent + "        ");
+                s.Append(indent);
+                s.AppendLine("        }");
+            }
+            s.Append(indent);
+            s.AppendLine("        break;");
+        }
+        s.Append(indent);
+        s.AppendLine("}");
+
+        if (guard is not null)
+        {
+            s.Append(indent[..^4]);
+            s.AppendLine("}");
         }
     }
 

@@ -32,15 +32,25 @@ public ref struct TomlWriter
 
     public void WriteTable(string name)
     {
+        WriteTable(Encoding.UTF8.GetBytes(name));
+    }
+
+    public void WriteTable(ReadOnlySpan<byte> utf8Name)
+    {
         WriteByte((byte)'[');
-        WriteRaw(Encoding.UTF8.GetBytes(name));
+        WriteRaw(utf8Name);
         WriteByte((byte)']');
         WriteNewLine();
     }
 
     public void WriteKeyValue(string key, string value)
     {
-        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteKeyValue(Encoding.UTF8.GetBytes(key), value);
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, string value)
+    {
+        WriteKey(utf8Key);
         WriteRaw(" = \""u8);
         int max = Encoding.UTF8.GetMaxByteCount(value.Length);
         if (max <= 256)
@@ -62,7 +72,12 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, scoped ReadOnlySpan<char> value)
     {
-        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteKeyValue(Encoding.UTF8.GetBytes(key), value);
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, scoped ReadOnlySpan<char> value)
+    {
+        WriteKey(utf8Key);
         WriteRaw(" = \""u8);
         int max = Encoding.UTF8.GetMaxByteCount(value.Length);
         if (max <= 256)
@@ -84,7 +99,12 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, int value)
     {
-        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteKeyValue(Encoding.UTF8.GetBytes(key), value);
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, int value)
+    {
+        WriteKey(utf8Key);
         WriteRaw(" = "u8);
         Span<byte> buf = _buffer.GetSpan(16);
         value.TryFormat(buf, out var w);
@@ -95,7 +115,12 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, bool value)
     {
-        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteKeyValue(Encoding.UTF8.GetBytes(key), value);
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, bool value)
+    {
+        WriteKey(utf8Key);
         WriteRaw(" = "u8);
         WriteRaw(value ? "true"u8 : "false"u8);
         WriteNewLine();
@@ -103,7 +128,12 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, long value)
     {
-        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteKeyValue(Encoding.UTF8.GetBytes(key), value);
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, long value)
+    {
+        WriteKey(utf8Key);
         WriteRaw(" = "u8);
         Span<byte> buf = _buffer.GetSpan(32);
         value.TryFormat(buf, out var w);
@@ -114,12 +144,17 @@ public ref struct TomlWriter
 
     public void WriteKeyValue(string key, double value)
     {
+        WriteKeyValue(Encoding.UTF8.GetBytes(key), value);
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, double value)
+    {
         if (double.IsNaN(value) || double.IsInfinity(value))
             throw new ArgumentException(
                 "NaN and Infinity cannot be written as TOML",
                 nameof(value)
             );
-        WriteKey(Encoding.UTF8.GetBytes(key));
+        WriteKey(utf8Key);
         WriteRaw(" = "u8);
         Span<byte> buf = _buffer.GetSpan(32);
         value.TryFormat(buf, out var w);

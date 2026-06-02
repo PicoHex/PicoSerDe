@@ -188,16 +188,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
         var sorted = props.OrderBy(x => x.JsonName).ToImmutableArray();
-        for (int i = 0; i < sorted.Length; i++)
-        {
-            s.Append("                ");
-            s.Append(i == 0 ? "if" : "else if");
-            s.Append(" (TextHelpers.Eq(k, \"");
-            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(sorted[i].JsonName));
-            s.AppendLine("\"u8)) {");
-            EmitDeserializeProp(s, sorted[i], "o", "                    ");
-            s.AppendLine("                }");
-        }
+        EmitPropertyDispatch(s, sorted, "k", "o", "                ", "                    ");
         s.AppendLine("            }");
         s.AppendLine("        }");
         s.AppendLine("        return o;");
@@ -254,18 +245,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         var scalarProps = t.Properties
             .Where(x => x.TypeKind != "object" && x.TypeKind != "dict")
             .ToImmutableArray();
-        for (int i = 0; i < scalarProps.Length; i++)
-        {
-            s.Append("                ");
-            s.Append(i == 0 ? "if" : "else if");
-            s.Append(" (TextHelpers.Eq(k, \"");
-            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(scalarProps[i].JsonName));
-            s.AppendLine("\"u8)) {");
-            EmitDeserializeProp(s, scalarProps[i], "o", "                    ");
-            s.AppendLine("                }");
-        }
-        if (scalarProps.Length > 0)
-            s.AppendLine("                else { }");
+        EmitPropertyDispatch(s, scalarProps, "k", "o", "                ", "                    ");
         s.AppendLine("            }");
         var objProps = t.Properties.Where(x => x.TypeKind == "object").ToImmutableArray();
         var dictProps = t.Properties.Where(x => x.TypeKind == "dict").ToImmutableArray();
@@ -311,6 +291,70 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
+    private static void EmitPropertyDispatch(
+        StringBuilder s,
+        ImmutableArray<PropertyInfo> props,
+        string keyVar,
+        string target,
+        string indent,
+        string bodyIndent
+    )
+    {
+        if (props.Length == 0)
+            return;
+
+        if (props.Length <= 4)
+        {
+            for (int i = 0; i < props.Length; i++)
+            {
+                s.Append(indent);
+                s.Append(i == 0 ? "if" : "else if");
+                s.Append(" (TextHelpers.Eq(");
+                s.Append(keyVar);
+                s.Append(", \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(props[i].JsonName));
+                s.AppendLine("\"u8)) {");
+                EmitDeserializeProp(s, props[i], target, bodyIndent);
+                s.Append(indent);
+                s.AppendLine("}");
+            }
+            return;
+        }
+
+        s.Append(indent);
+        s.Append("switch (");
+        s.Append(keyVar);
+        s.AppendLine(".Length)");
+        s.Append(indent);
+        s.AppendLine("{");
+        foreach (var group in props.GroupBy(p => Encoding.UTF8.GetByteCount(p.JsonName)).OrderBy(g => g.Key))
+        {
+            s.Append(indent);
+            s.Append("    case ");
+            s.Append(group.Key);
+            s.AppendLine(":");
+            var groupProps = group.OrderBy(p => p.JsonName).ToArray();
+            for (int i = 0; i < groupProps.Length; i++)
+            {
+                s.Append(indent);
+                s.Append("        ");
+                s.Append(i == 0 ? "if" : "else if");
+                s.Append(" (TextHelpers.Eq(");
+                s.Append(keyVar);
+                s.Append(", \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(groupProps[i].JsonName));
+                s.AppendLine("\"u8)) {");
+                EmitDeserializeProp(s, groupProps[i], target, bodyIndent + "        ");
+                s.Append(indent);
+                s.AppendLine("        }");
+            }
+            s.Append(indent);
+            s.AppendLine("        break;");
+        }
+        s.Append(indent);
+        s.AppendLine("}");
+    }
+
     private static void EmitSerializeProp(
         StringBuilder s,
         PropertyInfo p,
@@ -335,7 +379,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(indent);
             s.Append("tw.WriteKeyValue(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.Append("\", System.Text.Encoding.UTF8.GetString(__bw.WrittenSpan));");
+            s.Append("\"u8, System.Text.Encoding.UTF8.GetString(__bw.WrittenSpan));");
             s.AppendLine();
             return;
         }
@@ -365,7 +409,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(indent);
             s.Append("tw.WriteTable(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.AppendLine("\");");
+            s.AppendLine("\"u8);");
             s.Append(indent);
             s.Append("foreach (var __kvp in ");
             s.Append(target);
@@ -408,7 +452,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(indent);
                 s.Append("tw.WriteTable(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-                s.AppendLine("\");");
+                s.AppendLine("\"u8);");
                 s.Append(indent);
                 s.Append(sn);
                 s.Append(".Serialize(tw, ");
@@ -431,7 +475,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(indent);
             s.Append("    tw.WriteKeyValue(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.Append("\", ");
+            s.Append("\"u8, ");
             EmitValueAccessor(s, p, $"{target}.{p.Name}.Value");
             s.AppendLine(");");
             s.Append(indent);
@@ -450,7 +494,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(indent);
             s.Append("    tw.WriteKeyValue(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.Append("\", ");
+            s.Append("\"u8, ");
             EmitValueAccessor(s, p, $"{target}.{p.Name}");
             s.AppendLine(");");
             s.Append(indent);
@@ -461,7 +505,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(indent);
             s.Append("tw.WriteKeyValue(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.Append("\", ");
+            s.Append("\"u8, ");
             EmitValueAccessor(s, p, $"{target}.{p.Name}");
             s.AppendLine(");");
         }
