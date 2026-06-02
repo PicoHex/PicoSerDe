@@ -345,6 +345,15 @@ public ref struct YamlReader
             SkipLineSpan();
             goto Retry;
         }
+        // Standalone node tag line (e.g. "!person") applies to the following block node.
+        // The deserializer ignores the tag itself, so skip the whole line. Doing so also
+        // guarantees forward progress: without this branch the key scan below would consume
+        // across the newline looking for ':', mis-parsing the document and stalling.
+        if (_data[_position] == (byte)'!')
+        {
+            SkipLineSpan();
+            goto Retry;
+        }
         // Multi-document separator: --- at indent 0
         if (
             lineIndent == 0
