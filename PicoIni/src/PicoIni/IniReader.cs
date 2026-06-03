@@ -439,6 +439,14 @@ public ref struct IniReader
         int di = 0;
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)']')
         {
+            if (di >= buf.Length)
+            {
+                var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
+                buf.AsSpan(0, di).CopyTo(newBuf);
+                ArrayPool<byte>.Shared.Return(buf);
+                buf = newBuf;
+                TrackBuffer(buf);
+            }
             buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
         }

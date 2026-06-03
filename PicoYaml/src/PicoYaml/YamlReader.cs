@@ -248,8 +248,18 @@ public ref struct YamlReader
             v = false;
             return false;
         }
-        v = _valueSpan[0] == (byte)'t';
-        return true;
+        if (_valueSpan.SequenceEqual("true"u8))
+        {
+            v = true;
+            return true;
+        }
+        if (_valueSpan.SequenceEqual("false"u8))
+        {
+            v = false;
+            return true;
+        }
+        v = false;
+        return false;
     }
 
     public void Skip()
@@ -1024,7 +1034,7 @@ public ref struct YamlReader
             if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' ')
                 _seqReader.Advance(1);
 
-            // Skip !tag and &anchor and *alias before value
+            // Handle !tag and &anchor before value
             while (!_seqReader.End)
             {
                 var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
@@ -1047,13 +1057,19 @@ public ref struct YamlReader
                 else if (b == (byte)'&')
                 {
                     _seqReader.Advance(1);
+                    var anchorBuf = RentBuf(64);
+                    int ad = 0;
                     while (
                         !_seqReader.End
                         && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)' '
                         && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
                         && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
                     )
+                    {
+                        anchorBuf[ad++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                         _seqReader.Advance(1);
+                    }
+                    _pendingAnchorName = Encoding.UTF8.GetString(anchorBuf.AsSpan(0, ad));
                     while (
                         !_seqReader.End
                         && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
@@ -1071,6 +1087,44 @@ public ref struct YamlReader
                 _inFlow = true;
                 _flowStartEmitted = false;
                 _tokenType = TokenType.PropertyName;
+                return true;
+            }
+
+            // Check for *alias before value
+            if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'*')
+            {
+                _seqReader.Advance(1);
+                var aliasBuf = RentBuf(64);
+                int ad = 0;
+                while (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)' '
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\r'
+                )
+                {
+                    aliasBuf[ad++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                    _seqReader.Advance(1);
+                }
+                var aliasName = Encoding.UTF8.GetString(aliasBuf.AsSpan(0, ad));
+                int anchorIdx = FindAnchorIdx(aliasName);
+                if (anchorIdx < 0)
+                    throw new FormatException(
+                        $"Unresolved alias '*{aliasName}' at offset {BytesConsumed}"
+                    );
+                if (IsAnchorMapping(anchorIdx))
+                {
+                    _replayAnchorIdx = anchorIdx;
+                    _replayPairCount = GetAnchorPairCount(anchorIdx);
+                    _replayIndex = 0;
+                    _valueSpan = default;
+                }
+                else
+                    _valueSpan = GetAnchorScalar(anchorIdx);
+                SkipNewlineSeq();
+                _tokenType = TokenType.PropertyName;
+                StoreAnchorIfNeeded();
+                AccumulateMappingPair();
                 return true;
             }
 
@@ -1110,6 +1164,8 @@ public ref struct YamlReader
             }
             _valueSpan = Trim(valBuf.AsSpan(0, vd));
             SkipNewlineSeq();
+            StoreAnchorIfNeeded();
+            AccumulateMappingPair();
             _tokenType = TokenType.PropertyName;
             return true;
         }

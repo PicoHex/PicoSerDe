@@ -752,19 +752,17 @@ public ref struct MsgPackReader
             byte b = _data[p++];
             if (b == 0xCB && p + 7 < len)
             {
-                var bytes = new byte[8];
-                for (int j = 0; j < 8; j++)
-                    bytes[j] = _data[p + 7 - j];
+                dest[i] = BitConverter.Int64BitsToDouble(
+                    BinaryPrimitives.ReadInt64BigEndian(_data.Slice(p, 8))
+                );
                 p += 8;
-                dest[i] = BitConverter.Int64BitsToDouble(BitConverter.ToInt64(bytes, 0));
             }
             else if (b == 0xCA && p + 3 < len)
             {
-                var bytes = new byte[4];
-                for (int j = 0; j < 4; j++)
-                    bytes[j] = _data[p + 3 - j];
+                dest[i] = BitConverter.Int32BitsToSingle(
+                    BinaryPrimitives.ReadInt32BigEndian(_data.Slice(p, 4))
+                );
                 p += 4;
-                dest[i] = BitConverter.Int32BitsToSingle(BitConverter.ToInt32(bytes, 0));
             }
             else
                 return 0;

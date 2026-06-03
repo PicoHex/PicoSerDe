@@ -133,4 +133,44 @@ public class YamlReaderTests
         await Assert.That(tokens[2].Type).IsEqualTo(TokenType.PropertyName);
         await Assert.That(tokens[2].Key).IsEqualTo("x");
     }
+
+    [Test]
+    public async Task TryGetBool_TrueLiteral_ReturnsTrue()
+    {
+        var r = new YamlReader("enabled: true\n"u8);
+        r.Read();
+        var ok = r.TryGetBool(out var v);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(v).IsTrue();
+    }
+
+    [Test]
+    public async Task TryGetBool_FalseLiteral_ReturnsFalse()
+    {
+        var r = new YamlReader("enabled: false\n"u8);
+        r.Read();
+        var ok = r.TryGetBool(out var v);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(v).IsFalse();
+    }
+
+    [Test]
+    public async Task TryGetBool_TreeLiteral_ReturnsFalse()
+    {
+        // "tree" starts with 't' but is NOT "true" — TryGetBool must reject it
+        var r = new YamlReader("species: tree\n"u8);
+        r.Read();
+        var ok = r.TryGetBool(out var v);
+        await Assert.That(ok).IsFalse();
+    }
+
+    [Test]
+    public async Task TryGetBool_FrogLiteral_ReturnsFalse()
+    {
+        // "frog" starts with 'f' but is NOT "false" — TryGetBool must reject it
+        var r = new YamlReader("animal: frog\n"u8);
+        r.Read();
+        var ok = r.TryGetBool(out var v);
+        await Assert.That(ok).IsFalse();
+    }
 }

@@ -217,6 +217,22 @@ public class IniReaderUnifiedTests
         await Assert.That(key).IsEqualTo("Name");
         await Assert.That(value).IsEqualTo("hello\nworld");
     }
+
+    [Test]
+    public async Task Read_SequenceMode_LongSectionName_DoesNotOverflow()
+    {
+        // Section name > 64 bytes — exercises the buffer resize path
+        var longName = new string('S', 200);
+        var data = Encoding.UTF8.GetBytes($"[{longName}]\nKey = Value");
+        var sequence = new ReadOnlySequence<byte>(data);
+        string section = "";
+        using (var reader = new IniReader(sequence))
+        {
+            reader.Read();
+            section = Encoding.UTF8.GetString(reader.GetStringRaw());
+        }
+        await Assert.That(section).IsEqualTo(longName);
+    }
 }
 
 file sealed class BufferSegment : ReadOnlySequenceSegment<byte>
