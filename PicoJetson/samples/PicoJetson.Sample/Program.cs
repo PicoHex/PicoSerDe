@@ -16,14 +16,14 @@ class Program
             {
                 Name = "Alice",
                 Since = new DateOnly(2024, 1, 15),
-                Preferences =  ["email", "sms"],
+                Preferences = ["email", "sms"],
                 Address = new Address
                 {
                     Street = "123 Main St",
                     City = "SF",
                     Zip = "94105",
-                    Country = "US"
-                }
+                    Country = "US",
+                },
             },
             Lines = new List<OrderLine>
             {
@@ -31,16 +31,16 @@ class Program
                 {
                     Product = "He said \"hello\"",
                     Quantity = 2,
-                    UnitPrice = 49.99m
+                    UnitPrice = 49.99m,
                 },
                 new()
                 {
                     Product = "Path: C:\\data",
                     Quantity = 1,
                     UnitPrice = 49.99m,
-                    PickedAt = new TimeOnly(14, 30)
-                }
-            }
+                    PickedAt = new TimeOnly(14, 30),
+                },
+            },
         };
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(order);
@@ -136,7 +136,7 @@ public enum OrderStatus
     Processing,
     Shipped,
     Delivered,
-    Cancelled
+    Cancelled,
 }
 
 public class Address

@@ -8,9 +8,9 @@ var cfg = new AppConfig
     Version = 2,
     CreatedAt = DateTime.UtcNow,
     Timeout = TimeSpan.FromSeconds(30),
-    Tags =  ["web", "api"],
+    Tags = ["web", "api"],
     Server = new ServerCfg { Host = "example.com", Port = 443 },
-    Secret = "hidden"
+    Secret = "hidden",
 };
 var ini = IniSerializer.Serialize(cfg);
 Console.WriteLine(ini);
@@ -29,7 +29,7 @@ Console.WriteLine(
         {
             AppName = "Demo",
             Secret = "x",
-            Port = 99
+            Port = 99,
         }
     )
 );

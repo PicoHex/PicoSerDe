@@ -123,7 +123,7 @@ public class YamlSerializerTests
         {
             Name = "Test",
             Scores = new List<int> { 10, 20, 30 },
-            Tags = new List<string> { "dev", "runner" }
+            Tags = new List<string> { "dev", "runner" },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlListModel>(bytes);
@@ -141,7 +141,7 @@ public class YamlSerializerTests
             Name = "N",
             Age = 42,
             Rating = 4.5,
-            Enabled = true
+            Enabled = true,
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlNullableModel>(bytes);
@@ -159,7 +159,7 @@ public class YamlSerializerTests
             Name = "N",
             Age = null,
             Rating = null,
-            Enabled = null
+            Enabled = null,
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlNullableModel>(bytes);
@@ -195,7 +195,7 @@ public class YamlSerializerTests
         var original = new YamlNestedModel
         {
             Name = "Home",
-            Address = new YamlAddress { Street = "123 Main", City = "NYC" }
+            Address = new YamlAddress { Street = "123 Main", City = "NYC" },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlNestedModel>(bytes);
@@ -212,7 +212,7 @@ public class YamlSerializerTests
         {
             Date = new DateOnly(2024, 6, 15),
             Time = new TimeOnly(12, 30, 0),
-            Duration = TimeSpan.FromMinutes(90)
+            Duration = TimeSpan.FromMinutes(90),
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<TemporalExYaml>(bytes);
@@ -235,7 +235,7 @@ public class YamlSerializerTests
     {
         var original = new YamlReadOnlyListModel
         {
-            Scores = new List<int> { 10, 20, 30 }
+            Scores = new List<int> { 10, 20, 30 },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlReadOnlyListModel>(bytes);
@@ -250,7 +250,7 @@ public class YamlSerializerTests
         var original = new YamlDictModel
         {
             Name = "D",
-            Scores = new Dictionary<string, int> { ["alice"] = 10, ["bob"] = 20 }
+            Scores = new Dictionary<string, int> { ["alice"] = 10, ["bob"] = 20 },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlDictModel>(bytes);
@@ -281,8 +281,8 @@ public class YamlSerializerTests
             Child = new YamlNestedWithList
             {
                 Street = "Main St",
-                Tags = new List<string> { "a", "b", "c" }
-            }
+                Tags = new List<string> { "a", "b", "c" },
+            },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlOuterWithNestedList>(bytes);
@@ -304,8 +304,8 @@ public class YamlSerializerTests
             Child = new YamlNestedWithDict
             {
                 Label = "Stats",
-                Counts = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 }
-            }
+                Counts = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 },
+            },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlOuterWithNestedDict>(bytes);

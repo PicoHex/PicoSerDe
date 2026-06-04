@@ -6,23 +6,25 @@ using TypeInfo = PicoSerDe.Gen.TypeInfo;
 [Generator(LanguageNames.CSharp)]
 public sealed class YamlSerializerGenerator : IIncrementalGenerator
 {
-    private static readonly PicoSerDe.Gen.FormatConfig Config =
-        new("YamlSerializer", "PicoYaml", "yaml");
+    private static readonly PicoSerDe.Gen.FormatConfig Config = new(
+        "YamlSerializer",
+        "PicoYaml",
+        "yaml"
+    );
 
-    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
-        new(
-            HasYamlCamelCase,
-            GetYamlKey,
-            HasYamlIgnore,
-            GetYamlConverter,
-            GetYamlDateTimeFormat,
-            OverrideKindWithStringOnConverter: true
-        );
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
+        HasYamlCamelCase,
+        GetYamlKey,
+        HasYamlIgnore,
+        GetYamlConverter,
+        GetYamlDateTimeFormat,
+        OverrideKindWithStringOnConverter: true
+    );
 
     public void Initialize(IncrementalGeneratorInitializationContext ctx)
     {
-        var p = ctx.SyntaxProvider
-            .CreateSyntaxProvider(
+        var p = ctx
+            .SyntaxProvider.CreateSyntaxProvider(
                 predicate: static (n, _) => IsC(n),
                 transform: static (c, _) => Tf(c)
             )
@@ -318,10 +320,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "object":
                 if (p.NestedProperties.Length > 0)
                 {
-                    var sn = PicoSerDe
-                        .Gen
-                        .GenInfrastructure
-                        .InnerClassName("YamlInner", p.TypeFullName!);
+                    var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        "YamlInner",
+                        p.TypeFullName!
+                    );
                     s.Append(ind);
                     s.Append(sn);
                     s.Append(".Serialize(yw, ");
@@ -517,10 +519,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "object":
                 if (p.NestedProperties.Length > 0)
                 {
-                    var sn = PicoSerDe
-                        .Gen
-                        .GenInfrastructure
-                        .InnerClassName("YamlInner", p.TypeFullName!);
+                    var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        "YamlInner",
+                        p.TypeFullName!
+                    );
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
@@ -740,10 +742,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"u8);");
             if (p.NestedProperties.Length > 0)
             {
-                var sn = PicoSerDe
-                    .Gen
-                    .GenInfrastructure
-                    .InnerClassName("YamlInner", p.TypeFullName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "YamlInner",
+                    p.TypeFullName!
+                );
                 s.Append(ind);
                 s.Append(sn);
                 s.Append(".Serialize(yw, ");

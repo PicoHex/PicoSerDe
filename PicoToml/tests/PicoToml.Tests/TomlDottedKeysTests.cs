@@ -80,7 +80,7 @@ public class TomlDottedKeysTests
     {
         var config = new TomlDottedServerConfig
         {
-            Server = new TomlDottedServerInfo { Host = "example.com", Port = 443 }
+            Server = new TomlDottedServerInfo { Host = "example.com", Port = 443 },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(config);
         var result = TomlSerializer.Deserialize<TomlDottedServerConfig>(bytes);

@@ -18,7 +18,7 @@ var complex = new MsgComplex
     CreatedAt = DateTime.UtcNow,
     Day = DayOfWeek.Friday,
     Rating = 4.5,
-    IsActive = true
+    IsActive = true,
 };
 var complexPico = MsgPackSerializer.SerializeToUtf8Bytes(complex);
 var complexMp = MpLib.Serialize(complex);
@@ -31,9 +31,9 @@ var nested = new MsgNested
     {
         Street = "123 Main",
         City = "SF",
-        Zip = "94105"
+        Zip = "94105",
     },
-    Tags = new List<string> { "dev", "bench" }
+    Tags = new List<string> { "dev", "bench" },
 };
 var nestedPico = MsgPackSerializer.SerializeToUtf8Bytes(nested);
 var nestedMp = MpLib.Serialize(nested);
@@ -41,7 +41,7 @@ var nestedMp = MpLib.Serialize(nested);
 var collection = new MsgCollection
 {
     Scores = Enumerable.Range(0, 100).ToList(),
-    Metadata = new() { ["source"] = "benchmark" }
+    Metadata = new() { ["source"] = "benchmark" },
 };
 var colPico = MsgPackSerializer.SerializeToUtf8Bytes(collection);
 var colMp = MpLib.Serialize(collection);

@@ -13,14 +13,14 @@ var nested = new NestedPoco
     {
         Street = "123 Main",
         City = "SF",
-        Zip = "94105"
+        Zip = "94105",
     },
-    Tags = new List<string> { "dev", "bench" }
+    Tags = new List<string> { "dev", "bench" },
 };
 var collection = new CollectionPoco
 {
     Scores = Enumerable.Range(0, 100).ToList(),
-    Metadata = new() { ["source"] = "benchmark" }
+    Metadata = new() { ["source"] = "benchmark" },
 };
 
 var results = new List<ComparisonResult>

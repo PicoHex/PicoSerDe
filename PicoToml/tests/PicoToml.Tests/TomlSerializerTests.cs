@@ -128,7 +128,7 @@ public class TomlSerializerTests
         {
             Name = "Test",
             Scores = new List<int> { 10, 20, 30 },
-            Tags = new List<string> { "dev", "runner" }
+            Tags = new List<string> { "dev", "runner" },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<ListPoco>(bytes);
@@ -151,7 +151,7 @@ public class TomlSerializerTests
             Name = "N",
             Age = 42,
             Rating = 4.5,
-            Enabled = true
+            Enabled = true,
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<NullablePoco>(bytes);
@@ -169,7 +169,7 @@ public class TomlSerializerTests
             Name = "N",
             Age = null,
             Rating = null,
-            Enabled = null
+            Enabled = null,
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<NullablePoco>(bytes);
@@ -206,7 +206,7 @@ public class TomlSerializerTests
         var original = new NestedPoco
         {
             Name = "Home",
-            Address = new Address { Street = "123 Main", City = "NYC" }
+            Address = new Address { Street = "123 Main", City = "NYC" },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<NestedPoco>(bytes);
@@ -222,7 +222,7 @@ public class TomlSerializerTests
         var original = new DictPoco
         {
             Name = "D",
-            Scores = new Dictionary<string, int> { ["alice"] = 10, ["bob"] = 20 }
+            Scores = new Dictionary<string, int> { ["alice"] = 10, ["bob"] = 20 },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<DictPoco>(bytes);
@@ -239,7 +239,7 @@ public class TomlSerializerTests
         {
             Date = new DateOnly(2024, 6, 15),
             Time = new TimeOnly(12, 30, 0),
-            Duration = TimeSpan.FromMinutes(90)
+            Duration = TimeSpan.FromMinutes(90),
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<TemporalExPoco>(bytes);
@@ -258,7 +258,7 @@ public class TomlSerializerTests
             Gamma = true,
             Delta = 4,
             Epsilon = 5.5,
-            Zeta = "z"
+            Zeta = "z",
         };
 
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
@@ -286,7 +286,7 @@ public class TomlSerializerTests
     {
         var original = new ReadOnlyListPoco
         {
-            Scores = new List<int> { 10, 20, 30 }
+            Scores = new List<int> { 10, 20, 30 },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<ReadOnlyListPoco>(bytes);
@@ -300,7 +300,7 @@ public class TomlSerializerTests
     {
         var original = new DictStringLongPoco
         {
-            Counts = new Dictionary<string, long> { ["x"] = 100L, ["y"] = 200L }
+            Counts = new Dictionary<string, long> { ["x"] = 100L, ["y"] = 200L },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<DictStringLongPoco>(bytes);
@@ -314,7 +314,7 @@ public class TomlSerializerTests
     {
         var original = new DictStringDoublePoco
         {
-            Ratings = new Dictionary<string, double> { ["a"] = 4.5, ["b"] = 3.2 }
+            Ratings = new Dictionary<string, double> { ["a"] = 4.5, ["b"] = 3.2 },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<DictStringDoublePoco>(bytes);
@@ -328,7 +328,7 @@ public class TomlSerializerTests
     {
         var original = new DictStringBoolPoco
         {
-            Flags = new Dictionary<string, bool> { ["enabled"] = true, ["visible"] = false }
+            Flags = new Dictionary<string, bool> { ["enabled"] = true, ["visible"] = false },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<DictStringBoolPoco>(bytes);
@@ -342,7 +342,7 @@ public class TomlSerializerTests
     {
         var original = new DictStringStringPoco
         {
-            Metadata = new Dictionary<string, string> { ["env"] = "prod", ["ver"] = "1.0" }
+            Metadata = new Dictionary<string, string> { ["env"] = "prod", ["ver"] = "1.0" },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<DictStringStringPoco>(bytes);

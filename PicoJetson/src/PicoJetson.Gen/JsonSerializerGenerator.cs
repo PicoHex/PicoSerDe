@@ -6,23 +6,24 @@ using TypeInfo = PicoSerDe.Gen.TypeInfo;
 [Generator(LanguageNames.CSharp)]
 public sealed class JsonSerializerGenerator : IIncrementalGenerator
 {
-    private static readonly PicoSerDe.Gen.FormatConfig Config =
-        new("JsonSerializer", "PicoJetson", "json");
+    private static readonly PicoSerDe.Gen.FormatConfig Config = new(
+        "JsonSerializer",
+        "PicoJetson",
+        "json"
+    );
 
-    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
-        new(
-            HasJsonCamelCase,
-            GetJsonPropertyName,
-            HasJsonIgnore,
-            GetJsonConverterType,
-            GetDateTimeFormat
-        );
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
+        HasJsonCamelCase,
+        GetJsonPropertyName,
+        HasJsonIgnore,
+        GetJsonConverterType,
+        GetDateTimeFormat
+    );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var typeProviders = context
-            .SyntaxProvider
-            .CreateSyntaxProvider(
+            .SyntaxProvider.CreateSyntaxProvider(
                 predicate: static (node, _) => IsCandidate(node),
                 transform: static (ctx, _) => Transform(ctx)
             )
@@ -67,10 +68,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             }
         }
 
-        var info = PicoSerDe
-            .Gen
-            .GenInfrastructure
-            .TransformType(ctx, Config, Attrs, includeReadOnlyProperties: hasCtor);
+        var info = PicoSerDe.Gen.GenInfrastructure.TransformType(
+            ctx,
+            Config,
+            Attrs,
+            includeReadOnlyProperties: hasCtor
+        );
         if (info is not { } ti)
             return null;
 
@@ -86,16 +89,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         if (typeArg is not INamedTypeSymbol namedType2)
             return ti;
 
-        var ctorParams = PicoSerDe
-            .Gen
-            .GenInfrastructure
-            .DetectJsonConstructor(namedType2, Config.FormatTag);
+        var ctorParams = PicoSerDe.Gen.GenInfrastructure.DetectJsonConstructor(
+            namedType2,
+            Config.FormatTag
+        );
         if (ctorParams is not { } cp)
             return ti;
 
         return ti with
         {
-            CtorParams = cp
+            CtorParams = cp,
         };
     }
 
@@ -528,10 +531,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe
-                    .Gen
-                    .GenInfrastructure
-                    .InnerClassName("JsonInner", prop.TypeFullName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "JsonInner",
+                    prop.TypeFullName!
+                );
                 sb.Append(indent);
                 sb.Append("if (");
                 sb.Append(effectiveAccessor);
@@ -629,10 +632,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe
-                    .Gen
-                    .GenInfrastructure
-                    .InnerClassName("JsonInner", prop.ElementTypeName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "JsonInner",
+                    prop.ElementTypeName!
+                );
                 sb.Append(indent);
                 sb.Append(sn);
                 sb.Append(".Serialize(jw, ");
@@ -681,7 +684,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     "string" => "null!",
                     "int32" or "int64" or "float64" => "0",
                     "boolean" => "false",
-                    _ => "default!"
+                    _ => "default!",
                 };
                 sb.Append("            ");
                 sb.Append(typeName);
@@ -1185,13 +1188,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     {
                         "int32" => "int",
                         "int64" => "long",
-                        _ => "bool"
+                        _ => "bool",
                     };
                     var fastMethod = prop.ElementTypeKind switch
                     {
                         "int32" => "TryReadInt32ArrayFast",
                         "int64" => "TryReadInt64ArrayFast",
-                        _ => "TryReadBoolArrayFast"
+                        _ => "TryReadBoolArrayFast",
                     };
                     sb.Append(indent);
                     sb.Append("    Span<");
@@ -1302,10 +1305,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe
-                    .Gen
-                    .GenInfrastructure
-                    .InnerClassName("JsonInner", prop.TypeFullName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "JsonInner",
+                    prop.TypeFullName!
+                );
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.Null)");
                 sb.Append(indent);
@@ -1462,10 +1465,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe
-                    .Gen
-                    .GenInfrastructure
-                    .InnerClassName("JsonInner", prop.ElementTypeName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "JsonInner",
+                    prop.ElementTypeName!
+                );
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.Append(".Add(");
@@ -1723,10 +1726,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "object":
             {
-                var sn = PicoSerDe
-                    .Gen
-                    .GenInfrastructure
-                    .InnerClassName("JsonInner", prop.ElementTypeName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "JsonInner",
+                    prop.ElementTypeName!
+                );
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.Null)");
                 sb.Append(indent);
@@ -1921,7 +1924,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "bytes" => "byte[]",
             "list" => "object",
             "array" => "object",
-            _ => "object"
+            _ => "object",
         };
 
     /// <summary>

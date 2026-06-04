@@ -83,7 +83,7 @@ public class SimdWhitespaceTests
                     0 => 0x20, // space
                     1 => 0x09, // tab
                     2 => 0x0A, // newline
-                    _ => 0x0D // carriage return
+                    _ => 0x0D, // carriage return
                 }
             );
         }

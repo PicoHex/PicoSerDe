@@ -69,7 +69,7 @@ public class TomlAttributeTests
         var original = new ConverterPoco
         {
             Name = "Test",
-            Tag = new TagWrapper { Value = "hello" }
+            Tag = new TagWrapper { Value = "hello" },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var text = Encoding.UTF8.GetString(bytes);
@@ -126,7 +126,7 @@ public class TomlAttributeTests
         {
             Title = "Hello",
             Secret = "hidden",
-            Count = 42
+            Count = 42,
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(obj);
         var text = Encoding.UTF8.GetString(bytes);
@@ -143,7 +143,7 @@ public class TomlAttributeTests
         {
             Title = "Hello",
             Secret = "hidden",
-            Count = 42
+            Count = 42,
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<IgnoredPoco>(bytes);
@@ -213,7 +213,7 @@ public class TomlNestedKeyTests
         var obj = new NestedKeyParent
         {
             Name = "Home",
-            Address = new NestedKeyAddress { Street = "123 Main", City = "NYC" }
+            Address = new NestedKeyAddress { Street = "123 Main", City = "NYC" },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(obj);
         var text = Encoding.UTF8.GetString(bytes);
@@ -230,7 +230,7 @@ public class TomlNestedKeyTests
         var original = new NestedKeyParent
         {
             Name = "Home",
-            Address = new NestedKeyAddress { Street = "123 Main", City = "NYC" }
+            Address = new NestedKeyAddress { Street = "123 Main", City = "NYC" },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<NestedKeyParent>(bytes);
@@ -264,7 +264,7 @@ public class TomlNestedCamelCaseTests
         var obj = new CamelCaseNestedParent
         {
             FullName = "Alice",
-            Address = new CamelCaseNestedAddr { StreetName = "Main St", ZipCode = 12345 }
+            Address = new CamelCaseNestedAddr { StreetName = "Main St", ZipCode = 12345 },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(obj);
         var text = Encoding.UTF8.GetString(bytes);
@@ -281,7 +281,7 @@ public class TomlNestedCamelCaseTests
         var original = new CamelCaseNestedParent
         {
             FullName = "Bob",
-            Address = new CamelCaseNestedAddr { StreetName = "Main St", ZipCode = 12345 }
+            Address = new CamelCaseNestedAddr { StreetName = "Main St", ZipCode = 12345 },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(original);
         var result = TomlSerializer.Deserialize<CamelCaseNestedParent>(bytes);
@@ -300,7 +300,7 @@ public class TomlNestedConverterTests
         var obj = new NestedConverterParent
         {
             Name = "Test",
-            Address = new NestedConverterAddr { Tag = new TagWrapper { Value = "hello" } }
+            Address = new NestedConverterAddr { Tag = new TagWrapper { Value = "hello" } },
         };
         var bytes = TomlSerializer.SerializeToUtf8Bytes(obj);
         var text = Encoding.UTF8.GetString(bytes);

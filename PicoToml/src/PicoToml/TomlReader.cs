@@ -450,7 +450,7 @@ public ref struct TomlReader
             0 => _dottedO0,
             1 => _dottedO1,
             2 => _dottedO2,
-            _ => _dottedO3
+            _ => _dottedO3,
         };
 
     private int GetDottedLength(int idx) =>
@@ -459,7 +459,7 @@ public ref struct TomlReader
             0 => _dottedL0,
             1 => _dottedL1,
             2 => _dottedL2,
-            _ => _dottedL3
+            _ => _dottedL3,
         };
 
     /// <summary>Splits a dotted key like "a.b.c" into parts and stores offsets for emission.</summary>

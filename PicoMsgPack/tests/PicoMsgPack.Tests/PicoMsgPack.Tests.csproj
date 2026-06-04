@@ -1,26 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <TrimMode>full</TrimMode>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
 
-    <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <OutputType>Exe</OutputType>
-        <PublishAot>true</PublishAot>
-        <TrimMode>full</TrimMode>
-        <LangVersion>latest</LangVersion>
-        <Nullable>enable</Nullable>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <IsPackable>false</IsPackable>
-        <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
-    </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="TUnit" Version="1.48.*" />
+  </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Include="TUnit" Version="1.48.*" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <ProjectReference Include="..\..\src\PicoMsgPack\PicoMsgPack.csproj" />
-        <ProjectReference Include="..\..\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"
-                          OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-        <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
-    </ItemGroup>
-
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PicoMsgPack\PicoMsgPack.csproj" />
+    <ProjectReference
+      Include="..\..\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false"
+    />
+    <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
+  </ItemGroup>
 </Project>

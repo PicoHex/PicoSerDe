@@ -6,25 +6,26 @@ using TypeInfo = PicoSerDe.Gen.TypeInfo;
 [Generator(LanguageNames.CSharp)]
 public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 {
-    private static readonly PicoSerDe.Gen.FormatConfig Config =
-        new("MsgPackSerializer", "PicoMsgPack", "msgpack");
+    private static readonly PicoSerDe.Gen.FormatConfig Config = new(
+        "MsgPackSerializer",
+        "PicoMsgPack",
+        "msgpack"
+    );
 
-    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
-        new(
-            _ => false,
-            _ => null,
-            HasMsgPackIgnore,
-            GetMsgPackConverter,
-            _ => null,
-            GetIntKey: GetMsgPackKey,
-            OverrideKindWithStringOnConverter: true
-        );
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
+        _ => false,
+        _ => null,
+        HasMsgPackIgnore,
+        GetMsgPackConverter,
+        _ => null,
+        GetIntKey: GetMsgPackKey,
+        OverrideKindWithStringOnConverter: true
+    );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var typeProviders = context
-            .SyntaxProvider
-            .CreateSyntaxProvider(
+            .SyntaxProvider.CreateSyntaxProvider(
                 predicate: static (n, _) => IsCandidate(n),
                 transform: static (ctx, _) => Transform(ctx)
             )

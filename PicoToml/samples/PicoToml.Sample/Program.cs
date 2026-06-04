@@ -12,8 +12,8 @@ var cfg = new TomlConfig
     CreatedAt = new DateTime(2024, 6, 15, 12, 0, 0, DateTimeKind.Utc),
     ReleaseDate = new DateOnly(2024, 6, 15),
     Id = Guid.Parse("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
-    Tags =  ["web", "api"],
-    Secret = "hidden"
+    Tags = ["web", "api"],
+    Secret = "hidden",
 };
 var bytes = TomlSerializer.SerializeToUtf8Bytes(cfg);
 Console.WriteLine(Encoding.UTF8.GetString(bytes));
@@ -24,36 +24,30 @@ Console.WriteLine($"  OK: {rst?.Name}, Secret: '{rst?.Secret}'");
 Console.WriteLine("\n─── 2. Attributes ───");
 Console.WriteLine("  [TomlCamelCase]:");
 Console.WriteLine(
-    Encoding
-        .UTF8
-        .GetString(
-            TomlSerializer.SerializeToUtf8Bytes(new CamelToml { ProductName = "X", StockCount = 1 })
-        )
+    Encoding.UTF8.GetString(
+        TomlSerializer.SerializeToUtf8Bytes(new CamelToml { ProductName = "X", StockCount = 1 })
+    )
 );
 
 Console.WriteLine("  [TomlKey]+[TomlIgnore]:");
 Console.WriteLine(
-    Encoding
-        .UTF8
-        .GetString(
-            TomlSerializer.SerializeToUtf8Bytes(
-                new AttrToml
-                {
-                    AppName = "Demo",
-                    Secret = "x",
-                    Port = 99
-                }
-            )
+    Encoding.UTF8.GetString(
+        TomlSerializer.SerializeToUtf8Bytes(
+            new AttrToml
+            {
+                AppName = "Demo",
+                Secret = "x",
+                Port = 99,
+            }
         )
+    )
 );
 
 Console.WriteLine("  [TomlDateTimeFormat]:");
 Console.WriteLine(
-    Encoding
-        .UTF8
-        .GetString(
-            TomlSerializer.SerializeToUtf8Bytes(new DtToml { DueDate = new DateTime(2024, 12, 31) })
-        )
+    Encoding.UTF8.GetString(
+        TomlSerializer.SerializeToUtf8Bytes(new DtToml { DueDate = new DateTime(2024, 12, 31) })
+    )
 );
 
 Console.WriteLine("  [TomlConverter]:");

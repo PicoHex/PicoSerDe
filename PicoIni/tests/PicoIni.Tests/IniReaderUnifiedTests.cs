@@ -246,7 +246,7 @@ file sealed class BufferSegment : ReadOnlySequenceSegment<byte>
     {
         var next = new BufferSegment(data, offset, length)
         {
-            RunningIndex = RunningIndex + Memory.Length
+            RunningIndex = RunningIndex + Memory.Length,
         };
         Next = next;
         return next;

@@ -117,7 +117,7 @@ public class MsgPackSerializerGeneratorTests
         {
             Title = "Dune",
             Pages = 412,
-            Tags =  ["sci-fi", "classic"]
+            Tags = ["sci-fi", "classic"],
         };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(book);
         var result = MsgPackSerializer.Deserialize<BookMsgPack>(bytes);
@@ -178,7 +178,7 @@ public class MsgPackSerializerGeneratorTests
         var person = new PersonWithAddress
         {
             Name = "Alice",
-            Home = new Address { Street = "1 Main", City = "NYC" }
+            Home = new Address { Street = "1 Main", City = "NYC" },
         };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(person);
         var result = MsgPackSerializer.Deserialize<PersonWithAddress>(bytes);
@@ -227,7 +227,7 @@ public class MsgPackSerializerGeneratorTests
         var model = new TemporalModel
         {
             CreatedAt = new DateTime(2024, 6, 15, 12, 0, 0, DateTimeKind.Utc),
-            Duration = TimeSpan.FromSeconds(90)
+            Duration = TimeSpan.FromSeconds(90),
         };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var result = MsgPackSerializer.Deserialize<TemporalModel>(bytes);
@@ -244,7 +244,7 @@ public class MsgPackSerializerGeneratorTests
         {
             Date = new DateOnly(2024, 6, 15),
             Time = new TimeOnly(12, 30, 0),
-            Span = TimeSpan.FromMinutes(90)
+            Span = TimeSpan.FromMinutes(90),
         };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var result = MsgPackSerializer.Deserialize<DateOnlyTimeOnlyModel>(bytes);
@@ -282,7 +282,7 @@ public class MsgPackSerializerGeneratorTests
     [Test]
     public async Task Generated_IntArray_RoundTrip()
     {
-        var model = new IntArrayModel { Scores =  [10, 20, 30] };
+        var model = new IntArrayModel { Scores = [10, 20, 30] };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var result = MsgPackSerializer.Deserialize<IntArrayModel>(bytes);
         await Assert.That(result!.Scores).IsEquivalentTo(new[] { 10, 20, 30 });

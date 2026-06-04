@@ -30,7 +30,7 @@ public class MsgPackAttributeTests
         {
             Name = "Test",
             Tag = "hello",
-            Score = 42
+            Score = 42,
         };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
 

@@ -6,7 +6,7 @@ var user = new User
 {
     Name = "Alice",
     Age = 30,
-    Active = true
+    Active = true,
 };
 var bytes = MsgPackSerializer.SerializeToUtf8Bytes(user);
 var result = MsgPackSerializer.Deserialize<User>(bytes);
@@ -25,7 +25,7 @@ var product = new Product
 {
     Title = "Widget",
     Price = 9.99,
-    Tags =  ["sale", "new"]
+    Tags = ["sale", "new"],
 };
 var pBytes = MsgPackSerializer.SerializeToUtf8Bytes(product);
 var pResult = MsgPackSerializer.Deserialize<Product>(pBytes);
@@ -39,7 +39,7 @@ Console.WriteLine("\n─── 3. Nested Model ───");
 var order = new Order
 {
     Id = 42,
-    Customer = new Customer { Name = "Bob" }
+    Customer = new Customer { Name = "Bob" },
 };
 var oBytes = MsgPackSerializer.SerializeToUtf8Bytes(order);
 var oResult = MsgPackSerializer.Deserialize<Order>(oBytes);

@@ -129,8 +129,8 @@ public class JsonSerializerTests
     [Test]
     public async Task StaticApi_NoRegistration_ThrowsInvalidOperation()
     {
-        var ex = Assert.Throws<InvalidOperationException>(
-            () => JsonSerializer.SerializeToUtf8Bytes(new UnregisteredType())
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            JsonSerializer.SerializeToUtf8Bytes(new UnregisteredType())
         );
         await Assert.That(ex.Message).Contains("UnregisteredType");
     }

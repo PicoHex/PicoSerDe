@@ -206,7 +206,7 @@ public class IniNestedCamelCaseTests
         var obj = new CamelCaseParent
         {
             FullName = "Alice",
-            Address = new CamelCaseNested { StreetName = "Main St", ZipCode = 12345 }
+            Address = new CamelCaseNested { StreetName = "Main St", ZipCode = 12345 },
         };
         var ini = IniSerializer.Serialize(obj);
 
@@ -222,7 +222,7 @@ public class IniNestedCamelCaseTests
         var original = new CamelCaseParent
         {
             FullName = "Bob",
-            Address = new CamelCaseNested { StreetName = "Main St", ZipCode = 12345 }
+            Address = new CamelCaseNested { StreetName = "Main St", ZipCode = 12345 },
         };
         var ini = IniSerializer.Serialize(original);
         var bytes = Encoding.UTF8.GetBytes(ini);
@@ -275,7 +275,7 @@ public class IniListRoundTripTests
     {
         var original = new IniListPoco
         {
-            Tags = new List<string> { "hello, world", "foo", "bar,baz" }
+            Tags = new List<string> { "hello, world", "foo", "bar,baz" },
         };
         var ini = IniSerializer.Serialize(original);
         var bytes = Encoding.UTF8.GetBytes(ini);
@@ -306,7 +306,7 @@ public class IniListRoundTripTests
     {
         var original = new IniListPoco
         {
-            Tags = new List<string> { "alpha", "beta", "gamma" }
+            Tags = new List<string> { "alpha", "beta", "gamma" },
         };
         var ini = IniSerializer.Serialize(original);
         var bytes = Encoding.UTF8.GetBytes(ini);
@@ -323,7 +323,7 @@ public class IniListRoundTripTests
     {
         var original = new IniListPoco
         {
-            Tags = new List<string> { "1", "2", "3" }
+            Tags = new List<string> { "1", "2", "3" },
         };
         var ini = IniSerializer.Serialize(original);
         var bytes = Encoding.UTF8.GetBytes(ini);
@@ -352,7 +352,7 @@ public class IniDictRoundTripTests
         var original = new IniDictPoco
         {
             Name = "D",
-            Scores = new Dictionary<string, int> { ["alice"] = 10, ["bob"] = 20 }
+            Scores = new Dictionary<string, int> { ["alice"] = 10, ["bob"] = 20 },
         };
         var ini = IniSerializer.Serialize(original);
         var bytes = Encoding.UTF8.GetBytes(ini);
@@ -371,7 +371,7 @@ public class IniDictRoundTripTests
         var original = new IniDictPoco
         {
             Name = "D",
-            Scores = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 }
+            Scores = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 },
         };
         var ini = IniSerializer.Serialize(original);
         await Assert.That(ini).Contains("Scores");
@@ -431,7 +431,7 @@ public class IniNestedSectionTests
         var original = new IniParentWithNestedSection
         {
             AppName = "MyApp",
-            Server = new IniDeepSection { Name = "db", Port = 5432 }
+            Server = new IniDeepSection { Name = "db", Port = 5432 },
         };
         var ini = IniSerializer.Serialize(original);
         var bytes = Encoding.UTF8.GetBytes(ini);
@@ -450,7 +450,7 @@ public enum IniTestColor
 {
     Red,
     Green,
-    Blue
+    Blue,
 }
 
 public class IniEnumPoco

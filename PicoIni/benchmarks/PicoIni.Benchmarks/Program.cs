@@ -19,7 +19,7 @@ var complex = new ComplexPoco
     CreatedAt = DateTime.UtcNow,
     Day = DayOfWeek.Friday,
     Rating = 4.5,
-    IsActive = true
+    IsActive = true,
 };
 var complexBytes = IniSerializer.SerializeToUtf8Bytes(complex);
 var complexStr = IniSerializer.Serialize(complex);
@@ -31,7 +31,7 @@ var medium = new MediumScalarPoco
     Gamma = true,
     Delta = 4,
     Epsilon = 5.5,
-    Zeta = "z"
+    Zeta = "z",
 };
 var mediumBytes = IniSerializer.SerializeToUtf8Bytes(medium);
 
@@ -66,7 +66,7 @@ var large = new LargeFlatPoco
     D02 = 2.2,
     D03 = 3.3,
     D04 = 4.4,
-    D05 = 5.5
+    D05 = 5.5,
 };
 var largeBytes = IniSerializer.SerializeToUtf8Bytes(large);
 
@@ -155,7 +155,7 @@ byte[] SerIniMedium(MediumScalarPoco p) =>
                 ["Gamma"] = p.Gamma.ToString(),
                 ["Delta"] = p.Delta.ToString(),
                 ["Epsilon"] = p.Epsilon.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["Zeta"] = p.Zeta
+                ["Zeta"] = p.Zeta,
             }
         )
     );
@@ -170,7 +170,7 @@ byte[] SerIniComplex(ComplexPoco p) =>
                 ["CreatedAt"] = p.CreatedAt.ToString("O"),
                 ["Day"] = p.Day.ToString(),
                 ["Rating"] = p.Rating.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["IsActive"] = p.IsActive.ToString()
+                ["IsActive"] = p.IsActive.ToString(),
             }
         )
     );
@@ -208,7 +208,7 @@ byte[] SerIniLarge(LargeFlatPoco p) =>
                 ["D02"] = p.D02.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["D03"] = p.D03.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["D04"] = p.D04.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["D05"] = p.D05.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                ["D05"] = p.D05.ToString(System.Globalization.CultureInfo.InvariantCulture),
             }
         )
     );
@@ -239,7 +239,7 @@ MediumScalarPoco DeserMedium(string s)
             d.Global["Epsilon"],
             System.Globalization.CultureInfo.InvariantCulture
         ),
-        Zeta = d.Global["Zeta"]
+        Zeta = d.Global["Zeta"],
     };
 }
 LargeFlatPoco DeserLarge(string s)
@@ -276,6 +276,6 @@ LargeFlatPoco DeserLarge(string s)
         D02 = double.Parse(d.Global["D02"], System.Globalization.CultureInfo.InvariantCulture),
         D03 = double.Parse(d.Global["D03"], System.Globalization.CultureInfo.InvariantCulture),
         D04 = double.Parse(d.Global["D04"], System.Globalization.CultureInfo.InvariantCulture),
-        D05 = double.Parse(d.Global["D05"], System.Globalization.CultureInfo.InvariantCulture)
+        D05 = double.Parse(d.Global["D05"], System.Globalization.CultureInfo.InvariantCulture),
     };
 }

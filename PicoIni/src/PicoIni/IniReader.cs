@@ -354,11 +354,9 @@ public ref struct IniReader
             var semiIdx = raw.IndexOf((byte)';');
             var hashIdx = raw.IndexOf((byte)'#');
             var commentIdx =
-                semiIdx < 0
-                    ? hashIdx
-                    : hashIdx < 0
-                        ? semiIdx
-                        : Math.Min(semiIdx, hashIdx);
+                semiIdx < 0 ? hashIdx
+                : hashIdx < 0 ? semiIdx
+                : Math.Min(semiIdx, hashIdx);
             if (commentIdx >= 0)
                 raw = TrimEnd(raw[..commentIdx]);
             _pendingValue = Trim(raw);
@@ -536,11 +534,9 @@ public ref struct IniReader
             var semiIdx = raw.IndexOf((byte)';');
             var hashIdx = raw.IndexOf((byte)'#');
             var commentIdx =
-                semiIdx < 0
-                    ? hashIdx
-                    : hashIdx < 0
-                        ? semiIdx
-                        : Math.Min(semiIdx, hashIdx);
+                semiIdx < 0 ? hashIdx
+                : hashIdx < 0 ? semiIdx
+                : Math.Min(semiIdx, hashIdx);
             if (commentIdx >= 0)
                 raw = TextHelpers.TrimEnd(raw[..commentIdx]);
             _pendingValue = TextHelpers.Trim(raw);

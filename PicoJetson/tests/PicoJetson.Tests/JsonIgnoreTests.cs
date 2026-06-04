@@ -34,7 +34,7 @@ public class JsonIgnoreTests
         {
             Name = "Alice",
             Secret = "secret123",
-            Age = 30
+            Age = 30,
         };
         var s = new IgnoreModelJsonSerializer();
         var bytes = s.SerializeToBytes(m);
@@ -51,7 +51,7 @@ public class JsonIgnoreTests
         {
             Name = "Alice",
             Secret = "secret123",
-            Age = 30
+            Age = 30,
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(m);
         var json = Encoding.UTF8.GetString(bytes);

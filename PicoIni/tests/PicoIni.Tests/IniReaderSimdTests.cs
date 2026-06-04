@@ -76,7 +76,7 @@ public class IniReaderSimdTests
     public async Task WhitespaceHeavy_QuotedValue()
     {
         var ini = """
-            
+
             key = "hello world"
             """;
         var bytes = Encoding.UTF8.GetBytes(ini);

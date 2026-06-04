@@ -439,10 +439,9 @@ public ref struct MsgPackReader
         {
             v = _valueSpan.Length switch
             {
-                1
-                    => _tokenType == TokenType.UInt8
-                        ? _valueSpan[0]
-                        : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]),
+                1 => _tokenType == TokenType.UInt8
+                    ? _valueSpan[0]
+                    : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]),
                 2 => BinaryPrimitives.ReadInt16BigEndian(_valueSpan),
                 4 => BinaryPrimitives.ReadInt32BigEndian(_valueSpan),
                 8 => (int)BinaryPrimitives.ReadInt64BigEndian(_valueSpan),
@@ -472,15 +471,13 @@ public ref struct MsgPackReader
         {
             v = _valueSpan.Length switch
             {
-                1
-                    => _tokenType == TokenType.UInt8
-                        ? _valueSpan[0]
-                        : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]),
+                1 => _tokenType == TokenType.UInt8
+                    ? _valueSpan[0]
+                    : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]),
                 2 => BinaryPrimitives.ReadInt16BigEndian(_valueSpan),
-                4
-                    => _tokenType == TokenType.UInt32
-                        ? BinaryPrimitives.ReadUInt32BigEndian(_valueSpan)
-                        : BinaryPrimitives.ReadInt32BigEndian(_valueSpan),
+                4 => _tokenType == TokenType.UInt32
+                    ? BinaryPrimitives.ReadUInt32BigEndian(_valueSpan)
+                    : BinaryPrimitives.ReadInt32BigEndian(_valueSpan),
                 8 => BinaryPrimitives.ReadInt64BigEndian(_valueSpan),
                 _ => 0,
             };
@@ -607,7 +604,6 @@ public ref struct MsgPackReader
     }
 
     /// <summary>Fast path: read int32 array directly from buffer. Returns count read, or 0 to fallback.</summary>
-
     public int TryReadInt32Array(Span<int> dest)
     {
         if (_isSequence)
@@ -647,7 +643,6 @@ public ref struct MsgPackReader
     }
 
     /// <summary>Fast path: read int64 array directly from buffer.</summary>
-
     public int TryReadInt64Array(Span<long> dest)
     {
         if (_isSequence)
@@ -718,7 +713,6 @@ public ref struct MsgPackReader
     }
 
     /// <summary>Fast path: read double array directly from buffer.</summary>
-
     public int TryReadDoubleArray(Span<double> dest)
     {
         if (_isSequence)
@@ -772,7 +766,6 @@ public ref struct MsgPackReader
     }
 
     /// <summary>Fast path: read bool array directly from buffer.</summary>
-
     public int TryReadBoolArray(Span<bool> dest)
     {
         if (_isSequence)

@@ -26,7 +26,7 @@ public class FuzzingTests
             "[1,2,3]",
             "[true, false, null]",
             "{\"nested\":{\"deep\":[1,2]}}",
-            "{\"a\":[],\"b\":{}}"
+            "{\"a\":[],\"b\":{}}",
         };
         foreach (var input in inputs)
         {
@@ -48,7 +48,7 @@ public class FuzzingTests
             "tru",
             "fals",
             "nul",
-            "\"\\u00ZZ\""
+            "\"\\u00ZZ\"",
         };
         foreach (var input in inputs)
         {
@@ -93,7 +93,7 @@ public class FuzzingTests
             0 => GetRandomValue(rng),
             1 => "{" + GenerateRandomJson(rng, depth - 1) + "}",
             2 => "[" + GenerateRandomJson(rng, depth - 1) + "]",
-            _ => "{ \"a\": " + GenerateRandomJson(rng, depth - 1) + " }"
+            _ => "{ \"a\": " + GenerateRandomJson(rng, depth - 1) + " }",
         };
     }
 
@@ -105,6 +105,6 @@ public class FuzzingTests
             2 => rng.NextDouble().ToString("F2"),
             3 => "true",
             4 => "false",
-            _ => "null"
+            _ => "null",
         };
 }

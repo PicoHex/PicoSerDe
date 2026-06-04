@@ -6,26 +6,27 @@ using TypeInfo = PicoSerDe.Gen.TypeInfo;
 [Generator(LanguageNames.CSharp)]
 public sealed class IniSerializerGenerator : IIncrementalGenerator
 {
-    private static readonly PicoSerDe.Gen.FormatConfig Config =
-        new("IniSerializer", "PicoIni", "ini");
+    private static readonly PicoSerDe.Gen.FormatConfig Config = new(
+        "IniSerializer",
+        "PicoIni",
+        "ini"
+    );
 
-    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
-        new(
-            HasIniCamelCase,
-            GetIniKey,
-            HasIniIgnore,
-            GetIniConverter,
-            GetIniDateTimeFormat,
-            GetSectionName: GetIniSection,
-            GetComment: GetIniComment,
-            GetPropertyComment: GetIniPropertyComment
-        );
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
+        HasIniCamelCase,
+        GetIniKey,
+        HasIniIgnore,
+        GetIniConverter,
+        GetIniDateTimeFormat,
+        GetSectionName: GetIniSection,
+        GetComment: GetIniComment,
+        GetPropertyComment: GetIniPropertyComment
+    );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var typeProviders = context
-            .SyntaxProvider
-            .CreateSyntaxProvider(
+            .SyntaxProvider.CreateSyntaxProvider(
                 predicate: static (node, _) => IsCandidate(node),
                 transform: static (ctx, _) => Transform(ctx)
             )

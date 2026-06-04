@@ -16,7 +16,7 @@ public class DateTimeFormatTests
         var model = new DateTimeFormatModel
         {
             Date = new DateTime(2024, 6, 15),
-            CreatedAt = new DateTime(2024, 1, 1)
+            CreatedAt = new DateTime(2024, 1, 1),
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var json = Encoding.UTF8.GetString(bytes);
@@ -32,7 +32,7 @@ public class DateTimeFormatTests
         var model = new DateTimeFormatModel
         {
             Date = new DateTime(2024, 6, 15),
-            CreatedAt = new DateTime(2024, 6, 15)
+            CreatedAt = new DateTime(2024, 6, 15),
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var result = JsonSerializer.Deserialize<DateTimeFormatModel>(bytes);

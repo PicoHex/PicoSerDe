@@ -12,8 +12,8 @@ var cfg = new YamlConfig
     CreatedAt = new DateTime(2024, 6, 15, 12, 0, 0, DateTimeKind.Utc),
     ReleaseDate = new DateOnly(2024, 6, 15),
     Id = Guid.Parse("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
-    Tags =  ["web", "api"],
-    Secret = "hidden"
+    Tags = ["web", "api"],
+    Secret = "hidden",
 };
 var bytes = YamlSerializer.SerializeToUtf8Bytes(cfg);
 Console.WriteLine(Encoding.UTF8.GetString(bytes));
@@ -24,36 +24,30 @@ Console.WriteLine($"  OK: {rst?.Name}, Secret: '{rst?.Secret}'");
 Console.WriteLine("\n─── 2. Attributes ───");
 Console.WriteLine("  [YamlCamelCase]:");
 Console.WriteLine(
-    Encoding
-        .UTF8
-        .GetString(
-            YamlSerializer.SerializeToUtf8Bytes(new CamelYaml { ProductName = "X", StockCount = 1 })
-        )
+    Encoding.UTF8.GetString(
+        YamlSerializer.SerializeToUtf8Bytes(new CamelYaml { ProductName = "X", StockCount = 1 })
+    )
 );
 
 Console.WriteLine("  [YamlKey]+[YamlIgnore]:");
 Console.WriteLine(
-    Encoding
-        .UTF8
-        .GetString(
-            YamlSerializer.SerializeToUtf8Bytes(
-                new AttrYaml
-                {
-                    AppName = "Demo",
-                    Secret = "x",
-                    Port = 99
-                }
-            )
+    Encoding.UTF8.GetString(
+        YamlSerializer.SerializeToUtf8Bytes(
+            new AttrYaml
+            {
+                AppName = "Demo",
+                Secret = "x",
+                Port = 99,
+            }
         )
+    )
 );
 
 Console.WriteLine("  [YamlDateTimeFormat]:");
 Console.WriteLine(
-    Encoding
-        .UTF8
-        .GetString(
-            YamlSerializer.SerializeToUtf8Bytes(new DtYaml { DueDate = new DateTime(2024, 12, 31) })
-        )
+    Encoding.UTF8.GetString(
+        YamlSerializer.SerializeToUtf8Bytes(new DtYaml { DueDate = new DateTime(2024, 12, 31) })
+    )
 );
 
 Console.WriteLine("  [YamlConverter]:");

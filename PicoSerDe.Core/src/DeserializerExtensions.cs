@@ -24,7 +24,8 @@ public static class DeserializerExtensions
             return deserializer.Deserialize(ms.ToArray().AsSpan());
         }
 
-        public async ValueTask<T> DeserializeFromStreamAsync(Stream stream,
+        public async ValueTask<T> DeserializeFromStreamAsync(
+            Stream stream,
             CancellationToken ct = default
         )
         {
@@ -34,7 +35,8 @@ public static class DeserializerExtensions
             return deserializer.Deserialize(ms.ToArray().AsSpan());
         }
 
-        public async ValueTask<T> DeserializeFromPipeAsync(PipeReader reader,
+        public async ValueTask<T> DeserializeFromPipeAsync(
+            PipeReader reader,
             CancellationToken ct = default
         )
         {

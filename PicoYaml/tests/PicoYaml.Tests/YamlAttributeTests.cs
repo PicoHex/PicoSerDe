@@ -56,7 +56,7 @@ public class YamlAttributeTests
         var original = new YamlConverterPoco
         {
             Name = "Test",
-            Tag = new YamlTagWrapper { Value = "hello" }
+            Tag = new YamlTagWrapper { Value = "hello" },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var text = Encoding.UTF8.GetString(bytes);
@@ -98,7 +98,7 @@ public class YamlAttributeTests
         {
             Title = "Hello",
             Secret = "hidden",
-            Count = 42
+            Count = 42,
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(obj);
         var text = Encoding.UTF8.GetString(bytes);
@@ -115,7 +115,7 @@ public class YamlAttributeTests
         {
             Title = "Hello",
             Secret = "hidden",
-            Count = 42
+            Count = 42,
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<IgnoredYaml>(bytes);
@@ -217,7 +217,7 @@ public class YamlNestedAdvancedTests
         var obj = new YamlNestedCamelParent
         {
             FullName = "Alice",
-            Address = new YamlNestedCamelAddr { StreetName = "Main St", ZipCode = 12345 }
+            Address = new YamlNestedCamelAddr { StreetName = "Main St", ZipCode = 12345 },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(obj);
         var text = Encoding.UTF8.GetString(bytes);
@@ -234,7 +234,7 @@ public class YamlNestedAdvancedTests
         var original = new YamlNestedCamelParent
         {
             FullName = "Bob",
-            Address = new YamlNestedCamelAddr { StreetName = "Main St", ZipCode = 12345 }
+            Address = new YamlNestedCamelAddr { StreetName = "Main St", ZipCode = 12345 },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(original);
         var result = YamlSerializer.Deserialize<YamlNestedCamelParent>(bytes);
@@ -250,7 +250,7 @@ public class YamlNestedAdvancedTests
         var obj = new YamlNestedConverterParent
         {
             Name = "Test",
-            Address = new YamlNestedConverterAddr { Tag = new YamlTagWrapper { Value = "hello" } }
+            Address = new YamlNestedConverterAddr { Tag = new YamlTagWrapper { Value = "hello" } },
         };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(obj);
         var text = Encoding.UTF8.GetString(bytes);

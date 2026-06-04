@@ -20,7 +20,7 @@ public class MsgPackExtensionTests
         var model = new MsgPackExtModel
         {
             RawData = new byte[] { 1, 2, 3 },
-            ExtData = new byte[] { 10, 20, 30, 40 }
+            ExtData = new byte[] { 10, 20, 30, 40 },
         };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var result = MsgPackSerializer.Deserialize<MsgPackExtModel>(bytes);
@@ -43,7 +43,7 @@ public class MsgPackExtensionTests
         var model = new MsgPackExtModel
         {
             RawData = Array.Empty<byte>(),
-            ExtData = Array.Empty<byte>()
+            ExtData = Array.Empty<byte>(),
         };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var result = MsgPackSerializer.Deserialize<MsgPackExtModel>(bytes);

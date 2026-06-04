@@ -6,24 +6,25 @@ using TypeInfo = PicoSerDe.Gen.TypeInfo;
 [Generator(LanguageNames.CSharp)]
 public sealed class TomlSerializerGenerator : IIncrementalGenerator
 {
-    private static readonly PicoSerDe.Gen.FormatConfig Config =
-        new("TomlSerializer", "PicoToml", "toml");
+    private static readonly PicoSerDe.Gen.FormatConfig Config = new(
+        "TomlSerializer",
+        "PicoToml",
+        "toml"
+    );
 
-    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs =
-        new(
-            HasTomlCamelCase,
-            GetTomlKey,
-            HasTomlIgnore,
-            GetTomlConverter,
-            GetTomlDateTimeFormat,
-            OverrideKindWithStringOnConverter: true
-        );
+    private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
+        HasTomlCamelCase,
+        GetTomlKey,
+        HasTomlIgnore,
+        GetTomlConverter,
+        GetTomlDateTimeFormat,
+        OverrideKindWithStringOnConverter: true
+    );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var typeProviders = context
-            .SyntaxProvider
-            .CreateSyntaxProvider(
+            .SyntaxProvider.CreateSyntaxProvider(
                 predicate: static (n, _) => IsCandidate(n),
                 transform: static (ctx, _) => Transform(ctx)
             )
@@ -99,8 +100,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 )
                     return nts.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 if (attr.AttributeClass?.TypeArguments.Length == 1)
-                    return attr.AttributeClass
-                        .TypeArguments[0]
+                    return attr
+                        .AttributeClass.TypeArguments[0]
                         .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             }
         }
@@ -242,8 +243,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        while (r.Read()) {");
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
-        var scalarProps = t.Properties
-            .Where(x => x.TypeKind != "object" && x.TypeKind != "dict")
+        var scalarProps = t
+            .Properties.Where(x => x.TypeKind != "object" && x.TypeKind != "dict")
             .ToImmutableArray();
         EmitPropertyDispatch(s, scalarProps, "k", "o", "                ", "                    ");
         s.AppendLine("            }");
@@ -451,10 +452,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             if (p.NestedProperties.Length > 0)
             {
-                var sn = PicoSerDe
-                    .Gen
-                    .GenInfrastructure
-                    .InnerClassName("TomlInner", p.TypeFullName!);
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "TomlInner",
+                    p.TypeFullName!
+                );
                 s.Append(indent);
                 s.Append("tw.WriteTable(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));

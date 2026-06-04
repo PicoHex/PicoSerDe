@@ -16,7 +16,7 @@ var complex = new ComplexPoco
     CreatedAt = DateTime.UtcNow,
     Day = DayOfWeek.Friday,
     Rating = 4.5,
-    IsActive = true
+    IsActive = true,
 };
 var complexBytesPico = JsonSerializer.SerializeToUtf8Bytes(complex);
 var complexBytesStj = StjJson.SerializeToUtf8Bytes(complex, ctx.ComplexPoco);
@@ -29,9 +29,9 @@ var nested = new NestedPoco
     {
         Street = "123 Main St",
         City = "SF",
-        Zip = "94105"
+        Zip = "94105",
     },
-    Tags =  ["dev", "runner", "benchmark"]
+    Tags = ["dev", "runner", "benchmark"],
 };
 var nestedBytesPico = JsonSerializer.SerializeToUtf8Bytes(nested);
 var nestedBytesStj = StjJson.SerializeToUtf8Bytes(nested, ctx.NestedPoco);
@@ -39,7 +39,7 @@ var nestedBytesStj = StjJson.SerializeToUtf8Bytes(nested, ctx.NestedPoco);
 var collection = new CollectionPoco
 {
     Scores = Enumerable.Range(0, 100).ToList(),
-    Metadata = new() { ["source"] = "benchmark", ["mode"] = "comparison" }
+    Metadata = new() { ["source"] = "benchmark", ["mode"] = "comparison" },
 };
 var collectionBytesPico = JsonSerializer.SerializeToUtf8Bytes(collection);
 var collectionBytesStj = StjJson.SerializeToUtf8Bytes(collection, ctx.CollectionPoco);
@@ -164,7 +164,7 @@ var largeFlat = new LargeFlatPoco
     D02 = 2.2,
     D03 = 3.3,
     D04 = 4.4,
-    D05 = 5.5
+    D05 = 5.5,
 };
 var largeFlatBytesPico = JsonSerializer.SerializeToUtf8Bytes(largeFlat);
 var largeFlatBytesStj = StjJson.SerializeToUtf8Bytes(largeFlat, ctx.LargeFlatPoco);
@@ -229,7 +229,7 @@ Console.WriteLine(
             serLargeFlat,
             deserLargeFlat,
             serLargeStr,
-            deserLargeStr
+            deserLargeStr,
         }
     )
 );

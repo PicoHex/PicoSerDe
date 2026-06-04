@@ -10,7 +10,7 @@ public class MsgPackIntArrayInlineTests
     [Test]
     public async Task IntArray_RoundTrip_Correctness()
     {
-        var model = new IntArrayBenchModel { Scores =  [1, -5, int.MaxValue, int.MinValue, 0, 42] };
+        var model = new IntArrayBenchModel { Scores = [1, -5, int.MaxValue, int.MinValue, 0, 42] };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var result = MsgPackSerializer.Deserialize<IntArrayBenchModel>(bytes);
         await Assert.That(result).IsNotNull();
@@ -27,7 +27,7 @@ public class MsgPackIntArrayInlineTests
     [Test]
     public async Task EmptyIntArray_RoundTrip()
     {
-        var model = new IntArrayBenchModel { Scores =  [] };
+        var model = new IntArrayBenchModel { Scores = [] };
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var result = MsgPackSerializer.Deserialize<IntArrayBenchModel>(bytes);
         await Assert.That(result).IsNotNull();

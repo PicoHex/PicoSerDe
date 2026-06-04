@@ -211,7 +211,7 @@ public class GeneratorTests
         var model = new DateTimeModel
         {
             Name = "Event",
-            CreatedAt = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc)
+            CreatedAt = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc),
         };
         var s = new DateTimeModelJsonSerializer();
         var d = new DateTimeModelJsonDeserializer();
@@ -232,7 +232,7 @@ public class GeneratorTests
         var person = new PersonWithDate
         {
             Name = "Event",
-            CreatedAt = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc)
+            CreatedAt = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc),
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(person);
         var json = Encoding.UTF8.GetString(bytes);
@@ -255,11 +255,9 @@ public class GeneratorTests
             jw.WriteString(Encoding.UTF8.GetBytes(value.Id.ToString()));
             jw.WritePropertyName("Price"u8);
             jw.WriteString(
-                Encoding
-                    .UTF8
-                    .GetBytes(
-                        value.Price.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    )
+                Encoding.UTF8.GetBytes(
+                    value.Price.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                )
             );
             jw.WritePropertyName("Day"u8);
             jw.WriteString(Encoding.UTF8.GetBytes(value.Day.ToString()));
@@ -315,7 +313,7 @@ public class GeneratorTests
         {
             Id = Guid.NewGuid(),
             Price = 99.99m,
-            Day = DayOfWeek.Friday
+            Day = DayOfWeek.Friday,
         };
         var s = new PrimitiveModelJsonSerializer();
         var d = new PrimitiveModelJsonDeserializer();
@@ -334,7 +332,7 @@ public class GeneratorTests
         {
             Id = Guid.NewGuid(),
             Price = 99.99m,
-            Day = DayOfWeek.Friday
+            Day = DayOfWeek.Friday,
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var result = JsonSerializer.Deserialize<PrimitiveModel>(bytes);
@@ -513,7 +511,7 @@ public class GeneratorTests
     [Test]
     public async Task ListModel_RoundTrip_Manual()
     {
-        var model = new ListModel { Tags =  ["dev", "runner"], Scores =  [10, 20, 30] };
+        var model = new ListModel { Tags = ["dev", "runner"], Scores = [10, 20, 30] };
         var s = new ListModelJsonSerializer();
         var d = new ListModelJsonDeserializer();
         var buf = new ArrayBufferWriter<byte>(256);
@@ -526,7 +524,7 @@ public class GeneratorTests
     [Test]
     public async Task ListModel_RoundTrip_Generated()
     {
-        var model = new ListModel { Tags =  ["dev", "runner"], Scores =  [10, 20, 30] };
+        var model = new ListModel { Tags = ["dev", "runner"], Scores = [10, 20, 30] };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var result = JsonSerializer.Deserialize<ListModel>(bytes);
         await Assert.That(result!.Tags).IsEquivalentTo(["dev", "runner"]);
@@ -591,7 +589,7 @@ public class GeneratorTests
     {
         var model = new DictionaryModel
         {
-            Counts = new() { ["a"] = 1, ["b"] = 2 }
+            Counts = new() { ["a"] = 1, ["b"] = 2 },
         };
         var s = new DictionaryModelJsonSerializer();
         var d = new DictionaryModelJsonDeserializer();
@@ -607,7 +605,7 @@ public class GeneratorTests
     {
         var model = new DictionaryModel
         {
-            Counts = new() { ["a"] = 1, ["b"] = 2 }
+            Counts = new() { ["a"] = 1, ["b"] = 2 },
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var result = JsonSerializer.Deserialize<DictionaryModel>(bytes);
@@ -808,13 +806,13 @@ public class GeneratorTests
                                         var ap = reader.GetStringRaw();
                                         reader.Read();
                                         if (ap.SequenceEqual("Street"u8))
-                                            addr.Street = Encoding
-                                                .UTF8
-                                                .GetString(reader.GetStringRaw());
+                                            addr.Street = Encoding.UTF8.GetString(
+                                                reader.GetStringRaw()
+                                            );
                                         else if (ap.SequenceEqual("City"u8))
-                                            addr.City = Encoding
-                                                .UTF8
-                                                .GetString(reader.GetStringRaw());
+                                            addr.City = Encoding.UTF8.GetString(
+                                                reader.GetStringRaw()
+                                            );
                                         else
                                             reader.TrySkip();
                                     }
@@ -853,9 +851,9 @@ public class GeneratorTests
             Customer = new NestedCustomer
             {
                 Name = "Alice",
-                Address = new NestedAddress { Street = "123 Main", City = "SF" }
+                Address = new NestedAddress { Street = "123 Main", City = "SF" },
             },
-            Tags =  ["vip"]
+            Tags = ["vip"],
         };
         var s = new NestedOrderJsonSerializer();
         var d = new NestedOrderJsonDeserializer();
@@ -884,9 +882,9 @@ public class GeneratorTests
             Customer = new NestedCustomer
             {
                 Name = "Alice",
-                Address = new NestedAddress { Street = "123 Main", City = "SF" }
+                Address = new NestedAddress { Street = "123 Main", City = "SF" },
             },
-            Tags =  ["vip"]
+            Tags = ["vip"],
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(order);
         var json = Encoding.UTF8.GetString(bytes);
@@ -918,7 +916,7 @@ public class GeneratorTests
         var company = new CompanyA
         {
             Name = "Acme",
-            Headquarters = new SharedAddress { Street = "1 Main St", City = "NYC" }
+            Headquarters = new SharedAddress { Street = "1 Main St", City = "NYC" },
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(company);
         var result = JsonSerializer.Deserialize<CompanyA>(bytes);
@@ -933,7 +931,7 @@ public class GeneratorTests
         var company = new CompanyB
         {
             Name = "Globex",
-            Branch = new SharedAddress { Street = "2 Oak Ave", City = "LA" }
+            Branch = new SharedAddress { Street = "2 Oak Ave", City = "LA" },
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(company);
         var result = JsonSerializer.Deserialize<CompanyB>(bytes);
@@ -949,7 +947,7 @@ public class GeneratorTests
         {
             Name = "test",
             Home = new CollisionNs1.CollisionAddress { Line = "123 Main" },
-            Work = new CollisionNs2.CollisionAddress { Code = "90210" }
+            Work = new CollisionNs2.CollisionAddress { Code = "90210" },
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var result = JsonSerializer.Deserialize<CollisionModel>(bytes);

@@ -87,15 +87,14 @@ public readonly record struct AttributeHelpers(
 
 internal static class GenInfrastructure
 {
-    private static readonly DiagnosticDescriptor UnsupportedTypeWarning =
-        new(
-            id: "PICOSERDE001",
-            title: "Unsupported type skipped during source generation",
-            messageFormat: "Type '{0}' on property '{1}' is not supported by the serializer — the property will be ignored",
-            category: "PicoSerDe",
-            defaultSeverity: DiagnosticSeverity.Warning,
-            isEnabledByDefault: true
-        );
+    private static readonly DiagnosticDescriptor UnsupportedTypeWarning = new(
+        id: "PICOSERDE001",
+        title: "Unsupported type skipped during source generation",
+        messageFormat: "Type '{0}' on property '{1}' is not supported by the serializer — the property will be ignored",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     public static bool IsCandidate(SyntaxNode node)
     {
@@ -106,14 +105,14 @@ internal static class GenInfrastructure
         {
             MemberAccessExpressionSyntax { Name: var n } => n,
             MemberBindingExpressionSyntax { Name: var n } => n,
-            _ => null
+            _ => null,
         };
 
         var methodName = name switch
         {
             GenericNameSyntax gn => gn.Identifier.Text,
             SimpleNameSyntax sn => sn.Identifier.Text,
-            _ => null
+            _ => null,
         };
 
         return methodName is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";

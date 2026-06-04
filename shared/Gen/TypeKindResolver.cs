@@ -87,8 +87,7 @@ internal static class TypeKindResolver
             // the generated code uses double as the universal floating-point
             // representation. Round-tripping preserves exact values for most
             // float32 inputs. If lossless float32 is needed, add a separate "float32" kind.
-            SpecialType.System_Single
-                => "float64",
+            SpecialType.System_Single => "float64",
             SpecialType.System_Boolean => "boolean",
             SpecialType.System_DateTime => "datetime",
             SpecialType.System_Decimal => "decimal",
@@ -101,12 +100,12 @@ internal static class TypeKindResolver
             {
                 INamedTypeSymbol { TypeKind: TypeKind.Enum } => "enum",
                 INamedTypeSymbol { Name: "Guid", ContainingNamespace.Name: "System" } => "guid",
-                INamedTypeSymbol { Name: "DateOnly", ContainingNamespace.Name: "System" }
-                    => "dateonly",
-                INamedTypeSymbol { Name: "TimeOnly", ContainingNamespace.Name: "System" }
-                    => "timeonly",
-                INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace.Name: "System" }
-                    => "timespan",
+                INamedTypeSymbol { Name: "DateOnly", ContainingNamespace.Name: "System" } =>
+                    "dateonly",
+                INamedTypeSymbol { Name: "TimeOnly", ContainingNamespace.Name: "System" } =>
+                    "timeonly",
+                INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace.Name: "System" } =>
+                    "timespan",
                 _ => null,
             };
         }

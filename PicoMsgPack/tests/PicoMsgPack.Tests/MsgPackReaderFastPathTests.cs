@@ -49,7 +49,7 @@ public class MsgPackReaderFastPathTests
             0x00,
             0x01,
             0x86,
-            0xA0
+            0xA0,
         };
         var reader = new MsgPackReader(data);
         // TryReadXxxArrayFast reads the array header internally

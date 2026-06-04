@@ -21,7 +21,7 @@ public class NestedListTests
             {
                 new() { 1, 2, 3 },
                 new() { 4, 5, 6 },
-            }
+            },
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var result = JsonSerializer.Deserialize<MatrixModel>(bytes);
@@ -44,7 +44,7 @@ public class NestedListTests
             {
                 new() { "a", "b" },
                 new() { "c", "d", "e" },
-            }
+            },
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var result = JsonSerializer.Deserialize<NestedStringListModel>(bytes);

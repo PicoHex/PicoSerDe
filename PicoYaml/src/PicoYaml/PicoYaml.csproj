@@ -1,29 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
+    <IsPackable>true</IsPackable>
+    <PackageId>PicoYaml</PackageId>
+    <Description>PicoYaml — high-performance, AOT-first YAML serializer with zero-reflection source generation for the PicoHex ecosystem</Description>
+    <PackageTags>PicoHex;YAML;AOT;Serialization</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
 
-    <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <LangVersion>latest</LangVersion>
-        <Nullable>enable</Nullable>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <IsAotCompatible>true</IsAotCompatible>
-        <IsTrimmable>true</IsTrimmable>
-        <IsPackable>true</IsPackable>
-        <PackageId>PicoYaml</PackageId>
-        <Description>PicoYaml — high-performance, AOT-first YAML serializer with zero-reflection source generation for the PicoHex ecosystem</Description>
-        <PackageTags>PicoHex;YAML;AOT;Serialization</PackageTags>
-        <PackageReadmeFile>README.md</PackageReadmeFile>
-    </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\..\README.md" Pack="true" PackagePath="" Visible="false" />
+  </ItemGroup>
 
-    <ItemGroup>
-        <None Include="..\..\..\README.md" Pack="true" PackagePath="" Visible="false" />
-    </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
+  </ItemGroup>
 
-    <ItemGroup>
-        <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <InternalsVisibleTo Include="PicoYaml.Tests" />
-    </ItemGroup>
-
+  <ItemGroup>
+    <InternalsVisibleTo Include="PicoYaml.Tests" />
+  </ItemGroup>
 </Project>

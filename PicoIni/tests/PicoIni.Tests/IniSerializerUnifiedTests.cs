@@ -99,9 +99,9 @@ public class IniSerializerUnifiedTests
                                     sk.SequenceEqual("Host"u8)
                                     && reader.TokenType == TokenType.String
                                 )
-                                    config.Server.Host = Encoding
-                                        .UTF8
-                                        .GetString(reader.GetStringRaw());
+                                    config.Server.Host = Encoding.UTF8.GetString(
+                                        reader.GetStringRaw()
+                                    );
                                 else if (sk.SequenceEqual("Port"u8))
                                 {
                                     reader.TryGetInt32(out var sp);
@@ -139,7 +139,7 @@ public class IniSerializerUnifiedTests
         var config = new AppConfig
         {
             Title = "MyApp",
-            Server = new ServerSection { Host = "localhost", Port = 8080 }
+            Server = new ServerSection { Host = "localhost", Port = 8080 },
         };
         var ser = new AppConfigIniSerializer();
         var deser = new AppConfigIniDeserializer();
@@ -178,7 +178,7 @@ public class IniSerializerUnifiedTests
             Gamma = true,
             Delta = 4,
             Epsilon = 5.5,
-            Zeta = "z"
+            Zeta = "z",
         };
 
         var bytes = IniSerializer.SerializeToUtf8Bytes(original);

@@ -1343,7 +1343,7 @@ public ref struct YamlReader
             0 => _a0IsMapping,
             1 => _a1IsMapping,
             2 => _a2IsMapping,
-            _ => _a3IsMapping
+            _ => _a3IsMapping,
         };
     }
 
@@ -1354,7 +1354,7 @@ public ref struct YamlReader
             0 => _a0pairs,
             1 => _a1pairs,
             2 => _a2pairs,
-            _ => _a3pairs
+            _ => _a3pairs,
         };
     }
 
@@ -1365,7 +1365,7 @@ public ref struct YamlReader
             0 => _a0Scalar!,
             1 => _a1Scalar!,
             2 => _a2Scalar!,
-            _ => _a3Scalar!
+            _ => _a3Scalar!,
         };
     }
 
@@ -1704,7 +1704,7 @@ public ref struct YamlReader
             4 => (_a0k4!, _a0v4!),
             5 => (_a0k5!, _a0v5!),
             6 => (_a0k6!, _a0v6!),
-            _ => (_a0k7!, _a0v7!)
+            _ => (_a0k7!, _a0v7!),
         };
     }
 
@@ -1712,54 +1712,50 @@ public ref struct YamlReader
     {
         return anchorIdx switch
         {
-            0
-                => i switch
-                {
-                    0 => (_a0k0!, _a0v0!),
-                    1 => (_a0k1!, _a0v1!),
-                    2 => (_a0k2!, _a0v2!),
-                    3 => (_a0k3!, _a0v3!),
-                    4 => (_a0k4!, _a0v4!),
-                    5 => (_a0k5!, _a0v5!),
-                    6 => (_a0k6!, _a0v6!),
-                    _ => (_a0k7!, _a0v7!)
-                },
-            1
-                => i switch
-                {
-                    0 => (_a1k0!, _a1v0!),
-                    1 => (_a1k1!, _a1v1!),
-                    2 => (_a1k2!, _a1v2!),
-                    3 => (_a1k3!, _a1v3!),
-                    4 => (_a1k4!, _a1v4!),
-                    5 => (_a1k5!, _a1v5!),
-                    6 => (_a1k6!, _a1v6!),
-                    _ => (_a1k7!, _a1v7!)
-                },
-            2
-                => i switch
-                {
-                    0 => (_a2k0!, _a2v0!),
-                    1 => (_a2k1!, _a2v1!),
-                    2 => (_a2k2!, _a2v2!),
-                    3 => (_a2k3!, _a2v3!),
-                    4 => (_a2k4!, _a2v4!),
-                    5 => (_a2k5!, _a2v5!),
-                    6 => (_a2k6!, _a2v6!),
-                    _ => (_a2k7!, _a2v7!)
-                },
-            _
-                => i switch
-                {
-                    0 => (_a3k0!, _a3v0!),
-                    1 => (_a3k1!, _a3v1!),
-                    2 => (_a3k2!, _a3v2!),
-                    3 => (_a3k3!, _a3v3!),
-                    4 => (_a3k4!, _a3v4!),
-                    5 => (_a3k5!, _a3v5!),
-                    6 => (_a3k6!, _a3v6!),
-                    _ => (_a3k7!, _a3v7!)
-                }
+            0 => i switch
+            {
+                0 => (_a0k0!, _a0v0!),
+                1 => (_a0k1!, _a0v1!),
+                2 => (_a0k2!, _a0v2!),
+                3 => (_a0k3!, _a0v3!),
+                4 => (_a0k4!, _a0v4!),
+                5 => (_a0k5!, _a0v5!),
+                6 => (_a0k6!, _a0v6!),
+                _ => (_a0k7!, _a0v7!),
+            },
+            1 => i switch
+            {
+                0 => (_a1k0!, _a1v0!),
+                1 => (_a1k1!, _a1v1!),
+                2 => (_a1k2!, _a1v2!),
+                3 => (_a1k3!, _a1v3!),
+                4 => (_a1k4!, _a1v4!),
+                5 => (_a1k5!, _a1v5!),
+                6 => (_a1k6!, _a1v6!),
+                _ => (_a1k7!, _a1v7!),
+            },
+            2 => i switch
+            {
+                0 => (_a2k0!, _a2v0!),
+                1 => (_a2k1!, _a2v1!),
+                2 => (_a2k2!, _a2v2!),
+                3 => (_a2k3!, _a2v3!),
+                4 => (_a2k4!, _a2v4!),
+                5 => (_a2k5!, _a2v5!),
+                6 => (_a2k6!, _a2v6!),
+                _ => (_a2k7!, _a2v7!),
+            },
+            _ => i switch
+            {
+                0 => (_a3k0!, _a3v0!),
+                1 => (_a3k1!, _a3v1!),
+                2 => (_a3k2!, _a3v2!),
+                3 => (_a3k3!, _a3v3!),
+                4 => (_a3k4!, _a3v4!),
+                5 => (_a3k5!, _a3v5!),
+                6 => (_a3k6!, _a3v6!),
+                _ => (_a3k7!, _a3v7!),
+            },
         };
     }
 
@@ -1793,7 +1789,7 @@ public ref struct YamlReader
             4 => (k4!, v4!),
             5 => (k5!, v5!),
             6 => (k6!, v6!),
-            _ => (k7!, v7!)
+            _ => (k7!, v7!),
         };
     }
 

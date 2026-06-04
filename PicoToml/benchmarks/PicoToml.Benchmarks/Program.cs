@@ -17,9 +17,9 @@ var nested = new NestedPoco
     {
         Street = "123 Main",
         City = "SF",
-        Zip = "94105"
+        Zip = "94105",
     },
-    Tags =  ["dev", "bench"]
+    Tags = ["dev", "bench"],
 };
 var nestedBytes = TomlSerializer.SerializeToUtf8Bytes(nested);
 var nestedStr = TomlSerializer.Serialize(nested);
@@ -31,7 +31,7 @@ var medium = new MediumScalarPoco
     Gamma = true,
     Delta = 4,
     Epsilon = 5.5,
-    Zeta = "z"
+    Zeta = "z",
 };
 var mediumBytes = TomlSerializer.SerializeToUtf8Bytes(medium);
 
@@ -66,7 +66,7 @@ var large = new LargeFlatPoco
     D02 = 2.2,
     D03 = 3.3,
     D04 = 4.4,
-    D05 = 5.5
+    D05 = 5.5,
 };
 var largeBytes = TomlSerializer.SerializeToUtf8Bytes(large);
 
@@ -180,9 +180,9 @@ static byte[] TommySerNested(NestedPoco p) =>
             {
                 ["Street"] = p.Address!.Street,
                 ["City"] = p.Address.City,
-                ["Zip"] = p.Address.Zip!
+                ["Zip"] = p.Address.Zip!,
             },
-            ["Tags"] = new TomlArray { "dev", "bench" }
+            ["Tags"] = new TomlArray { "dev", "bench" },
         }
     );
 static NestedPoco TommyDeserNested(string s)
@@ -210,9 +210,9 @@ static NestedPoco TommyDeserNested(string s)
         {
             Street = t["Address"]["Street"].AsString,
             City = t["Address"]["City"].AsString,
-            Zip = t["Address"]["Zip"].AsString
+            Zip = t["Address"]["Zip"].AsString,
         },
-        Tags = tags
+        Tags = tags,
     };
 }
 
@@ -225,7 +225,7 @@ static byte[] TommySerMedium(MediumScalarPoco p) =>
             ["Gamma"] = p.Gamma,
             ["Delta"] = p.Delta,
             ["Epsilon"] = p.Epsilon,
-            ["Zeta"] = p.Zeta
+            ["Zeta"] = p.Zeta,
         }
     );
 static MediumScalarPoco TommyDeserMedium(string s)
@@ -239,7 +239,7 @@ static MediumScalarPoco TommyDeserMedium(string s)
         Gamma = t["Gamma"].AsBoolean,
         Delta = t["Delta"].AsInteger,
         Epsilon = t["Epsilon"].AsFloat,
-        Zeta = t["Zeta"].AsString
+        Zeta = t["Zeta"].AsString,
     };
 }
 
@@ -276,7 +276,7 @@ static byte[] TommySerLarge(LargeFlatPoco p) =>
             ["D02"] = p.D02,
             ["D03"] = p.D03,
             ["D04"] = p.D04,
-            ["D05"] = p.D05
+            ["D05"] = p.D05,
         }
     );
 static LargeFlatPoco TommyDeserLarge(string s)
@@ -314,6 +314,6 @@ static LargeFlatPoco TommyDeserLarge(string s)
         D02 = t["D02"].AsFloat,
         D03 = t["D03"].AsFloat,
         D04 = t["D04"].AsFloat,
-        D05 = t["D05"].AsFloat
+        D05 = t["D05"].AsFloat,
     };
 }
