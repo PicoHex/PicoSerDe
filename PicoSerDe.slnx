@@ -1,29 +1,84 @@
 <Solution>
-  <Project Path="PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
-  <Project Path="PicoSerDe.Core\tests\PicoSerDe.Core.Tests\PicoSerDe.Core.Tests.csproj" />
-  <Project Path="PicoJetson\src\PicoJetson\PicoJetson.csproj" />
-  <Project Path="PicoJetson\src\PicoJetson.Gen\PicoJetson.Gen.csproj" />
-  <Project Path="PicoJetson\tests\PicoJetson.Tests\PicoJetson.Tests.csproj" />
-  <Project Path="PicoJetson\samples\PicoJetson.Sample\PicoJetson.Sample.csproj" />
-  <Project Path="PicoJetson\benchmarks\PicoJetson.Benchmarks\PicoJetson.Benchmarks.csproj" />
-  <Project Path="PicoIni\src\PicoIni\PicoIni.csproj" />
-  <Project Path="PicoIni\src\PicoIni.Gen\PicoIni.Gen.csproj" />
-  <Project Path="PicoIni\tests\PicoIni.Tests\PicoIni.Tests.csproj" />
-  <Project Path="PicoIni\benchmarks\PicoIni.Benchmarks\PicoIni.Benchmarks.csproj" />
-  <Project Path="PicoIni\samples\PicoIni.Sample\PicoIni.Sample.csproj" />
-  <Project Path="PicoToml\src\PicoToml\PicoToml.csproj" />
-  <Project Path="PicoToml\src\PicoToml.Gen\PicoToml.Gen.csproj" />
-  <Project Path="PicoToml\tests\PicoToml.Tests\PicoToml.Tests.csproj" />
-  <Project Path="PicoToml\samples\PicoToml.Sample\PicoToml.Sample.csproj" />
-  <Project Path="PicoToml\benchmarks\PicoToml.Benchmarks\PicoToml.Benchmarks.csproj" />
-  <Project Path="PicoYaml\src\PicoYaml\PicoYaml.csproj" />
-  <Project Path="PicoYaml\src\PicoYaml.Gen\PicoYaml.Gen.csproj" />
-  <Project Path="PicoYaml\tests\PicoYaml.Tests\PicoYaml.Tests.csproj" />
-  <Project Path="PicoYaml\samples\PicoYaml.Sample\PicoYaml.Sample.csproj" />
-  <Project Path="PicoYaml\benchmarks\PicoYaml.Benchmarks\PicoYaml.Benchmarks.csproj" />
-  <Project Path="PicoMsgPack\src\PicoMsgPack\PicoMsgPack.csproj" />
-  <Project Path="PicoMsgPack\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj" />
-  <Project Path="PicoMsgPack\tests\PicoMsgPack.Tests\PicoMsgPack.Tests.csproj" />
-  <Project Path="PicoMsgPack\benchmarks\PicoMsgPack.Benchmarks\PicoMsgPack.Benchmarks.csproj" />
-  <Project Path="PicoMsgPack\samples\PicoMsgPack.Sample\PicoMsgPack.Sample.csproj" />
+  <Folder Name="/PicoSerDe.Core/" />
+  <Folder Name="/PicoSerDe.Core/src/">
+    <Project Path="PicoSerDe.Core/src/PicoSerDe.Core.csproj" />
+  </Folder>
+  <Folder Name="/PicoSerDe.Core/tests/">
+    <Project Path="PicoSerDe.Core/tests/PicoSerDe.Core.Tests/PicoSerDe.Core.Tests.csproj" />
+  </Folder>
+
+  <Folder Name="/PicoJetson/" />
+  <Folder Name="/PicoJetson/src/">
+    <Project Path="PicoJetson/src/PicoJetson/PicoJetson.csproj" />
+    <Project Path="PicoJetson/src/PicoJetson.Gen/PicoJetson.Gen.csproj" />
+  </Folder>
+  <Folder Name="/PicoJetson/tests/">
+    <Project Path="PicoJetson/tests/PicoJetson.Tests/PicoJetson.Tests.csproj" />
+  </Folder>
+  <Folder Name="/PicoJetson/samples/">
+    <Project Path="PicoJetson/samples/PicoJetson.Sample/PicoJetson.Sample.csproj" />
+  </Folder>
+  <Folder Name="/PicoJetson/benchmarks/">
+    <Project Path="PicoJetson/benchmarks/PicoJetson.Benchmarks/PicoJetson.Benchmarks.csproj" />
+  </Folder>
+
+  <Folder Name="/PicoIni/" />
+  <Folder Name="/PicoIni/src/">
+    <Project Path="PicoIni/src/PicoIni/PicoIni.csproj" />
+    <Project Path="PicoIni/src/PicoIni.Gen/PicoIni.Gen.csproj" />
+  </Folder>
+  <Folder Name="/PicoIni/tests/">
+    <Project Path="PicoIni/tests/PicoIni.Tests/PicoIni.Tests.csproj" />
+  </Folder>
+  <Folder Name="/PicoIni/samples/">
+    <Project Path="PicoIni/samples/PicoIni.Sample/PicoIni.Sample.csproj" />
+  </Folder>
+  <Folder Name="/PicoIni/benchmarks/">
+    <Project Path="PicoIni/benchmarks/PicoIni.Benchmarks/PicoIni.Benchmarks.csproj" />
+  </Folder>
+
+  <Folder Name="/PicoToml/" />
+  <Folder Name="/PicoToml/src/">
+    <Project Path="PicoToml/src/PicoToml/PicoToml.csproj" />
+    <Project Path="PicoToml/src/PicoToml.Gen/PicoToml.Gen.csproj" />
+  </Folder>
+  <Folder Name="/PicoToml/tests/">
+    <Project Path="PicoToml/tests/PicoToml.Tests/PicoToml.Tests.csproj" />
+  </Folder>
+  <Folder Name="/PicoToml/samples/">
+    <Project Path="PicoToml/samples/PicoToml.Sample/PicoToml.Sample.csproj" />
+  </Folder>
+  <Folder Name="/PicoToml/benchmarks/">
+    <Project Path="PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj" />
+  </Folder>
+
+  <Folder Name="/PicoYaml/" />
+  <Folder Name="/PicoYaml/src/">
+    <Project Path="PicoYaml/src/PicoYaml/PicoYaml.csproj" />
+    <Project Path="PicoYaml/src/PicoYaml.Gen/PicoYaml.Gen.csproj" />
+  </Folder>
+  <Folder Name="/PicoYaml/tests/">
+    <Project Path="PicoYaml/tests/PicoYaml.Tests/PicoYaml.Tests.csproj" />
+  </Folder>
+  <Folder Name="/PicoYaml/samples/">
+    <Project Path="PicoYaml/samples/PicoYaml.Sample/PicoYaml.Sample.csproj" />
+  </Folder>
+  <Folder Name="/PicoYaml/benchmarks/">
+    <Project Path="PicoYaml/benchmarks/PicoYaml.Benchmarks/PicoYaml.Benchmarks.csproj" />
+  </Folder>
+
+  <Folder Name="/PicoMsgPack/" />
+  <Folder Name="/PicoMsgPack/src/">
+    <Project Path="PicoMsgPack/src/PicoMsgPack/PicoMsgPack.csproj" />
+    <Project Path="PicoMsgPack/src/PicoMsgPack.Gen/PicoMsgPack.Gen.csproj" />
+  </Folder>
+  <Folder Name="/PicoMsgPack/tests/">
+    <Project Path="PicoMsgPack/tests/PicoMsgPack.Tests/PicoMsgPack.Tests.csproj" />
+  </Folder>
+  <Folder Name="/PicoMsgPack/samples/">
+    <Project Path="PicoMsgPack/samples/PicoMsgPack.Sample/PicoMsgPack.Sample.csproj" />
+  </Folder>
+  <Folder Name="/PicoMsgPack/benchmarks/">
+    <Project Path="PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks/PicoMsgPack.Benchmarks.csproj" />
+  </Folder>
 </Solution>
