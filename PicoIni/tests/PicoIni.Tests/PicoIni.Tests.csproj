@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="TUnit" Version="1.49.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Ini" Version="9.0.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,5 +23,6 @@
       OutputItemType="Analyzer"
       ReferenceOutputAssembly="false"
     />
+    <Compile Include="..\..\..\shared\CrossValidationModels.cs" Link="CrossValidationModels.cs" />
   </ItemGroup>
 </Project>
