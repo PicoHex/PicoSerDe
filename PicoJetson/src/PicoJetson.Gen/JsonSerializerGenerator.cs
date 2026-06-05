@@ -411,6 +411,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
             case "int64":
+            case "float32":
             case "float64":
                 sb.Append(indent);
                 sb.Append("jw.WriteNumber(");
@@ -581,6 +582,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
             case "int64":
+            case "float32":
             case "float64":
                 sb.Append(indent);
                 sb.Append("jw.WriteNumber(");
@@ -826,6 +828,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(target);
                 sb.AppendLine(" = __v;");
                 break;
+            case "float32":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetFloat64(out var __v);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = (float)__v;");
+                break;
             case "float64":
                 sb.Append(indent);
                 sb.AppendLine("reader.TryGetFloat64(out var __v);");
@@ -1017,6 +1026,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(".");
                 sb.Append(prop.Name);
                 sb.AppendLine(" = __doubleValue;");
+                break;
+            case "float32":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetFloat64(out var __floatValue);");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = (float)__floatValue;");
                 break;
             case "boolean":
                 sb.Append(indent);
@@ -1398,6 +1416,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__elementValue);");
                 break;
+            case "float32":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetFloat64(out var __elementValue);");
+                sb.Append(indent);
+                sb.Append(listVar);
+                sb.AppendLine(".Add((float)__elementValue);");
+                break;
             case "float64":
                 sb.Append(indent);
                 sb.AppendLine("reader.TryGetFloat64(out var __elementValue);");
@@ -1612,6 +1637,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append("[");
                 sb.Append(keyVar);
                 sb.AppendLine("] = __elementValue;");
+                break;
+            case "float32":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetFloat64(out var __elementValue);");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.Append("[");
+                sb.Append(keyVar);
+                sb.AppendLine("] = (float)__elementValue;");
                 break;
             case "float64":
                 sb.Append(indent);

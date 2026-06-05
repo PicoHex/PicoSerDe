@@ -87,7 +87,7 @@ internal static class TypeKindResolver
             // the generated code uses double as the universal floating-point
             // representation. Round-tripping preserves exact values for most
             // float32 inputs. If lossless float32 is needed, add a separate "float32" kind.
-            SpecialType.System_Single => "float64",
+            SpecialType.System_Single => "float32",
             SpecialType.System_Boolean => "boolean",
             SpecialType.System_DateTime => "datetime",
             SpecialType.System_Decimal => "decimal",
@@ -144,6 +144,7 @@ internal static class TypeKindResolver
             "string" => "string",
             "int32" => "int",
             "int64" => "long",
+            "float32" => "float",
             "float64" => "double",
             "boolean" => "bool",
             "datetime" => "System.DateTime",

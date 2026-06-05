@@ -1,6 +1,4 @@
 // Shared complex model for cross-validation tests across all PicoSerDe formats.
-// NOTE: float is excluded because all PicoSerDe SGs map float→float64 (double)
-//       without a cast back, causing CS0266. Use double instead.
 
 namespace PicoCrossValidation;
 
@@ -10,6 +8,7 @@ public class ComplexModel
     public bool Bool { get; set; }
     public int Int { get; set; }
     public long Long { get; set; }
+    public float Float { get; set; }
     public double Double { get; set; }
     public decimal Decimal { get; set; }
 
@@ -55,6 +54,7 @@ public static class ComplexModelFactory
         Int = 42,
         Long = 9_876_543_210L,
         Double = 2.718281828459045,
+        Float = 3.14f,
         Decimal = 123456.789m,
         String = "Hello, PicoSerDe! 特殊字符 ñ 测试",
         NullableString = null,

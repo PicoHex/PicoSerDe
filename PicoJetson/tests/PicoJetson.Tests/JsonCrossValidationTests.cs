@@ -97,6 +97,7 @@ public class JsonCrossValidationTests
         await Assert.That(actual.Int).IsEqualTo(expected.Int);
         await Assert.That(actual.Long).IsEqualTo(expected.Long);
         await Assert.That(actual.Double).IsEqualTo(expected.Double);
+        await Assert.That(Math.Abs(actual.Float - expected.Float) < 0.001f).IsTrue();
         // Decimal: PicoJetson writes as JSON string, STJ converter accepts both.
 
         // ── String ──

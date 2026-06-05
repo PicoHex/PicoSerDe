@@ -280,6 +280,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(accessor);
                 s.AppendLine(");");
                 break;
+            case "float32":
             case "float64":
                 s.Append(ind);
                 s.Append("yw.WriteDouble(");
@@ -433,6 +434,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append('.');
                 s.Append(p.Name);
                 s.AppendLine(" = long.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                break;
+            case "float32":
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = float.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
                 break;
             case "float64":
                 s.Append(pad);
@@ -839,6 +847,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(valAccessor);
                     s.AppendLine(");");
                     break;
+                case "float32":
                 case "float64":
                     s.Append(ind);
                     s.Append("    yw.WriteDouble(");
@@ -907,6 +916,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(p.Name);
                     s.AppendLine(");");
                     break;
+                case "float32":
                 case "float64":
                     s.Append(ind);
                     s.Append("yw.WriteDouble(");
@@ -1083,6 +1093,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append('.');
                     s.Append(p.Name);
                     s.AppendLine(" = long.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                    break;
+                case "float32":
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = float.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "float64":
                     s.Append(pad);

@@ -257,7 +257,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             for (int i = 0; i < objProps.Length; i++)
             {
                 s.Append("                ");
-                s.Append(i == 0 && dictProps.Length == 0 ? "if" : "else if");
+                s.Append(i == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(tbl, \"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(objProps[i].JsonName));
                 s.AppendLine("\"u8)) {");
@@ -267,7 +267,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             for (int i = 0; i < dictProps.Length; i++)
             {
                 s.Append("                ");
-                s.Append(i == 0 && objProps.Length == 0 ? "if" : "else if");
+                s.Append(i == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(tbl, \"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dictProps[i].JsonName));
                 s.AppendLine("\"u8)) {");
@@ -577,6 +577,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(dp.Name);
                 s.AppendLine("[__dk] = __dv;");
                 break;
+            case "float32":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine("    r.TryGetFloat64(out var __dv);");
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = (float)__dv;");
+                break;
             case "float64":
                 s.AppendLine();
                 s.Append(pad);
@@ -765,6 +776,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(indent);
                 s.AppendLine("tw.WriteArrayValue(__item);");
                 break;
+            case "float32":
             case "float64":
                 s.Append(indent);
                 s.AppendLine("tw.WriteArrayValue(__item);");
@@ -852,6 +864,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append('.');
                     s.Append(p.Name);
                     s.AppendLine(" = __v;");
+                    break;
+                case "float32":
+                    s.Append(pad);
+                    s.AppendLine("r.TryGetFloat64(out var __v);");
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" = (float)__v;");
                     break;
                 case "float64":
                     s.Append(pad);
@@ -973,6 +994,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("r.TryGetInt64(out var __ev);");
                 s.Append(pad);
                 s.AppendLine("__tmpList.Add(__ev);");
+                break;
+            case "float32":
+                s.Append(pad);
+                s.AppendLine("r.TryGetFloat64(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add((float)__ev);");
                 break;
             case "float64":
                 s.Append(pad);

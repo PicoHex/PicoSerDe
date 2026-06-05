@@ -327,11 +327,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         }
         if (sec.Count > 0 || dicts.Count > 0)
         {
+            bool firstSection = true;
             for (int si = 0; si < sec.Count; si++)
             {
                 foreach (var np in sec[si].NestedProperties)
                 {
-                    s.Append("                else if (__sec == ");
+                    s.Append(firstSection ? "                if" : "                else if");
+                    firstSection = false;
+                    s.Append(" (__sec == ");
                     s.Append(si);
                     s.Append(" && TextHelpers.Eq(__k, \"");
                     s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
@@ -343,7 +346,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             // Dict section key matching — match any key within the dict section
             for (int di = 0; di < dicts.Count; di++)
             {
-                s.Append("                else if (__sec == ");
+                s.Append(firstSection ? "                if" : "                else if");
+                firstSection = false;
+                s.Append(" (__sec == ");
                 s.Append(sec.Count + di);
                 s.AppendLine(") {");
                 s.Append("                    obj.");
@@ -385,7 +390,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             {
                 var sn = sec[i].SectionName ?? sec[i].JsonName;
                 s.Append("                ");
-                s.Append(i == 0 && dicts.Count == 0 ? "if" : "else if");
+                s.Append(i == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(reader.GetStringRaw(), \"");
                 s.Append(sn);
                 s.AppendLine("\"u8)) {");
@@ -402,7 +407,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             for (int i = 0; i < dicts.Count; i++)
             {
                 s.Append("                ");
-                s.Append(i == 0 && sec.Count == 0 ? "if" : "else if");
+                s.Append(i == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(reader.GetStringRaw(), \"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dicts[i].JsonName));
                 s.AppendLine("\"u8)) {");

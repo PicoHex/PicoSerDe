@@ -287,6 +287,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(a);
                 s.AppendLine(");");
                 break;
+            case "float32":
+                s.Append(ind);
+                s.Append("mw.WriteFloat64((double)(");
+                s.Append(a);
+                s.AppendLine("));");
+                break;
             case "float64":
                 s.Append(ind);
                 s.Append("mw.WriteFloat64(");
@@ -430,6 +436,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append("mw.WriteInt64(");
                 s.Append(a);
                 s.AppendLine(");");
+                break;
+            case "float32":
+                s.Append(ind);
+                s.Append("mw.WriteFloat64((double)(");
+                s.Append(a);
+                s.AppendLine("));");
                 break;
             case "float64":
                 s.Append(ind);

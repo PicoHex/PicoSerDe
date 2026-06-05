@@ -1,22 +1,30 @@
 namespace PicoYaml.Tests;
 
-public class FlatModel
+public class YamlModel
 {
     public bool Bool { get; set; }
     public int Int { get; set; }
+    public long Long { get; set; }
+    public float Float { get; set; }
+    public double Double { get; set; }
     public string String { get; set; } = "";
     public DayOfWeek Enum { get; set; }
 }
 
 public class YamlCrossValidationTests
 {
-    private static FlatModel Model => new() { Bool = true, Int = 42, String = "Hello", Enum = DayOfWeek.Monday };
+    private static YamlModel Model => new()
+    {
+        Bool = true, Int = 42, Long = 9_876_543_210L,
+        Float = 3.14f, Double = 2.71828,
+        String = "Hello YAML!", Enum = DayOfWeek.Monday,
+    };
 
     [Test]
     public async Task Sg_Trigger()
     {
         var bytes = YamlSerializer.SerializeToUtf8Bytes(Model);
-        var back = YamlSerializer.Deserialize<FlatModel>(bytes);
+        var back = YamlSerializer.Deserialize<YamlModel>(bytes);
         await Assert.That(back).IsNotNull();
     }
 
@@ -24,15 +32,13 @@ public class YamlCrossValidationTests
     public async Task PicoRoundTrip()
     {
         var bytes = YamlSerializer.SerializeToUtf8Bytes(Model);
-        var back = YamlSerializer.Deserialize<FlatModel>(bytes);
-        await AssertYamlEqual(Model, back!);
-    }
-
-    private static async Task AssertYamlEqual(FlatModel expected, FlatModel actual)
-    {
-        await Assert.That(actual.Bool).IsEqualTo(expected.Bool);
-        await Assert.That(actual.Int).IsEqualTo(expected.Int);
-        await Assert.That(actual.String).IsEqualTo(expected.String);
-        await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
+        var back = YamlSerializer.Deserialize<YamlModel>(bytes);
+        await Assert.That(back).IsNotNull();
+        await Assert.That(back.Bool).IsTrue();
+        await Assert.That(back.Int).IsEqualTo(42);
+        await Assert.That(back.Long).IsEqualTo(9_876_543_210L);
+        await Assert.That(Math.Abs(back.Float - 3.14f) < 0.001f).IsTrue();
+        await Assert.That(back.String).IsEqualTo("Hello YAML!");
+        await Assert.That(back.Enum).IsEqualTo(DayOfWeek.Monday);
     }
 }

@@ -8,6 +8,14 @@ public class IniModel
     public double Double { get; set; }
     public string String { get; set; } = "";
     public DayOfWeek Enum { get; set; }
+    public string? NullableProp { get; set; }
+    public IniNested? Section { get; set; }
+    public Dictionary<string, string> Dict { get; set; } = [];
+}
+
+public class IniNested
+{
+    public string Name { get; set; } = "";
 }
 
 public class IniCrossValidationTests
@@ -20,6 +28,8 @@ public class IniCrossValidationTests
         Double = 2.71828,
         String = "Hello from PicoIni!",
         Enum = DayOfWeek.Wednesday,
+        Section = new() { Name = "test" },
+        Dict = new() { ["k"] = "v" },
     };
 
     [Test]
