@@ -19,9 +19,21 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
+    <ProjectReference
+      Include="..\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="PicoMsgPack.Tests" />
+  </ItemGroup>
+
+  <!-- Embed the PicoMsgPack.Gen source generator DLL in the consumer NuGet package -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="..\PicoMsgPack.Gen\bin\$(Configuration)\netstandard2.0\PicoMsgPack.Gen.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs/"
+          Visible="false" />
   </ItemGroup>
 </Project>

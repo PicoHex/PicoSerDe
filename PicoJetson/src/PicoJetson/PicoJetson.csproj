@@ -19,9 +19,21 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
+    <ProjectReference
+      Include="..\PicoJetson.Gen\PicoJetson.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="PicoJetson.Tests" />
+  </ItemGroup>
+
+  <!-- Embed the PicoJetson.Gen source generator DLL in the consumer NuGet package -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="..\PicoJetson.Gen\bin\$(Configuration)\netstandard2.0\PicoJetson.Gen.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs/"
+          Visible="false" />
   </ItemGroup>
 </Project>

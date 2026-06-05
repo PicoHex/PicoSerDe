@@ -19,9 +19,21 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
+    <ProjectReference
+      Include="..\PicoIni.Gen\PicoIni.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="PicoIni.Tests" />
+  </ItemGroup>
+
+  <!-- Embed the PicoIni.Gen source generator DLL in the consumer NuGet package -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="..\PicoIni.Gen\bin\$(Configuration)\netstandard2.0\PicoIni.Gen.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs/"
+          Visible="false" />
   </ItemGroup>
 </Project>
