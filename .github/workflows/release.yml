@@ -55,7 +55,7 @@ jobs:
             --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoIni/src/PicoIni.Gen/PicoIni.Gen.csproj \
             --configuration Release \
@@ -69,7 +69,7 @@ jobs:
             --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoToml/src/PicoToml.Gen/PicoToml.Gen.csproj \
             --configuration Release \
@@ -83,7 +83,7 @@ jobs:
             --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoYaml/src/PicoYaml.Gen/PicoYaml.Gen.csproj \
             --configuration Release \
@@ -97,7 +97,7 @@ jobs:
             --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
           dotnet pack PicoMsgPack/src/PicoMsgPack.Gen/PicoMsgPack.Gen.csproj \
             --configuration Release \
@@ -111,7 +111,7 @@ jobs:
             --output ${{ github.workspace }}/artifacts/nupkg \
             -p:Version=${{ steps.version.outputs.VERSION }} \
             -p:UseProjectReferences=false \
-            -p:RestoreSources=${{ github.workspace }}/artifacts/nupkg
+            -p:RestoreAdditionalProjectSources=${{ github.workspace }}/artifacts/nupkg
 
       - uses: actions/upload-artifact@v4
         with:
