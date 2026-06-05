@@ -22,7 +22,8 @@
     <ProjectReference
       Include="..\PicoJetson.Gen\PicoJetson.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false" />
+      ReferenceOutputAssembly="false"
+    />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,9 +32,14 @@
 
   <!-- Embed the PicoJetson.Gen source generator DLL in the consumer NuGet package -->
   <ItemGroup Condition="'$(IsPackable)' == 'true'">
-    <None Include="..\PicoJetson.Gen\bin\$(Configuration)\netstandard2.0\PicoJetson.Gen.dll"
-          Pack="true"
-          PackagePath="analyzers/dotnet/cs/"
-          Visible="false" />
+    <None
+      Include="..\PicoJetson.Gen\bin\$(Configuration)\netstandard2.0\PicoJetson.Gen.dll"
+      Pack="true"
+      PackagePath="analyzers/dotnet/cs/"
+      Visible="false"
+    />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Update="Microsoft.SourceLink.GitHub" Version="10.0.300" />
   </ItemGroup>
 </Project>

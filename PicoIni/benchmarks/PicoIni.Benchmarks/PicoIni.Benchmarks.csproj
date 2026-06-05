@@ -11,8 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="PicoBench" Version="*" />
-    <PackageReference Include="ini-parser-netstandard" Version="2.*" />
+    <PackageReference Include="PicoBench" Version="2026.2.0" />
+    <PackageReference Include="ini-parser-netstandard" Version="2.5.3" />
   </ItemGroup>
 
   <ItemGroup>

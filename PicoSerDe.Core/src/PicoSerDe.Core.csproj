@@ -24,4 +24,8 @@
   <ItemGroup>
     <Compile Include="..\..\shared\TextHelpers.cs" Link="TextHelpers.cs" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="Microsoft.SourceLink.GitHub" Version="10.0.300" />
+  </ItemGroup>
 </Project>

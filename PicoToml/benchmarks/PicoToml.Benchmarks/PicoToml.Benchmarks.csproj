@@ -10,8 +10,8 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="PicoBench" Version="*" />
-    <PackageReference Include="Tommy" Version="3.*" />
+    <PackageReference Include="PicoBench" Version="2026.2.0" />
+    <PackageReference Include="Tommy" Version="3.1.2" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\..\shared\BenchModels.cs" Link="BenchModels.cs" />
