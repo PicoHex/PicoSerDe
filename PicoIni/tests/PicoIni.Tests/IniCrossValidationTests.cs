@@ -1,6 +1,5 @@
 namespace PicoIni.Tests;
 
-// Flat model — the INI SG has bugs with lists, nested objects, and nullable types
 public class IniModel
 {
     public bool Bool { get; set; }
@@ -36,12 +35,7 @@ public class IniCrossValidationTests
     {
         var bytes = IniSerializer.SerializeToUtf8Bytes(Model);
         var back = IniSerializer.Deserialize<IniModel>(bytes);
-        await Assert.That(back).IsNotNull();
-        await Assert.That(back.Bool).IsEqualTo(Model.Bool);
-        await Assert.That(back.Int).IsEqualTo(Model.Int);
-        await Assert.That(back.Long).IsEqualTo(Model.Long);
-        await Assert.That(back.String).IsEqualTo(Model.String);
-        await Assert.That(back.Enum).IsEqualTo(Model.Enum);
+        await AssertIniEqual(Model, back!);
     }
 
     [Test]
@@ -54,5 +48,15 @@ public class IniCrossValidationTests
         await Assert.That(model.Bool).IsTrue();
         await Assert.That(model.Int).IsEqualTo(42);
         await Assert.That(model.String).IsEqualTo("Hello");
+    }
+
+    private static async Task AssertIniEqual(IniModel expected, IniModel actual)
+    {
+        await Assert.That(actual.Bool).IsEqualTo(expected.Bool);
+        await Assert.That(actual.Int).IsEqualTo(expected.Int);
+        await Assert.That(actual.Long).IsEqualTo(expected.Long);
+        await Assert.That(actual.Double).IsEqualTo(expected.Double);
+        await Assert.That(actual.String).IsEqualTo(expected.String);
+        await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
     }
 }

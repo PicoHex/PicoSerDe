@@ -1,6 +1,5 @@
 namespace PicoMsgPack.Tests;
 
-// Minimal model — the MsgPack SG has CS0305 List<T> issues with generics
 public class MpModel
 {
     public bool Bool { get; set; }
@@ -25,9 +24,13 @@ public class MsgPackCrossValidationTests
     {
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(Model);
         var back = MsgPackSerializer.Deserialize<MpModel>(bytes);
-        await Assert.That(back).IsNotNull();
-        await Assert.That(back.Bool).IsTrue();
-        await Assert.That(back.Int).IsEqualTo(42);
-        await Assert.That(back.String).IsEqualTo("Hello");
+        await AssertMpEqual(Model, back!);
+    }
+
+    private static async Task AssertMpEqual(MpModel expected, MpModel actual)
+    {
+        await Assert.That(actual.Bool).IsEqualTo(expected.Bool);
+        await Assert.That(actual.Int).IsEqualTo(expected.Int);
+        await Assert.That(actual.String).IsEqualTo(expected.String);
     }
 }

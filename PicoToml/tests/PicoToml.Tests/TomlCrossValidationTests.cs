@@ -23,8 +23,12 @@ public class TomlCrossValidationTests
     {
         var bytes = TomlSerializer.SerializeToUtf8Bytes(Model);
         var back = TomlSerializer.Deserialize<TomlModel>(bytes);
-        await Assert.That(back).IsNotNull();
-        await Assert.That(back.Bool).IsTrue();
-        await Assert.That(back.String).IsEqualTo("Hello");
+        await AssertTomlEqual(Model, back!);
+    }
+
+    private static async Task AssertTomlEqual(TomlModel expected, TomlModel actual)
+    {
+        await Assert.That(actual.Bool).IsEqualTo(expected.Bool);
+        await Assert.That(actual.String).IsEqualTo(expected.String);
     }
 }

@@ -25,10 +25,14 @@ public class YamlCrossValidationTests
     {
         var bytes = YamlSerializer.SerializeToUtf8Bytes(Model);
         var back = YamlSerializer.Deserialize<FlatModel>(bytes);
-        await Assert.That(back).IsNotNull();
-        await Assert.That(back.Bool).IsTrue();
-        await Assert.That(back.Int).IsEqualTo(42);
-        await Assert.That(back.String).IsEqualTo("Hello");
-        await Assert.That(back.Enum).IsEqualTo(DayOfWeek.Monday);
+        await AssertYamlEqual(Model, back!);
+    }
+
+    private static async Task AssertYamlEqual(FlatModel expected, FlatModel actual)
+    {
+        await Assert.That(actual.Bool).IsEqualTo(expected.Bool);
+        await Assert.That(actual.Int).IsEqualTo(expected.Int);
+        await Assert.That(actual.String).IsEqualTo(expected.String);
+        await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
     }
 }
