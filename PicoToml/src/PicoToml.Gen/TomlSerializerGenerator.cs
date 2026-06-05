@@ -964,6 +964,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                         " = decimal.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
                     );
                     break;
+                case "enum":
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.Append(" = System.Enum.TryParse<");
+                    s.Append(p.TypeFullName);
+                    s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan), out var __ev) ? __ev : default;");
+                    break;
                 default:
                     s.Append(pad);
                     s.Append(tgt);

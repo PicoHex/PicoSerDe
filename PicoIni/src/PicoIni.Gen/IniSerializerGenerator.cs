@@ -488,9 +488,10 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             case "array":
                 s.Append("string.Join(\",\", ");
                 s.Append(acc);
-                s.Append(
-                    ".Select(__s => __s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")))"
-                );
+                if (p.ElementTypeKind == "string")
+                    s.Append(".Select(__s => __s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")))");
+                else
+                    s.Append(")");
                 break;
             default:
                 s.Append(acc);

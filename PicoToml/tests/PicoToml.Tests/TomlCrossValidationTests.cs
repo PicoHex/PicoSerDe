@@ -8,6 +8,7 @@ public class TomlModel
     public double Double { get; set; }
     public string String { get; set; } = "";
     public DateTime DateTime { get; set; }
+    public DayOfWeek Enum { get; set; }
 }
 
 public class TomlCrossValidationTests
@@ -20,6 +21,7 @@ public class TomlCrossValidationTests
         Double = 2.71828,
         String = "Hello, TOML! 测试",
         DateTime = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
+        Enum = DayOfWeek.Wednesday,
     };
 
     [Test]
@@ -41,5 +43,6 @@ public class TomlCrossValidationTests
         await Assert.That(back.Long).IsEqualTo(9_876_543_210L);
         await Assert.That(back.String).IsEqualTo("Hello, TOML! 测试");
         await Assert.That(back.DateTime.ToUniversalTime()).IsEqualTo(new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc));
+        await Assert.That(back.Enum).IsEqualTo(DayOfWeek.Wednesday);
     }
 }
