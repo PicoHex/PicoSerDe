@@ -130,10 +130,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: nupkg
+          path: nupkg
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       - shell: bash
+        working-directory: nupkg
         run: |
           for file in *.nupkg; do
             if [[ "$file" != *.snupkg ]] && [[ "$file" != *.symbols.nupkg ]]; then
@@ -143,3 +145,17 @@ jobs:
                 --skip-duplicate
             fi
           done
+      - name: Extract version
+        shell: bash
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PicoSerDe v${{ steps.version.outputs.VERSION }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          make_latest: true
+          files: |
+            nupkg/*.nupkg
+            nupkg/*.snupkg
