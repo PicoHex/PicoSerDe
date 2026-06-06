@@ -32,7 +32,6 @@ public class YamlModel
 
 public class YamlCrossValidationTests
 {
-    // YamlDotNet's user-facing API: new DeserializerBuilder().Build() / new SerializerBuilder().Build()
     private static readonly IDeserializer YamlDotNet = new DeserializerBuilder()
         .IgnoreUnmatchedProperties()
         .Build();

@@ -705,7 +705,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 {
                     s.Append(pad);
                     s.AppendLine(
-                        "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _);"
+                        "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O');"
                     );
                 }
                 s.Append(pad);

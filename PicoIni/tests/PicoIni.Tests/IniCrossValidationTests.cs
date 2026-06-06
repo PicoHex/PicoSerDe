@@ -11,6 +11,11 @@ public class IniModel
     public string String { get; set; } = "";
     public string? NullableProp { get; set; }
     public int? NullableInt { get; set; }
+    public DateTime DateTime { get; set; }
+    public TimeSpan TimeSpan { get; set; }
+    public DateOnly DateOnly { get; set; }
+    public TimeOnly TimeOnly { get; set; }
+    public Guid Guid { get; set; }
     public DayOfWeek Enum { get; set; }
     public IniNested? Section { get; set; }
     public List<string> Tags { get; set; } = [];
@@ -31,6 +36,11 @@ public class IniCrossValidationTests
         String = "Hello from PicoIni!",
         Enum = DayOfWeek.Wednesday,
         NullableInt = 77,
+        DateTime = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
+        TimeSpan = new TimeSpan(10, 30, 0),
+        DateOnly = new DateOnly(2026, 6, 4),
+        TimeOnly = new TimeOnly(15, 45, 30),
+        Guid = Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"),
         Section = new() { Name = "test" },
         Dict = new() { ["k"] = "v" },
         Tags = ["tag1", "tag2", "tag3"],
@@ -88,6 +98,11 @@ public class IniCrossValidationTests
         await Assert.That(actual.String).IsEqualTo(expected.String);
         await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
         await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);
+        await Assert.That(actual.DateTime.ToUniversalTime()).IsEqualTo(expected.DateTime.ToUniversalTime());
+        await Assert.That(actual.TimeSpan).IsEqualTo(expected.TimeSpan);
+        await Assert.That(actual.DateOnly).IsEqualTo(expected.DateOnly);
+        await Assert.That(actual.TimeOnly).IsEqualTo(expected.TimeOnly);
+        await Assert.That(actual.Guid).IsEqualTo(expected.Guid);
         await Assert.That(actual.Tags).IsEquivalentTo(expected.Tags);
     }
 }

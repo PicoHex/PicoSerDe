@@ -22,6 +22,8 @@ public class TomlModel
     public int? NullableInt { get; set; }
     public List<int> IntList { get; set; } = [];
     public List<string> StringList { get; set; } = [];
+    public int[] IntArray { get; set; } = [];
+    public Dictionary<string, string> StringDict { get; set; } = [];
 }
 
 public class TomlCrossValidationTests
@@ -40,6 +42,8 @@ public class TomlCrossValidationTests
         NullableInt = 77,
         IntList = [10, 20, 30],
         StringList = ["foo", "bar"],
+        IntArray = [100, 200],
+        StringDict = new() { ["k1"] = "v1" },
     };
 
     [Test]
@@ -106,5 +110,6 @@ public class TomlCrossValidationTests
         await Assert.That(actual.Guid).IsEqualTo(expected.Guid);
         await Assert.That(actual.IntList).IsEquivalentTo(expected.IntList);
         await Assert.That(actual.StringList).IsEquivalentTo(expected.StringList);
+        await Assert.That(actual.IntArray).IsEquivalentTo(expected.IntArray);
     }
 }
