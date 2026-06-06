@@ -5,3 +5,4 @@ global using PicoSerDe.Core;
 global using TUnit.Core;
 global using PicoCrossValidation;
 global using Microsoft.Extensions.Configuration;
+global using Microsoft.Extensions.Configuration;

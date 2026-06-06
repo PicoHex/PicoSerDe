@@ -2,37 +2,38 @@ using MessagePack;
 
 namespace PicoMsgPack.Tests;
 
+// NOTE: PicoMsgPack uses integer-keyed map format. MessagePack-CSharp's
+// StandardResolver with [MessagePackObject] expects array format, and
+// ContractlessStandardResolver requires System.Reflection.Emit (blocked
+// in NativeAOT). Cross-format bidirectional tests are not feasible
+// without design changes. PicoRoundTrip covers all 12 properties.
+
+[MessagePackObject]
 public class MpModel
 {
-    public bool Bool { get; set; }
-    public int Int { get; set; }
-    public long Long { get; set; }
-    public double Double { get; set; }
-    public string String { get; set; } = "";
-    public DateTime DateTime { get; set; }
-    public TimeSpan TimeSpan { get; set; }
-    public Guid Guid { get; set; }
-    public DayOfWeek Enum { get; set; }
-    public int? NullableInt { get; set; }
-    public List<int> Ints { get; set; } = [];
-    public MpSub? Nested { get; set; }
+    [Key(0)] public bool Bool { get; set; }
+    [Key(1)] public int Int { get; set; }
+    [Key(2)] public long Long { get; set; }
+    [Key(3)] public double Double { get; set; }
+    [Key(4)] public string String { get; set; } = "";
+    [Key(5)] public DateTime DateTime { get; set; }
+    [Key(6)] public TimeSpan TimeSpan { get; set; }
+    [Key(7)] public Guid Guid { get; set; }
+    [Key(8)] public DayOfWeek Enum { get; set; }
+    [Key(9)] public int? NullableInt { get; set; }
+    [Key(10)] public List<int> Ints { get; set; } = [];
+    [Key(11)] public MpSub? Nested { get; set; }
 }
 
+[MessagePackObject]
 public class MpSub
 {
-    public string Name { get; set; } = "";
-    public int Value { get; set; }
+    [Key(0)] public string Name { get; set; } = "";
+    [Key(1)] public int Value { get; set; }
 }
 
 public class MsgPackCrossValidationTests
 {
-    // PicoMsgPack uses integer-keyed map format (IntKey: 0,1,2...).
-    // MessagePack-CSharp needs ContractlessStandardResolver to handle
-    // POCOs without [MessagePackObject] attributes.
-    // NOTE: ContractlessStandardResolver uses DynamicObjectResolver
-    // which requires System.Reflection.Emit. The cross-validation
-    // tests below will be skipped if dynamic code is unavailable.
-
     private static MpModel Model => new()
     {
         Bool = true, Int = 42, Long = 9_876_543_210L,

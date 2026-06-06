@@ -62,6 +62,35 @@ public class IniCrossValidationTests
         await Assert.That(iniText).Contains("Tags = tag1,tag2,tag3");
     }
 
+    [Test]
+    public async Task PicoSerialize_MsConfigRead()
+    {
+        var bytes = IniSerializer.SerializeToUtf8Bytes(Model);
+        var iniText = Encoding.UTF8.GetString(bytes);
+        var tmp = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tmp, iniText);
+            var config = new ConfigurationBuilder()
+                .AddIniFile(tmp)
+                .Build();
+            await Assert.That(config["Bool"]).IsEqualTo("true");
+            await Assert.That(config["Int"]).IsEqualTo("42");
+            await Assert.That(config["String"]).IsEqualTo("Hello from PicoIni!");
+            await Assert.That(config["Enum"]).IsEqualTo("Wednesday");
+            // List serialized as comma-separated string
+            await Assert.That(config["Tags"]).IsEqualTo("tag1,tag2,tag3");
+            // Nested section
+            await Assert.That(config["Section:Name"]).IsEqualTo("test");
+            // Dict section
+            await Assert.That(config["Dict:k"]).IsEqualTo("v");
+        }
+        finally
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+        }
+    }
+
     private static async Task AssertIniEqual(IniModel expected, IniModel actual)
     {
         await Assert.That(actual.Bool).IsEqualTo(expected.Bool);

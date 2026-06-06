@@ -53,16 +53,39 @@ public class TomlCrossValidationTests
         await AssertTomlEqual(Model, back!);
     }
 
+    /// <summary>PicoToml serialize → Tomlyn deserialize</summary>
     [Test]
-    public async Task PicoSerialize_TomlynParse()
+    public async Task PicoSerialize_TomlynDeserialize()
     {
         var picoBytes = TomlSerializer.SerializeToUtf8Bytes(Model);
         var tomlText = Encoding.UTF8.GetString(picoBytes);
-
         var table = Toml.ToModel(tomlText);
         await Assert.That((bool)table["Bool"]).IsTrue();
         await Assert.That((long)table["Int"]).IsEqualTo(42);
+        await Assert.That((long)table["Long"]).IsEqualTo(9_876_543_210L);
         await Assert.That((string)table["String"]).IsEqualTo(Model.String);
+    }
+
+    /// <summary>Tomlyn serialize → PicoToml deserialize</summary>
+    [Test]
+    public async Task TomlynSerialize_PicoDeserialize()
+    {
+        var tomlText = Toml.FromModel(new TomlTable
+        {
+            ["Bool"] = true,
+            ["Int"] = 42L,
+            ["Long"] = 9_876_543_210L,
+            ["Double"] = 2.71828,
+            ["String"] = "Hello from Tomlyn!",
+            ["DateTime"] = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
+        });
+        var bytes = Encoding.UTF8.GetBytes(tomlText);
+        var model = TomlSerializer.Deserialize<TomlModel>(bytes);
+        await Assert.That(model).IsNotNull();
+        await Assert.That(model.Bool).IsTrue();
+        await Assert.That(model.Int).IsEqualTo(42);
+        await Assert.That(model.Long).IsEqualTo(9_876_543_210L);
+        await Assert.That(model.String).IsEqualTo("Hello from Tomlyn!");
     }
 
     private static async Task AssertTomlEqual(TomlModel expected, TomlModel actual)
