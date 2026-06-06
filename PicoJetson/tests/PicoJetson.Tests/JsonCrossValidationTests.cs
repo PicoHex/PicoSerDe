@@ -153,4 +153,27 @@ public class JsonCrossValidationTests
             }
         }
     }
+
+    [Test]
+    public async Task StjSerialize_PicoDeserialize_EmptyLists()
+    {
+        var model = new ComplexModel
+        {
+            String = "empty-test",
+            DateTime = DateTime.UtcNow,
+            Guid = Guid.NewGuid(),
+            IntList = [],
+            StringList = [],
+            IntArray = [],
+            StringDict = [],
+        };
+        var stjBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(model, StjPascalCase);
+        var pico = JsonSerializer.Deserialize<ComplexModel>(stjBytes);
+        await Assert.That(pico).IsNotNull();
+        await Assert.That(pico.IntList).IsNotNull();
+        await Assert.That(pico.IntList.Count).IsEqualTo(0);
+        await Assert.That(pico.StringList.Count).IsEqualTo(0);
+        await Assert.That(pico.IntArray.Length).IsEqualTo(0);
+        await Assert.That(pico.StringDict.Count).IsEqualTo(0);
+    }
 }

@@ -1163,9 +1163,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(target);
                     sb.Append(".");
                     sb.Append(prop.Name);
-                    sb.AppendLine(" ??= new System.Collections.Generic.List<");
+                    sb.Append(" = new System.Collections.Generic.List<");
                     sb.Append(prop.ElementTypeName);
-                    sb.AppendLine(">(16);");
+                    sb.AppendLine(">();");
                 }
                 else
                 {
@@ -1202,59 +1202,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     || prop.ElementTypeKind == "boolean"
                 )
                 {
-                    var typeName = prop.ElementTypeKind switch
-                    {
-                        "int32" => "int",
-                        "int64" => "long",
-                        _ => "bool",
-                    };
-                    var fastMethod = prop.ElementTypeKind switch
-                    {
-                        "int32" => "TryReadInt32ArrayFast",
-                        "int64" => "TryReadInt64ArrayFast",
-                        _ => "TryReadBoolArrayFast",
-                    };
-                    sb.Append(indent);
-                    sb.Append("    Span<");
-                    sb.Append(typeName);
-                    sb.Append("> __buf = stackalloc ");
-                    sb.Append(typeName);
-                    sb.AppendLine("[256];");
-                    sb.Append(indent);
-                    sb.Append("    var __n = reader.");
-                    sb.Append(fastMethod);
-                    sb.AppendLine("(__buf);");
-                    sb.Append(indent);
-                    sb.AppendLine("    if (__n > 0)");
-                    sb.Append(indent);
-                    sb.AppendLine("    {");
-                    sb.Append(indent);
-                    sb.AppendLine("        for (int __i = 0; __i < __n; __i++)");
-                    sb.Append(indent);
-                    sb.Append("            ");
-                    sb.Append(listAcc);
-                    sb.AppendLine(".Add(__buf[__i]);");
-                    sb.Append(indent);
-                    sb.AppendLine("    }");
-                    sb.Append(indent);
-                    sb.AppendLine("    else");
-                    sb.Append(indent);
-                    sb.AppendLine("    {");
                     sb.Append(indent);
                     sb.AppendLine(
-                        "        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+                        "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
                     );
                     sb.Append(indent);
-                    sb.AppendLine("        {");
+                    sb.AppendLine("    {");
                     EmitDeserializeElementAdd(
                         sb,
                         prop,
                         listAcc,
-                        indent + "            ",
+                        indent + "        ",
                         nestLevel
                     );
-                    sb.Append(indent);
-                    sb.AppendLine("        }");
                     sb.Append(indent);
                     sb.AppendLine("    }");
                 }
