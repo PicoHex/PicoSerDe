@@ -32,11 +32,12 @@ public class YamlModel
 
 public class YamlCrossValidationTests
 {
-    private static readonly IDeserializer YamlReader = new DeserializerBuilder()
+    // YamlDotNet's user-facing API: new DeserializerBuilder().Build() / new SerializerBuilder().Build()
+    private static readonly IDeserializer YamlDotNet = new DeserializerBuilder()
         .IgnoreUnmatchedProperties()
         .Build();
 
-    private static readonly ISerializer YamlWriter = new SerializerBuilder()
+    private static readonly ISerializer YamlDotNetSer = new SerializerBuilder()
         .Build();
 
     private static YamlModel Model => new()
@@ -78,14 +79,14 @@ public class YamlCrossValidationTests
     {
         var picoBytes = YamlSerializer.SerializeToUtf8Bytes(Model);
         var yamlText = Encoding.UTF8.GetString(picoBytes);
-        var yaml = YamlReader.Deserialize<YamlModel>(yamlText);
+        var yaml = YamlDotNet.Deserialize<YamlModel>(yamlText);
         await AssertYamlEqual(Model, yaml!);
     }
 
     [Test]
     public async Task YamlDotNetSerialize_PicoDeserialize()
     {
-        var yamlText = YamlWriter.Serialize(Model);
+        var yamlText = YamlDotNetSer.Serialize(Model);
         var bytes = Encoding.UTF8.GetBytes(yamlText);
         var pico = YamlSerializer.Deserialize<YamlModel>(bytes);
         await AssertYamlEqual(Model, pico!);
