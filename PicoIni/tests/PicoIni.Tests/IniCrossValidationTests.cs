@@ -5,6 +5,7 @@ public class IniModel
     public bool Bool { get; set; }
     public int Int { get; set; }
     public long Long { get; set; }
+    public float Float { get; set; }
     public double Double { get; set; }
     public string String { get; set; } = "";
     public DayOfWeek Enum { get; set; }
@@ -27,6 +28,7 @@ public class IniCrossValidationTests
         Bool = true,
         Int = 42,
         Long = 9_876_543_210L,
+        Float = 3.14f,
         Double = 2.71828,
         String = "Hello from PicoIni!",
         Enum = DayOfWeek.Wednesday,
@@ -66,6 +68,7 @@ public class IniCrossValidationTests
         await Assert.That(actual.Int).IsEqualTo(expected.Int);
         await Assert.That(actual.Long).IsEqualTo(expected.Long);
         await Assert.That(actual.Double).IsEqualTo(expected.Double);
+        await Assert.That(Math.Abs(actual.Float - expected.Float) < 0.001f).IsTrue();
         await Assert.That(actual.String).IsEqualTo(expected.String);
         await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
         await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);

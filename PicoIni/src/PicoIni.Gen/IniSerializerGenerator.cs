@@ -474,6 +474,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
             case "int64":
+            case "float32":
             case "float64":
             case "boolean":
             case "decimal":
@@ -649,6 +650,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append('.');
                 s.Append(p.Name);
                 s.AppendLine(" = __v;");
+                break;
+            case "float32":
+                s.Append(pad);
+                s.AppendLine("reader.TryGetFloat64(out var __v);");
+                s.Append(pad);
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = (float)__v;");
                 break;
             case "float64":
                 s.Append(pad);
