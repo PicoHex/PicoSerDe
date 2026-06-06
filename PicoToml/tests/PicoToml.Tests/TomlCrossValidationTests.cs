@@ -1,3 +1,6 @@
+using Tomlyn;
+using Tomlyn.Model;
+
 namespace PicoToml.Tests;
 
 public class TomlModel
@@ -47,16 +50,35 @@ public class TomlCrossValidationTests
     {
         var bytes = TomlSerializer.SerializeToUtf8Bytes(Model);
         var back = TomlSerializer.Deserialize<TomlModel>(bytes);
-        await Assert.That(back).IsNotNull();
-        await Assert.That(back.Bool).IsEqualTo(Model.Bool);
-        await Assert.That(back.Int).IsEqualTo(Model.Int);
-        await Assert.That(back.Long).IsEqualTo(Model.Long);
-        await Assert.That(Math.Abs(back.Float - Model.Float) < 0.001f).IsTrue();
-        await Assert.That(back.Double).IsEqualTo(Model.Double);
-        await Assert.That(back.String).IsEqualTo(Model.String);
-        await Assert.That(back.Enum).IsEqualTo(Model.Enum);
-        await Assert.That(back.NullableInt).IsEqualTo(Model.NullableInt);
-        await Assert.That(back.DateTime.ToUniversalTime()).IsEqualTo(Model.DateTime.ToUniversalTime());
-        await Assert.That(back.TimeSpan).IsEqualTo(Model.TimeSpan);
+        await AssertTomlEqual(Model, back!);
+    }
+
+    [Test]
+    public async Task PicoSerialize_TomlynParse()
+    {
+        var picoBytes = TomlSerializer.SerializeToUtf8Bytes(Model);
+        var tomlText = Encoding.UTF8.GetString(picoBytes);
+
+        var table = Toml.ToModel(tomlText);
+        await Assert.That((bool)table["Bool"]).IsTrue();
+        await Assert.That((long)table["Int"]).IsEqualTo(42);
+        await Assert.That((string)table["String"]).IsEqualTo(Model.String);
+    }
+
+    private static async Task AssertTomlEqual(TomlModel expected, TomlModel actual)
+    {
+        await Assert.That(actual.Bool).IsEqualTo(expected.Bool);
+        await Assert.That(actual.Int).IsEqualTo(expected.Int);
+        await Assert.That(actual.Long).IsEqualTo(expected.Long);
+        await Assert.That(Math.Abs(actual.Float - expected.Float) < 0.001f).IsTrue();
+        await Assert.That(actual.Double).IsEqualTo(expected.Double);
+        await Assert.That(actual.String).IsEqualTo(expected.String);
+        await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
+        await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);
+        await Assert.That(actual.DateTime.ToUniversalTime()).IsEqualTo(expected.DateTime.ToUniversalTime());
+        await Assert.That(actual.TimeSpan).IsEqualTo(expected.TimeSpan);
+        await Assert.That(actual.DateOnly).IsEqualTo(expected.DateOnly);
+        await Assert.That(actual.TimeOnly).IsEqualTo(expected.TimeOnly);
+        await Assert.That(actual.Guid).IsEqualTo(expected.Guid);
     }
 }

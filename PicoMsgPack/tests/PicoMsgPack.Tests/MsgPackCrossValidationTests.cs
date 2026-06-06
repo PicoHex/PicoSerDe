@@ -1,3 +1,5 @@
+using MessagePack;
+
 namespace PicoMsgPack.Tests;
 
 public class MpModel
@@ -24,6 +26,13 @@ public class MpSub
 
 public class MsgPackCrossValidationTests
 {
+    // PicoMsgPack uses integer-keyed map format (IntKey: 0,1,2...).
+    // MessagePack-CSharp needs ContractlessStandardResolver to handle
+    // POCOs without [MessagePackObject] attributes.
+    // NOTE: ContractlessStandardResolver uses DynamicObjectResolver
+    // which requires System.Reflection.Emit. The cross-validation
+    // tests below will be skipped if dynamic code is unavailable.
+
     private static MpModel Model => new()
     {
         Bool = true, Int = 42, Long = 9_876_543_210L,
@@ -51,23 +60,27 @@ public class MsgPackCrossValidationTests
     {
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(Model);
         var back = MsgPackSerializer.Deserialize<MpModel>(bytes);
-        await Assert.That(back).IsNotNull();
-        await Assert.That(back.Bool).IsEqualTo(Model.Bool);
-        await Assert.That(back.Int).IsEqualTo(Model.Int);
-        await Assert.That(back.Long).IsEqualTo(Model.Long);
-        await Assert.That(back.Double).IsEqualTo(Model.Double);
-        await Assert.That(back.String).IsEqualTo(Model.String);
-        await Assert.That(back.Enum).IsEqualTo(Model.Enum);
-        await Assert.That(back.NullableInt).IsEqualTo(Model.NullableInt);
-        await Assert.That(back.DateTime.ToUniversalTime()).IsEqualTo(Model.DateTime.ToUniversalTime());
-        await Assert.That(back.TimeSpan).IsEqualTo(Model.TimeSpan);
-        await Assert.That(back.Guid).IsEqualTo(Model.Guid);
-        await Assert.That(back.Ints).IsEquivalentTo(Model.Ints);
-        if (Model.Nested is not null)
+        await AssertMpEqual(Model, back!);
+    }
+
+    private static async Task AssertMpEqual(MpModel expected, MpModel actual)
+    {
+        await Assert.That(actual.Bool).IsEqualTo(expected.Bool);
+        await Assert.That(actual.Int).IsEqualTo(expected.Int);
+        await Assert.That(actual.Long).IsEqualTo(expected.Long);
+        await Assert.That(actual.Double).IsEqualTo(expected.Double);
+        await Assert.That(actual.String).IsEqualTo(expected.String);
+        await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
+        await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);
+        await Assert.That(actual.DateTime.ToUniversalTime()).IsEqualTo(expected.DateTime.ToUniversalTime());
+        await Assert.That(actual.TimeSpan).IsEqualTo(expected.TimeSpan);
+        await Assert.That(actual.Guid).IsEqualTo(expected.Guid);
+        await Assert.That(actual.Ints).IsEquivalentTo(expected.Ints);
+        if (expected.Nested is not null)
         {
-            await Assert.That(back.Nested).IsNotNull();
-            await Assert.That(back.Nested!.Name).IsEqualTo(Model.Nested.Name);
-            await Assert.That(back.Nested.Value).IsEqualTo(Model.Nested.Value);
+            await Assert.That(actual.Nested).IsNotNull();
+            await Assert.That(actual.Nested!.Name).IsEqualTo(expected.Nested.Name);
+            await Assert.That(actual.Nested.Value).IsEqualTo(expected.Nested.Value);
         }
     }
 }

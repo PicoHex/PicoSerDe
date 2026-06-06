@@ -1,3 +1,6 @@
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
+
 namespace PicoYaml.Tests;
 
 public class YamlModel
@@ -26,6 +29,13 @@ public class YamlSub
 
 public class YamlCrossValidationTests
 {
+    private static readonly IDeserializer YamlReader = new DeserializerBuilder()
+        .IgnoreUnmatchedProperties()
+        .Build();
+
+    private static readonly ISerializer YamlWriter = new SerializerBuilder()
+        .Build();
+
     private static YamlModel Model => new()
     {
         Bool = true, Int = 42, Long = 9_876_543_210L,
@@ -53,24 +63,48 @@ public class YamlCrossValidationTests
     {
         var bytes = YamlSerializer.SerializeToUtf8Bytes(Model);
         var back = YamlSerializer.Deserialize<YamlModel>(bytes);
-        await Assert.That(back).IsNotNull();
-        await Assert.That(back.Bool).IsEqualTo(Model.Bool);
-        await Assert.That(back.Int).IsEqualTo(Model.Int);
-        await Assert.That(back.Long).IsEqualTo(Model.Long);
-        await Assert.That(Math.Abs(back.Float - Model.Float) < 0.001f).IsTrue();
-        await Assert.That(back.Double).IsEqualTo(Model.Double);
-        await Assert.That(back.String).IsEqualTo(Model.String);
-        await Assert.That(back.Enum).IsEqualTo(Model.Enum);
-        await Assert.That(back.NullableInt).IsEqualTo(Model.NullableInt);
-        await Assert.That(back.DateTime.ToUniversalTime()).IsEqualTo(Model.DateTime.ToUniversalTime());
-        await Assert.That(back.TimeSpan).IsEqualTo(Model.TimeSpan);
-        await Assert.That(back.Guid).IsEqualTo(Model.Guid);
-        await Assert.That(back.Ints).IsEquivalentTo(Model.Ints);
-        if (Model.Nested is not null)
+        await AssertYamlEqual(Model, back!);
+    }
+
+    /// <summary>PicoYaml serialize → YamlDotNet deserialize</summary>
+    [Test]
+    public async Task PicoSerialize_YamlDotNetDeserialize()
+    {
+        var picoBytes = YamlSerializer.SerializeToUtf8Bytes(Model);
+        var yamlText = Encoding.UTF8.GetString(picoBytes);
+        var yaml = YamlReader.Deserialize<YamlModel>(yamlText);
+        await AssertYamlEqual(Model, yaml!);
+    }
+
+    /// <summary>YamlDotNet serialize → PicoYaml deserialize</summary>
+    [Test]
+    public async Task YamlDotNetSerialize_PicoDeserialize()
+    {
+        var yamlText = YamlWriter.Serialize(Model);
+        var bytes = Encoding.UTF8.GetBytes(yamlText);
+        var pico = YamlSerializer.Deserialize<YamlModel>(bytes);
+        await AssertYamlEqual(Model, pico!);
+    }
+
+    private static async Task AssertYamlEqual(YamlModel expected, YamlModel actual)
+    {
+        await Assert.That(actual.Bool).IsEqualTo(expected.Bool);
+        await Assert.That(actual.Int).IsEqualTo(expected.Int);
+        await Assert.That(actual.Long).IsEqualTo(expected.Long);
+        await Assert.That(Math.Abs(actual.Float - expected.Float) < 0.001f).IsTrue();
+        await Assert.That(actual.Double).IsEqualTo(expected.Double);
+        await Assert.That(actual.String).IsEqualTo(expected.String);
+        await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
+        await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);
+        await Assert.That(actual.DateTime.ToUniversalTime()).IsEqualTo(expected.DateTime.ToUniversalTime());
+        await Assert.That(actual.TimeSpan).IsEqualTo(expected.TimeSpan);
+        await Assert.That(actual.Guid).IsEqualTo(expected.Guid);
+        await Assert.That(actual.Ints).IsEquivalentTo(expected.Ints);
+        if (expected.Nested is not null)
         {
-            await Assert.That(back.Nested).IsNotNull();
-            await Assert.That(back.Nested!.Name).IsEqualTo(Model.Nested.Name);
-            await Assert.That(back.Nested.Value).IsEqualTo(Model.Nested.Value);
+            await Assert.That(actual.Nested).IsNotNull();
+            await Assert.That(actual.Nested!.Name).IsEqualTo(expected.Nested.Name);
+            await Assert.That(actual.Nested.Value).IsEqualTo(expected.Nested.Value);
         }
     }
 }
