@@ -11,6 +11,7 @@ public class IniModel
     public string? NullableProp { get; set; }
     public int? NullableInt { get; set; }
     public IniNested? Section { get; set; }
+    public List<string> Tags { get; set; } = [];
     public Dictionary<string, string> Dict { get; set; } = [];
 }
 
@@ -32,6 +33,7 @@ public class IniCrossValidationTests
         NullableInt = 77,
         Section = new() { Name = "test" },
         Dict = new() { ["k"] = "v" },
+        Tags = ["tag1", "tag2", "tag3"],
     };
 
     [Test]
@@ -62,6 +64,15 @@ public class IniCrossValidationTests
         await Assert.That(model.String).IsEqualTo("Hello");
     }
 
+    [Test]
+    public async Task PicoSerialize_ListOutput()
+    {
+        var bytes = IniSerializer.SerializeToUtf8Bytes(Model);
+        var iniText = Encoding.UTF8.GetString(bytes);
+        // Verify list serialization produces comma-separated format
+        await Assert.That(iniText).Contains("Tags = tag1,tag2,tag3");
+    }
+
     private static async Task AssertIniEqual(IniModel expected, IniModel actual)
     {
         await Assert.That(actual.Bool).IsEqualTo(expected.Bool);
@@ -71,5 +82,6 @@ public class IniCrossValidationTests
         await Assert.That(actual.String).IsEqualTo(expected.String);
         await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
         await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);
+        await Assert.That(actual.Tags).IsEquivalentTo(expected.Tags);
     }
 }
