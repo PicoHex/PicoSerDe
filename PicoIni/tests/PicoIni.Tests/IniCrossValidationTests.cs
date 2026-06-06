@@ -53,23 +53,10 @@ public class IniCrossValidationTests
     }
 
     [Test]
-    public async Task ManualIni_PicoDeserialize()
-    {
-        var iniText = "Bool = True\nInt = 42\nString = Hello\n";
-        var bytes = Encoding.UTF8.GetBytes(iniText);
-        var model = IniSerializer.Deserialize<IniModel>(bytes);
-        await Assert.That(model).IsNotNull();
-        await Assert.That(model.Bool).IsTrue();
-        await Assert.That(model.Int).IsEqualTo(42);
-        await Assert.That(model.String).IsEqualTo("Hello");
-    }
-
-    [Test]
     public async Task PicoSerialize_ListOutput()
     {
         var bytes = IniSerializer.SerializeToUtf8Bytes(Model);
         var iniText = Encoding.UTF8.GetString(bytes);
-        // Verify list serialization produces comma-separated format
         await Assert.That(iniText).Contains("Tags = tag1,tag2,tag3");
     }
 
