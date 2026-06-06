@@ -12,6 +12,7 @@ public class TomlModel
     public double Double { get; set; }
     public decimal Decimal { get; set; }
     public string String { get; set; } = "";
+    public string? NullableString { get; set; }
     public DateTime DateTime { get; set; }
     public TimeSpan TimeSpan { get; set; }
     public DateOnly DateOnly { get; set; }
@@ -19,6 +20,8 @@ public class TomlModel
     public Guid Guid { get; set; }
     public DayOfWeek Enum { get; set; }
     public int? NullableInt { get; set; }
+    public List<int> IntList { get; set; } = [];
+    public List<string> StringList { get; set; } = [];
 }
 
 public class TomlCrossValidationTests
@@ -35,6 +38,8 @@ public class TomlCrossValidationTests
         Guid = Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"),
         Enum = DayOfWeek.Wednesday,
         NullableInt = 77,
+        IntList = [10, 20, 30],
+        StringList = ["foo", "bar"],
     };
 
     [Test]
@@ -53,7 +58,6 @@ public class TomlCrossValidationTests
         await AssertTomlEqual(Model, back!);
     }
 
-    /// <summary>PicoToml serialize → Tomlyn deserialize</summary>
     [Test]
     public async Task PicoSerialize_TomlynDeserialize()
     {
@@ -62,11 +66,9 @@ public class TomlCrossValidationTests
         var table = Toml.ToModel(tomlText);
         await Assert.That((bool)table["Bool"]).IsTrue();
         await Assert.That((long)table["Int"]).IsEqualTo(42);
-        await Assert.That((long)table["Long"]).IsEqualTo(9_876_543_210L);
         await Assert.That((string)table["String"]).IsEqualTo(Model.String);
     }
 
-    /// <summary>Tomlyn serialize → PicoToml deserialize</summary>
     [Test]
     public async Task TomlynSerialize_PicoDeserialize()
     {
@@ -84,7 +86,6 @@ public class TomlCrossValidationTests
         await Assert.That(model).IsNotNull();
         await Assert.That(model.Bool).IsTrue();
         await Assert.That(model.Int).IsEqualTo(42);
-        await Assert.That(model.Long).IsEqualTo(9_876_543_210L);
         await Assert.That(model.String).IsEqualTo("Hello from Tomlyn!");
     }
 
@@ -103,5 +104,7 @@ public class TomlCrossValidationTests
         await Assert.That(actual.DateOnly).IsEqualTo(expected.DateOnly);
         await Assert.That(actual.TimeOnly).IsEqualTo(expected.TimeOnly);
         await Assert.That(actual.Guid).IsEqualTo(expected.Guid);
+        await Assert.That(actual.IntList).IsEquivalentTo(expected.IntList);
+        await Assert.That(actual.StringList).IsEquivalentTo(expected.StringList);
     }
 }

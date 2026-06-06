@@ -1,7 +1,12 @@
 using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 
 namespace PicoYaml.Tests;
+
+public class YamlSub
+{
+    public string Name { get; set; } = "";
+    public int Value { get; set; }
+}
 
 public class YamlModel
 {
@@ -12,19 +17,17 @@ public class YamlModel
     public double Double { get; set; }
     public decimal Decimal { get; set; }
     public string String { get; set; } = "";
+    public string? NullableString { get; set; }
     public DateTime DateTime { get; set; }
     public TimeSpan TimeSpan { get; set; }
     public Guid Guid { get; set; }
     public DayOfWeek Enum { get; set; }
     public int? NullableInt { get; set; }
-    public List<int> Ints { get; set; } = [];
+    public List<int> IntList { get; set; } = [];
+    public List<string> StringList { get; set; } = [];
+    public int[] IntArray { get; set; } = [];
+    public Dictionary<string, string> StringDict { get; set; } = [];
     public YamlSub? Nested { get; set; }
-}
-
-public class YamlSub
-{
-    public string Name { get; set; } = "";
-    public int Value { get; set; }
 }
 
 public class YamlCrossValidationTests
@@ -43,10 +46,14 @@ public class YamlCrossValidationTests
         String = "Hello YAML!",
         DateTime = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
         TimeSpan = new TimeSpan(10, 30, 0),
+
         Guid = Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"),
         Enum = DayOfWeek.Monday,
         NullableInt = 77,
-        Ints = [10, 20],
+        IntList = [10, 20, 30],
+        StringList = ["foo", "bar"],
+        IntArray = [100, 200],
+        StringDict = new() { ["k1"] = "v1" },
         Nested = new() { Name = "sub", Value = 99 },
     };
 
@@ -66,7 +73,6 @@ public class YamlCrossValidationTests
         await AssertYamlEqual(Model, back!);
     }
 
-    /// <summary>PicoYaml serialize → YamlDotNet deserialize</summary>
     [Test]
     public async Task PicoSerialize_YamlDotNetDeserialize()
     {
@@ -76,7 +82,6 @@ public class YamlCrossValidationTests
         await AssertYamlEqual(Model, yaml!);
     }
 
-    /// <summary>YamlDotNet serialize → PicoYaml deserialize</summary>
     [Test]
     public async Task YamlDotNetSerialize_PicoDeserialize()
     {
@@ -98,8 +103,11 @@ public class YamlCrossValidationTests
         await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);
         await Assert.That(actual.DateTime.ToUniversalTime()).IsEqualTo(expected.DateTime.ToUniversalTime());
         await Assert.That(actual.TimeSpan).IsEqualTo(expected.TimeSpan);
+
         await Assert.That(actual.Guid).IsEqualTo(expected.Guid);
-        await Assert.That(actual.Ints).IsEquivalentTo(expected.Ints);
+        await Assert.That(actual.IntList).IsEquivalentTo(expected.IntList);
+        await Assert.That(actual.StringList).IsEquivalentTo(expected.StringList);
+        await Assert.That(actual.IntArray).IsEquivalentTo(expected.IntArray);
         if (expected.Nested is not null)
         {
             await Assert.That(actual.Nested).IsNotNull();
