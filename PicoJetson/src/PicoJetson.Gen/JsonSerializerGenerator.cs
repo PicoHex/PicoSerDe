@@ -243,7 +243,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("{");
 
         // Serialize helper
-        sb.Append("    internal static void Serialize(JsonWriter jw, ");
+        sb.Append("    internal static void Serialize(ref JsonWriter jw, ");
         sb.Append(fullName);
         sb.AppendLine(" value)");
         sb.AppendLine("    {");
@@ -545,7 +545,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.Append("    ");
                 sb.Append(sn);
-                sb.Append(".Serialize(jw, ");
+                sb.Append(".Serialize(ref jw, ");
                 sb.Append(effectiveAccessor);
                 sb.AppendLine(");");
                 break;
@@ -640,7 +640,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 );
                 sb.Append(indent);
                 sb.Append(sn);
-                sb.Append(".Serialize(jw, ");
+                sb.Append(".Serialize(ref jw, ");
                 sb.Append(itemVar);
                 sb.AppendLine(");");
                 break;

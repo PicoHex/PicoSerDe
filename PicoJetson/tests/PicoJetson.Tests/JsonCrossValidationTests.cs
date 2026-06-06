@@ -137,5 +137,20 @@ public class JsonCrossValidationTests
             await Assert.That(actual.Nested!.Name).IsEqualTo(expected.Nested.Name);
             await Assert.That(actual.Nested.Value).IsEqualTo(expected.Nested.Value);
         }
+        // ── Nested list ──
+        if (expected.NestedList is null)
+        {
+            await Assert.That(actual.NestedList).IsNull();
+        }
+        else
+        {
+            await Assert.That(actual.NestedList).IsNotNull();
+            await Assert.That(actual.NestedList!.Count).IsEqualTo(expected.NestedList.Count);
+            for (int i = 0; i < expected.NestedList.Count; i++)
+            {
+                await Assert.That(actual.NestedList[i].Name).IsEqualTo(expected.NestedList[i].Name);
+                await Assert.That(actual.NestedList[i].Value).IsEqualTo(expected.NestedList[i].Value);
+            }
+        }
     }
 }

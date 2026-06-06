@@ -37,6 +37,7 @@ public class ComplexModel
 
     // ── Nested object (all SGs support nested POCOs) ──
     public SubModel? Nested { get; set; }
+    public List<SubModel>? NestedList { get; set; }
 }
 
 public class SubModel
@@ -70,5 +71,6 @@ public static class ComplexModelFactory
         IntArray = [100, 200],
         StringDict = new() { ["key1"] = "val1", ["key2"] = "val2" },
         Nested = new SubModel { Name = "nested", Value = 99 },
+        NestedList = [new() { Name = "a", Value = 1 }, new() { Name = "b", Value = 2 }],
     };
 }
