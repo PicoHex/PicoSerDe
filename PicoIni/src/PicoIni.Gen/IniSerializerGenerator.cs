@@ -225,11 +225,29 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(p.Comment);
                 s.AppendLine("\");");
             }
-            s.Append("        iw.WriteKeyValue(\"");
-            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.Append("\"u8, ");
-            WriteValue(s, p, $"value.{p.Name}");
-            s.AppendLine(");");
+            if (p.IsNullable && !p.IsNullableReference)
+            {
+                s.Append("        if (value.");
+                s.Append(p.Name);
+                s.AppendLine(".HasValue)");
+                s.Append("        {");
+                s.AppendLine();
+                s.Append("            iw.WriteKeyValue(\"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                s.Append("\"u8, value.");
+                s.Append(p.Name);
+                s.AppendLine(".Value);");
+                s.Append("        }");
+                s.AppendLine();
+            }
+            else
+            {
+                s.Append("        iw.WriteKeyValue(\"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                s.Append("\"u8, ");
+                WriteValue(s, p, $"value.{p.Name}");
+                s.AppendLine(");");
+            }
         }
 
         // Dicts as sections (before objects)

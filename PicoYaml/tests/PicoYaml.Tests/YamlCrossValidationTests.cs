@@ -9,6 +9,14 @@ public class YamlModel
     public double Double { get; set; }
     public string String { get; set; } = "";
     public DayOfWeek Enum { get; set; }
+    public List<int> Ints { get; set; } = [];
+    public YamlSub? Nested { get; set; }
+}
+
+public class YamlSub
+{
+    public string Name { get; set; } = "";
+    public int Value { get; set; }
 }
 
 public class YamlCrossValidationTests
@@ -18,6 +26,8 @@ public class YamlCrossValidationTests
         Bool = true, Int = 42, Long = 9_876_543_210L,
         Float = 3.14f, Double = 2.71828,
         String = "Hello YAML!", Enum = DayOfWeek.Monday,
+        Ints = [10, 20],
+        Nested = new() { Name = "sub", Value = 99 },
     };
 
     [Test]

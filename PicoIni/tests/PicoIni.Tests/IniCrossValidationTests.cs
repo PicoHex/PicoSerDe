@@ -9,6 +9,7 @@ public class IniModel
     public string String { get; set; } = "";
     public DayOfWeek Enum { get; set; }
     public string? NullableProp { get; set; }
+    public int? NullableInt { get; set; }
     public IniNested? Section { get; set; }
     public Dictionary<string, string> Dict { get; set; } = [];
 }
@@ -28,6 +29,7 @@ public class IniCrossValidationTests
         Double = 2.71828,
         String = "Hello from PicoIni!",
         Enum = DayOfWeek.Wednesday,
+        NullableInt = 77,
         Section = new() { Name = "test" },
         Dict = new() { ["k"] = "v" },
     };
@@ -68,5 +70,6 @@ public class IniCrossValidationTests
         await Assert.That(actual.Double).IsEqualTo(expected.Double);
         await Assert.That(actual.String).IsEqualTo(expected.String);
         await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
+        await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);
     }
 }
