@@ -223,6 +223,26 @@ public ref struct YamlWriter
         WriteNewLine();
     }
 
+    /// <summary>Writes a block sequence item that starts a mapping (-\n indented properties).</summary>
+    public void WriteStartSequenceBlock()
+    {
+        if (_afterKey)
+        {
+            WriteNewLine();
+            _afterKey = false;
+        }
+        for (var i = 0; i < _depth; i++)
+            WriteRaw("  "u8);
+        WriteRaw("- "u8);
+        WriteNewLine();
+        _depth++;
+    }
+
+    public void WriteEndSequenceBlock()
+    {
+        _depth--;
+    }
+
     /// <summary>Writes an explicit tag like !person on its own line before a block mapping.</summary>
     public void WriteTag(string tag)
     {

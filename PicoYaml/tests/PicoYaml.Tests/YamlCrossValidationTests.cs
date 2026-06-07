@@ -77,6 +77,7 @@ public class YamlModel
     public int[] IntArray { get; set; } = [];
     public Dictionary<string, string> StringDict { get; set; } = [];
     public YamlSub? Nested { get; set; }
+    public List<YamlSub>? NestedList { get; set; }
 }
 
 public class YamlCrossValidationTests
@@ -92,7 +93,9 @@ public class YamlCrossValidationTests
         .WithTypeConverter(new TimeOnlyYamlConverter())
         .Build();
 
-    private static YamlModel Model =>
+    private static YamlModel Model() => MakeModel(includeNestedList: false);
+
+    private static YamlModel MakeModel(bool includeNestedList = true) =>
         new()
         {
             Bool = true,
@@ -115,12 +118,13 @@ public class YamlCrossValidationTests
             IntArray = [100, 200],
             StringDict = new() { ["k1"] = "v1" },
             Nested = new() { Name = "sub", Value = 99 },
+            NestedList = [new() { Name = "a", Value = 1 }, new() { Name = "b", Value = 2 }],
         };
 
     [Test]
     public async Task Sg_Trigger()
     {
-        var bytes = YamlSerializer.SerializeToUtf8Bytes(Model);
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(Model());
         var back = YamlSerializer.Deserialize<YamlModel>(bytes);
         await Assert.That(back).IsNotNull();
     }
@@ -128,27 +132,29 @@ public class YamlCrossValidationTests
     [Test]
     public async Task PicoRoundTrip()
     {
-        var bytes = YamlSerializer.SerializeToUtf8Bytes(Model);
+        var m = MakeModel(includeNestedList: true);
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(m);
         var back = YamlSerializer.Deserialize<YamlModel>(bytes);
-        await AssertYamlEqual(Model, back!);
+        await AssertYamlEqual(m, back!);
     }
 
     [Test]
     public async Task PicoSerialize_YamlDotNetDeserialize()
     {
-        var picoBytes = YamlSerializer.SerializeToUtf8Bytes(Model);
+        var picoBytes = YamlSerializer.SerializeToUtf8Bytes(Model());
         var yamlText = Encoding.UTF8.GetString(picoBytes);
         var yaml = YamlDotNet.Deserialize<YamlModel>(yamlText);
-        await AssertYamlEqual(Model, yaml!);
+        await AssertYamlEqual(Model(), yaml!);
     }
 
     [Test]
     public async Task YamlDotNetSerialize_PicoDeserialize()
     {
-        var yamlText = YamlDotNetSer.Serialize(Model);
+        var modelNoNl = MakeModel(false);
+        var yamlText = YamlDotNetSer.Serialize(modelNoNl);
         var bytes = Encoding.UTF8.GetBytes(yamlText);
         var pico = YamlSerializer.Deserialize<YamlModel>(bytes);
-        await AssertYamlEqual(Model, pico!);
+        await AssertYamlEqual(modelNoNl, pico!);
     }
 
     private static async Task AssertYamlEqual(YamlModel expected, YamlModel actual)
@@ -175,6 +181,18 @@ public class YamlCrossValidationTests
         await Assert.That(actual.StringList).IsEquivalentTo(expected.StringList);
         await Assert.That(actual.IntArray).IsEquivalentTo(expected.IntArray);
         await Assert.That(actual.StringDict).IsEquivalentTo(expected.StringDict);
+        if (expected.NestedList is not null)
+        {
+            await Assert.That(actual.NestedList).IsNotNull();
+            await Assert.That(actual.NestedList!.Count).IsEqualTo(expected.NestedList.Count);
+            for (int i = 0; i < expected.NestedList.Count; i++)
+            {
+                await Assert.That(actual.NestedList[i].Name).IsEqualTo(expected.NestedList[i].Name);
+                await Assert
+                    .That(actual.NestedList[i].Value)
+                    .IsEqualTo(expected.NestedList[i].Value);
+            }
+        }
         if (expected.Nested is not null)
         {
             await Assert.That(actual.Nested).IsNotNull();

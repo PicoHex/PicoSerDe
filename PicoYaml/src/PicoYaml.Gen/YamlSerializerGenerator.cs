@@ -209,6 +209,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
 
+        sb.Append("    internal static void SerializeBlock(YamlWriter yw, ");
+        sb.Append(fullName);
+        sb.AppendLine(" value)");
+        sb.AppendLine("    {");
+        foreach (var prop in props)
+        {
+            sb.Append("        yw.WritePropertyName(\"");
+            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
+            sb.AppendLine("\"u8);");
+            EmitSerializeInline(sb, prop, "value." + prop.Name, "        ");
+        }
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
         sb.Append("    internal static ");
         sb.Append(fullName);
         sb.AppendLine(" Deserialize(ref YamlReader reader)");
@@ -750,15 +764,46 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
-            s.Append(ind);
-            s.Append("foreach (var __item in v.");
-            s.Append(p.Name);
-            s.AppendLine(")");
-            s.Append(ind);
-            s.AppendLine("{");
-            EmitSerializeListElement(s, p, ind + "    ");
-            s.Append(ind);
-            s.AppendLine("}");
+            // Array of complex objects: use block sequence ("- " + indented properties)
+            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            {
+                var elemTypeName = p.ElementTypeName ?? "object";
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", elemTypeName);
+                s.Append(ind);
+                s.Append("yw.WriteStartMapping(); // increase depth for sequence indentation");
+                s.AppendLine();
+                s.Append(ind);
+                s.Append("foreach (var __item in v.");
+                s.Append(p.Name);
+                s.AppendLine(")");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine("    yw.WriteStartSequenceBlock();");
+                s.Append(ind);
+                s.Append("    ");
+                s.Append(sn);
+                s.Append(".SerializeBlock(yw, __item);");
+                s.AppendLine();
+                s.Append(ind);
+                s.AppendLine("    yw.WriteEndSequenceBlock();");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("yw.WriteEndMapping(); // restore depth");
+            }
+            else
+            {
+                s.Append(ind);
+                s.Append("foreach (var __item in v.");
+                s.Append(p.Name);
+                s.AppendLine(")");
+                s.Append(ind);
+                s.AppendLine("{");
+                EmitSerializeListElement(s, p, ind + "    ");
+                s.Append(ind);
+                s.AppendLine("}");
+            }
         }
         else if (p.TypeKind is "object")
         {
@@ -1054,11 +1099,41 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("var __tmpList = new System.Collections.Generic.List<");
             s.Append(p.ElementTypeName ?? "object");
             s.AppendLine(">(16);");
-            s.Append(pad);
-            s.AppendLine("while (r.Read() && r.TokenType == TokenType.String) {");
-            EmitDeserializeListElementTemp(s, p, pad + "    ");
-            s.Append(pad);
-            s.AppendLine("}");
+            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            {
+                // Block sequence: PropertyName(NestedList) → ObjectStart → String("") → ObjectStart(item) → ...
+                // Skip the indentation ObjectStart; then loop: String("") → let Deserialize read ObjectStart(item)
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "YamlInner",
+                    p.ElementTypeName ?? "object"
+                );
+                s.Append(pad);
+                s.AppendLine("r.Read(); // skip indentation ObjectStart after PropertyName");
+                s.Append(pad);
+                s.AppendLine("while (r.Read()) {");
+                s.Append(pad);
+                s.AppendLine(
+                    "    if (r.TokenType != TokenType.String) break; // String('') = sequence item; ObjectEnd = list end"
+                );
+                s.Append(pad);
+                s.Append("    var __item = ");
+                s.Append(sn);
+                s.AppendLine(
+                    ".Deserialize(ref r); // Deserialize reads ObjectStart(item) internally"
+                );
+                s.Append(pad);
+                s.AppendLine("    __tmpList.Add(__item);");
+                s.Append(pad);
+                s.AppendLine("}");
+            }
+            else
+            {
+                s.Append(pad);
+                s.AppendLine("while (r.Read() && r.TokenType == TokenType.String) {");
+                EmitDeserializeListElementTemp(s, p, pad + "    ");
+                s.Append(pad);
+                s.AppendLine("}");
+            }
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
