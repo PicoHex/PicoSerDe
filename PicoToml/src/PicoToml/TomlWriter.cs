@@ -43,6 +43,17 @@ public ref struct TomlWriter
         WriteNewLine();
     }
 
+    /// <summary>Writes a TOML array-of-tables header like [[key]].</summary>
+    public void WriteArrayTable(ReadOnlySpan<byte> utf8Name)
+    {
+        WriteByte((byte)'[');
+        WriteByte((byte)'[');
+        WriteRaw(utf8Name);
+        WriteByte((byte)']');
+        WriteByte((byte)']');
+        WriteNewLine();
+    }
+
     public void WriteKeyValue(string key, string value)
     {
         WriteKeyValue(Encoding.UTF8.GetBytes(key), value);

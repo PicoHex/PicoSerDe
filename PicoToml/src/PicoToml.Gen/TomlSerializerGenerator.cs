@@ -240,19 +240,39 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("        var o = new ");
         s.Append(t.Name);
         s.AppendLine("();");
-        s.AppendLine("        while (r.Read()) {");
+        s.AppendLine("        r.Read();");
+        s.AppendLine("        while (true) {");
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
+        // Scalar types, flat lists AND dicts handled via PropertyName dispatch.
+        // Only complex-object lists (ArrayStart/[[key]]) and nested objects (ObjectStart/[key]) excluded.
         var scalarProps = t
-            .Properties.Where(x => x.TypeKind != "object" && x.TypeKind != "dict")
+            .Properties.Where(x =>
+                x.TypeKind != "object"
+                && !(
+                    (x.TypeKind == "list" || x.TypeKind == "array")
+                    && x.ElementTypeKind == "object"
+                    && x.NestedProperties.Length > 0
+                )
+            )
             .ToImmutableArray();
         EmitPropertyDispatch(s, scalarProps, "k", "o", "                ", "                    ");
+        s.AppendLine("                if (!r.Read()) break;");
+        s.AppendLine("                continue;");
         s.AppendLine("            }");
         var objProps = t.Properties.Where(x => x.TypeKind == "object").ToImmutableArray();
         var dictProps = t.Properties.Where(x => x.TypeKind == "dict").ToImmutableArray();
+        var listObjProps = t
+            .Properties.Where(x =>
+                (x.TypeKind == "list" || x.TypeKind == "array")
+                && x.ElementTypeKind == "object"
+                && x.NestedProperties.Length > 0
+            )
+            .ToImmutableArray();
+        // ObjectStart branch (dicts and nested objects)
         if (objProps.Length > 0 || dictProps.Length > 0)
         {
-            s.AppendLine("            else if (r.TokenType == TokenType.ObjectStart) {");
+            s.AppendLine("            if (r.TokenType == TokenType.ObjectStart) {");
             s.AppendLine("                var tbl = r.TablePath;");
             for (int i = 0; i < objProps.Length; i++)
             {
@@ -274,8 +294,62 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 EmitDictRead(s, dictProps[i], "o", "                    ");
                 s.AppendLine("                }");
             }
+            s.AppendLine("                continue;");
             s.AppendLine("            }");
         }
+        // ArrayStart branch ([[key]] array of tables for List<ComplexObject>)
+        if (listObjProps.Length > 0)
+        {
+            s.AppendLine("            if (r.TokenType == TokenType.ArrayStart) {");
+            for (int ai = 0; ai < listObjProps.Length; ai++)
+            {
+                var ap = listObjProps[ai];
+                s.Append("                ");
+                s.Append(ai == 0 ? "if" : "else if");
+                s.Append(" (TextHelpers.Eq(r.TablePath, \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName));
+                s.AppendLine("\"u8)) {");
+                var elemTypeName = ap.ElementTypeName ?? "object";
+                s.Append("                    var __item = new ");
+                s.Append(elemTypeName);
+                s.AppendLine("();");
+                s.AppendLine("                    while (true) {");
+                s.AppendLine(
+                    "                        while (r.Read() && r.TokenType == TokenType.PropertyName) {"
+                );
+                s.AppendLine("                            var __k = r.KeySpan;");
+                EmitPropertyDispatch(
+                    s,
+                    ap.NestedProperties,
+                    "__k",
+                    "__item",
+                    "                            ",
+                    "                                "
+                );
+                s.AppendLine("                        }");
+                s.AppendLine(
+                    "                        o."
+                        + ap.Name
+                        + " ??= new System.Collections.Generic.List<"
+                        + (ap.ElementTypeName ?? "object")
+                        + ">();"
+                );
+                s.AppendLine("                        o." + ap.Name + ".Add(__item);");
+                s.AppendLine(
+                    "                        if (r.TokenType != TokenType.ArrayStart) break;"
+                );
+                s.AppendLine(
+                    "                        __item = new "
+                        + (ap.ElementTypeName ?? "object")
+                        + "();"
+                );
+                s.AppendLine("                    }");
+                s.AppendLine("                    continue;");
+                s.AppendLine("                }");
+            }
+            s.AppendLine("            }");
+        }
+        s.AppendLine("            if (!r.Read()) break;");
         s.AppendLine("        }");
         s.AppendLine("        return o;");
         s.AppendLine("    } }");
@@ -393,23 +467,54 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
         if (p.TypeKind is "list" or "array")
         {
-            s.Append(indent);
-            s.Append("tw.WriteStartArray(\"");
-            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.AppendLine("\"u8);");
-            s.Append(indent);
-            s.Append("foreach (var __item in ");
-            s.Append(target);
-            s.Append('.');
-            s.Append(p.Name);
-            s.AppendLine(")");
-            s.Append(indent);
-            s.AppendLine("{");
-            EmitSerializeListElement(s, p, indent + "    ");
-            s.Append(indent);
-            s.AppendLine("}");
-            s.Append(indent);
-            s.AppendLine("tw.WriteEndArray();");
+            // Array of tables ([[key]]) for List<ComplexObject>
+            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            {
+                var elemTypeName = p.ElementTypeName ?? "object";
+                var innerSn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "TomlInner",
+                    elemTypeName
+                );
+                s.Append(indent);
+                s.Append("foreach (var __item in ");
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(")");
+                s.Append(indent);
+                s.AppendLine("{");
+                s.Append(indent);
+                s.Append("    tw.WriteArrayTable(\"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                s.AppendLine("\"u8);");
+                s.Append(indent);
+                s.Append("    ");
+                s.Append(innerSn);
+                s.Append(".Serialize(tw, __item);");
+                s.AppendLine();
+                s.Append(indent);
+                s.AppendLine("}");
+            }
+            else
+            {
+                s.Append(indent);
+                s.Append("tw.WriteStartArray(\"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                s.AppendLine("\"u8);");
+                s.Append(indent);
+                s.Append("foreach (var __item in ");
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(")");
+                s.Append(indent);
+                s.AppendLine("{");
+                EmitSerializeListElement(s, p, indent + "    ");
+                s.Append(indent);
+                s.AppendLine("}");
+                s.Append(indent);
+                s.AppendLine("tw.WriteEndArray();");
+            }
         }
         else if (p.TypeKind is "dict")
         {
@@ -814,19 +919,58 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("var __tmpList = new System.Collections.Generic.List<");
             s.Append(p.ElementTypeName ?? "object");
             s.AppendLine(">(16);");
-            s.Append(pad);
-            s.AppendLine("if (r.Read() && r.TokenType == TokenType.ArrayStart)");
-            s.Append(pad);
-            s.AppendLine("{");
-            s.Append(pad);
-            s.AppendLine("    while (r.Read() && r.TokenType != TokenType.ArrayEnd)");
-            s.Append(pad);
-            s.AppendLine("    {");
-            EmitDeserializeListElementTemp(s, p, pad + "        ");
-            s.Append(pad);
-            s.AppendLine("    }");
-            s.Append(pad);
-            s.AppendLine("}");
+            // Array of tables ([[key]]) for List<ComplexObject>
+            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            {
+                // Loop: each ArrayStart from [[key]] is one item; read its properties inline.
+                var elemTypeName = p.ElementTypeName ?? "object";
+                s.Append(pad);
+                s.AppendLine("while (r.Read())");
+                s.Append(pad);
+                s.AppendLine("{");
+                s.Append(pad);
+                s.AppendLine("    if (r.TokenType != TokenType.ArrayStart) break;");
+                s.Append(pad);
+                s.Append("    var __item = new ");
+                s.Append(elemTypeName);
+                s.AppendLine("();");
+                s.Append(pad);
+                s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName)");
+                s.Append(pad);
+                s.AppendLine("    {");
+                s.Append(pad);
+                s.AppendLine("        var __k = r.KeySpan;");
+                EmitPropertyDispatch(
+                    s,
+                    p.NestedProperties,
+                    "__k",
+                    "__item",
+                    pad + "        ",
+                    pad + "            "
+                );
+                s.Append(pad);
+                s.AppendLine("    }");
+                s.Append(pad);
+                s.AppendLine("    __tmpList.Add(__item);");
+                s.Append(pad);
+                s.AppendLine("}");
+            }
+            else
+            {
+                s.Append(pad);
+                s.AppendLine("if (r.Read() && r.TokenType == TokenType.ArrayStart)");
+                s.Append(pad);
+                s.AppendLine("{");
+                s.Append(pad);
+                s.AppendLine("    while (r.Read() && r.TokenType != TokenType.ArrayEnd)");
+                s.Append(pad);
+                s.AppendLine("    {");
+                EmitDeserializeListElementTemp(s, p, pad + "        ");
+                s.Append(pad);
+                s.AppendLine("    }");
+                s.Append(pad);
+                s.AppendLine("}");
+            }
             s.Append(pad);
             s.Append(tgt);
             s.Append('.');
@@ -971,7 +1115,85 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append(p.Name);
                     s.Append(" = System.Enum.TryParse<");
                     s.Append(p.TypeFullName);
-                    s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan), out var __ev) ? __ev : default;");
+                    s.AppendLine(
+                        ">(Encoding.UTF8.GetString(r.ValueSpan), out var __ev) ? __ev : default;"
+                    );
+                    break;
+                case "dict":
+                    // Dict from inline table: StringDict = {k1 = "v1"}
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.Append(" ??= new System.Collections.Generic.Dictionary<");
+                    s.Append(p.KeyTypeName ?? "string");
+                    s.Append(", ");
+                    s.Append(p.ElementTypeName ?? "string");
+                    s.AppendLine(">();");
+                    s.Append(pad);
+                    s.AppendLine("r.Read(); // skip ObjectStart from inline table");
+                    s.Append(pad);
+                    s.AppendLine("while (r.Read() && r.TokenType == TokenType.PropertyName) {");
+                    s.Append(pad);
+                    s.Append("    var __dk = Encoding.UTF8.GetString(r.KeySpan);");
+                    switch (p.ElementTypeKind)
+                    {
+                        case "int32":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetInt32(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = __dv;");
+                            break;
+                        case "int64":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetInt64(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = __dv;");
+                            break;
+                        case "float64":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetFloat64(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = __dv;");
+                            break;
+                        case "boolean":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetBool(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = __dv;");
+                            break;
+                        default:
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = Encoding.UTF8.GetString(r.ValueSpan);");
+                            break;
+                    }
+                    s.Append(pad);
+                    s.AppendLine("}");
                     break;
                 default:
                     s.Append(pad);

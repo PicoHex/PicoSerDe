@@ -3,6 +3,12 @@ using Tomlyn.Model;
 
 namespace PicoToml.Tests;
 
+public class TomlSub
+{
+    public string Name { get; set; } = "";
+    public int Value { get; set; }
+}
+
 public class TomlModel
 {
     public bool Bool { get; set; }
@@ -24,6 +30,7 @@ public class TomlModel
     public List<string> StringList { get; set; } = [];
     public int[] IntArray { get; set; } = [];
     public Dictionary<string, string> StringDict { get; set; } = [];
+    public List<TomlSub>? NestedList { get; set; }
 }
 
 public class TomlCrossValidationTests
@@ -49,6 +56,7 @@ public class TomlCrossValidationTests
             StringList = ["foo", "bar"],
             IntArray = [100, 200],
             StringDict = new() { ["k1"] = "v1" },
+            NestedList = [new() { Name = "a", Value = 1 }, new() { Name = "b", Value = 2 }],
         };
 
     [Test]
@@ -82,7 +90,7 @@ public class TomlCrossValidationTests
         await Assert.That((double)table["Double"]).IsEqualTo(2.71828);
         await Assert.That((long)table["NullableInt"]).IsEqualTo(77L);
 
-        // Types PicoToml serializes as quoted strings — Tomlyn sees as strings
+        // Types PicoToml serializes as quoted strings
         await Assert.That((string)table["Decimal"]).IsEqualTo("123.45");
         await Assert.That((string)table["String"]).IsEqualTo("Hello, TOML!");
         await Assert.That((string)table["DateTime"]).IsEqualTo("2026-06-04T12:30:00.0000000Z");
@@ -92,7 +100,6 @@ public class TomlCrossValidationTests
         await Assert.That((string)table["Guid"]).IsEqualTo("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
         await Assert.That((string)table["Enum"]).IsEqualTo("Wednesday");
 
-        // NullableString is null in Model — omitted from output
         await Assert.That(table.ContainsKey("NullableString")).IsFalse();
 
         // Collections
@@ -127,11 +134,8 @@ public class TomlCrossValidationTests
             ["Long"] = 9_876_543_210L,
             ["Float"] = 3.14,
             ["Double"] = 2.71828,
-            // Types without native TOML representation — pass as strings
             ["Decimal"] = "123.45",
             ["String"] = "Hello from Tomlyn!",
-            // Pass DateTime as string to ensure TOML retains UTC marker (Z);
-            // Tomlyn's FromModel strips Z from native DateTime values
             ["DateTime"] = "2026-06-04T12:30:00.0000000Z",
             ["TimeSpan"] = "10:30:00",
             ["DateOnly"] = "2026-06-04",
@@ -141,19 +145,21 @@ public class TomlCrossValidationTests
             ["NullableString"] = "not null",
             ["NullableInt"] = 77L,
         };
-        // Collections
         tomlTable["IntList"] = new TomlArray { 10L, 20L, 30L };
         tomlTable["StringList"] = new TomlArray { "foo", "bar" };
         tomlTable["IntArray"] = new TomlArray { 100L, 200L };
         tomlTable["StringDict"] = new TomlTable { ["k1"] = "v1" };
+        tomlTable["NestedList"] = new TomlArray
+        {
+            new TomlTable { ["Name"] = "a", ["Value"] = 1L },
+            new TomlTable { ["Name"] = "b", ["Value"] = 2L },
+        };
 
         var tomlText = Toml.FromModel(tomlTable);
         var bytes = Encoding.UTF8.GetBytes(tomlText);
         var model = TomlSerializer.Deserialize<TomlModel>(bytes);
 
         await Assert.That(model).IsNotNull();
-
-        // Primitives
         await Assert.That(model!.Bool).IsTrue();
         await Assert.That(model.Int).IsEqualTo(42);
         await Assert.That(model.Long).IsEqualTo(9_876_543_210L);
@@ -163,25 +169,25 @@ public class TomlCrossValidationTests
         await Assert.That(model.String).IsEqualTo("Hello from Tomlyn!");
         await Assert.That(model.NullableString).IsEqualTo("not null");
         await Assert.That(model.NullableInt).IsEqualTo(77);
-
-        // Temporal types
         await Assert
             .That(model.DateTime.ToUniversalTime())
             .IsEqualTo(new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc));
         await Assert.That(model.TimeSpan).IsEqualTo(new TimeSpan(10, 30, 0));
         await Assert.That(model.DateOnly).IsEqualTo(new DateOnly(2026, 6, 4));
         await Assert.That(model.TimeOnly).IsEqualTo(new TimeOnly(15, 45, 30));
-
-        // Other value types
         await Assert.That(model.Guid).IsEqualTo(Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"));
         await Assert.That(model.Enum).IsEqualTo(DayOfWeek.Wednesday);
-
-        // Collections
         await Assert.That(model.IntList).IsEquivalentTo(new List<int> { 10, 20, 30 });
         await Assert.That(model.StringList).IsEquivalentTo(new List<string> { "foo", "bar" });
         await Assert.That(model.IntArray).IsEquivalentTo(new[] { 100, 200 });
         await Assert.That(model.StringDict.Count).IsEqualTo(1);
         await Assert.That(model.StringDict["k1"]).IsEqualTo("v1");
+        await Assert.That(model.NestedList).IsNotNull();
+        await Assert.That(model.NestedList!.Count).IsEqualTo(2);
+        await Assert.That(model.NestedList[0].Name).IsEqualTo("a");
+        await Assert.That(model.NestedList[0].Value).IsEqualTo(1);
+        await Assert.That(model.NestedList[1].Name).IsEqualTo("b");
+        await Assert.That(model.NestedList[1].Value).IsEqualTo(2);
     }
 
     private static async Task AssertTomlEqual(TomlModel expected, TomlModel actual)
@@ -204,5 +210,21 @@ public class TomlCrossValidationTests
         await Assert.That(actual.IntList).IsEquivalentTo(expected.IntList);
         await Assert.That(actual.StringList).IsEquivalentTo(expected.StringList);
         await Assert.That(actual.IntArray).IsEquivalentTo(expected.IntArray);
+        if (expected.NestedList is null)
+        {
+            await Assert.That(actual.NestedList).IsNull();
+        }
+        else
+        {
+            await Assert.That(actual.NestedList).IsNotNull();
+            await Assert.That(actual.NestedList!.Count).IsEqualTo(expected.NestedList.Count);
+            for (int i = 0; i < expected.NestedList.Count; i++)
+            {
+                await Assert.That(actual.NestedList[i].Name).IsEqualTo(expected.NestedList[i].Name);
+                await Assert
+                    .That(actual.NestedList[i].Value)
+                    .IsEqualTo(expected.NestedList[i].Value);
+            }
+        }
     }
 }
