@@ -141,9 +141,27 @@ public class MsgPackCrossValidationTests
         await Assert.That(dict17.Count).IsEqualTo(1);
     }
 
-    // NOTE: MsgPackCSharpSerialize_PicoDeserialize is not feasible because
-    // MessagePack-CSharp's [MessagePackObject] produces array format (not int-keyed map).
-    // PicoMsgPack reads int-keyed maps. The reverse is proven by PicoRoundTrip (internal).
+    [Test]
+    public async Task MsgPackCSharpSerialize_PicoDeserialize_ArrayFormat()
+    {
+        // Verify PicoMsgPack can read array-format msgpack using positional dispatch.
+        // Type encoding differs for some types (MsgPackC# serializes enum as int,
+        // DateTime as int64, etc.), so we verify format correctness via compatible types.
+        var mpBytes = MessagePack.MessagePackSerializer.Serialize(Model);
+        var back = MsgPackSerializer.Deserialize<MpModel>(mpBytes);
+
+        await Assert.That(back).IsNotNull();
+        // Bool, int, string, float: same encoding in both formats
+        await Assert.That(back!.Bool).IsEqualTo(Model.Bool);
+        await Assert.That(back.Int).IsEqualTo(Model.Int);
+        await Assert.That(back.String).IsEqualTo(Model.String);
+        await Assert.That(Math.Abs(back.Float - Model.Float) < 0.001f).IsTrue();
+        await Assert.That(back.Long).IsEqualTo(Model.Long);
+        await Assert.That(back.Double).IsEqualTo(Model.Double);
+        await Assert.That(back.NullableInt).IsEqualTo(Model.NullableInt);
+        await Assert.That(back.NullableString).IsEqualTo(Model.NullableString);
+        await Assert.That(back.Ints).IsEquivalentTo(Model.Ints);
+    }
 
     private static async Task AssertMpEqual(MpModel expected, MpModel actual)
     {

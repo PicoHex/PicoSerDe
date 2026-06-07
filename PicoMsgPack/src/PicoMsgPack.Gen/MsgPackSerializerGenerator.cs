@@ -189,9 +189,19 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append(type.Name);
         s.AppendLine("();");
         s.AppendLine(
-            "        reader.Read(); while (reader.Read() && reader.TokenType != TokenType.ObjectEnd) {"
+            "        reader.Read(); bool __isMap = reader.TokenType == TokenType.ObjectStart; int __pos = 0;"
         );
-        s.AppendLine("            reader.TryGetInt32(out var __k); reader.Read(); switch (__k) {");
+        s.AppendLine("        while (reader.Read()) {");
+        s.AppendLine(
+            "            if (reader.TokenType == TokenType.ObjectEnd || reader.TokenType == TokenType.ArrayEnd) break;"
+        );
+        s.AppendLine("            int __k;");
+        s.AppendLine("            if (__isMap) {");
+        s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
+        s.AppendLine("            } else {");
+        s.AppendLine("                __k = __pos;");
+        s.AppendLine("            }");
+        s.AppendLine("            switch (__k) {");
         foreach (var p in sorted)
         {
             s.Append("                case ");
@@ -200,7 +210,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             WriteDeser(s, p, "obj", "                ", ref c);
             s.AppendLine("                    break;");
         }
-        s.AppendLine("                default: reader.TrySkip(); break; } }");
+        s.AppendLine("                default: if (__isMap) reader.TrySkip(); break; }");
+        s.AppendLine("            __pos++;");
+        s.AppendLine("        }");
         s.AppendLine("        return obj; } }");
         s.AppendLine();
 
@@ -769,13 +781,17 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(p.TypeFullName);
                 s.AppendLine("();");
                 s.Append(ind);
+                s.AppendLine("    int __np = 0; while (reader.Read()) {");
+                s.Append(ind);
                 s.AppendLine(
-                    "    while (reader.Read() && reader.TokenType != TokenType.ObjectEnd) {"
+                    "        if (reader.TokenType == TokenType.ObjectEnd || reader.TokenType == TokenType.ArrayEnd) break;"
                 );
                 s.Append(ind);
                 s.AppendLine(
-                    "        reader.TryGetInt32(out var __nk); reader.Read(); switch (__nk) {"
+                    "        int __nk; if (__isMap) { reader.TryGetInt32(out __nk); reader.Read(); } else { __nk = __np; }"
                 );
+                s.Append(ind);
+                s.AppendLine("        switch (__nk) {");
                 var ns = p.NestedProperties.OrderBy(n => n.IntKey ?? 0).ToImmutableArray();
                 foreach (var n in ns)
                 {
@@ -788,7 +804,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine("                break;");
                 }
                 s.Append(ind);
-                s.AppendLine("            default: reader.TrySkip(); break; } }");
+                s.AppendLine("            default: if (__isMap) reader.TrySkip(); break; }");
+                s.Append(ind);
+                s.AppendLine("        __np++;");
+                s.Append(ind);
+                s.AppendLine("    }");
                 s.Append(ind);
                 s.Append("    ");
                 s.Append(t);
