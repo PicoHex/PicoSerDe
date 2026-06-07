@@ -308,7 +308,21 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(".ToString(\"O\")));");
                 break;
             case "dateonly":
+                s.Append(ind);
+                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(accessor);
+                s.AppendLine(
+                    ".ToString(\"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
             case "timeonly":
+                s.Append(ind);
+                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(accessor);
+                s.AppendLine(
+                    ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
             case "timespan":
             case "guid":
             case "enum":
@@ -490,14 +504,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = DateOnly.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(
+                    " = System.DateOnly.ParseExact(Encoding.UTF8.GetString(reader.ValueSpan), \"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture);"
+                );
                 break;
             case "timeonly":
                 s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = TimeOnly.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(
+                    " = System.TimeOnly.ParseExact(Encoding.UTF8.GetString(reader.ValueSpan), \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture);"
+                );
                 break;
             case "timespan":
                 s.Append(pad);
@@ -874,6 +892,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     else
                         s.AppendLine(".ToString(\"O\")));");
                     break;
+                case "dateonly":
+                    s.Append(ind);
+                    s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(valAccessor);
+                    s.AppendLine(
+                        ".ToString(\"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    );
+                    break;
+                case "timeonly":
+                    s.Append(ind);
+                    s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(valAccessor);
+                    s.AppendLine(
+                        ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    );
+                    break;
                 default:
                     s.Append(ind);
                     s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
@@ -948,6 +982,26 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     }
                     else
                         s.AppendLine(".ToString(\"O\")));");
+                    break;
+                case "dateonly":
+                    s.Append(ind);
+                    s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(
+                        ".ToString(\"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    );
+                    break;
+                case "timeonly":
+                    s.Append(ind);
+                    s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(
+                        ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    );
                     break;
                 default:
                     s.Append(ind);
@@ -1149,14 +1203,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(tgt);
                     s.Append('.');
                     s.Append(p.Name);
-                    s.AppendLine(" = System.DateOnly.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                    s.AppendLine(
+                        " = System.DateOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture);"
+                    );
                     break;
                 case "timeonly":
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
                     s.Append(p.Name);
-                    s.AppendLine(" = System.TimeOnly.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                    s.AppendLine(
+                        " = System.TimeOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture);"
+                    );
                     break;
                 case "timespan":
                     s.Append(pad);

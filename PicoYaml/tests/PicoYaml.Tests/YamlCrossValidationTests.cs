@@ -1,3 +1,6 @@
+using System.Globalization;
+using YamlDotNet.Core;
+using YamlDotNet.Core.Events;
 using YamlDotNet.Serialization;
 
 namespace PicoYaml.Tests;
@@ -6,6 +9,50 @@ public class YamlSub
 {
     public string Name { get; set; } = "";
     public int Value { get; set; }
+}
+
+public class DateOnlyYamlConverter : IYamlTypeConverter
+{
+    public bool Accepts(Type type) => type == typeof(DateOnly);
+
+    public object? ReadYaml(IParser parser, Type type, ObjectDeserializer rootDeserializer)
+    {
+        var scalar = parser.Consume<Scalar>();
+        return DateOnly.ParseExact(scalar.Value, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+    }
+
+    public void WriteYaml(
+        IEmitter emitter,
+        object? value,
+        Type type,
+        ObjectSerializer rootSerializer
+    )
+    {
+        var dt = (DateOnly)value!;
+        emitter.Emit(new Scalar(dt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+    }
+}
+
+public class TimeOnlyYamlConverter : IYamlTypeConverter
+{
+    public bool Accepts(Type type) => type == typeof(TimeOnly);
+
+    public object? ReadYaml(IParser parser, Type type, ObjectDeserializer rootDeserializer)
+    {
+        var scalar = parser.Consume<Scalar>();
+        return TimeOnly.ParseExact(scalar.Value, "HH:mm:ss.fffffff", CultureInfo.InvariantCulture);
+    }
+
+    public void WriteYaml(
+        IEmitter emitter,
+        object? value,
+        Type type,
+        ObjectSerializer rootSerializer
+    )
+    {
+        var tt = (TimeOnly)value!;
+        emitter.Emit(new Scalar(tt.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture)));
+    }
 }
 
 public class YamlModel
@@ -20,6 +67,8 @@ public class YamlModel
     public string? NullableString { get; set; }
     public DateTime DateTime { get; set; }
     public TimeSpan TimeSpan { get; set; }
+    public DateOnly DateOnly { get; set; }
+    public TimeOnly TimeOnly { get; set; }
     public Guid Guid { get; set; }
     public DayOfWeek Enum { get; set; }
     public int? NullableInt { get; set; }
@@ -33,29 +82,40 @@ public class YamlModel
 public class YamlCrossValidationTests
 {
     private static readonly IDeserializer YamlDotNet = new DeserializerBuilder()
+        .WithTypeConverter(new DateOnlyYamlConverter())
+        .WithTypeConverter(new TimeOnlyYamlConverter())
         .IgnoreUnmatchedProperties()
         .Build();
 
     private static readonly ISerializer YamlDotNetSer = new SerializerBuilder()
+        .WithTypeConverter(new DateOnlyYamlConverter())
+        .WithTypeConverter(new TimeOnlyYamlConverter())
         .Build();
 
-    private static YamlModel Model => new()
-    {
-        Bool = true, Int = 42, Long = 9_876_543_210L,
-        Float = 3.14f, Double = 2.71828, Decimal = 123.45m,
-        String = "Hello YAML!",
-        DateTime = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
-        TimeSpan = new TimeSpan(10, 30, 0),
-
-        Guid = Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"),
-        Enum = DayOfWeek.Monday,
-        NullableInt = 77,
-        IntList = [10, 20, 30],
-        StringList = ["foo", "bar"],
-        IntArray = [100, 200],
-        StringDict = new() { ["k1"] = "v1" },
-        Nested = new() { Name = "sub", Value = 99 },
-    };
+    private static YamlModel Model =>
+        new()
+        {
+            Bool = true,
+            Int = 42,
+            Long = 9_876_543_210L,
+            Float = 3.14f,
+            Double = 2.71828,
+            Decimal = 123.45m,
+            String = "Hello YAML!",
+            NullableString = "not null",
+            DateTime = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
+            TimeSpan = new TimeSpan(10, 30, 0),
+            DateOnly = new DateOnly(2026, 6, 4),
+            TimeOnly = new TimeOnly(15, 45, 30),
+            Guid = Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"),
+            Enum = DayOfWeek.Monday,
+            NullableInt = 77,
+            IntList = [10, 20, 30],
+            StringList = ["foo", "bar"],
+            IntArray = [100, 200],
+            StringDict = new() { ["k1"] = "v1" },
+            Nested = new() { Name = "sub", Value = 99 },
+        };
 
     [Test]
     public async Task Sg_Trigger()
@@ -101,13 +161,20 @@ public class YamlCrossValidationTests
         await Assert.That(actual.String).IsEqualTo(expected.String);
         await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
         await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);
-        await Assert.That(actual.DateTime.ToUniversalTime()).IsEqualTo(expected.DateTime.ToUniversalTime());
+        await Assert
+            .That(actual.DateTime.ToUniversalTime())
+            .IsEqualTo(expected.DateTime.ToUniversalTime());
         await Assert.That(actual.TimeSpan).IsEqualTo(expected.TimeSpan);
+        await Assert.That(actual.DateOnly).IsEqualTo(expected.DateOnly);
+        await Assert.That(actual.TimeOnly).IsEqualTo(expected.TimeOnly);
 
+        await Assert.That(actual.Decimal).IsEqualTo(expected.Decimal);
         await Assert.That(actual.Guid).IsEqualTo(expected.Guid);
+        await Assert.That(actual.NullableString).IsEqualTo(expected.NullableString);
         await Assert.That(actual.IntList).IsEquivalentTo(expected.IntList);
         await Assert.That(actual.StringList).IsEquivalentTo(expected.StringList);
         await Assert.That(actual.IntArray).IsEquivalentTo(expected.IntArray);
+        await Assert.That(actual.StringDict).IsEquivalentTo(expected.StringDict);
         if (expected.Nested is not null)
         {
             await Assert.That(actual.Nested).IsNotNull();

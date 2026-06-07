@@ -318,13 +318,20 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".ToString()));");
                 break;
             case "dateonly":
-            case "timeonly":
             case "guid":
             case "enum":
                 s.Append(ind);
                 s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
                 s.Append(a);
                 s.AppendLine(".ToString()));");
+                break;
+            case "timeonly":
+                s.Append(ind);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(
+                    ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
                 break;
             case "list":
             case "array":
@@ -541,6 +548,30 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine("}");
                 }
                 break;
+            case "float32":
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null) { float? __nv = null; ");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = __nv; } else {");
+                }
+                s.Append(ind);
+                s.Append("reader.TryGetFloat64(out var __v");
+                s.Append(c);
+                s.AppendLine(");");
+                s.Append(ind);
+                s.Append(t);
+                s.Append(" = (float)__v");
+                s.Append(c++);
+                s.AppendLine(";");
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                break;
             case "float64":
                 if (p.IsNullable)
                 {
@@ -607,6 +638,15 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(t);
                 s.AppendLine(" = __ts;");
                 break;
+            case "decimal":
+                s.Append(ind);
+                s.AppendLine(
+                    "var __decRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); decimal.TryParse(__decRaw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decv);"
+                );
+                s.Append(ind);
+                s.Append(t);
+                s.AppendLine(" = __decv;");
+                break;
             case "dateonly":
                 s.Append(ind);
                 s.AppendLine(
@@ -619,7 +659,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             case "timeonly":
                 s.Append(ind);
                 s.AppendLine(
-                    "var __toRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); TimeOnly.TryParse(__toRaw, out var __tov);"
+                    "var __toRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); System.TimeOnly.TryParseExact(__toRaw, \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __tov);"
                 );
                 s.Append(ind);
                 s.Append(t);
@@ -790,6 +830,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(op);
                 s.AppendLine("(__ev);");
                 break;
+            case "float32":
+                s.Append(ind);
+                s.AppendLine("reader.TryGetFloat64(out var __ev);");
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.AppendLine("((float)__ev);");
+                break;
             case "float64":
                 s.Append(ind);
                 s.AppendLine("reader.TryGetFloat64(out var __ev);");
@@ -805,6 +853,16 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(target);
                 s.Append(op);
                 s.AppendLine("(__ev);");
+                break;
+            case "decimal":
+                s.Append(ind);
+                s.AppendLine("var __decRaw = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.AppendLine(
+                    "(decimal.Parse(__decRaw, System.Globalization.CultureInfo.InvariantCulture));"
+                );
                 break;
             default:
                 s.Append(ind);

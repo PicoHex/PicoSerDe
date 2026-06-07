@@ -29,22 +29,27 @@ public class IniNested
 
 public class IniCrossValidationTests
 {
-    private static IniModel Model => new()
-    {
-        Bool = true, Int = 42, Long = 9_876_543_210L,
-        Float = 3.14f, Double = 2.71828, Decimal = 123.45m,
-        String = "Hello from PicoIni!",
-        Enum = DayOfWeek.Wednesday,
-        NullableInt = 77,
-        DateTime = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
-        TimeSpan = new TimeSpan(10, 30, 0),
-        DateOnly = new DateOnly(2026, 6, 4),
-        TimeOnly = new TimeOnly(15, 45, 30),
-        Guid = Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"),
-        Section = new() { Name = "test" },
-        Dict = new() { ["k"] = "v" },
-        Tags = ["tag1", "tag2", "tag3"],
-    };
+    private static IniModel Model =>
+        new()
+        {
+            Bool = true,
+            Int = 42,
+            Long = 9_876_543_210L,
+            Float = 3.14f,
+            Double = 2.71828,
+            Decimal = 123.45m,
+            String = "Hello from PicoIni!",
+            Enum = DayOfWeek.Wednesday,
+            NullableInt = 77,
+            DateTime = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
+            TimeSpan = new TimeSpan(10, 30, 0),
+            DateOnly = new DateOnly(2026, 6, 4),
+            TimeOnly = new TimeOnly(15, 45, 30),
+            Guid = Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"),
+            Section = new() { Name = "test" },
+            Dict = new() { ["k"] = "v" },
+            Tags = ["tag1", "tag2", "tag3"],
+        };
 
     [Test]
     public async Task Sg_Trigger()
@@ -63,6 +68,63 @@ public class IniCrossValidationTests
     }
 
     [Test]
+    public async Task MsConfigStyleIni_PicoDeserialize()
+    {
+        // INI text in standard format (what MsConfig or other INI tools would produce).
+        // This tests the reverse direction: external INI text → PicoIni deserialization.
+        var iniText =
+            @"
+Bool = true
+Int = 42
+Long = 9876543210
+Float = 3.14
+Double = 2.71828
+Decimal = 123.45
+String = Hello from INI!
+NullableInt = 77
+DateTime = 2026-06-04T12:30:00.0000000Z
+TimeSpan = 10:30:00
+DateOnly = 2026-06-04
+TimeOnly = 15:45:30
+Guid = a1b2c3d4-e5f6-7890-abcd-ef1234567890
+Enum = Wednesday
+Tags = tag1,tag2,tag3
+
+[Dict]
+k = v
+
+[Section]
+Name = test_section
+";
+
+        var bytes = Encoding.UTF8.GetBytes(iniText.TrimStart());
+        var model = IniSerializer.Deserialize<IniModel>(bytes);
+
+        await Assert.That(model).IsNotNull();
+        await Assert.That(model!.Bool).IsTrue();
+        await Assert.That(model.Int).IsEqualTo(42);
+        await Assert.That(model.Long).IsEqualTo(9_876_543_210L);
+        await Assert.That(Math.Abs(model.Float - 3.14f) < 0.001f).IsTrue();
+        await Assert.That(model.Double).IsEqualTo(2.71828);
+        await Assert.That(model.Decimal).IsEqualTo(123.45m);
+        await Assert.That(model.String).IsEqualTo("Hello from INI!");
+        await Assert.That(model.NullableInt).IsEqualTo(77);
+        await Assert
+            .That(model.DateTime.ToUniversalTime())
+            .IsEqualTo(new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc));
+        await Assert.That(model.TimeSpan).IsEqualTo(new TimeSpan(10, 30, 0));
+        await Assert.That(model.DateOnly).IsEqualTo(new DateOnly(2026, 6, 4));
+        await Assert.That(model.TimeOnly).IsEqualTo(new TimeOnly(15, 45, 30));
+        await Assert.That(model.Guid).IsEqualTo(Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"));
+        await Assert.That(model.Enum).IsEqualTo(DayOfWeek.Wednesday);
+        await Assert.That(model.Tags).IsEquivalentTo(new List<string> { "tag1", "tag2", "tag3" });
+        await Assert.That(model.Dict.Count).IsEqualTo(1);
+        await Assert.That(model.Dict["k"]).IsEqualTo("v");
+        await Assert.That(model.Section).IsNotNull();
+        await Assert.That(model.Section!.Name).IsEqualTo("test_section");
+    }
+
+    [Test]
     public async Task PicoSerialize_MsConfigRead()
     {
         var bytes = IniSerializer.SerializeToUtf8Bytes(Model);
@@ -71,9 +133,7 @@ public class IniCrossValidationTests
         try
         {
             await File.WriteAllTextAsync(tmp, iniText);
-            var config = new ConfigurationBuilder()
-                .AddIniFile(tmp)
-                .Build();
+            var config = new ConfigurationBuilder().AddIniFile(tmp).Build();
             await Assert.That(config["Bool"]).IsEqualTo("true");
             await Assert.That(config["Int"]).IsEqualTo("42");
             await Assert.That(config["String"]).IsEqualTo("Hello from PicoIni!");
@@ -84,7 +144,8 @@ public class IniCrossValidationTests
         }
         finally
         {
-            if (File.Exists(tmp)) File.Delete(tmp);
+            if (File.Exists(tmp))
+                File.Delete(tmp);
         }
     }
 
@@ -98,7 +159,9 @@ public class IniCrossValidationTests
         await Assert.That(actual.String).IsEqualTo(expected.String);
         await Assert.That(actual.Enum).IsEqualTo(expected.Enum);
         await Assert.That(actual.NullableInt).IsEqualTo(expected.NullableInt);
-        await Assert.That(actual.DateTime.ToUniversalTime()).IsEqualTo(expected.DateTime.ToUniversalTime());
+        await Assert
+            .That(actual.DateTime.ToUniversalTime())
+            .IsEqualTo(expected.DateTime.ToUniversalTime());
         await Assert.That(actual.TimeSpan).IsEqualTo(expected.TimeSpan);
         await Assert.That(actual.DateOnly).IsEqualTo(expected.DateOnly);
         await Assert.That(actual.TimeOnly).IsEqualTo(expected.TimeOnly);
