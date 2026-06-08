@@ -161,6 +161,8 @@ public class JsonOptions
     public JsonUnmappedMemberHandling UnmappedMemberHandling { get; set; } = JsonUnmappedMemberHandling.Skip;
 
     /// <summary>Thread-local current options, used by SG-generated code and reader/writer.</summary>
+    /// <remarks>Public so SG-generated code in consumer assemblies can access it.
+    /// Set automatically by <c>SerializeToUtf8Bytes</c> and <c>Deserialize</c> overloads.</remarks>
     [ThreadStatic]
-    internal static JsonOptions? Current;
+    public static JsonOptions? Current;
 }
