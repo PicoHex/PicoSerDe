@@ -25,6 +25,19 @@ many serialization libraries cannot run.
 
 ---
 
+## Test Coverage
+
+**498+ tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+
+| Module | Tests | Competitor | Cross-Validation |
+|--------|:-----:|:-----------|:----------------:|
+| PicoJetson | 145 | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoToml | 80 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
+| PicoYaml | 81 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
+| PicoIni | 87 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
+| PicoMsgPack | 77 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
+| PicoSerDe.Core | 35 | — | — |
+
 ## Performance Summary
 
 Numbers below are **PicoSerDe on NativeAOT vs competitors on JIT** — the
@@ -83,6 +96,44 @@ IniSerializer.Serialize(config)         // → string via PicoIni
 - **`ref struct`** readers/writers — stack-allocated, zero heap allocation on hot path
 - **Static `Cache<T>`** — JIT/AOT inlineable, no dictionary lookups
 - **`file struct`** generated implementations — devirtualization without sealed class overhead
+- **`JsonOptions`** — runtime configuration (indentation, naming policy, ignore conditions, etc.) flowing through ThreadStatic to SG-generated code
+
+### PicoJetson JsonOptions
+
+```csharp
+// Compact (default) — optimal for data transfer
+byte[] data = JsonSerializer.SerializeToUtf8Bytes(model);
+
+// Human-readable
+byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
+    new JsonOptions { Indented = true });
+
+// CamelCase naming
+byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
+    new JsonOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+// Skip null properties
+byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
+    new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
+
+// Allow NaN/Infinity
+byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
+    new JsonOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals });
+```
+
+Available options:
+
+| Option | Default | Description |
+|--------|:-------:|-------------|
+| `Indented` | `false` | Human-readable indented output |
+| `MaxDepth` | `63` | Maximum nesting depth |
+| `PropertyNamingPolicy` | `null` | Naming policy: `CamelCase`, `SnakeCaseLower`, `KebabCaseLower`, `PascalCase` |
+| `DefaultIgnoreCondition` | `Never` | Skip null/default properties: `WhenWritingNull`, `WhenWritingDefault` |
+| `NumberHandling` | `Strict` | Allow named floats: `AllowNamedFloatingPointLiterals` |
+| `PropertyNameCaseInsensitive` | `false` | Case-insensitive property matching (default is already case-insensitive) |
+| `AllowTrailingCommas` | `false` | Accept trailing commas in objects/arrays |
+| `ReadCommentHandling` | `Disallow` | Skip `//` and `/* */` comments |
+| `UnmappedMemberHandling` | `Skip` | Throw on unknown properties: `Disallow` |
 
 ---
 
@@ -109,7 +160,7 @@ IniSerializer.Serialize(config)         // → string via PicoIni
 | linux-arm64 | ubuntu-24.04-arm |
 | osx-arm64 | macos-latest |
 
-Every push: build + test (369 tests) + 5 benchmarks smoke + 5 AOT sample publishes.
+Every push: build + test (498+ tests) + 5 benchmarks smoke + 5 AOT sample publishes.
 Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
 
 ---

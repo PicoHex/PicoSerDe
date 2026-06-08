@@ -37,16 +37,54 @@ No attributes required.
 - **Dual-mode** reader: `ReadOnlySpan<byte>` + `ReadOnlySequence<byte>` (PipeReader)
 - Unicode escape sequences including surrogate pairs
 
-## Customization
+## Options
 
 ```csharp
-[JsonPropertyName("custom_name")]  // override key name
-[JsonIgnore]                        // exclude property
-[JsonCamelCase]                     // camelCase naming per class
-[JsonConverter(typeof(MyConverter))] // custom converter
-[JsonConstructor]                   // constructor for deserialization
-[DateTimeFormat("yyyy-MM-dd")]     // custom DateTime format
+using PicoJetson;
+
+// Compact (default) — optimal for data transfer
+byte[] data = JsonSerializer.SerializeToUtf8Bytes(model);
+
+// Human-readable
+byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
+    new JsonOptions { Indented = true });
+
+// CamelCase naming
+byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
+    new JsonOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+// Skip null properties
+byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
+    new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
+
+// Accept trailing commas and comments (lenient parsing)
+var result = JsonSerializer.Deserialize<MyModel>(json,
+    new JsonOptions { AllowTrailingCommas = true, ReadCommentHandling = JsonCommentHandling.Skip });
 ```
+
+### Available Options
+
+| Option | Default | Description |
+|--------|:-------:|-------------|
+| `Indented` | `false` | Human-readable indented output |
+| `MaxDepth` | `63` | Maximum nesting depth |
+| `PropertyNamingPolicy` | `null` | `JsonNamingPolicy.CamelCase`, `.SnakeCaseLower`, `.KebabCaseLower`, `.PascalCase` |
+| `DefaultIgnoreCondition` | `Never` | `WhenWritingNull` / `WhenWritingDefault` |
+| `NumberHandling` | `Strict` | `AllowNamedFloatingPointLiterals` (NaN/Inf) |
+| `AllowTrailingCommas` | `false` | Accept trailing commas |
+| `ReadCommentHandling` | `Disallow` | `Skip` — ignore `//` and `/* */` |
+| `UnmappedMemberHandling` | `Skip` | `Disallow` — throw on unknown properties |
+
+## Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `[JsonPropertyName("name")]` | Override JSON key name |
+| `[JsonIgnore]` | Exclude from serialization |
+| `[JsonCamelCase]` | camelCase naming per class |
+| `[JsonConverter(typeof(T))]` | Custom converter |
+| `[JsonConstructor]` | Constructor for immutable deserialization |
+| `[JsonDateTimeFormat("format")]` | Custom DateTime format |
 
 ## Performance
 
