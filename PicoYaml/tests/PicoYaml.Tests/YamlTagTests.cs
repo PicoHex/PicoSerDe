@@ -1,8 +1,5 @@
 namespace PicoYaml.Tests;
 
-using PicoSerDe.Core;
-using PicoYaml;
-
 [YamlTag("!person")]
 public class YamlTaggedPerson
 {

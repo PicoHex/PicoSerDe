@@ -1,7 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
-using PicoCrossValidation;
-
 namespace PicoJetson.Tests;
 
 public class JsonCrossValidationTests
@@ -206,7 +202,10 @@ public class JsonCrossValidationTests
     [Test]
     public async Task NumberHandling_AllowNamedFloats_SerializesNaN()
     {
-        var opts = new JsonOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        var opts = new JsonOptions
+        {
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        };
         var model = ComplexModelFactory.Create();
         // We need a model with NaN — use a custom approach
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model, opts);

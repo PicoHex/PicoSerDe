@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace PicoJetson;
 
 /// <summary>Controls when properties are skipped during serialization.</summary>
@@ -7,8 +5,10 @@ public enum JsonIgnoreCondition
 {
     /// <summary>Always serialize the property.</summary>
     Never = 0,
+
     /// <summary>Skip properties whose value is null.</summary>
     WhenWritingNull = 1,
+
     /// <summary>Skip properties whose value is null or the type's default.</summary>
     WhenWritingDefault = 2,
 }
@@ -18,6 +18,7 @@ public enum JsonCommentHandling
 {
     /// <summary>Disallow comments; throw on encountering them.</summary>
     Disallow = 0,
+
     /// <summary>Skip comments without throwing.</summary>
     Skip = 1,
 }
@@ -27,6 +28,7 @@ public enum JsonNumberHandling
 {
     /// <summary>Strict JSON: NaN/Infinity throw during serialization and deserialization.</summary>
     Strict = 0,
+
     /// <summary>Allow quoted NaN/Infinity/-Infinity literals on deserialization.</summary>
     AllowNamedFloatingPointLiterals = 1,
 }
@@ -36,6 +38,7 @@ public enum JsonUnmappedMemberHandling
 {
     /// <summary>Skip unknown properties silently.</summary>
     Skip = 0,
+
     /// <summary>Throw on encountering an unknown property.</summary>
     Disallow = 1,
 }
@@ -48,10 +51,13 @@ public abstract class JsonNamingPolicy
 
     /// <summary>PascalCase preserved as-is.</summary>
     public static JsonNamingPolicy PascalCase { get; } = new PascalCaseNamingPolicy();
+
     /// <summary>First character lowercased.</summary>
     public static JsonNamingPolicy CamelCase { get; } = new CamelCaseNamingPolicy();
+
     /// <summary>snake_case.</summary>
     public static JsonNamingPolicy SnakeCaseLower { get; } = new SnakeCaseNamingPolicy();
+
     /// <summary>kebab-case.</summary>
     public static JsonNamingPolicy KebabCaseLower { get; } = new KebabCaseNamingPolicy();
 }
@@ -82,7 +88,8 @@ internal sealed class SnakeCaseNamingPolicy : JsonNamingPolicy
 {
     public override string ConvertName(string name)
     {
-        if (name.Length == 0) return name;
+        if (name.Length == 0)
+            return name;
         var sb = new StringBuilder(name.Length + 4);
         for (int i = 0; i < name.Length; i++)
         {
@@ -103,7 +110,8 @@ internal sealed class KebabCaseNamingPolicy : JsonNamingPolicy
 {
     public override string ConvertName(string name)
     {
-        if (name.Length == 0) return name;
+        if (name.Length == 0)
+            return name;
         var sb = new StringBuilder(name.Length + 4);
         for (int i = 0; i < name.Length; i++)
         {
@@ -158,7 +166,8 @@ public class JsonOptions
     public JsonCommentHandling ReadCommentHandling { get; set; } = JsonCommentHandling.Disallow;
 
     /// <summary>How unmapped properties are handled during deserialization. Default: Skip.</summary>
-    public JsonUnmappedMemberHandling UnmappedMemberHandling { get; set; } = JsonUnmappedMemberHandling.Skip;
+    public JsonUnmappedMemberHandling UnmappedMemberHandling { get; set; } =
+        JsonUnmappedMemberHandling.Skip;
 
     /// <summary>Thread-local current options, used by SG-generated code and reader/writer.</summary>
     /// <remarks>Public so SG-generated code in consumer assemblies can access it.

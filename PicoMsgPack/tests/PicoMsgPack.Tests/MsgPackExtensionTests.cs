@@ -1,7 +1,5 @@
 namespace PicoMsgPack.Tests;
 
-using PicoMsgPack;
-
 public class MsgPackExtModel
 {
     [MsgPackKey(0)]

@@ -1,8 +1,5 @@
 namespace PicoToml.Tests;
 
-using PicoSerDe.Core;
-using PicoToml;
-
 // Models at namespace level (SG skips nested types)
 public class TomlDottedServerConfig
 {

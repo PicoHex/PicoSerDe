@@ -1,5 +1,3 @@
-using MessagePack;
-
 namespace PicoMsgPack.Tests;
 
 // NOTE: PicoMsgPack uses integer-keyed map format, while MessagePack-CSharp's

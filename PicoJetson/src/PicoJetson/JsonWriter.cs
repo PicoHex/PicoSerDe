@@ -70,7 +70,10 @@ public ref struct JsonWriter
         BeforeWriteValue();
         if (double.IsNaN(value))
         {
-            if (PicoJetson.JsonOptions.Current?.NumberHandling == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals)
+            if (
+                PicoJetson.JsonOptions.Current?.NumberHandling
+                == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
+            )
             {
                 WriteRaw("NaN"u8);
                 return;
@@ -82,7 +85,10 @@ public ref struct JsonWriter
         }
         if (double.IsInfinity(value))
         {
-            if (PicoJetson.JsonOptions.Current?.NumberHandling == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals)
+            if (
+                PicoJetson.JsonOptions.Current?.NumberHandling
+                == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
+            )
             {
                 WriteRaw(double.IsPositiveInfinity(value) ? "Infinity"u8 : "-Infinity"u8);
                 return;
