@@ -95,8 +95,9 @@ public class YamlCrossValidationTests
 
     private static YamlModel Model() => MakeModel(includeNestedList: false);
 
-    private static YamlModel MakeModel(bool includeNestedList = true) =>
-        new()
+    private static YamlModel MakeModel(bool includeNestedList = true)
+    {
+        var m = new YamlModel
         {
             Bool = true,
             Int = 42,
@@ -120,6 +121,10 @@ public class YamlCrossValidationTests
             Nested = new() { Name = "sub", Value = 99 },
             NestedList = [new() { Name = "a", Value = 1 }, new() { Name = "b", Value = 2 }],
         };
+        if (!includeNestedList)
+            m.NestedList = null;
+        return m;
+    }
 
     [Test]
     public async Task Sg_Trigger()

@@ -721,6 +721,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             EmitDeserialize(sb, p, "o", "                ");
             sb.AppendLine("            }");
         }
+        sb.AppendLine("            else {");
+        sb.AppendLine(
+            "                // Unknown property — skip its value to avoid infinite loop"
+        );
+        sb.AppendLine("                if (!r.Read()) break;");
+        sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine("        return o;");
         sb.AppendLine("    } }");
@@ -773,9 +779,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append("yw.WriteStartMapping(); // increase depth for sequence indentation");
                 s.AppendLine();
                 s.Append(ind);
-                s.Append("foreach (var __item in v.");
+                s.Append("foreach (var __item in ");
+                s.Append(target);
+                s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(")");
+                s.Append(" ?? new System.Collections.Generic.List<");
+                s.Append(elemTypeName);
+                s.AppendLine(">(0))");
                 s.Append(ind);
                 s.AppendLine("{");
                 s.Append(ind);
@@ -795,9 +805,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             else
             {
                 s.Append(ind);
-                s.Append("foreach (var __item in v.");
+                s.Append("foreach (var __item in ");
+                s.Append(target);
+                s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(")");
+                if (p.TypeKind == "array")
+                {
+                    s.AppendLine(" ?? [])");
+                }
+                else
+                {
+                    s.Append(" ?? new System.Collections.Generic.List<");
+                    s.Append(p.ElementTypeName ?? "object");
+                    s.AppendLine(">(0))");
+                }
                 s.Append(ind);
                 s.AppendLine("{");
                 EmitSerializeListElement(s, p, ind + "    ");
@@ -846,7 +867,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);
-            s.AppendLine(")");
+            s.Append(" ?? new System.Collections.Generic.Dictionary<");
+            s.Append(p.KeyTypeName ?? "string");
+            s.Append(", ");
+            s.Append(p.ElementTypeName ?? "object");
+            s.AppendLine(">(0))");
             s.Append(ind);
             s.AppendLine("{");
             s.Append(ind);
