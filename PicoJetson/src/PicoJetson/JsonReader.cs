@@ -89,17 +89,69 @@ public ref struct JsonReader
     public bool Read()
     {
         SkipWhitespace();
+        Retry:
         if (IsAtEnd())
             return false;
+
+        // Comment handling: skip // and /* */ if enabled
+        if (PeekByte() == (byte)'/')
+        {
+            var opts = PicoJetson.JsonOptions.Current;
+            if (opts?.ReadCommentHandling == PicoJetson.JsonCommentHandling.Skip)
+            {
+                AdvanceByte();
+                if (IsAtEnd())
+                    return false;
+                if (PeekByte() == (byte)'/')
+                {
+                    // Line comment: skip to end of line
+                    while (!IsAtEnd() && PeekByte() != (byte)'\n' && PeekByte() != (byte)'\r')
+                        AdvanceByte();
+                    SkipWhitespace();
+                    goto Retry;
+                }
+                if (PeekByte() == (byte)'*')
+                {
+                    // Block comment: skip to */
+                    AdvanceByte();
+                    while (!IsAtEnd())
+                    {
+                        if (PeekByte() == (byte)'*')
+                        {
+                            AdvanceByte();
+                            if (!IsAtEnd() && PeekByte() == (byte)'/')
+                            {
+                                AdvanceByte();
+                                SkipWhitespace();
+                                goto Retry;
+                            }
+                        }
+                        else
+                            AdvanceByte();
+                    }
+                    return false;
+                }
+            }
+        }
 
         if (PeekByte() == (byte)',')
         {
             AdvanceByte();
             SkipWhitespace();
+            // Allow trailing commas if requested
+            var opts = PicoJetson.JsonOptions.Current;
             if (IsAtEnd())
+            {
+                if (opts?.AllowTrailingCommas == true)
+                    return false;
                 throw new FormatException("Trailing comma at end of document");
+            }
             if (PeekByte() is (byte)'}' or (byte)']')
+            {
+                if (opts?.AllowTrailingCommas == true)
+                    return true;
                 throw new FormatException("Trailing comma before closing bracket");
+            }
         }
 
         var b = PeekByte();
@@ -144,8 +196,34 @@ public ref struct JsonReader
             case (byte)'f':
                 return ReadLiteral("false"u8, TokenType.Bool);
             case (byte)'n':
+                // Check for NaN (not null)
+                if (
+                    PicoJetson.JsonOptions.Current?.NumberHandling
+                        == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
+                    && _data[_position..].StartsWith("NaN"u8)
+                )
+                    return ReadLiteral("NaN"u8, TokenType.Float64);
                 return ReadLiteral("null"u8, TokenType.Null);
             case (byte)'-':
+                // Check for -Infinity
+                if (
+                    PicoJetson.JsonOptions.Current?.NumberHandling
+                        == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
+                    && _data[_position..].StartsWith("-Infinity"u8)
+                )
+                    return ReadLiteral("-Infinity"u8, TokenType.Float64);
+                goto case (byte)'0';
+            case (byte)'I':
+                // Infinity
+                if (
+                    PicoJetson.JsonOptions.Current?.NumberHandling
+                        == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
+                    && _data[_position..].StartsWith("Infinity"u8)
+                )
+                    return ReadLiteral("Infinity"u8, TokenType.Float64);
+                throw new FormatException(
+                    $"Unexpected byte 0x{(byte)'I':X2} at offset {BytesConsumed}"
+                );
             case (byte)'0':
             case (byte)'1':
             case (byte)'2':
@@ -224,6 +302,37 @@ public ref struct JsonReader
         {
             v = 0;
             return false;
+        }
+        // Handle NaN/Infinity literals (AllowNamedFloatingPointLiterals)
+        if (
+            _valueSpan.Length == 3
+            && _valueSpan[0] == (byte)'N'
+            && _valueSpan[1] == (byte)'a'
+            && _valueSpan[2] == (byte)'N'
+        )
+        {
+            v = double.NaN;
+            return true;
+        }
+        if (
+            _valueSpan.Length == 8
+            && _valueSpan[0] == (byte)'I'
+            && _valueSpan[1] == (byte)'n'
+            && _valueSpan[2] == (byte)'f'
+        )
+        {
+            v = double.PositiveInfinity;
+            return true;
+        }
+        if (
+            _valueSpan.Length == 9
+            && _valueSpan[0] == (byte)'-'
+            && _valueSpan[1] == (byte)'I'
+            && _valueSpan[2] == (byte)'n'
+        )
+        {
+            v = double.NegativeInfinity;
+            return true;
         }
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }

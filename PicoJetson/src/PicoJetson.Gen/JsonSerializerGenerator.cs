@@ -339,16 +339,51 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(" value)");
         sb.AppendLine("        {");
         sb.AppendLine(
-            "            var jw = new JsonWriter(writer, indented: PicoJetson.JsonOptions.Current?.Indented ?? false);"
+            "            var jw = new JsonWriter(writer, indented: PicoJetson.JsonOptions.Current?.Indented ?? false, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 63);"
         );
         sb.AppendLine("            jw.WriteStartObject();");
 
         foreach (var prop in type.Properties)
         {
-            sb.Append("            jw.WritePropertyName(\"");
+            // DefaultIgnoreCondition: wrap property in conditional check
+            bool checkNull = prop.IsNullable || prop.IsNullableReference;
+            if (prop.TypeKind == "list" || prop.TypeKind == "array" || prop.TypeKind == "dict")
+                checkNull = false; // collections are never null with our defaults
+            if (checkNull)
+            {
+                sb.AppendLine(
+                    "            if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
+                );
+                sb.AppendLine("                ? value." + prop.Name + " != null");
+                sb.AppendLine(
+                    "                : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+                );
+                if (
+                    prop.TypeKind
+                    is "int32"
+                        or "int64"
+                        or "float32"
+                        or "float64"
+                        or "boolean"
+                        or "decimal"
+                )
+                    sb.AppendLine("                ? value." + prop.Name + " != default");
+                else
+                    sb.AppendLine("                ? value." + prop.Name + " != null");
+                sb.AppendLine("                : true)");
+                sb.AppendLine("            {");
+            }
+            sb.Append("            var __name_");
+            sb.Append(prop.Name);
+            sb.Append(" = PicoJetson.JsonOptions.Current?.PropertyNamingPolicy?.ConvertName(\"");
             sb.Append(EscapeCSharpString(prop.JsonName));
-            sb.AppendLine("\"u8);");
+            sb.AppendLine("\") ?? \"" + EscapeCSharpString(prop.JsonName) + "\";");
+            sb.Append("            jw.WritePropertyName(__name_");
+            sb.Append(prop.Name);
+            sb.AppendLine(");");
             EmitSerializeProperty(sb, prop, $"value.{prop.Name}", "            ");
+            if (checkNull)
+                sb.AppendLine("            }");
         }
 
         sb.AppendLine("            jw.WriteEndObject();");
@@ -682,7 +717,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(type.Name);
         sb.AppendLine(" Deserialize(ReadOnlySpan<byte> data)");
         sb.AppendLine("        {");
-        sb.AppendLine("            var reader = new JsonReader(data);");
+        sb.AppendLine(
+            "            var reader = new JsonReader(data, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 256);"
+        );
         sb.AppendLine("            try");
         sb.AppendLine("            {");
 
@@ -750,7 +787,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
 
         if (type.Properties.Length > 0)
+        {
+            sb.AppendLine(
+                "                else if (PicoJetson.JsonOptions.Current?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
+            );
+            sb.AppendLine(
+                "                    throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(propNameSpan)}' at offset {reader.BytesConsumed}\");"
+            );
             sb.AppendLine("                else reader.TrySkip();");
+        }
         else
             sb.AppendLine("                reader.TrySkip();");
 

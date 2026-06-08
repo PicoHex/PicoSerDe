@@ -69,15 +69,29 @@ public ref struct JsonWriter
     {
         BeforeWriteValue();
         if (double.IsNaN(value))
+        {
+            if (PicoJetson.JsonOptions.Current?.NumberHandling == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals)
+            {
+                WriteRaw("NaN"u8);
+                return;
+            }
             throw new ArgumentException(
                 "NaN cannot be written as JSON. Consider handling NaN before serialization.",
                 nameof(value)
             );
+        }
         if (double.IsInfinity(value))
+        {
+            if (PicoJetson.JsonOptions.Current?.NumberHandling == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals)
+            {
+                WriteRaw(double.IsPositiveInfinity(value) ? "Infinity"u8 : "-Infinity"u8);
+                return;
+            }
             throw new ArgumentException(
                 "Infinity cannot be written as JSON. Consider handling Infinity before serialization.",
                 nameof(value)
             );
+        }
         Span<byte> buf = stackalloc byte[32];
         value.TryFormat(buf, out var w);
         _buffer.Write(buf[..w]);

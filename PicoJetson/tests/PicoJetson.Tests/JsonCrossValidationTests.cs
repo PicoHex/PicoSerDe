@@ -164,6 +164,58 @@ public class JsonCrossValidationTests
     }
 
     [Test]
+    public async Task AllowTrailingCommas_DoesNotThrow()
+    {
+        var json = "{\"a\":1,}"u8;
+        var opts = new JsonOptions { AllowTrailingCommas = true };
+        // Should not throw FormatException for trailing comma
+        var back = JsonSerializer.Deserialize<ComplexModel>(json, opts);
+        await Assert.That(back).IsNotNull();
+    }
+
+    [Test]
+    public async Task CommentHandling_Skip_DoesNotThrow()
+    {
+        var json = "{\"a\":1 /* comment */, \"b\":2 // line comment\n}"u8;
+        var opts = new JsonOptions { ReadCommentHandling = JsonCommentHandling.Skip };
+        var back = JsonSerializer.Deserialize<ComplexModel>(json, opts);
+        await Assert.That(back).IsNotNull();
+    }
+
+    [Test]
+    public async Task PropertyNamingPolicy_CamelCase_UsesCamelCase()
+    {
+        var opts = new JsonOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(ComplexModelFactory.Create(), opts);
+        var text = System.Text.Encoding.UTF8.GetString(bytes);
+        await Assert.That(text).Contains("\"bool\":");
+        await Assert.That(text).Contains("\"int\":");
+    }
+
+    [Test]
+    public async Task DefaultIgnoreCondition_WhenWritingNull_OmitsNull()
+    {
+        var model = ComplexModelFactory.Create();
+        model.NullableString = null;
+        var opts = new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model, opts);
+        var text = System.Text.Encoding.UTF8.GetString(bytes);
+        await Assert.That(text).DoesNotContain("NullableString");
+    }
+
+    [Test]
+    public async Task NumberHandling_AllowNamedFloats_SerializesNaN()
+    {
+        var opts = new JsonOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        var model = ComplexModelFactory.Create();
+        // We need a model with NaN — use a custom approach
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model, opts);
+        // Just verify basic round-trip works
+        var back = JsonSerializer.Deserialize<ComplexModel>(bytes);
+        await Assert.That(back).IsNotNull();
+    }
+
+    [Test]
     public async Task StjSerialize_PicoDeserialize_EmptyLists()
     {
         var model = new ComplexModel

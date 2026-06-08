@@ -66,10 +66,21 @@ public static partial class JsonSerializer
             SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
     }
 
-    public static T? Deserialize<T>(ReadOnlySpan<byte> data)
+    public static T? Deserialize<T>(ReadOnlySpan<byte> data, JsonOptions? options = null)
     {
         if (Cache<T>.Deserializer is { } d)
-            return d.Deserialize(data);
+        {
+            var prev = JsonOptions.Current;
+            JsonOptions.Current = options;
+            try
+            {
+                return d.Deserialize(data);
+            }
+            finally
+            {
+                JsonOptions.Current = prev;
+            }
+        }
         SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
         return default;
     }
