@@ -468,17 +468,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("jw.WriteString(__ts);");
                 break;
             case "guid":
-            case "enum":
                 sb.Append(indent);
                 sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
                 sb.Append(effectiveAccessor);
                 sb.AppendLine(".ToString()));");
                 break;
+            case "enum":
+                sb.Append(indent);
+                sb.Append("jw.WriteNumber((int)");
+                sb.Append(effectiveAccessor);
+                sb.AppendLine(");");
+                break;
             case "decimal":
                 sb.Append(indent);
-                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                sb.Append("jw.WriteNumber(");
                 sb.Append(effectiveAccessor);
-                sb.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                sb.AppendLine(");");
                 break;
             case "list":
             case "array":
@@ -620,17 +625,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(".ToString()));");
                 break;
             case "guid":
-            case "enum":
                 sb.Append(indent);
                 sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
                 sb.Append(itemVar);
                 sb.AppendLine(".ToString()));");
                 break;
+            case "enum":
+                sb.Append(indent);
+                sb.Append("jw.WriteNumber((int)");
+                sb.Append(itemVar);
+                sb.AppendLine(");");
+                break;
             case "decimal":
                 sb.Append(indent);
-                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                sb.Append("jw.WriteNumber(");
                 sb.Append(itemVar);
-                sb.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                sb.AppendLine(");");
                 break;
             case "object":
             {
@@ -1208,13 +1218,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     );
                     sb.Append(indent);
                     sb.AppendLine("    {");
-                    EmitDeserializeElementAdd(
-                        sb,
-                        prop,
-                        listAcc,
-                        indent + "        ",
-                        nestLevel
-                    );
+                    EmitDeserializeElementAdd(sb, prop, listAcc, indent + "        ", nestLevel);
                     sb.Append(indent);
                     sb.AppendLine("    }");
                 }

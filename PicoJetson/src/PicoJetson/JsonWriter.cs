@@ -56,6 +56,15 @@ public ref struct JsonWriter
         _bytesWritten += w;
     }
 
+    public void WriteNumber(decimal value)
+    {
+        BeforeWriteValue();
+        Span<byte> buf = stackalloc byte[32];
+        value.TryFormat(buf, out var w);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+    }
+
     public void WriteNumber(double value)
     {
         BeforeWriteValue();

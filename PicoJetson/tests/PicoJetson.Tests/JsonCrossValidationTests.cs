@@ -1,35 +1,14 @@
-using System.Globalization;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using PicoCrossValidation;
 
 namespace PicoJetson.Tests;
-
-/// <summary>
-/// STJ converter that accepts decimal both as JSON number (123.456) and
-/// JSON string ("123.456"). PicoJetson always serializes decimal as string
-/// to avoid precision loss.
-/// </summary>
-public class DecimalStringConverter : JsonConverter<decimal>
-{
-    public override decimal Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        if (reader.TokenType == JsonTokenType.String)
-            return decimal.Parse(reader.GetString()!, NumberStyles.Any, CultureInfo.InvariantCulture);
-        return reader.GetDecimal();
-    }
-
-    public override void Write(Utf8JsonWriter writer, decimal value, JsonSerializerOptions options)
-        => writer.WriteNumberValue(value);
-}
 
 public class JsonCrossValidationTests
 {
     private static readonly JsonSerializerOptions StjPascalCase = new()
     {
         TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
-        Converters = { new DecimalStringConverter(), new JsonStringEnumConverter() },
     };
 
     private static ComplexModel Model => ComplexModelFactory.Create();
@@ -55,7 +34,10 @@ public class JsonCrossValidationTests
     public async Task PicoSerialize_StjDeserialize()
     {
         var picoBytes = JsonSerializer.SerializeToUtf8Bytes(Model);
-        var stj = System.Text.Json.JsonSerializer.Deserialize<ComplexModel>(picoBytes, StjPascalCase);
+        var stj = System.Text.Json.JsonSerializer.Deserialize<ComplexModel>(
+            picoBytes,
+            StjPascalCase
+        );
         await AssertComplexEqual(Model, stj!);
     }
 
@@ -106,7 +88,9 @@ public class JsonCrossValidationTests
 
         // ── Date/Time ──
         await Assert.That(actual.DateTime.Kind).IsEqualTo(DateTimeKind.Utc);
-        await Assert.That(actual.DateTime.ToUniversalTime()).IsEqualTo(expected.DateTime.ToUniversalTime());
+        await Assert
+            .That(actual.DateTime.ToUniversalTime())
+            .IsEqualTo(expected.DateTime.ToUniversalTime());
         await Assert.That(actual.TimeSpan).IsEqualTo(expected.TimeSpan);
         await Assert.That(actual.DateOnly).IsEqualTo(expected.DateOnly);
         await Assert.That(actual.TimeOnly).IsEqualTo(expected.TimeOnly);
@@ -149,7 +133,9 @@ public class JsonCrossValidationTests
             for (int i = 0; i < expected.NestedList.Count; i++)
             {
                 await Assert.That(actual.NestedList[i].Name).IsEqualTo(expected.NestedList[i].Name);
-                await Assert.That(actual.NestedList[i].Value).IsEqualTo(expected.NestedList[i].Value);
+                await Assert
+                    .That(actual.NestedList[i].Value)
+                    .IsEqualTo(expected.NestedList[i].Value);
             }
         }
     }
