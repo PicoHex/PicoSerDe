@@ -508,7 +508,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("string.Join(\",\", ");
                 s.Append(acc);
                 if (p.ElementTypeKind == "string")
-                    s.Append(".Select(__s => __s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")))");
+                    s.Append(
+                        ".Select(__s => __s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")))"
+                    );
                 else
                     s.Append(")");
                 break;

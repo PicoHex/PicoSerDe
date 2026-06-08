@@ -49,28 +49,29 @@ public class SubModel
 /// <summary>Factory providing a rich instance with values for every property.</summary>
 public static class ComplexModelFactory
 {
-    public static ComplexModel Create() => new()
-    {
-        Bool = true,
-        Int = 42,
-        Long = 9_876_543_210L,
-        Double = 2.718281828459045,
-        Float = 3.14f,
-        Decimal = 123456.789m,
-        String = "Hello, PicoSerDe! 特殊字符 ñ 测试",
-        NullableString = null,
-        DateTime = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
-        TimeSpan = new TimeSpan(10, 30, 0),
-        DateOnly = new DateOnly(2026, 6, 4),
-        TimeOnly = new TimeOnly(15, 45, 30, 123),
-        Guid = Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"),
-        Enum = DayOfWeek.Wednesday,
-        NullableInt = null,
-        IntList = [10, 20, 30],
-        StringList = ["foo", "bar", "baz"],
-        IntArray = [100, 200],
-        StringDict = new() { ["key1"] = "val1", ["key2"] = "val2" },
-        Nested = new SubModel { Name = "nested", Value = 99 },
-        NestedList = [new() { Name = "a", Value = 1 }, new() { Name = "b", Value = 2 }],
-    };
+    public static ComplexModel Create() =>
+        new()
+        {
+            Bool = true,
+            Int = 42,
+            Long = 9_876_543_210L,
+            Double = 2.718281828459045,
+            Float = 3.14f,
+            Decimal = 123456.789m,
+            String = "Hello, PicoSerDe! 特殊字符 ñ 测试",
+            NullableString = null,
+            DateTime = new DateTime(2026, 6, 4, 12, 30, 0, DateTimeKind.Utc),
+            TimeSpan = new TimeSpan(10, 30, 0),
+            DateOnly = new DateOnly(2026, 6, 4),
+            TimeOnly = new TimeOnly(15, 45, 30, 123),
+            Guid = Guid.Parse("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"),
+            Enum = DayOfWeek.Wednesday,
+            NullableInt = null,
+            IntList = [10, 20, 30],
+            StringList = ["foo", "bar", "baz"],
+            IntArray = [100, 200],
+            StringDict = new() { ["key1"] = "val1", ["key2"] = "val2" },
+            Nested = new SubModel { Name = "nested", Value = 99 },
+            NestedList = [new() { Name = "a", Value = 1 }, new() { Name = "b", Value = 2 }],
+        };
 }
