@@ -14,19 +14,28 @@ public static partial class JsonSerializer
         Cache<T>.Deserializer = deserializer;
     }
 
-    public static byte[] SerializeToUtf8Bytes<T>(T value)
+    public static byte[] SerializeToUtf8Bytes<T>(T value, JsonOptions? options = null)
     {
         if (Cache<T>.Serializer is { } s)
         {
-            var writer = SerializerExtensions.RentWriter();
-            s.Serialize(writer, value);
-            return writer.WrittenSpan.ToArray();
+            var prev = JsonOptions.Current;
+            JsonOptions.Current = options;
+            try
+            {
+                var writer = SerializerExtensions.RentWriter();
+                s.Serialize(writer, value);
+                return writer.WrittenSpan.ToArray();
+            }
+            finally
+            {
+                JsonOptions.Current = prev;
+            }
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
         return default!;
     }
 
-    public static string Serialize<T>(T value)
+    public static string Serialize<T>(T value, JsonOptions? options = null)
     {
         if (Cache<T>.Serializer is { } s)
             return s.SerializeToString(value);
@@ -34,10 +43,25 @@ public static partial class JsonSerializer
         return "";
     }
 
-    public static void Serialize<T>(IBufferWriter<byte> writer, T value)
+    public static void Serialize<T>(
+        IBufferWriter<byte> writer,
+        T value,
+        JsonOptions? options = null
+    )
     {
         if (Cache<T>.Serializer is { } s)
-            s.Serialize(writer, value);
+        {
+            var prev = JsonOptions.Current;
+            JsonOptions.Current = options;
+            try
+            {
+                s.Serialize(writer, value);
+            }
+            finally
+            {
+                JsonOptions.Current = prev;
+            }
+        }
         else
             SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
     }

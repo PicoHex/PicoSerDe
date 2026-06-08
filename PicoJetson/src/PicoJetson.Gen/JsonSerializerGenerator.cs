@@ -338,7 +338,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(type.Name);
         sb.AppendLine(" value)");
         sb.AppendLine("        {");
-        sb.AppendLine("            var jw = new JsonWriter(writer);");
+        sb.AppendLine(
+            "            var jw = new JsonWriter(writer, indented: PicoJetson.JsonOptions.Current?.Indented ?? false);"
+        );
         sb.AppendLine("            jw.WriteStartObject();");
 
         foreach (var prop in type.Properties)

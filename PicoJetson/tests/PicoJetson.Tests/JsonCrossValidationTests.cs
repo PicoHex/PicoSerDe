@@ -141,6 +141,29 @@ public class JsonCrossValidationTests
     }
 
     [Test]
+    public async Task PicoSerialize_Indented_ContainsNewlines()
+    {
+        var options = new PicoJetson.JsonOptions { Indented = true };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(Model, options);
+        var text = System.Text.Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).Contains("\n");
+        await Assert.That(text).Contains("\"Bool\": true");
+        await Assert.That(text.StartsWith("{\n")).IsTrue();
+    }
+
+    [Test]
+    public async Task PicoSerialize_Compact_NoNewlines()
+    {
+        // Default (no options) = compact
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(Model);
+        var text = System.Text.Encoding.UTF8.GetString(bytes);
+
+        await Assert.That(text).DoesNotContain("\n");
+        await Assert.That(text).DoesNotContain("  ");
+    }
+
+    [Test]
     public async Task StjSerialize_PicoDeserialize_EmptyLists()
     {
         var model = new ComplexModel
