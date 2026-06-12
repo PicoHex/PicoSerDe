@@ -62,7 +62,7 @@ var sample = "[server]\nhost = \"localhost\"\nport = 8080\n\nscores = [10, 20, 3
 var r = new TomlReader(sample);
 while (r.Read())
     Console.WriteLine(
-        $"  pos={r.BytesConsumed, 4}  depth={r.Depth}  {r.TokenType, -14}  {Encoding.UTF8.GetString(r.KeySpan)}{Encoding.UTF8.GetString(r.ValueSpan)}"
+        $"  pos={r.BytesConsumed, 4}  depth={r.Depth}  {r.TokenType, -14}  k='{Encoding.UTF8.GetString(r.KeySpan)}' v='{Encoding.UTF8.GetString(r.ValueSpan)}'"
     );
 
 // ═══ 4. Raw Writer + Arrays ═══
@@ -110,6 +110,39 @@ catch (ArgumentException ex)
 {
     Console.WriteLine($"  {ex.Message}");
 }
+
+// ═══ 8. Inline Table ═══
+Console.WriteLine("\n─── 8. Inline Table ───");
+var ib = new ArrayBufferWriter<byte>(256);
+var iw = new TomlWriter(ib);
+iw.WriteComment("Inline table demo");
+iw.WriteStartInlineTable("database");
+iw.WriteKeyValue("host"u8, "localhost");
+iw.WriteKeyValue("port"u8, 5432);
+iw.WriteEndInlineTable();
+Console.WriteLine(Encoding.UTF8.GetString(ib.WrittenSpan));
+
+// ═══ 9. Array Table [[key]] ═══
+Console.WriteLine("─── 9. Array Table ───");
+var ab = new ArrayBufferWriter<byte>(256);
+var aw = new TomlWriter(ab);
+aw.WriteArrayTable("servers"u8);
+aw.WriteKeyValue("host"u8, "srv1.example.com");
+aw.WriteKeyValue("port"u8, 80);
+aw.WriteBlankLine();
+aw.WriteArrayTable("servers"u8);
+aw.WriteKeyValue("host"u8, "srv2.example.com");
+aw.WriteKeyValue("port"u8, 443);
+Console.WriteLine(Encoding.UTF8.GetString(ab.WrittenSpan));
+
+// ═══ 10. Multi-Line String Reader ═══
+Console.WriteLine("─── 10. Multi-Line String ───");
+var mlToml = "desc = \"\"\"\nHello,\nWorld!\n\"\"\"\n"u8;
+var mr = new TomlReader(mlToml);
+while (mr.Read())
+    Console.WriteLine(
+        $"  pos={mr.BytesConsumed, 4}  depth={mr.Depth}  {mr.TokenType, -14}  k='{Encoding.UTF8.GetString(mr.KeySpan)}' v='{Encoding.UTF8.GetString(mr.ValueSpan)}'"
+    );
 
 Console.WriteLine("\nAll samples passed.");
 

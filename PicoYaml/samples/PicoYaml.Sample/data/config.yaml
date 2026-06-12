@@ -5,10 +5,10 @@ Version: 2.0.0
 Port: 8080
 Pi: 3.14159
 Price: 149.99
-CreatedAt: 2024-06-15T12:00:00.0000000Z
+CreatedAt: "2024-06-15T12:00:00.0000000Z"
 ReleaseDate: 2024-06-15
 Id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
 Tags:
-  - web
-  - api
-  - production
+- web
+- api
+- production

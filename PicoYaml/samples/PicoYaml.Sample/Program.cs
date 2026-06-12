@@ -101,8 +101,8 @@ catch (ArgumentException ex)
     Console.WriteLine($"  {ex.Message}");
 }
 
-// ═══ 6. File I/O — read from data file ═══
-Console.WriteLine("\n─── 6. File I/O ───");
+// ═══ 7. File I/O — read from data file ═══
+Console.WriteLine("\n─── 7. File I/O ───");
 var df = Path.Combine(AppContext.BaseDirectory, "data", "config.yaml");
 var fb = File.ReadAllBytes(df);
 var ff = YamlSerializer.Deserialize<YamlConfig>(fb);
@@ -113,6 +113,34 @@ Console.WriteLine($"  Tags: [{string.Join(", ", ff?.Tags ?? [])}]");
 var rb = YamlSerializer.SerializeToUtf8Bytes(ff!);
 var rr = YamlSerializer.Deserialize<YamlConfig>(rb);
 Console.WriteLine($"  Round-trip OK: {rr?.Name == ff?.Name}");
+
+// ═══ 8. Anchors & Aliases (Reader) ═══
+Console.WriteLine("\n─── 8. Anchors & Aliases ───");
+var anchorYaml =
+    "defaults: &def\n  host: localhost\n  port: 8080\nserver1:\n  <<: *def\n  name: primary\n"u8;
+var ar = new YamlReader(anchorYaml);
+while (ar.Read())
+    Console.WriteLine(
+        $"  d={ar.Depth}  {ar.TokenType, -14}  {Encoding.UTF8.GetString(ar.KeySpan)}: {Encoding.UTF8.GetString(ar.ValueSpan)}"
+    );
+
+// ═══ 9. Multi-Document (Reader) ═══
+Console.WriteLine("\n─── 9. Multi-Document ───");
+var mdYaml = "---\nname: doc1\n---\nname: doc2\n"u8;
+var mdr = new YamlReader(mdYaml);
+while (mdr.Read())
+    Console.WriteLine(
+        $"  d={mdr.Depth}  {mdr.TokenType, -14}  {Encoding.UTF8.GetString(mdr.KeySpan)}: {Encoding.UTF8.GetString(mdr.ValueSpan)}"
+    );
+
+// ═══ 10. Flow Style (Reader) ═══
+Console.WriteLine("\n─── 10. Flow Style ───");
+var flowYaml = "server: { host: localhost, port: 8080 }\ntags: [web, api]\n"u8;
+var fr = new YamlReader(flowYaml);
+while (fr.Read())
+    Console.WriteLine(
+        $"  d={fr.Depth}  {fr.TokenType, -14}  {Encoding.UTF8.GetString(fr.KeySpan)}: {Encoding.UTF8.GetString(fr.ValueSpan)}"
+    );
 
 Console.WriteLine("\nAll samples passed.");
 

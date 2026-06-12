@@ -119,6 +119,82 @@ class Program
         var roundBytes = JsonSerializer.SerializeToUtf8Bytes(fromFile!);
         var reRead = JsonSerializer.Deserialize<Order>(roundBytes);
         Console.WriteLine($"  Round-trip OK: {reRead?.Customer?.Name == fromFile?.Customer?.Name}");
+
+        // ═══ 7. JsonOptions ═══
+        Console.WriteLine("\n=== 7. JsonOptions ===");
+        var optModel = new Person { Name = "Alice", Age = 30 };
+
+        Console.Write("  Indented: ");
+        Console.WriteLine(
+            Encoding.UTF8.GetString(
+                JsonSerializer.SerializeToUtf8Bytes(optModel, new JsonOptions { Indented = true })
+            )
+        );
+
+        Console.Write("  CamelCase: ");
+        var cc = JsonSerializer.SerializeToUtf8Bytes(
+            new FullName { FirstName = "Bob", LastName = "Smith" },
+            new JsonOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }
+        );
+        Console.WriteLine(Encoding.UTF8.GetString(cc));
+
+        Console.Write("  SnakeCase: ");
+        var sc = JsonSerializer.SerializeToUtf8Bytes(
+            new FullName { FirstName = "Bob", LastName = "Smith" },
+            new JsonOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower }
+        );
+        Console.WriteLine(Encoding.UTF8.GetString(sc));
+
+        Console.Write("  SkipNull: ");
+        var sn = JsonSerializer.SerializeToUtf8Bytes(
+            new HasNull { Name = "X", Desc = null },
+            new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }
+        );
+        Console.WriteLine(Encoding.UTF8.GetString(sn));
+
+        Console.Write("  TrailingComma: ");
+        var tc = JsonSerializer.Deserialize<Person>(
+            "{\"Name\":\"X\",\"Age\":1,}"u8,
+            new JsonOptions { AllowTrailingCommas = true }
+        );
+        Console.WriteLine($"OK: {tc?.Name}");
+
+        Console.Write("  UnknownProp→throw: ");
+        try
+        {
+            JsonSerializer.Deserialize<Person>(
+                "{\"Name\":\"X\",\"extra\":1}"u8,
+                new JsonOptions { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow }
+            );
+        }
+        catch (FormatException ex)
+        {
+            Console.WriteLine($"Caught: {ex.Message.Split('.')[0]}");
+        }
+
+        // ═══ 8. JsonPropertyName ═══
+        Console.WriteLine("\n=== 8. [JsonPropertyName] ===");
+        var pn = JsonSerializer.SerializeToUtf8Bytes(new Renamed { UserId = 42, Display = "Ada" });
+        Console.WriteLine($"  {Encoding.UTF8.GetString(pn)}");
+
+        // ═══ 9. [JsonCamelCase] class-level ═══
+        Console.WriteLine("\n=== 9. [JsonCamelCase] ===");
+        var cc2 = JsonSerializer.SerializeToUtf8Bytes(
+            new CamelClass { ProductName = "Widget", StockCount = 5 }
+        );
+        Console.WriteLine($"  {Encoding.UTF8.GetString(cc2)}");
+
+        // ═══ 10. [JsonConstructor] + [DateTimeFormat] ═══
+        Console.WriteLine("\n=== 10. [JsonConstructor] + [DateTimeFormat] ===");
+        var imm = JsonSerializer.SerializeToUtf8Bytes(
+            new Immutable("Eve", 99, new DateTime(2024, 1, 1))
+        );
+        var immJson = Encoding.UTF8.GetString(imm);
+        Console.WriteLine($"  {immJson}");
+        var immBack = JsonSerializer.Deserialize<Immutable>(imm);
+        Console.WriteLine(
+            $"  Deserialized: {immBack?.UserName}, age={immBack?.Level}, date={immBack?.Since:yyyy-MM-dd}"
+        );
     }
 }
 
@@ -194,5 +270,54 @@ public class ShortDateConverter : IJsonConverter<DateTime>
     {
         DateTime.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), null, out var dt);
         return dt;
+    }
+}
+
+// ═══ Models for Options demos ═══
+
+public class FullName
+{
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+}
+
+public class HasNull
+{
+    public string Name { get; set; } = "";
+    public string? Desc { get; set; }
+}
+
+// ═══ Models for Attribute demos ═══
+
+public class Renamed
+{
+    [JsonPropertyName("id")]
+    public int UserId { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Display { get; set; } = "";
+}
+
+[JsonCamelCase]
+public class CamelClass
+{
+    public string ProductName { get; set; } = "";
+    public int StockCount { get; set; }
+}
+
+public class Immutable
+{
+    public string UserName { get; }
+    public int Level { get; }
+
+    [DateTimeFormat("yyyy-MM-dd")]
+    public DateTime Since { get; }
+
+    [JsonConstructor]
+    public Immutable(string userName, int level, DateTime since)
+    {
+        UserName = userName;
+        Level = level;
+        Since = since;
     }
 }

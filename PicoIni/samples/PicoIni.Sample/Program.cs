@@ -82,7 +82,16 @@ var rt = IniSerializer.Serialize(ff!);
 var rr = IniSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(rt));
 Console.WriteLine($"  Round-trip OK: {rr?.Title == ff?.Title}");
 
-Console.WriteLine("\nAll samples passed.");
+// ═══ 7. IniComment ═══
+Console.WriteLine("\n─── 7. IniComment ───");
+Console.WriteLine(IniSerializer.Serialize(new CommentedCfg { Name = "Demo", Port = 80 }));
+
+// ═══ 8. IniConverter ═══
+Console.WriteLine("\n─── 8. IniConverter ───");
+var cv = IniSerializer.Serialize(new ConvEx { Tag = "important" });
+Console.WriteLine(cv);
+var cr = IniSerializer.Deserialize<ConvEx>(Encoding.UTF8.GetBytes(cv));
+Console.WriteLine($"  Round-trip: tag='{cr?.Tag}'");
 
 Console.WriteLine("\nAll samples passed.");
 
@@ -129,4 +138,33 @@ public class DtCfg
 {
     [IniDateTimeFormat("yyyy-MM-dd")]
     public DateTime Date { get; set; }
+}
+
+[IniComment("Application settings — edit with care")]
+public class CommentedCfg
+{
+    [IniComment("Friendly display name")]
+    public string Name { get; set; } = "";
+
+    [IniComment("TCP listen port (1-65535)")]
+    public int Port { get; set; }
+}
+
+public class ConvEx
+{
+    [IniConverter(typeof(TagWriter))]
+    public string Tag { get; set; } = "";
+}
+
+public class TagWriter : IIniConverter<string>
+{
+    public void Write(IBufferWriter<byte> writer, string value)
+    {
+        writer.Write(Encoding.UTF8.GetBytes($"[{value}]"));
+    }
+
+    public string Read(ReadOnlySpan<byte> value)
+    {
+        return Encoding.UTF8.GetString(value).Trim('[', ']');
+    }
 }
