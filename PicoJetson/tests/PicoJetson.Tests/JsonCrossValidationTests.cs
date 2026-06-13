@@ -18,6 +18,16 @@ public class JsonCrossValidationTests
     }
 
     [Test]
+    public async Task StreamingDelegate_AutoRegistered_AfterSgTrigger()
+    {
+        // Force SG generation for ComplexModel (already used in Sg_Trigger).
+        // The SG's ModuleInitializer must register a streaming deserializer.
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(Model);
+        var hasDelegate = JsonSerializer.HasStreamingDelegate<ComplexModel>();
+        await Assert.That(hasDelegate).IsTrue();
+    }
+
+    [Test]
     public async Task PicoRoundTrip()
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(Model);

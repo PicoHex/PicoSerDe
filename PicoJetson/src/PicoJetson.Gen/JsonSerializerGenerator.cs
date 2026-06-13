@@ -321,6 +321,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         EmitDeserializer(sb, type);
         sb.AppendLine();
         EmitRegistration(sb, type);
+        sb.AppendLine();
+        // Skip streaming for types with [JsonConstructor] (immutable types)
+        // Support for these requires temp variables and deferred construction.
+        var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
+        if (type.Properties.Length > 0 && !hasCtor)
+            EmitStreamingDeserializer(sb, type);
         return sb.ToString();
     }
 
@@ -1807,11 +1813,59 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     // ── Registration emission ──
 
+    private static void EmitStreamingDeserializer(StringBuilder sb, TypeInfo type)
+    {
+        var typeRef = string.IsNullOrEmpty(type.Namespace)
+            ? type.Name
+            : $"global::{type.Namespace}.{type.Name}";
+        sb.Append("file static class ");
+        sb.Append(type.Name);
+        sb.AppendLine("Streaming");
+        sb.AppendLine("{");
+        sb.AppendLine("    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, out " + type.Name + "? result)");
+        sb.AppendLine("    {");
+        sb.Append("        result = new ");
+        sb.Append(type.Name);
+        sb.AppendLine("();");
+        sb.AppendLine();
+        sb.AppendLine("        // ReadStart");
+        sb.AppendLine("        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;");
+        sb.AppendLine();
+        sb.AppendLine("        while (true)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;");
+        sb.AppendLine("            if (reader.TokenType != TokenType.PropertyName) break;");
+        sb.AppendLine("            var propNameSpan = reader.GetStringRaw();");
+        sb.AppendLine("            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;");
+        for (var i = 0; i < type.Properties.Length; i++)
+        {
+            var prop = type.Properties[i];
+            var keyword = i == 0 ? "if" : "else if";
+            sb.Append("            ");
+            sb.Append(keyword);
+            sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
+            sb.Append(EscapeCSharpString(prop.JsonName));
+            sb.AppendLine("\"u8))");
+            sb.AppendLine("            {");
+            EmitDeserializeProperty(sb, prop, "result", "                ");
+            sb.AppendLine("            }");
+        }
+        if (type.Properties.Length > 0)
+        {
+            sb.AppendLine("            else reader.TrySkip();");
+        }
+        sb.AppendLine("        }");
+        sb.AppendLine("        return ReadStatus.Success;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+    }
+
     private static void EmitRegistration(StringBuilder sb, TypeInfo type)
     {
         var typeRef = string.IsNullOrEmpty(type.Namespace)
             ? type.Name
             : $"global::{type.Namespace}.{type.Name}";
+        var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
         sb.Append("file static class ");
         sb.Append(type.Name);
         sb.AppendLine("SerDeRegistration");
@@ -1828,6 +1882,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("            new ");
         sb.Append(type.Name);
         sb.AppendLine("JsonDeserializer());");
+        if (type.Properties.Length > 0 && !hasCtor)
+        {
+            sb.AppendLine("        global::PicoJetson.JsonSerializer.RegisterStreaming<");
+            sb.Append(typeRef);
+            sb.Append(">(");
+            sb.Append(type.Name);
+            sb.AppendLine("Streaming.DeserializeStreaming);");
+        }
         sb.AppendLine("    }");
         sb.AppendLine("}");
     }

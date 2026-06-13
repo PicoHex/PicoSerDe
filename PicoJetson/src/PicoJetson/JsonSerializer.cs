@@ -23,6 +23,9 @@ public static partial class JsonSerializer
         StreamingCache<T>.Func = func;
     }
 
+    /// <summary>True when a streaming deserializer has been registered for T.</summary>
+    internal static bool HasStreamingDelegate<T>() => StreamingCache<T>.Func is not null;
+
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
         Cache<T>.Serializer = serializer;
