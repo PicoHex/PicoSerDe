@@ -11,20 +11,20 @@ public static partial class JsonSerializer
     }
 
     /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
-    internal delegate ReadStatus StreamingFunc<T>(ref JsonReader reader, out T? result);
+    public delegate ReadStatus StreamingFunc<T>(ref JsonReader reader, out T? result);
 
     private static class StreamingCache<T>
     {
         internal static StreamingFunc<T>? Func;
     }
 
-    internal static void RegisterStreaming<T>(StreamingFunc<T> func) where T : notnull
+    public static void RegisterStreaming<T>(StreamingFunc<T> func) where T : notnull
     {
         StreamingCache<T>.Func = func;
     }
 
     /// <summary>True when a streaming deserializer has been registered for T.</summary>
-    internal static bool HasStreamingDelegate<T>() => StreamingCache<T>.Func is not null;
+    public static bool HasStreamingDelegate<T>() => StreamingCache<T>.Func is not null;
 
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
