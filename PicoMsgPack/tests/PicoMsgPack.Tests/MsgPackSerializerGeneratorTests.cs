@@ -296,4 +296,27 @@ public class MsgPackSerializerGeneratorTests
         var result = MsgPackSerializer.Deserialize<BytesModel>(bytes);
         await Assert.That(result!.Data).IsEquivalentTo(new byte[] { 1, 2, 3, 4 });
     }
+
+    [Test]
+    public async Task StreamingDelegate_NotRegistered_Yet()
+    {
+        // SG streaming for MsgPack is a future enhancement.
+        // The test documents the current state: delegate is not auto-registered.
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(new PersonMsgPack { Name = "x", Age = 1 });
+        var hasDelegate = MsgPackSerializer.HasStreamingDelegate<PersonMsgPack>();
+        await Assert.That(hasDelegate).IsFalse();
+    }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_Person_Works()
+    {
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(new PersonMsgPack { Name = "Alice", Age = 30 });
+        using var stream = new MemoryStream(bytes);
+
+        var result = await MsgPackSerializer.DeserializeFromStreamAsync<PersonMsgPack>(stream);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("Alice");
+        await Assert.That(result.Age).IsEqualTo(30);
+    }
 }

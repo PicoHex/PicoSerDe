@@ -1,3 +1,5 @@
+using PicoSerDe.Core;
+
 namespace PicoMsgPack;
 
 public static partial class MsgPackSerializer
@@ -7,6 +9,21 @@ public static partial class MsgPackSerializer
         internal static ISerializer<T>? Serializer;
         internal static IDeserializer<T>? Deserializer;
     }
+
+    /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
+    internal delegate ReadStatus StreamingFunc<T>(ref MsgPackReader reader, out T? result);
+
+    private static class StreamingCache<T>
+    {
+        internal static StreamingFunc<T>? Func;
+    }
+
+    internal static void RegisterStreaming<T>(StreamingFunc<T> func) where T : notnull
+    {
+        StreamingCache<T>.Func = func;
+    }
+
+    internal static bool HasStreamingDelegate<T>() => StreamingCache<T>.Func is not null;
 
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
@@ -40,5 +57,58 @@ public static partial class MsgPackSerializer
             return d.Deserialize(data);
         SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
         return default;
+    }
+
+    /// <summary>
+    /// Deserializes asynchronously from a Stream.
+    /// When a streaming delegate is registered (via SG), uses PipeReader-based
+    /// streaming. Otherwise falls back to loading the entire stream into memory.
+    /// </summary>
+    public static async ValueTask<T> DeserializeFromStreamAsync<T>(
+        Stream stream,
+        CancellationToken ct = default) where T : notnull
+    {
+        var func = StreamingCache<T>.Func;
+        if (func is not null)
+        {
+            return await DeserializeStreamingCore(func, stream, ct);
+        }
+
+        // Fallback: load all data then deserialize
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms, ct);
+        return Deserialize<T>(ms.GetBuffer().AsSpan(0, (int)ms.Length))!;
+    }
+
+    private static async ValueTask<T> DeserializeStreamingCore<T>(
+        StreamingFunc<T> func, Stream stream, CancellationToken ct) where T : notnull
+    {
+        var pipe = PipeReader.Create(stream);
+        var state = default(MsgPackReaderState);
+
+        while (true)
+        {
+            var r = await pipe.ReadAsync(ct);
+            var reader = new MsgPackReader(r.Buffer, r.IsCompleted, state);
+
+            var status = func(ref reader, out var result);
+
+            if (status == ReadStatus.Success)
+            {
+                pipe.AdvanceTo(r.Buffer.End);
+                return result!;
+            }
+
+            if (status == ReadStatus.NeedMoreData)
+            {
+                if (r.IsCompleted)
+                    throw new FormatException("Unexpected end of stream while parsing.");
+                state = reader.ExportState();
+                pipe.AdvanceTo(state.Position, r.Buffer.End);
+                continue;
+            }
+
+            throw new FormatException("Unexpected parser state.");
+        }
     }
 }
