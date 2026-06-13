@@ -117,10 +117,15 @@ public class YamlAnchorTests
                 }
             }
         }
-        // Verify at least name appears in server section.
-        // Note: cross-mapping anchor replay (<<: *def) is work-in-progress.
-        await Assert.That(serverKeys.Count).IsGreaterThanOrEqualTo(1);
+        // After P1 fix: cross-mapping anchor alias should correctly resolve
+        // the anchored mapping's key-value pairs into the server section.
+        await Assert.That(serverKeys).Contains("host");
+        await Assert.That(serverKeys).Contains("port");
         await Assert.That(serverKeys).Contains("name");
+        // Verify values round-trip correctly
+        var hostIdx = serverKeys.IndexOf("host");
+        if (hostIdx >= 0)
+            await Assert.That(serverVals[hostIdx]).IsEqualTo("localhost");
     }
 
     // P3: Self-referencing merge key — *alias used within same mapping that defines &anchor
@@ -131,7 +136,7 @@ public class YamlAnchorTests
         //   server: &def
         //     host: localhost
         //     port: 8080
-        //     <<: *def       ← RESIDUAL BUG: *def not yet stored in _anchors
+        //     <<: *def       ← P1 fix: _nextAnchorName is set before ObjectStart
         //     name: main
         var yaml =
             "server: &def\n  host: localhost\n  port: 8080\n  <<: *def\n  name: main"u8.ToArray();
@@ -159,8 +164,9 @@ public class YamlAnchorTests
                 }
             }
         }
-        // <<: should not appear as a key to the consumer — it's a merge directive
-        // host and port should appear (from the merge)
+        // <<: merge key is emitted as a regular PropertyName token — it's up to
+        // the SG-generated deserializer to interpret the merge directive.
+        // host and port should appear (from the merge via alias resolution)
         // name should appear as override
         await Assert.That(keys).Contains("host");
         await Assert.That(keys).Contains("port");
@@ -213,5 +219,72 @@ public class YamlAnchorTests
         await Assert.That(results["x"]).IsEqualTo("Alice");
         await Assert.That(results["y"]).IsEqualTo("Bob");
         await Assert.That(results["z"]).IsEqualTo("Charlie");
+    }
+
+    [Test]
+    public async Task MappingAnchor_OverMaxPairs_ThrowsFormatException()
+    {
+        // P0 fix: anchored mappings with >8 key-value pairs should throw.
+        var yaml = "defaults: &def\n  f01: v01\n  f02: v02\n  f03: v03\n  f04: v04\n  f05: v05\n  f06: v06\n  f07: v07\n  f08: v08\n  f09: v09"u8.ToArray();
+        var threw = false;
+        {
+            var reader = new YamlReader(yaml);
+            try { while (reader.Read()) { } }
+            catch (FormatException) { threw = true; }
+            reader.Dispose();
+        }
+        await Assert.That(threw).IsTrue();
+    }
+
+    [Test]
+    public async Task MappingAnchor_AtMaxPairs_Succeeds()
+    {
+        // P0 fix: exactly 8 pairs should succeed.
+        var yaml = "defaults: &def\n  f01: v01\n  f02: v02\n  f03: v03\n  f04: v04\n  f05: v05\n  f06: v06\n  f07: v07\n  f08: v08"u8.ToArray();
+        var threw = false;
+        {
+            var reader = new YamlReader(yaml);
+            try { while (reader.Read()) { } }
+            catch (FormatException) { threw = true; }
+            reader.Dispose();
+        }
+        await Assert.That(threw).IsFalse();
+    }
+
+    [Test]
+    public async Task MultipleMappingAnchors_AliasToFirst_ResolvesCorrectly()
+    {
+        // P7: When two anchored mappings exist, alias to the first must
+        // correctly resolve its own data, not the second mapping's data.
+        // The accumulator shares anchor 0's storage fields; when the
+        // second anchored mapping accumulates, it must not corrupt anchor 0.
+        // Use distinct keys (fa/fb) so corruption is visible as wrong key
+        // in the replayed token sequence.
+        var yaml =
+            "first: &a\n  fa: va\nsecond: &b\n  fb: vb\nresult: *a\nck: final"u8.ToArray();
+        var tokens = new List<(string Key, string Val)>();
+        {
+            var reader = new YamlReader(yaml);
+            while (reader.Read())
+            {
+                if (reader.TokenType == TokenType.PropertyName)
+                {
+                    tokens.Add((
+                        Encoding.UTF8.GetString(reader.KeySpan),
+                        Encoding.UTF8.GetString(reader.ValueSpan)
+                    ));
+                }
+            }
+            reader.Dispose();
+        }
+        // Token order should be:
+        // first, fa, second, fb, result, fa, ck
+        //                    ^ replay begins ^  ^ ck is after replay
+        // Bug: replay emits "fb" instead of "fa" because anchor 0 corrupted
+        var resultIdx = tokens.FindIndex(t => t.Key == "result");
+        await Assert.That(resultIdx).IsGreaterThanOrEqualTo(0);
+        // The token IMMEDIATELY after "result" should be the replayed "fa"
+        await Assert.That(tokens[resultIdx + 1].Key).IsEqualTo("fa");
+        await Assert.That(tokens[resultIdx + 1].Val).IsEqualTo("va");
     }
 }

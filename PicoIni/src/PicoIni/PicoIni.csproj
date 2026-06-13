@@ -39,6 +39,11 @@
       Visible="false"
     />
   </ItemGroup>
+  <!-- Fail fast if the SG DLL is missing (e.g., out-of-order build) -->
+  <Target Name="EnsurePicoIniGenDllExists" BeforeTargets="GenerateNuspec" Condition="'$(IsPackable)' == 'true'">
+    <Warning Text="PicoIni.Gen.dll not found at expected path. Run build on PicoIni.Gen first."
+             Condition="!Exists('..\PicoIni.Gen\bin\$(Configuration)\netstandard2.0\PicoIni.Gen.dll')" />
+  </Target>
   <ItemGroup>
     <PackageReference Update="Microsoft.SourceLink.GitHub" Version="10.0.300" />
   </ItemGroup>

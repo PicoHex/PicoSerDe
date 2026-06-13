@@ -66,6 +66,26 @@ public ref struct YamlReader
         _a0v6,
         _a0k7,
         _a0v7;
+
+    // Dedicated accumulator fields (P7 fix) — separate from anchor 0's storage
+    // so that accumulating a second anchored mapping does not corrupt anchor 0.
+    private byte[]? _accK0,
+        _accV0,
+        _accK1,
+        _accV1,
+        _accK2,
+        _accV2,
+        _accK3,
+        _accV3,
+        _accK4,
+        _accV4,
+        _accK5,
+        _accV5,
+        _accK6,
+        _accV6,
+        _accK7,
+        _accV7;
+
     private byte[]? _a1k0,
         _a1v0,
         _a1k1,
@@ -658,6 +678,15 @@ public ref struct YamlReader
         _position = afterKey;
         if (nextIndent > lineIndent)
         {
+            // If a pending anchor exists, defer it for mapping anchor accumulation.
+            // Without this, StoreAnchorIfNeeded() called on the first inner scalar
+            // would incorrectly store it as a scalar anchor.
+            if (_pendingAnchorName is not null)
+            {
+                _nextAnchorName = _pendingAnchorName;
+                _pendingAnchorName = null;
+                _curPairCount = 0;
+            }
             _tokenType = TokenType.PropertyName;
             return true;
         }
@@ -1635,29 +1664,35 @@ public ref struct YamlReader
         {
             _pendingMappingAnchor = _nextAnchorName;
             _nextAnchorName = null;
-            return;
+            // Fall through — accumulate the current pair too.
+            // Without this, the first pair after _nextAnchorName is lost.
         }
-        if (_pendingMappingAnchor is not null && _curPairCount < MaxAnchorPairs)
+        if (_pendingMappingAnchor is not null)
         {
-            // Use anchor 0's pair slots as temporary accumulator
+            if (_curPairCount >= MaxAnchorPairs)
+                throw new FormatException(
+                    $"Too many key-value pairs in anchored mapping (max {MaxAnchorPairs}) at offset {BytesConsumed}"
+                );
+            // Use dedicated accumulator fields (_accK/V*) separate from anchor 0's storage.
+            // This prevents corruption of anchor 0 when a second anchored mapping accumulates.
             AddPairToAnchor(
                 ref _curPairCount,
-                ref _a0k0,
-                ref _a0v0,
-                ref _a0k1,
-                ref _a0v1,
-                ref _a0k2,
-                ref _a0v2,
-                ref _a0k3,
-                ref _a0v3,
-                ref _a0k4,
-                ref _a0v4,
-                ref _a0k5,
-                ref _a0v5,
-                ref _a0k6,
-                ref _a0v6,
-                ref _a0k7,
-                ref _a0v7,
+                ref _accK0,
+                ref _accV0,
+                ref _accK1,
+                ref _accV1,
+                ref _accK2,
+                ref _accV2,
+                ref _accK3,
+                ref _accV3,
+                ref _accK4,
+                ref _accV4,
+                ref _accK5,
+                ref _accV5,
+                ref _accK6,
+                ref _accV6,
+                ref _accK7,
+                ref _accV7,
                 _keySpan.ToArray(),
                 _valueSpan.ToArray()
             );
@@ -1672,22 +1707,22 @@ public ref struct YamlReader
         SetMappingAnchor(
             _pendingMappingAnchor,
             _curPairCount,
-            _a0k0,
-            _a0v0,
-            _a0k1,
-            _a0v1,
-            _a0k2,
-            _a0v2,
-            _a0k3,
-            _a0v3,
-            _a0k4,
-            _a0v4,
-            _a0k5,
-            _a0v5,
-            _a0k6,
-            _a0v6,
-            _a0k7,
-            _a0v7
+            _accK0,
+            _accV0,
+            _accK1,
+            _accV1,
+            _accK2,
+            _accV2,
+            _accK3,
+            _accV3,
+            _accK4,
+            _accV4,
+            _accK5,
+            _accV5,
+            _accK6,
+            _accV6,
+            _accK7,
+            _accV7
         );
         _pendingMappingAnchor = null;
         _curPairCount = 0;
@@ -1697,14 +1732,14 @@ public ref struct YamlReader
     {
         return i switch
         {
-            0 => (_a0k0!, _a0v0!),
-            1 => (_a0k1!, _a0v1!),
-            2 => (_a0k2!, _a0v2!),
-            3 => (_a0k3!, _a0v3!),
-            4 => (_a0k4!, _a0v4!),
-            5 => (_a0k5!, _a0v5!),
-            6 => (_a0k6!, _a0v6!),
-            _ => (_a0k7!, _a0v7!),
+            0 => (_accK0!, _accV0!),
+            1 => (_accK1!, _accV1!),
+            2 => (_accK2!, _accV2!),
+            3 => (_accK3!, _accV3!),
+            4 => (_accK4!, _accV4!),
+            5 => (_accK5!, _accV5!),
+            6 => (_accK6!, _accV6!),
+            _ => (_accK7!, _accV7!),
         };
     }
 
