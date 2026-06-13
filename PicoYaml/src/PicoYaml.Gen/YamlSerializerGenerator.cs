@@ -730,6 +730,41 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        }");
         sb.AppendLine("        return o;");
         sb.AppendLine("    } }");
+        sb.AppendLine();
+
+        // Streaming (scalar properties only, skip nested objects/dicts)
+        sb.Append("file static class ");
+        sb.Append(t.Name);
+        sb.AppendLine("_YamlStreaming {");
+        sb.AppendLine("    internal static ReadStatus DeserializeStreaming(ref YamlReader r, out " + t.Name + "? result) {");
+        sb.AppendLine("        result = default;");
+        sb.Append("        var o = new ");
+        sb.Append(t.Name);
+        sb.AppendLine("();");
+        sb.AppendLine("        while (true) {");
+        sb.AppendLine("            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;");
+        sb.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
+        sb.AppendLine("            var __k = r.KeySpan;");
+        sb.AppendLine("            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;");
+        int yi = 0;
+        foreach (var p in t.Properties.Where(p => p.TypeKind is not "object" and not "dict"))
+        {
+            var kw = yi++ == 0 ? "if" : "else if";
+            sb.Append("            ");
+            sb.Append(kw);
+            sb.Append(" (TextHelpers.Eq(__k, \"");
+            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+            sb.AppendLine("\"u8)) {");
+            EmitDeserialize(sb, p, "o", "                ");
+            sb.AppendLine("            }");
+        }
+        sb.AppendLine("            else { if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput; }");
+        sb.AppendLine("        }");
+        sb.AppendLine("        result = o;");
+        sb.AppendLine("        return ReadStatus.Success;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        sb.AppendLine();
 
         sb.Append("file static class ");
         sb.Append(t.Name);
@@ -739,7 +774,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append(t.Name);
         sb.Append("_YS(), new ");
         sb.Append(t.Name);
-        sb.AppendLine("_YD()); } }");
+        sb.AppendLine("_YD());");
+        sb.Append("YamlSerializer.RegisterStreaming<");
+        sb.Append(t.Name);
+        sb.Append(">(");
+        sb.Append(t.Name);
+        sb.AppendLine("_YamlStreaming.DeserializeStreaming); } }");
         return sb.ToString();
     }
 

@@ -298,13 +298,11 @@ public class MsgPackSerializerGeneratorTests
     }
 
     [Test]
-    public async Task StreamingDelegate_NotRegistered_Yet()
+    public async Task StreamingDelegate_AutoRegistered()
     {
-        // SG streaming for MsgPack is a future enhancement.
-        // The test documents the current state: delegate is not auto-registered.
         var bytes = MsgPackSerializer.SerializeToUtf8Bytes(new PersonMsgPack { Name = "x", Age = 1 });
         var hasDelegate = MsgPackSerializer.HasStreamingDelegate<PersonMsgPack>();
-        await Assert.That(hasDelegate).IsFalse();
+        await Assert.That(hasDelegate).IsTrue();
     }
 
     [Test]

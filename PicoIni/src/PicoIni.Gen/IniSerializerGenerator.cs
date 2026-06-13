@@ -448,6 +448,32 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    } }");
         s.AppendLine();
 
+        // Streaming deserializer
+        s.Append("file static class ");
+        s.Append(type.Name);
+        s.AppendLine("IniStreaming {");
+        s.AppendLine("    internal static ReadStatus DeserializeStreaming(ref IniReader reader, out " + type.Name + "? result) {");
+        s.AppendLine("        result = default;");
+        s.Append("        var obj = new ");
+        s.Append(type.Name);
+        s.AppendLine("();");
+        s.AppendLine("        while (true) {");
+        s.AppendLine("            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;");
+        s.AppendLine("            if (reader.TokenType == TokenType.ObjectEnd) break;");
+        s.AppendLine("            if (reader.TokenType != TokenType.PropertyName) continue;");
+        s.AppendLine("            var __k = reader.GetStringRaw();");
+        s.AppendLine("            reader.ReadValue();");
+        if (top.Count > 0)
+        {
+            EmitKeyDispatch(s, top, "__k", "obj", null, "            ", "                ");
+        }
+        s.AppendLine("        }");
+        s.AppendLine("        result = obj;");
+        s.AppendLine("        return ReadStatus.Success;");
+        s.AppendLine("    }");
+        s.AppendLine("}");
+        s.AppendLine();
+
         // Registration
         s.Append("file static class ");
         s.Append(type.Name);
@@ -461,6 +487,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append("IniSerializer(), new ");
         s.Append(type.Name);
         s.AppendLine("IniDeserializer());");
+        s.Append("        IniSerializer.RegisterStreaming<");
+        s.Append(type.Name);
+        s.Append(">(");
+        s.Append(type.Name);
+        s.AppendLine("IniStreaming.DeserializeStreaming);");
         s.AppendLine("    } }");
         return s.ToString();
     }

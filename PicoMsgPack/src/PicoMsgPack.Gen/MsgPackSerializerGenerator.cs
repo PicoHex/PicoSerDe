@@ -216,6 +216,44 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        return obj; } }");
         s.AppendLine();
 
+        // Streaming deserializer
+        s.Append("file static class ");
+        s.Append(type.Name);
+        s.AppendLine("MsgPackStreaming {");
+        s.AppendLine("    internal static ReadStatus DeserializeStreaming(ref MsgPackReader reader, out " + type.Name + "? result) {");
+        s.AppendLine("        result = default;");
+        s.Append("        var obj = new ");
+        s.Append(type.Name);
+        s.AppendLine("();");
+        s.AppendLine("        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;");
+        s.AppendLine("        bool __isMap = reader.TokenType == TokenType.ObjectStart; int __pos = 0;");
+        s.AppendLine("        while (true) {");
+        s.AppendLine("            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;");
+        s.AppendLine("            if (reader.TokenType == TokenType.ObjectEnd || reader.TokenType == TokenType.ArrayEnd) break;");
+        s.AppendLine("            int __k;");
+        s.AppendLine("            if (__isMap) {");
+        s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
+        s.AppendLine("            } else {");
+        s.AppendLine("                __k = __pos;");
+        s.AppendLine("            }");
+        s.AppendLine("            switch (__k) {");
+        foreach (var p in sorted)
+        {
+            s.Append("                case ");
+            s.Append(p.IntKey ?? 0);
+            s.AppendLine(":");
+            WriteDeser(s, p, "obj", "                ", ref c);
+            s.AppendLine("                    break;");
+        }
+        s.AppendLine("                default: if (__isMap) reader.TrySkip(); break; }");
+        s.AppendLine("            __pos++;");
+        s.AppendLine("        }");
+        s.AppendLine("        result = obj;");
+        s.AppendLine("        return ReadStatus.Success;");
+        s.AppendLine("    }");
+        s.AppendLine("}");
+        s.AppendLine();
+
         s.Append("file static class ");
         s.Append(type.Name);
         s.AppendLine("__Reg {");
@@ -226,7 +264,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append(type.Name);
         s.Append("MsgPackSerializer(), new ");
         s.Append(type.Name);
-        s.AppendLine("MsgPackDeserializer()); } }");
+        s.AppendLine("MsgPackDeserializer());");
+        s.Append("        MsgPackSerializer.RegisterStreaming<");
+        s.Append(type.Name);
+        s.Append(">(");
+        s.Append(type.Name);
+        s.AppendLine("MsgPackStreaming.DeserializeStreaming);");
+        s.AppendLine("    } }");
         return s.ToString();
     }
 

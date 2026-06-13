@@ -353,6 +353,38 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        }");
         s.AppendLine("        return o;");
         s.AppendLine("    } }");
+        s.AppendLine();
+
+        // Streaming (scalar properties only, skip nested objects)
+        s.Append("file static class ");
+        s.Append(t.Name);
+        s.AppendLine("_TomlStreaming {");
+        s.AppendLine("    internal static ReadStatus DeserializeStreaming(ref TomlReader r, out " + t.Name + "? result) {");
+        s.AppendLine("        result = default;");
+        s.Append("        var o = new ");
+        s.Append(t.Name);
+        s.AppendLine("();");
+        s.AppendLine("        while (true) {");
+        s.AppendLine("            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;");
+        s.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
+        s.AppendLine("            var __sk = r.KeySpan;");
+        s.AppendLine("            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;");
+        var simpleProps = t.Properties.Where(p => p.TypeKind is not "object" and not "dict").ToImmutableArray();
+        EmitPropertyDispatch(s, simpleProps, "__sk", "o", "        ", "            ");
+        foreach (var p in t.Properties.Where(p => p.TypeKind is "object" or "dict"))
+        {
+            s.Append("            if (TextHelpers.Eq(__sk, \"");
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+            s.AppendLine("\"u8)) {");
+            s.AppendLine("                r.Skip();");
+            s.AppendLine("            }");
+        }
+        s.AppendLine("        }");
+        s.AppendLine("        result = o;");
+        s.AppendLine("        return ReadStatus.Success;");
+        s.AppendLine("    }");
+        s.AppendLine("}");
+        s.AppendLine();
 
         s.Append("file static class ");
         s.Append(t.Name);
@@ -362,7 +394,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(t.Name);
         s.Append("_TomlSer(), new ");
         s.Append(t.Name);
-        s.AppendLine("_TomlDes()); } }");
+        s.AppendLine("_TomlDes());");
+        s.Append("TomlSerializer.RegisterStreaming<");
+        s.Append(t.Name);
+        s.Append(">(");
+        s.Append(t.Name);
+        s.AppendLine("_TomlStreaming.DeserializeStreaming); } }");
         return s.ToString();
     }
 
