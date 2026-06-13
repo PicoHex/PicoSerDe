@@ -1,5 +1,3 @@
-using PicoSerDe.Core;
-
 namespace PicoMsgPack;
 
 public static partial class MsgPackSerializer
