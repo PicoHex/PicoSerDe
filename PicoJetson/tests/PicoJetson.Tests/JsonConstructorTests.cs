@@ -109,4 +109,26 @@ public class JsonConstructorTests
         await Assert.That(result!.Name).IsEqualTo("Diana");
         await Assert.That(result!.Age).IsEqualTo(28);
     }
+
+    [Test]
+    public async Task StreamingDelegate_ImmutableType_IsRegistered()
+    {
+        // Force SG generation for ImmutablePerson
+        _ = JsonSerializer.SerializeToUtf8Bytes(new ImmutablePerson("x", 1));
+        var hasDelegate = JsonSerializer.HasStreamingDelegate<ImmutablePerson>();
+        await Assert.That(hasDelegate).IsTrue();
+    }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_ImmutablePerson_Works()
+    {
+        var bytes = """{"name":"Alice","age":30}"""u8.ToArray();
+        using var stream = new MemoryStream(bytes);
+
+        var result = await JsonSerializer.DeserializeFromStreamAsync<ImmutablePerson>(stream);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("Alice");
+        await Assert.That(result!.Age).IsEqualTo(30);
+    }
 }

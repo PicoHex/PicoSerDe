@@ -325,7 +325,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         // Skip streaming for types with [JsonConstructor] (immutable types)
         // Support for these requires temp variables and deferred construction.
         var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
-        if (type.Properties.Length > 0 && !hasCtor)
+        if (type.Properties.Length > 0)
             EmitStreamingDeserializer(sb, type);
         return sb.ToString();
     }
@@ -1818,15 +1818,45 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var typeRef = string.IsNullOrEmpty(type.Namespace)
             ? type.Name
             : $"global::{type.Namespace}.{type.Name}";
+        var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
         sb.Append("file static class ");
         sb.Append(type.Name);
         sb.AppendLine("Streaming");
         sb.AppendLine("{");
         sb.AppendLine("    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, out " + type.Name + "? result)");
         sb.AppendLine("    {");
-        sb.Append("        result = new ");
-        sb.Append(type.Name);
-        sb.AppendLine("();");
+        sb.Append("        result = default;");
+        sb.AppendLine();
+
+        if (hasCtor)
+        {
+            // Declare temp variables for constructor parameters
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            {
+                var cp = type.CtorParams[ci];
+                var typeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                var defaultVal = cp.TypeKind switch
+                {
+                    "string" => "null!",
+                    "int32" or "int64" or "float64" => "0",
+                    "boolean" => "false",
+                    _ => "default!",
+                };
+                sb.Append("        ");
+                sb.Append(typeName);
+                sb.Append(" __cp_");
+                sb.Append(ci);
+                sb.Append(" = ");
+                sb.Append(defaultVal);
+                sb.AppendLine(";");
+            }
+        }
+        else
+        {
+            sb.Append("        result = new ");
+            sb.Append(type.Name);
+            sb.AppendLine("();");
+        }
         sb.AppendLine();
         sb.AppendLine("        // ReadStart");
         sb.AppendLine("        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;");
@@ -1847,7 +1877,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(EscapeCSharpString(prop.JsonName));
             sb.AppendLine("\"u8))");
             sb.AppendLine("            {");
-            EmitDeserializeProperty(sb, prop, "result", "                ");
+            if (hasCtor)
+                EmitDeserializeCtorParam(sb, prop, type, "                ");
+            else
+                EmitDeserializeProperty(sb, prop, "result", "                ");
             sb.AppendLine("            }");
         }
         if (type.Properties.Length > 0)
@@ -1855,6 +1888,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("            else reader.TrySkip();");
         }
         sb.AppendLine("        }");
+        if (hasCtor)
+        {
+            sb.Append("        result = new ");
+            sb.Append(type.Name);
+            sb.Append("(");
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            {
+                if (ci > 0) sb.Append(", ");
+                sb.Append("__cp_");
+                sb.Append(ci);
+            }
+            sb.AppendLine(");");
+        }
         sb.AppendLine("        return ReadStatus.Success;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -1882,7 +1928,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("            new ");
         sb.Append(type.Name);
         sb.AppendLine("JsonDeserializer());");
-        if (type.Properties.Length > 0 && !hasCtor)
+        if (type.Properties.Length > 0)
         {
             sb.AppendLine("        global::PicoJetson.JsonSerializer.RegisterStreaming<");
             sb.Append(typeRef);
