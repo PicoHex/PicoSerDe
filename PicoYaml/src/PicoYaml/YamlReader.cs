@@ -1,5 +1,19 @@
 namespace PicoYaml;
 
+/// <summary>Captures YamlReader state for pause/resume across chunks.</summary>
+public struct YamlReaderState
+{
+    internal int Depth;
+    internal int MaxDepth;
+    internal long BytesConsumed;
+    internal SequencePosition Position;
+    internal int StackCount;
+    internal int[]? IndentStack;
+    internal bool InFlow;
+    internal bool FlowStartEmitted;
+    internal bool DocStartPending;
+}
+
 public ref struct YamlReader
 {
     // Span mode fields
@@ -154,13 +168,19 @@ public ref struct YamlReader
     // Safety: prevents infinite loops in pathological YAML
     private const int MaxTokens = 100_000;
     private int _tokenCount;
+    private readonly bool _isFinalBlock;
+    private bool _needsMoreData;
 
-    public YamlReader(ReadOnlySpan<byte> data)
+    public bool NeedsMoreData => _needsMoreData;
+
+    public YamlReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
     {
         _data = data;
         _position = 0;
         _seqReader = default;
         _isSequence = false;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
         _valueSpan = default;
@@ -177,12 +197,14 @@ public ref struct YamlReader
         _tokenCount = 0;
     }
 
-    public YamlReader(ReadOnlySequence<byte> data)
+    public YamlReader(ReadOnlySequence<byte> data, bool isFinalBlock = true)
     {
         _data = default;
         _position = 0;
         _seqReader = new SequenceReader<byte>(data);
         _isSequence = true;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
         _valueSpan = default;
@@ -205,7 +227,53 @@ public ref struct YamlReader
     public int Depth => _depth;
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
 
+    public readonly YamlReaderState ExportState()
+    {
+        var s = new YamlReaderState
+        {
+            Depth = _depth,
+            MaxDepth = _maxDepth,
+            BytesConsumed = _seqReader.Consumed,
+            Position = _seqReader.Position,
+            StackCount = _stackCount,
+            InFlow = _inFlow,
+            FlowStartEmitted = _flowStartEmitted,
+            DocStartPending = _docStartPending,
+        };
+        if (_stackCount > 0)
+        {
+            s.IndentStack = new int[_stackCount];
+            Array.Copy(_indentStack, s.IndentStack, _stackCount);
+        }
+        return s;
+    }
+
+    public YamlReader(ReadOnlySequence<byte> data, bool isFinalBlock, YamlReaderState state)
+        : this(data, isFinalBlock)
+    {
+        _depth = state.Depth;
+        _maxDepth = state.MaxDepth;
+        _needsMoreData = false;
+        _stackCount = state.StackCount;
+        _inFlow = state.InFlow;
+        _flowStartEmitted = state.FlowStartEmitted;
+        _docStartPending = state.DocStartPending;
+        if (state.IndentStack is not null)
+        {
+            _indentStack = new int[64];
+            Array.Copy(state.IndentStack, _indentStack, state.StackCount);
+        }
+    }
+
     public bool Read()
+    {
+        _needsMoreData = false;
+        var result = ReadImpl();
+        if (!result) _needsMoreData = !_isFinalBlock;
+        return result;
+    }
+
+    private bool ReadImpl()
     {
         if (++_tokenCount > MaxTokens)
             throw new FormatException(

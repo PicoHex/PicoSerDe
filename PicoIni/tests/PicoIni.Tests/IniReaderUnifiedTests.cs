@@ -233,22 +233,53 @@ public class IniReaderUnifiedTests
         }
         await Assert.That(section).IsEqualTo(longName);
     }
-}
 
-file sealed class BufferSegment : ReadOnlySequenceSegment<byte>
-{
-    public BufferSegment(byte[] data, int offset, int length)
+    // ── Streaming / isFinalBlock tests ──
+
+    [Test]
+    public async Task Read_IsFinalBlock_EndOfData_NeedsMoreDataFalse()
     {
-        Memory = new ReadOnlyMemory<byte>(data, offset, length);
+        bool result, needsMore;
+        {
+            var r = new IniReader("key = val"u8, isFinalBlock: true);
+            r.Read(); r.Read();
+            result = r.Read();
+            needsMore = r.NeedsMoreData;
+        }
+        await Assert.That(result).IsFalse();
+        await Assert.That(needsMore).IsFalse();
     }
 
-    public BufferSegment Append(byte[] data, int offset, int length)
+    [Test]
+    public async Task Read_NotFinalBlock_EndOfData_NeedsMoreDataTrue()
     {
-        var next = new BufferSegment(data, offset, length)
+        bool result, needsMore;
         {
-            RunningIndex = RunningIndex + Memory.Length,
-        };
-        Next = next;
-        return next;
+            var r = new IniReader("key = val"u8, isFinalBlock: false);
+            r.Read(); r.Read();
+            result = r.Read();
+            needsMore = r.NeedsMoreData;
+        }
+        await Assert.That(result).IsFalse();
+        await Assert.That(needsMore).IsTrue();
+    }
+
+    [Test]
+    public async Task ExportState_RoundTrip_RestoresDepth()
+    {
+        int finalDepth;
+        {
+            var part1 = "[sec]\nk1 = v1"u8.ToArray();
+            var r1 = new IniReader(new ReadOnlySequence<byte>(part1), isFinalBlock: false);
+            r1.Read(); r1.Read(); r1.Read(); r1.Read(); // [sec], k1, =, v1
+            var state = r1.ExportState();
+
+            var part2 = "\nk2 = v2"u8.ToArray();
+            var r2 = new IniReader(new ReadOnlySequence<byte>(part2), isFinalBlock: true, state);
+            r2.Read(); r2.Read(); r2.Read(); // k2, =, v2
+            // IniReader doesn't emit ObjectEnd on EOF; depth stays 1
+            finalDepth = r2.Depth;
+        }
+        await Assert.That(finalDepth).IsEqualTo(1); // still inside section
     }
 }

@@ -1,5 +1,16 @@
 namespace PicoIni;
 
+/// <summary>Captures IniReader state for pause/resume across chunks.</summary>
+public struct IniReaderState
+{
+    internal int Depth;
+    internal bool InSection;
+    internal bool HasPendingValue;
+    internal bool HasPendingSectionStart;
+    internal long BytesConsumed;
+    internal SequencePosition Position;
+}
+
 public ref struct IniReader
 {
     private ReadOnlySpan<byte> _data;
@@ -33,12 +44,21 @@ public ref struct IniReader
     private bool _hasPendingSectionStart;
     private ReadOnlySpan<byte> _pendingSectionName;
 
-    public IniReader(ReadOnlySpan<byte> data)
+    // Streaming support
+    private readonly bool _isFinalBlock;
+    private bool _needsMoreData;
+
+    public bool NeedsMoreData => _needsMoreData;
+    public int Depth => _depth;
+
+    public IniReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
     {
         _data = data;
         _position = 0;
         _seqReader = default;
         _isSequence = false;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _currentValue = default;
         _rentedBuffer = null;
@@ -53,12 +73,14 @@ public ref struct IniReader
         _maxDepth = 256;
     }
 
-    public IniReader(ReadOnlySequence<byte> data)
+    public IniReader(ReadOnlySequence<byte> data, bool isFinalBlock = true)
     {
         _data = default;
         _position = 0;
         _seqReader = new SequenceReader<byte>(data);
         _isSequence = true;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _currentValue = default;
         _rentedBuffer = null;
@@ -71,6 +93,31 @@ public ref struct IniReader
         _pendingSectionName = default;
         _depth = 0;
         _maxDepth = 256;
+    }
+
+    /// <summary>Exports parser state for later resumption.</summary>
+    public readonly IniReaderState ExportState()
+    {
+        return new IniReaderState
+        {
+            Depth = _depth,
+            InSection = _inSection,
+            HasPendingValue = _hasPendingValue,
+            HasPendingSectionStart = _hasPendingSectionStart,
+            BytesConsumed = _seqReader.Consumed,
+            Position = _seqReader.Position,
+        };
+    }
+
+    /// <summary>Resumes from a saved state.</summary>
+    public IniReader(ReadOnlySequence<byte> data, bool isFinalBlock, IniReaderState state)
+        : this(data, isFinalBlock)
+    {
+        _depth = state.Depth;
+        _needsMoreData = false;
+        _inSection = state.InSection;
+        _hasPendingValue = state.HasPendingValue;
+        _hasPendingSectionStart = state.HasPendingSectionStart;
     }
 
     public TokenType TokenType => _tokenType;
@@ -89,6 +136,7 @@ public ref struct IniReader
 
     public bool Read()
     {
+        _needsMoreData = false;
         // Emit pending section start (from section transition)
         if (_hasPendingSectionStart)
         {
@@ -260,6 +308,7 @@ public ref struct IniReader
             }
             return ReadKeyValueSpan();
         }
+        _needsMoreData = !_isFinalBlock;
         return false;
     }
 
@@ -405,6 +454,7 @@ public ref struct IniReader
             }
             return ReadKeyValueSeq();
         }
+        _needsMoreData = !_isFinalBlock;
         return false;
     }
 

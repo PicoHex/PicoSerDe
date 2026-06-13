@@ -173,4 +173,32 @@ public class YamlReaderTests
         var ok = r.TryGetBool(out var v);
         await Assert.That(ok).IsFalse();
     }
+
+    [Test]
+    public async Task Read_IsFinalBlock_EndOfData_NeedsMoreDataFalse()
+    {
+        bool result, needsMore;
+        {
+            var r = new YamlReader("key: val"u8, isFinalBlock: true);
+            r.Read(); r.Read();
+            result = r.Read();
+            needsMore = r.NeedsMoreData;
+        }
+        await Assert.That(result).IsFalse();
+        await Assert.That(needsMore).IsFalse();
+    }
+
+    [Test]
+    public async Task Read_NotFinalBlock_EndOfData_NeedsMoreDataTrue()
+    {
+        bool result, needsMore;
+        {
+            var r = new YamlReader("key: val"u8, isFinalBlock: false);
+            r.Read(); r.Read();
+            result = r.Read();
+            needsMore = r.NeedsMoreData;
+        }
+        await Assert.That(result).IsFalse();
+        await Assert.That(needsMore).IsTrue();
+    }
 }

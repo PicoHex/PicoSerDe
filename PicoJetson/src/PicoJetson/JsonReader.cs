@@ -1,5 +1,21 @@
 namespace PicoJetson;
 
+/// <summary>Captures parser state for pause/resume across chunk boundaries.</summary>
+public struct JsonReaderState
+{
+    /// <summary>Nesting depth at the moment of interruption.</summary>
+    internal int Depth;
+
+    /// <summary>Maximum allowed depth.</summary>
+    internal int MaxDepth;
+
+    /// <summary>Number of bytes consumed in the current sequence.</summary>
+    internal long BytesConsumed;
+
+    /// <summary>Reader position for PipeReader.AdvanceTo.</summary>
+    internal SequencePosition Position;
+}
+
 public ref struct JsonReader
 {
     // Span mode fields
@@ -26,12 +42,44 @@ public ref struct JsonReader
         _rb7;
     private int _bufCount;
 
-    public JsonReader(ReadOnlySpan<byte> data, int maxDepth = 256)
+    // Streaming support: isFinalBlock tells the reader whether more data may arrive.
+    // When false, IsAtEnd() sets _needsMoreData instead of signaling end-of-document.
+    private readonly bool _isFinalBlock;
+    private bool _needsMoreData;
+
+    /// <summary>True when Read() returned false because a chunk boundary was reached (not EOF).</summary>
+    public bool NeedsMoreData => _needsMoreData;
+
+    /// <summary>Exports the current parser state for later resumption with a new buffer.</summary>
+    public readonly JsonReaderState ExportState()
+    {
+        return new JsonReaderState
+        {
+            Depth = _depth,
+            MaxDepth = _maxDepth,
+            BytesConsumed = _seqReader.Consumed,
+            Position = _seqReader.Position,
+        };
+    }
+
+    /// <summary>Creates a reader that resumes from a previously saved state.
+    /// The <paramref name="data"/> must start at the same position where the
+    /// previous reader stopped (the unconsumed portion of the old sequence).</summary>
+    public JsonReader(ReadOnlySequence<byte> data, bool isFinalBlock, JsonReaderState state)
+        : this(data, state.MaxDepth > 0 ? state.MaxDepth : 256, isFinalBlock)
+    {
+        _depth = state.Depth;
+        _needsMoreData = false;
+    }
+
+    public JsonReader(ReadOnlySpan<byte> data, int maxDepth = 256, bool isFinalBlock = true)
     {
         _data = data;
         _position = 0;
         _seqReader = default;
         _isSequence = false;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _depth = 0;
         _maxDepth = maxDepth;
@@ -41,12 +89,14 @@ public ref struct JsonReader
         _bufCount = 0;
     }
 
-    public JsonReader(ReadOnlySequence<byte> data, int maxDepth = 256)
+    public JsonReader(ReadOnlySequence<byte> data, int maxDepth = 256, bool isFinalBlock = true)
     {
         _data = default;
         _position = 0;
         _seqReader = new SequenceReader<byte>(data);
         _isSequence = true;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _depth = 0;
         _maxDepth = maxDepth;
@@ -88,10 +138,14 @@ public ref struct JsonReader
 
     public bool Read()
     {
+        _needsMoreData = false;
         SkipWhitespace();
         Retry:
         if (IsAtEnd())
+        {
+            _needsMoreData = !_isFinalBlock;
             return false;
+        }
 
         // Comment handling: skip // and /* */ if enabled
         if (PeekByte() == (byte)'/')
@@ -101,7 +155,10 @@ public ref struct JsonReader
             {
                 AdvanceByte();
                 if (IsAtEnd())
+                {
+                    _needsMoreData = !_isFinalBlock;
                     return false;
+                }
                 if (PeekByte() == (byte)'/')
                 {
                     // Line comment: skip to end of line
@@ -129,6 +186,7 @@ public ref struct JsonReader
                         else
                             AdvanceByte();
                     }
+                    _needsMoreData = !_isFinalBlock;
                     return false;
                 }
             }
@@ -143,7 +201,10 @@ public ref struct JsonReader
             if (IsAtEnd())
             {
                 if (opts?.AllowTrailingCommas == true)
+                {
+                    _needsMoreData = !_isFinalBlock;
                     return false;
+                }
                 throw new FormatException("Trailing comma at end of document");
             }
             if (PeekByte() is (byte)'}' or (byte)']')
@@ -190,6 +251,13 @@ public ref struct JsonReader
                 _depth--;
                 return true;
             case (byte)'"':
+                // In streaming mode, verify the complete string (+ suffix) is in the
+                // current sequence before starting to read. Prevents partial-value reads.
+                if (!_isFinalBlock && _isSequence && !HasCompletePropertyOrString())
+                {
+                    _needsMoreData = true;
+                    return false;
+                }
                 return ReadStringOrProperty();
             case (byte)'t':
                 return ReadLiteral("true"u8, TokenType.Bool);
@@ -459,6 +527,39 @@ public ref struct JsonReader
     }
 
     // ── String / Property reading ──
+
+    /// <summary>
+    /// Checks whether the current position points to a complete JSON string
+    /// (including the closing quote) followed by at least one byte.
+    /// Used in streaming mode (!isFinalBlock) to avoid starting a value
+    /// whose closing delimiter or token-type signifier (':') is in a later chunk.
+    /// </summary>
+    private bool HasCompletePropertyOrString()
+    {
+        var seq = _seqReader.Sequence.Slice(_seqReader.Position);
+        var r = new SequenceReader<byte>(seq);
+        if (r.End) return false;
+        r.Advance(1); // skip opening "
+
+        while (!r.End)
+        {
+            var b = r.CurrentSpan[r.CurrentSpanIndex];
+            if (b == (byte)'"') { r.Advance(1); break; }
+            if (b == (byte)'\\')
+            {
+                if (r.Remaining < 2) return false;
+                r.Advance(2);
+                continue;
+            }
+            r.Advance(1);
+        }
+        if (r.End) return false;
+
+        while (!r.End && (r.CurrentSpan[r.CurrentSpanIndex] is (byte)' ' or (byte)'\t'))
+            r.Advance(1);
+
+        return !r.End;
+    }
 
     private bool ReadStringOrProperty()
     {

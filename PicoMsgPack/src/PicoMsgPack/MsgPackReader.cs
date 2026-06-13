@@ -1,5 +1,16 @@
 namespace PicoMsgPack;
 
+/// <summary>Captures MsgPack reader state for pause/resume across chunks.</summary>
+public struct MsgPackReaderState
+{
+    internal int Depth;
+    internal long BytesConsumed;
+    internal SequencePosition Position;
+    internal int[]? ElementStack;
+    internal bool[]? IsMapStack;
+    internal bool[]? ExpectKeyStack;
+}
+
 public ref struct MsgPackReader
 {
     // Span mode
@@ -22,13 +33,20 @@ public ref struct MsgPackReader
     private BoolStack64 _expectKeyStack;
 
     private const int MaxDepth = 64;
+    private readonly bool _isFinalBlock;
+    private bool _needsMoreData;
 
-    public MsgPackReader(ReadOnlySpan<byte> data)
+    public bool NeedsMoreData => _needsMoreData;
+    public int Depth => _depth;
+
+    public MsgPackReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
     {
         _data = data;
         _position = 0;
         _seqReader = default;
         _isSequence = false;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _valueSpan = default;
         _rentedBuffer = null;
@@ -40,12 +58,14 @@ public ref struct MsgPackReader
         _depth = 0;
     }
 
-    public MsgPackReader(ReadOnlySequence<byte> data)
+    public MsgPackReader(ReadOnlySequence<byte> data, bool isFinalBlock = true)
     {
         _data = default;
         _position = 0;
         _seqReader = new SequenceReader<byte>(data);
         _isSequence = true;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _valueSpan = default;
         _rentedBuffer = null;
@@ -55,6 +75,47 @@ public ref struct MsgPackReader
         _isMapStack = default;
         _expectKeyStack = default;
         _depth = 0;
+    }
+
+    /// <summary>Exports parser state for later resumption.</summary>
+    public readonly MsgPackReaderState ExportState()
+    {
+        var s = new MsgPackReaderState
+        {
+            Depth = _depth,
+            BytesConsumed = _seqReader.Consumed,
+            Position = _seqReader.Position,
+        };
+        if (_depth > 0)
+        {
+            s.ElementStack = new int[_depth];
+            s.IsMapStack = new bool[_depth];
+            s.ExpectKeyStack = new bool[_depth];
+            for (int i = 0; i < _depth; i++)
+            {
+                s.ElementStack[i] = _elementStack[i];
+                s.IsMapStack[i] = _isMapStack[i];
+                s.ExpectKeyStack[i] = _expectKeyStack[i];
+            }
+        }
+        return s;
+    }
+
+    /// <summary>Resumes from a saved state.</summary>
+    public MsgPackReader(ReadOnlySequence<byte> data, bool isFinalBlock, MsgPackReaderState state)
+        : this(data, isFinalBlock)
+    {
+        _depth = state.Depth;
+        _needsMoreData = false;
+        if (_depth > 0 && state.ElementStack is not null)
+        {
+            for (int i = 0; i < _depth; i++)
+            {
+                _elementStack[i] = state.ElementStack[i];
+                _isMapStack[i] = state.IsMapStack[i];
+                _expectKeyStack[i] = state.ExpectKeyStack[i];
+            }
+        }
     }
 
     public TokenType TokenType => _tokenType;
@@ -182,6 +243,7 @@ public ref struct MsgPackReader
 
     public bool Read()
     {
+        _needsMoreData = false;
         if (_depth > 0 && _elementStack[_depth - 1] == 0)
         {
             _depth--;
@@ -189,7 +251,10 @@ public ref struct MsgPackReader
             return true;
         }
         if (IsAtEnd())
+        {
+            _needsMoreData = !_isFinalBlock;
             return false;
+        }
 
         var b = PeekByte();
         AdvanceByte(); // consume tag byte

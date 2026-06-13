@@ -181,4 +181,42 @@ public class JsonSerializerTests
         await Task.WhenAll(tasks);
         await Assert.That(true).IsTrue();
     }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_SimpleJson_ReturnsObject()
+    {
+        var bytes = "{\"Name\":\"Alice\",\"Age\":30}"u8.ToArray();
+        using var stream = new MemoryStream(bytes);
+
+        // Manually register a streaming delegate (SG would auto-generate this)
+        JsonSerializer.RegisterStreaming<Person>(
+            static (ref JsonReader reader, out Person? result) =>
+            {
+                result = default;
+                // Minimal streaming deserializer for testing
+                if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
+                Person p = new();
+                while (true)
+                {
+                    if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
+                    if (reader.TokenType != TokenType.PropertyName) break;
+                    var name = reader.GetStringRaw();
+                    if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
+                    if (TextHelpers.Eq(name, "Name"u8))
+                        p.Name = Encoding.UTF8.GetString(reader.GetStringRaw());
+                    else if (TextHelpers.Eq(name, "Age"u8))
+                    {
+                        reader.TryGetInt32(out var age);
+                        p.Age = age;
+                    }
+                }
+                result = p;
+                return ReadStatus.Success;
+            });
+
+        var result = await JsonSerializer.DeserializeFromStreamAsync<Person>(stream);
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("Alice");
+        await Assert.That(result.Age).IsEqualTo(30);
+    }
 }

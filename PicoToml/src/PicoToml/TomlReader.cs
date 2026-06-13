@@ -1,5 +1,22 @@
 namespace PicoToml;
 
+/// <summary>Captures TomlReader state for pause/resume across chunks.</summary>
+public struct TomlReaderState
+{
+    internal int Depth;
+    internal int MaxDepth;
+    internal long BytesConsumed;
+    internal SequencePosition Position;
+    internal bool InArray;
+    internal int ArrayDepth;
+    internal bool ArrayStartEmitted;
+    internal bool InInlineTable;
+    internal int InlineTableDepth;
+    internal bool InlineStartEmitted;
+    internal bool IsArrayTable;
+    internal bool DottedActive;
+}
+
 public ref struct TomlReader
 {
     // Span mode fields
@@ -48,12 +65,19 @@ public ref struct TomlReader
         _dottedO3,
         _dottedL3;
 
-    public TomlReader(ReadOnlySpan<byte> data)
+    private readonly bool _isFinalBlock;
+    private bool _needsMoreData;
+
+    public bool NeedsMoreData => _needsMoreData;
+
+    public TomlReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
     {
         _data = data;
         _position = 0;
         _seqReader = default;
         _isSequence = false;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
         _valueSpan = default;
@@ -75,12 +99,14 @@ public ref struct TomlReader
         _dottedPartIndex = 0;
     }
 
-    public TomlReader(ReadOnlySequence<byte> data)
+    public TomlReader(ReadOnlySequence<byte> data, bool isFinalBlock = true)
     {
         _data = default;
         _position = 0;
         _seqReader = new SequenceReader<byte>(data);
         _isSequence = true;
+        _isFinalBlock = isFinalBlock;
+        _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
         _valueSpan = default;
@@ -110,7 +136,48 @@ public ref struct TomlReader
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
     public int Depth => _depth;
 
-    public bool Read() => _isSequence ? ReadSeq() : ReadSpan();
+    public readonly TomlReaderState ExportState()
+    {
+        return new TomlReaderState
+        {
+            Depth = _depth,
+            MaxDepth = _maxDepth,
+            BytesConsumed = _seqReader.Consumed,
+            Position = _seqReader.Position,
+            InArray = _inArray,
+            ArrayDepth = _arrayDepth,
+            ArrayStartEmitted = _arrayStartEmitted,
+            InInlineTable = _inInlineTable,
+            InlineTableDepth = _inlineTableDepth,
+            InlineStartEmitted = _inlineStartEmitted,
+            IsArrayTable = _isArrayTable,
+            DottedActive = _dottedActive,
+        };
+    }
+
+    public TomlReader(ReadOnlySequence<byte> data, bool isFinalBlock, TomlReaderState state)
+        : this(data, isFinalBlock)
+    {
+        _maxDepth = state.MaxDepth;
+        _depth = state.Depth;
+        _needsMoreData = false;
+        _inArray = state.InArray;
+        _arrayDepth = state.ArrayDepth;
+        _arrayStartEmitted = state.ArrayStartEmitted;
+        _inInlineTable = state.InInlineTable;
+        _inlineTableDepth = state.InlineTableDepth;
+        _inlineStartEmitted = state.InlineStartEmitted;
+        _isArrayTable = state.IsArrayTable;
+        _dottedActive = state.DottedActive;
+    }
+
+    public bool Read()
+    {
+        _needsMoreData = false;
+        var result = _isSequence ? ReadSeq() : ReadSpan();
+        if (!result) _needsMoreData = !_isFinalBlock;
+        return result;
+    }
 
     public bool TryGetInt32(out int v)
     {

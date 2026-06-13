@@ -1,3 +1,5 @@
+using PicoSerDe.Core;
+
 namespace PicoJetson;
 
 public static partial class JsonSerializer
@@ -6,6 +8,19 @@ public static partial class JsonSerializer
     {
         internal static ISerializer<T>? Serializer;
         internal static IDeserializer<T>? Deserializer;
+    }
+
+    /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
+    internal delegate ReadStatus StreamingFunc<T>(ref JsonReader reader, out T? result);
+
+    private static class StreamingCache<T>
+    {
+        internal static StreamingFunc<T>? Func;
+    }
+
+    internal static void RegisterStreaming<T>(StreamingFunc<T> func) where T : notnull
+    {
+        StreamingCache<T>.Func = func;
     }
 
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
@@ -83,5 +98,58 @@ public static partial class JsonSerializer
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
         return default;
+    }
+
+    /// <summary>
+    /// Deserializes asynchronously from a Stream using PipeReader-based streaming.
+    /// Requires the source generator to have registered a streaming deserializer
+    /// for the target type (auto-registered via ModuleInitializer when the type
+    /// is used with JsonSerializer).
+    /// </summary>
+    public static async ValueTask<T> DeserializeFromStreamAsync<T>(
+        Stream stream,
+        JsonOptions? options = null,
+        CancellationToken ct = default) where T : notnull
+    {
+        var func = StreamingCache<T>.Func
+            ?? throw new InvalidOperationException(
+                $"No streaming deserializer registered for {typeof(T)}.");
+
+        var prev = JsonOptions.Current;
+        JsonOptions.Current = options;
+        try
+        {
+            var pipe = PipeReader.Create(stream);
+            var state = default(JsonReaderState);
+
+            while (true)
+            {
+                var r = await pipe.ReadAsync(ct);
+                var reader = new JsonReader(r.Buffer, r.IsCompleted, state);
+
+                var status = func(ref reader, out var result);
+
+                if (status == ReadStatus.Success)
+                {
+                    pipe.AdvanceTo(r.Buffer.End);
+                    return result!;
+                }
+
+                if (status == ReadStatus.NeedMoreData)
+                {
+                    if (r.IsCompleted)
+                        throw new FormatException("Unexpected end of stream while parsing.");
+                    state = reader.ExportState();
+                    pipe.AdvanceTo(state.Position, r.Buffer.End);
+                    continue;
+                }
+
+                throw new FormatException("Unexpected parser state.");
+            }
+        }
+        finally
+        {
+            JsonOptions.Current = prev;
+        }
     }
 }
