@@ -300,7 +300,9 @@ public class MsgPackSerializerGeneratorTests
     [Test]
     public async Task StreamingDelegate_AutoRegistered()
     {
-        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(new PersonMsgPack { Name = "x", Age = 1 });
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(
+            new PersonMsgPack { Name = "x", Age = 1 }
+        );
         var hasDelegate = MsgPackSerializer.HasStreamingDelegate<PersonMsgPack>();
         await Assert.That(hasDelegate).IsTrue();
     }
@@ -308,7 +310,9 @@ public class MsgPackSerializerGeneratorTests
     [Test]
     public async Task DeserializeFromStreamAsync_Person_Works()
     {
-        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(new PersonMsgPack { Name = "Alice", Age = 30 });
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(
+            new PersonMsgPack { Name = "Alice", Age = 30 }
+        );
         using var stream = new MemoryStream(bytes);
 
         var result = await MsgPackSerializer.DeserializeFromStreamAsync<PersonMsgPack>(stream);

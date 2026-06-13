@@ -16,7 +16,8 @@ public static partial class IniSerializer
         internal static StreamingFunc<T>? Func;
     }
 
-    public static void RegisterStreaming<T>(StreamingFunc<T> func) where T : notnull
+    public static void RegisterStreaming<T>(StreamingFunc<T> func)
+        where T : notnull
     {
         StreamingCache<T>.Func = func;
     }
@@ -67,7 +68,9 @@ public static partial class IniSerializer
 
     public static async ValueTask<T> DeserializeFromStreamAsync<T>(
         Stream stream,
-        CancellationToken ct = default) where T : notnull
+        CancellationToken ct = default
+    )
+        where T : notnull
     {
         var func = StreamingCache<T>.Func;
         if (func is not null)
@@ -79,7 +82,11 @@ public static partial class IniSerializer
     }
 
     private static async ValueTask<T> DeserializeStreamingCore<T>(
-        StreamingFunc<T> func, Stream stream, CancellationToken ct) where T : notnull
+        StreamingFunc<T> func,
+        Stream stream,
+        CancellationToken ct
+    )
+        where T : notnull
     {
         var pipe = PipeReader.Create(stream);
         var state = default(IniReaderState);

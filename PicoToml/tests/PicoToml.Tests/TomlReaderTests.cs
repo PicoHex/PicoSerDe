@@ -272,10 +272,12 @@ public class TomlReaderTests
     [Test]
     public async Task Read_IsFinalBlock_EndOfData_NeedsMoreDataFalse()
     {
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var r = new TomlReader("key = 1"u8, isFinalBlock: true);
-            r.Read(); r.Read();
+            r.Read();
+            r.Read();
             result = r.Read();
             needsMore = r.NeedsMoreData;
         }
@@ -286,10 +288,12 @@ public class TomlReaderTests
     [Test]
     public async Task Read_NotFinalBlock_EndOfData_NeedsMoreDataTrue()
     {
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var r = new TomlReader("key = 1"u8, isFinalBlock: false);
-            r.Read(); r.Read();
+            r.Read();
+            r.Read();
             result = r.Read();
             needsMore = r.NeedsMoreData;
         }
@@ -304,12 +308,15 @@ public class TomlReaderTests
         {
             var part1 = "[sec]\na = 1"u8.ToArray();
             var r1 = new TomlReader(new ReadOnlySequence<byte>(part1), isFinalBlock: false);
-            r1.Read(); r1.Read(); r1.Read(); // [sec], a, 1
+            r1.Read();
+            r1.Read();
+            r1.Read(); // [sec], a, 1
             var state = r1.ExportState();
 
             var part2 = "\nb = 2"u8.ToArray();
             var r2 = new TomlReader(new ReadOnlySequence<byte>(part2), isFinalBlock: true, state);
-            r2.Read(); r2.Read(); // b, 2
+            r2.Read();
+            r2.Read(); // b, 2
             finalDepth = r2.Depth;
         }
         await Assert.That(finalDepth).IsEqualTo(1); // still in [sec]

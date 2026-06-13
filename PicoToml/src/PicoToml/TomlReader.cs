@@ -175,7 +175,8 @@ public ref struct TomlReader
     {
         _needsMoreData = false;
         var result = _isSequence ? ReadSeq() : ReadSpan();
-        if (!result) _needsMoreData = !_isFinalBlock;
+        if (!result)
+            _needsMoreData = !_isFinalBlock;
         return result;
     }
 

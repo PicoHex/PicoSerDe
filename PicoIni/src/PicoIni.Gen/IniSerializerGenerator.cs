@@ -452,13 +452,19 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append("file static class ");
         s.Append(type.Name);
         s.AppendLine("IniStreaming {");
-        s.AppendLine("    internal static ReadStatus DeserializeStreaming(ref IniReader reader, out " + type.Name + "? result) {");
+        s.AppendLine(
+            "    internal static ReadStatus DeserializeStreaming(ref IniReader reader, out "
+                + type.Name
+                + "? result) {"
+        );
         s.AppendLine("        result = default;");
         s.Append("        var obj = new ");
         s.Append(type.Name);
         s.AppendLine("();");
         s.AppendLine("        while (true) {");
-        s.AppendLine("            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;");
+        s.AppendLine(
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+        );
         s.AppendLine("            if (reader.TokenType == TokenType.ObjectEnd) break;");
         s.AppendLine("            if (reader.TokenType != TokenType.PropertyName) continue;");
         s.AppendLine("            var __k = reader.GetStringRaw();");

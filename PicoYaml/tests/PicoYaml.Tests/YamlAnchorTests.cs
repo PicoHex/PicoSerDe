@@ -225,12 +225,19 @@ public class YamlAnchorTests
     public async Task MappingAnchor_OverMaxPairs_ThrowsFormatException()
     {
         // P0 fix: anchored mappings with >8 key-value pairs should throw.
-        var yaml = "defaults: &def\n  f01: v01\n  f02: v02\n  f03: v03\n  f04: v04\n  f05: v05\n  f06: v06\n  f07: v07\n  f08: v08\n  f09: v09"u8.ToArray();
+        var yaml =
+            "defaults: &def\n  f01: v01\n  f02: v02\n  f03: v03\n  f04: v04\n  f05: v05\n  f06: v06\n  f07: v07\n  f08: v08\n  f09: v09"u8.ToArray();
         var threw = false;
         {
             var reader = new YamlReader(yaml);
-            try { while (reader.Read()) { } }
-            catch (FormatException) { threw = true; }
+            try
+            {
+                while (reader.Read()) { }
+            }
+            catch (FormatException)
+            {
+                threw = true;
+            }
             reader.Dispose();
         }
         await Assert.That(threw).IsTrue();
@@ -240,12 +247,19 @@ public class YamlAnchorTests
     public async Task MappingAnchor_AtMaxPairs_Succeeds()
     {
         // P0 fix: exactly 8 pairs should succeed.
-        var yaml = "defaults: &def\n  f01: v01\n  f02: v02\n  f03: v03\n  f04: v04\n  f05: v05\n  f06: v06\n  f07: v07\n  f08: v08"u8.ToArray();
+        var yaml =
+            "defaults: &def\n  f01: v01\n  f02: v02\n  f03: v03\n  f04: v04\n  f05: v05\n  f06: v06\n  f07: v07\n  f08: v08"u8.ToArray();
         var threw = false;
         {
             var reader = new YamlReader(yaml);
-            try { while (reader.Read()) { } }
-            catch (FormatException) { threw = true; }
+            try
+            {
+                while (reader.Read()) { }
+            }
+            catch (FormatException)
+            {
+                threw = true;
+            }
             reader.Dispose();
         }
         await Assert.That(threw).IsFalse();
@@ -260,8 +274,7 @@ public class YamlAnchorTests
         // second anchored mapping accumulates, it must not corrupt anchor 0.
         // Use distinct keys (fa/fb) so corruption is visible as wrong key
         // in the replayed token sequence.
-        var yaml =
-            "first: &a\n  fa: va\nsecond: &b\n  fb: vb\nresult: *a\nck: final"u8.ToArray();
+        var yaml = "first: &a\n  fa: va\nsecond: &b\n  fb: vb\nresult: *a\nck: final"u8.ToArray();
         var tokens = new List<(string Key, string Val)>();
         {
             var reader = new YamlReader(yaml);
@@ -269,10 +282,12 @@ public class YamlAnchorTests
             {
                 if (reader.TokenType == TokenType.PropertyName)
                 {
-                    tokens.Add((
-                        Encoding.UTF8.GetString(reader.KeySpan),
-                        Encoding.UTF8.GetString(reader.ValueSpan)
-                    ));
+                    tokens.Add(
+                        (
+                            Encoding.UTF8.GetString(reader.KeySpan),
+                            Encoding.UTF8.GetString(reader.ValueSpan)
+                        )
+                    );
                 }
             }
             reader.Dispose();

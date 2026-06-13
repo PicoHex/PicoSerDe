@@ -239,10 +239,12 @@ public class IniReaderUnifiedTests
     [Test]
     public async Task Read_IsFinalBlock_EndOfData_NeedsMoreDataFalse()
     {
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var r = new IniReader("key = val"u8, isFinalBlock: true);
-            r.Read(); r.Read();
+            r.Read();
+            r.Read();
             result = r.Read();
             needsMore = r.NeedsMoreData;
         }
@@ -253,10 +255,12 @@ public class IniReaderUnifiedTests
     [Test]
     public async Task Read_NotFinalBlock_EndOfData_NeedsMoreDataTrue()
     {
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var r = new IniReader("key = val"u8, isFinalBlock: false);
-            r.Read(); r.Read();
+            r.Read();
+            r.Read();
             result = r.Read();
             needsMore = r.NeedsMoreData;
         }
@@ -271,12 +275,17 @@ public class IniReaderUnifiedTests
         {
             var part1 = "[sec]\nk1 = v1"u8.ToArray();
             var r1 = new IniReader(new ReadOnlySequence<byte>(part1), isFinalBlock: false);
-            r1.Read(); r1.Read(); r1.Read(); r1.Read(); // [sec], k1, =, v1
+            r1.Read();
+            r1.Read();
+            r1.Read();
+            r1.Read(); // [sec], k1, =, v1
             var state = r1.ExportState();
 
             var part2 = "\nk2 = v2"u8.ToArray();
             var r2 = new IniReader(new ReadOnlySequence<byte>(part2), isFinalBlock: true, state);
-            r2.Read(); r2.Read(); r2.Read(); // k2, =, v2
+            r2.Read();
+            r2.Read();
+            r2.Read(); // k2, =, v2
             // IniReader doesn't emit ObjectEnd on EOF; depth stays 1
             finalDepth = r2.Depth;
         }

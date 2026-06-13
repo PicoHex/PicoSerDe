@@ -269,7 +269,8 @@ public ref struct YamlReader
     {
         _needsMoreData = false;
         var result = ReadImpl();
-        if (!result) _needsMoreData = !_isFinalBlock;
+        if (!result)
+            _needsMoreData = !_isFinalBlock;
         return result;
     }
 

@@ -194,14 +194,22 @@ public class JsonSerializerTests
             {
                 result = default;
                 // Minimal streaming deserializer for testing
-                if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
+                if (!reader.Read())
+                    return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
                 Person p = new();
                 while (true)
                 {
-                    if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
-                    if (reader.TokenType != TokenType.PropertyName) break;
+                    if (!reader.Read())
+                        return reader.NeedsMoreData
+                            ? ReadStatus.NeedMoreData
+                            : ReadStatus.EndOfInput;
+                    if (reader.TokenType != TokenType.PropertyName)
+                        break;
                     var name = reader.GetStringRaw();
-                    if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
+                    if (!reader.Read())
+                        return reader.NeedsMoreData
+                            ? ReadStatus.NeedMoreData
+                            : ReadStatus.EndOfInput;
                     if (TextHelpers.Eq(name, "Name"u8))
                         p.Name = Encoding.UTF8.GetString(reader.GetStringRaw());
                     else if (TextHelpers.Eq(name, "Age"u8))
@@ -212,7 +220,8 @@ public class JsonSerializerTests
                 }
                 result = p;
                 return ReadStatus.Success;
-            });
+            }
+        );
 
         var result = await JsonSerializer.DeserializeFromStreamAsync<Person>(stream);
         await Assert.That(result).IsNotNull();

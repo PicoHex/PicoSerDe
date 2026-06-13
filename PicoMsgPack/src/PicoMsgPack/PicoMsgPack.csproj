@@ -40,9 +40,15 @@
     />
   </ItemGroup>
   <!-- Fail fast if the SG DLL is missing (e.g., out-of-order build) -->
-  <Target Name="EnsurePicoMsgPackGenDllExists" BeforeTargets="GenerateNuspec" Condition="'$(IsPackable)' == 'true'">
-    <Warning Text="PicoMsgPack.Gen.dll not found at expected path. Run build on PicoMsgPack.Gen first."
-             Condition="!Exists('..\PicoMsgPack.Gen\bin\$(Configuration)\netstandard2.0\PicoMsgPack.Gen.dll')" />
+  <Target
+    Name="EnsurePicoMsgPackGenDllExists"
+    BeforeTargets="GenerateNuspec"
+    Condition="'$(IsPackable)' == 'true'"
+  >
+    <Warning
+      Text="PicoMsgPack.Gen.dll not found at expected path. Run build on PicoMsgPack.Gen first."
+      Condition="!Exists('..\PicoMsgPack.Gen\bin\$(Configuration)\netstandard2.0\PicoMsgPack.Gen.dll')"
+    />
   </Target>
   <ItemGroup>
     <PackageReference Update="Microsoft.SourceLink.GitHub" Version="10.0.300" />

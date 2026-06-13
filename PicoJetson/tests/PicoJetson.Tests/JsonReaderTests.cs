@@ -708,10 +708,12 @@ public class JsonReaderTests
     [Test]
     public async Task Read_IsFinalBlock_EndOfData_NeedsMoreDataFalse()
     {
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var r = new JsonReader("{}"u8, isFinalBlock: true);
-            r.Read(); r.Read();
+            r.Read();
+            r.Read();
             result = r.Read();
             needsMore = r.NeedsMoreData;
         }
@@ -722,10 +724,12 @@ public class JsonReaderTests
     [Test]
     public async Task Read_NotFinalBlock_EndOfData_NeedsMoreDataTrue()
     {
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var r = new JsonReader("{}"u8, isFinalBlock: false);
-            r.Read(); r.Read();
+            r.Read();
+            r.Read();
             result = r.Read();
             needsMore = r.NeedsMoreData;
         }
@@ -738,12 +742,14 @@ public class JsonReaderTests
     {
         // Stream ends in the MIDDLE of a string: the closing " is truly missing.
         // HasCompletePropertyOrString must detect this and signal NeedMoreData.
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var seq = new ReadOnlySequence<byte>("{\"a\":\"hel"u8.ToArray());
             var r = new JsonReader(seq, isFinalBlock: false);
-            r.Read(); r.Read();   // { and "a" (complete, : is present)
-            result = r.Read();    // try to read value -> should fail
+            r.Read();
+            r.Read(); // { and "a" (complete, : is present)
+            result = r.Read(); // try to read value -> should fail
             needsMore = r.NeedsMoreData;
         }
         await Assert.That(result).IsFalse();
@@ -756,7 +762,8 @@ public class JsonReaderTests
         // Stream ends after the closing " of a property name, no : or subsequent byte.
         // The property name alone is complete, but HasCompletePropertyOrString
         // requires a byte after the closing " to determine PropertyName vs String.
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var seq = new ReadOnlySequence<byte>("{\"name\""u8.ToArray());
             var r = new JsonReader(seq, isFinalBlock: false);
@@ -793,7 +800,10 @@ public class JsonReaderTests
             var part1 = "{\"a\":1,\"b\":2"u8.ToArray();
             var seq1 = new ReadOnlySequence<byte>(part1);
             var r1 = new JsonReader(seq1, isFinalBlock: false);
-            r1.Read(); r1.Read(); r1.Read(); r1.Read(); // consume up to part boundary
+            r1.Read();
+            r1.Read();
+            r1.Read();
+            r1.Read(); // consume up to part boundary
             // After reading "b", the next Read() hits end of seq1
             var state = r1.ExportState();
 

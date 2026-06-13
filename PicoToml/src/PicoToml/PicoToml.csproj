@@ -40,9 +40,15 @@
     />
   </ItemGroup>
   <!-- Fail fast if the SG DLL is missing (e.g., out-of-order build) -->
-  <Target Name="EnsurePicoTomlGenDllExists" BeforeTargets="GenerateNuspec" Condition="'$(IsPackable)' == 'true'">
-    <Warning Text="PicoToml.Gen.dll not found at expected path. Run build on PicoToml.Gen first."
-             Condition="!Exists('..\PicoToml.Gen\bin\$(Configuration)\netstandard2.0\PicoToml.Gen.dll')" />
+  <Target
+    Name="EnsurePicoTomlGenDllExists"
+    BeforeTargets="GenerateNuspec"
+    Condition="'$(IsPackable)' == 'true'"
+  >
+    <Warning
+      Text="PicoToml.Gen.dll not found at expected path. Run build on PicoToml.Gen first."
+      Condition="!Exists('..\PicoToml.Gen\bin\$(Configuration)\netstandard2.0\PicoToml.Gen.dll')"
+    />
   </Target>
   <ItemGroup>
     <PackageReference Update="Microsoft.SourceLink.GitHub" Version="10.0.300" />

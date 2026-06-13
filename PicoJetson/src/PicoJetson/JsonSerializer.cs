@@ -18,7 +18,8 @@ public static partial class JsonSerializer
         internal static StreamingFunc<T>? Func;
     }
 
-    public static void RegisterStreaming<T>(StreamingFunc<T> func) where T : notnull
+    public static void RegisterStreaming<T>(StreamingFunc<T> func)
+        where T : notnull
     {
         StreamingCache<T>.Func = func;
     }
@@ -112,11 +113,15 @@ public static partial class JsonSerializer
     public static async ValueTask<T> DeserializeFromStreamAsync<T>(
         Stream stream,
         JsonOptions? options = null,
-        CancellationToken ct = default) where T : notnull
+        CancellationToken ct = default
+    )
+        where T : notnull
     {
-        var func = StreamingCache<T>.Func
+        var func =
+            StreamingCache<T>.Func
             ?? throw new InvalidOperationException(
-                $"No streaming deserializer registered for {typeof(T)}.");
+                $"No streaming deserializer registered for {typeof(T)}."
+            );
 
         var prev = JsonOptions.Current;
         JsonOptions.Current = options;

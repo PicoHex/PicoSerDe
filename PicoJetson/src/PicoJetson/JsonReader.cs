@@ -538,22 +538,29 @@ public ref struct JsonReader
     {
         var seq = _seqReader.Sequence.Slice(_seqReader.Position);
         var r = new SequenceReader<byte>(seq);
-        if (r.End) return false;
+        if (r.End)
+            return false;
         r.Advance(1); // skip opening "
 
         while (!r.End)
         {
             var b = r.CurrentSpan[r.CurrentSpanIndex];
-            if (b == (byte)'"') { r.Advance(1); break; }
+            if (b == (byte)'"')
+            {
+                r.Advance(1);
+                break;
+            }
             if (b == (byte)'\\')
             {
-                if (r.Remaining < 2) return false;
+                if (r.Remaining < 2)
+                    return false;
                 r.Advance(2);
                 continue;
             }
             r.Advance(1);
         }
-        if (r.End) return false;
+        if (r.End)
+            return false;
 
         while (!r.End && (r.CurrentSpan[r.CurrentSpanIndex] is (byte)' ' or (byte)'\t'))
             r.Advance(1);

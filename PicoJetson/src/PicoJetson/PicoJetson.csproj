@@ -40,9 +40,15 @@
     />
   </ItemGroup>
   <!-- Fail fast if the SG DLL is missing (e.g., out-of-order build) -->
-  <Target Name="EnsurePicoJetsonGenDllExists" BeforeTargets="GenerateNuspec" Condition="'$(IsPackable)' == 'true'">
-    <Warning Text="PicoJetson.Gen.dll not found at expected path. Run build on PicoJetson.Gen first."
-             Condition="!Exists('..\PicoJetson.Gen\bin\$(Configuration)\netstandard2.0\PicoJetson.Gen.dll')" />
+  <Target
+    Name="EnsurePicoJetsonGenDllExists"
+    BeforeTargets="GenerateNuspec"
+    Condition="'$(IsPackable)' == 'true'"
+  >
+    <Warning
+      Text="PicoJetson.Gen.dll not found at expected path. Run build on PicoJetson.Gen first."
+      Condition="!Exists('..\PicoJetson.Gen\bin\$(Configuration)\netstandard2.0\PicoJetson.Gen.dll')"
+    />
   </Target>
   <ItemGroup>
     <PackageReference Update="Microsoft.SourceLink.GitHub" Version="10.0.300" />

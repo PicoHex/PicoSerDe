@@ -295,7 +295,8 @@ public class MsgPackReaderTests
     [Test]
     public async Task Read_IsFinalBlock_EndOfData_NeedsMoreDataFalse()
     {
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var r = new MsgPackReader(new byte[] { 0xC0 }, isFinalBlock: true);
             r.Read();
@@ -309,7 +310,8 @@ public class MsgPackReaderTests
     [Test]
     public async Task Read_NotFinalBlock_EndOfData_NeedsMoreDataTrue()
     {
-        bool result, needsMore;
+        bool result,
+            needsMore;
         {
             var r = new MsgPackReader(new byte[] { 0xC0 }, isFinalBlock: false);
             r.Read();
@@ -328,10 +330,16 @@ public class MsgPackReaderTests
             // fixmap with 2 pairs: { "a": 1, "b": 2 }
             var buf = new byte[] { 0x82, 0xA1, 0x61, 0x01, 0xA1, 0x62, 0x02 };
             var r1 = new MsgPackReader(buf, isFinalBlock: false);
-            r1.Read(); r1.Read(); r1.Read(); // map start + "a": 1
+            r1.Read();
+            r1.Read();
+            r1.Read(); // map start + "a": 1
             var state = r1.ExportState();
 
-            var r2 = new MsgPackReader(new ReadOnlySequence<byte>(new byte[] { 0xA1, 0x62, 0x02 }), isFinalBlock: true, state);
+            var r2 = new MsgPackReader(
+                new ReadOnlySequence<byte>(new byte[] { 0xA1, 0x62, 0x02 }),
+                isFinalBlock: true,
+                state
+            );
             r2.Read(); // "b"
             r2.Read(); // 2
             r2.Read(); // ObjectEnd

@@ -220,16 +220,28 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append("file static class ");
         s.Append(type.Name);
         s.AppendLine("MsgPackStreaming {");
-        s.AppendLine("    internal static ReadStatus DeserializeStreaming(ref MsgPackReader reader, out " + type.Name + "? result) {");
+        s.AppendLine(
+            "    internal static ReadStatus DeserializeStreaming(ref MsgPackReader reader, out "
+                + type.Name
+                + "? result) {"
+        );
         s.AppendLine("        result = default;");
         s.Append("        var obj = new ");
         s.Append(type.Name);
         s.AppendLine("();");
-        s.AppendLine("        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;");
-        s.AppendLine("        bool __isMap = reader.TokenType == TokenType.ObjectStart; int __pos = 0;");
+        s.AppendLine(
+            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+        );
+        s.AppendLine(
+            "        bool __isMap = reader.TokenType == TokenType.ObjectStart; int __pos = 0;"
+        );
         s.AppendLine("        while (true) {");
-        s.AppendLine("            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;");
-        s.AppendLine("            if (reader.TokenType == TokenType.ObjectEnd || reader.TokenType == TokenType.ArrayEnd) break;");
+        s.AppendLine(
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+        );
+        s.AppendLine(
+            "            if (reader.TokenType == TokenType.ObjectEnd || reader.TokenType == TokenType.ArrayEnd) break;"
+        );
         s.AppendLine("            int __k;");
         s.AppendLine("            if (__isMap) {");
         s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");

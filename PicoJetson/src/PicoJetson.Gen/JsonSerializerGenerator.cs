@@ -1823,7 +1823,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(type.Name);
         sb.AppendLine("Streaming");
         sb.AppendLine("{");
-        sb.AppendLine("    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, out " + type.Name + "? result)");
+        sb.AppendLine(
+            "    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, out "
+                + type.Name
+                + "? result)"
+        );
         sb.AppendLine("    {");
         sb.Append("        result = default;");
         sb.AppendLine();
@@ -1859,14 +1863,20 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
         sb.AppendLine();
         sb.AppendLine("        // ReadStart");
-        sb.AppendLine("        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;");
+        sb.AppendLine(
+            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
+        );
         sb.AppendLine();
         sb.AppendLine("        while (true)");
         sb.AppendLine("        {");
-        sb.AppendLine("            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;");
+        sb.AppendLine(
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+        );
         sb.AppendLine("            if (reader.TokenType != TokenType.PropertyName) break;");
         sb.AppendLine("            var propNameSpan = reader.GetStringRaw();");
-        sb.AppendLine("            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;");
+        sb.AppendLine(
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+        );
         for (var i = 0; i < type.Properties.Length; i++)
         {
             var prop = type.Properties[i];
@@ -1895,7 +1905,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append("(");
             for (int ci = 0; ci < type.CtorParams.Length; ci++)
             {
-                if (ci > 0) sb.Append(", ");
+                if (ci > 0)
+                    sb.Append(", ");
                 sb.Append("__cp_");
                 sb.Append(ci);
             }

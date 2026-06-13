@@ -40,9 +40,15 @@
     />
   </ItemGroup>
   <!-- Fail fast if the SG DLL is missing (e.g., out-of-order build) -->
-  <Target Name="EnsurePicoYamlGenDllExists" BeforeTargets="GenerateNuspec" Condition="'$(IsPackable)' == 'true'">
-    <Warning Text="PicoYaml.Gen.dll not found at expected path. Run build on PicoYaml.Gen first."
-             Condition="!Exists('..\PicoYaml.Gen\bin\$(Configuration)\netstandard2.0\PicoYaml.Gen.dll')" />
+  <Target
+    Name="EnsurePicoYamlGenDllExists"
+    BeforeTargets="GenerateNuspec"
+    Condition="'$(IsPackable)' == 'true'"
+  >
+    <Warning
+      Text="PicoYaml.Gen.dll not found at expected path. Run build on PicoYaml.Gen first."
+      Condition="!Exists('..\PicoYaml.Gen\bin\$(Configuration)\netstandard2.0\PicoYaml.Gen.dll')"
+    />
   </Target>
   <ItemGroup>
     <PackageReference Update="Microsoft.SourceLink.GitHub" Version="10.0.300" />
