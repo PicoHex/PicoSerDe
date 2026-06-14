@@ -42,6 +42,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             )
             .SelectMany(static (types, _) => types);
 
+        // Pipeline D: shorthand attribute [GenerateSerializer(typeof(T))]
+        var shortD = ctx
+            .SyntaxProvider.ForAttributeWithMetadataName(
+                "PicoSerDe.Core.GenerateSerializerAttribute",
+                predicate: static (node, _) => node is TypeDeclarationSyntax,
+                transform: static (c, _) =>
+                    PicoSerDe.Gen.GenInfrastructure.ExpandAttributes(c, Config, Attrs)
+            )
+            .SelectMany(static (types, _) => types);
+
         // Pipeline C: format-specific attribute — discover types via [PicoYamlSerializable]
         var formatD = ctx
             .SyntaxProvider.ForAttributeWithMetadataName(
@@ -58,6 +68,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             .Combine(attrD.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right))
             .Combine(formatD.Collect())
+            .Select(static (pair, _) => pair.Left.AddRange(pair.Right))
+            .Combine(shortD.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
 
         ctx.RegisterSourceOutput(all, GenerateAll);

@@ -41,6 +41,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             )
             .SelectMany(static (types, _) => types);
 
+        // Pipeline D: shorthand attribute [GenerateSerializer(typeof(T))]
+        var shorthandAttr = context
+            .SyntaxProvider.ForAttributeWithMetadataName(
+                "PicoSerDe.Core.GenerateSerializerAttribute",
+                predicate: static (node, _) => node is TypeDeclarationSyntax,
+                transform: static (ctx, _) =>
+                    PicoSerDe.Gen.GenInfrastructure.ExpandAttributes(ctx, Config, Attrs)
+            )
+            .SelectMany(static (types, _) => types);
+
         // Pipeline C: format-specific attribute — discover types via [PicoJsonSerializable]
         var formatAttr = context
             .SyntaxProvider.ForAttributeWithMetadataName(
@@ -57,6 +67,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             .Combine(attrDriven.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right))
             .Combine(formatAttr.Collect())
+            .Select(static (pair, _) => pair.Left.AddRange(pair.Right))
+            .Combine(shorthandAttr.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
 
         context.RegisterSourceOutput(all, static (spc, types) => GenerateAll(spc, types));

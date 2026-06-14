@@ -26,6 +26,15 @@ public class JsonIndirectDto
     public string Data { get; set; } = "";
 }
 
+/// <summary>Type discovered via [GenerateSerializer(typeof(T))].</summary>
+[GenerateSerializer(typeof(GenSerializerRefDto))]
+class GenSerializerConfig { }
+
+public class GenSerializerRefDto
+{
+    public string Token { get; set; } = "";
+}
+
 /// <summary>Tests for attribute-driven source generation.</summary>
 public class AttributeDiscoveryTests
 {
@@ -58,6 +67,16 @@ public class AttributeDiscoveryTests
         var result = JsonSerializer.Deserialize<JsonIndirectDto>(bytes);
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Data).IsEqualTo("indirect");
+    }
+
+    [Test]
+    public async Task GenerateSerializerRefDto_RoundTrip()
+    {
+        var dto = new GenSerializerRefDto { Token = "from-generate-serializer" };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(dto);
+        var result = JsonSerializer.Deserialize<GenSerializerRefDto>(bytes);
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Token).IsEqualTo("from-generate-serializer");
     }
 
     [Test]
