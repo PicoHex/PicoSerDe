@@ -54,11 +54,13 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 ## Customization
 
 ```csharp
-[YamlKey("custom_name")]             // override key name
-[YamlIgnore]                          // exclude property
-[YamlCamelCase]                       // camelCase keys
-[YamlConverter(typeof(MyConverter))]  // custom converter
-[YamlDateTimeFormat("yyyy-MM-dd")]   // custom DateTime format
+[PicoSerializable]                     // all formats
+[PicoYamlSerializable]                 // YAML only
+[YamlKey("custom_name")]              // override key name
+[YamlIgnore]                           // exclude property
+[YamlCamelCase]                        // camelCase keys
+[YamlConverter(typeof(MyConverter))]   // custom converter
+[YamlDateTimeFormat("yyyy-MM-dd")]    // custom DateTime format
 ```
 
 ## Performance

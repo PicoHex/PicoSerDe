@@ -50,13 +50,15 @@ var ini = IniSerializer.Serialize(config);
 ## Customization
 
 ```csharp
-[IniKey("custom_name")]             // override key name
-[IniSection("MySection")]            // override section name
-[IniIgnore]                          // exclude property
-[IniComment("doc comment")]          // emit comment
-[IniCamelCase]                       // camelCase keys
-[IniConverter(typeof(MyConverter))]  // custom converter
-[IniDateTimeFormat("yyyy-MM-dd")]   // custom DateTime format
+[PicoSerializable]                     // all formats
+[PicoIniSerializable]                  // INI only
+[IniKey("custom_name")]               // override key name
+[IniSection("MySection")]              // override section name
+[IniIgnore]                            // exclude property
+[IniComment("doc comment")]            // emit comment
+[IniCamelCase]                         // camelCase keys
+[IniConverter(typeof(MyConverter))]    // custom converter
+[IniDateTimeFormat("yyyy-MM-dd")]     // custom DateTime format
 ```
 
 ## Performance

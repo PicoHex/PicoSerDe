@@ -27,15 +27,15 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**498+ tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+**500+ tests** across all 6 modules, with cross-validation against 5 competitor libraries:
 
 | Module | Tests | Competitor | Cross-Validation |
 |--------|:-----:|:-----------|:----------------:|
-| PicoJetson | 145 | System.Text.Json | ✅ bidirectional, all 19 property types |
-| PicoToml | 80 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
-| PicoYaml | 81 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
-| PicoIni | 87 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
-| PicoMsgPack | 77 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
+| PicoJetson | 159 | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoToml | 84 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
+| PicoYaml | 87 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
+| PicoIni | 91 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
+| PicoMsgPack | 83 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
 | PicoSerDe.Core | 35 | — | — |
 
 ## Performance Summary
@@ -74,6 +74,39 @@ JsonSerializer.Serialize<T>(value)      // → byte[] via PicoJetson
 MsgPackSerializer.Deserialize<T>(data)  // T ← byte[] via PicoMsgPack
 IniSerializer.Serialize(config)         // → string via PicoIni
 ```
+
+### Attribute-Driven Registration
+
+PicoSerDe source generators discover types through **three independent pipelines**:
+
+1. **Usage-driven** — calling `Serialize<T>()` or `Deserialize<T>()` triggers generation for `T`
+2. **Generic attribute** — `[PicoSerializable]` marks a type for all referenced format modules
+3. **Format-specific attribute** — `[PicoJsonSerializable]` / `[PicoIniSerializable]` / etc. marks a type for one format
+
+```csharp
+// All referenced formats generate serializers
+[PicoSerializable]
+public class UserDto { public string Name { get; set; } }
+
+// JSON only (PicoJetson)
+[PicoJsonSerializable]
+public class JsonOnlyDto { public string Label { get; set; } }
+
+// Indirect — target type from any assembly
+[PicoIniSerializable(typeof(ExternalLibrary.SharedDto))]
+class Config { }
+```
+
+| Attribute | Scope | Defined in |
+|-----------|-------|------------|
+| `[PicoSerializable]` | All referenced formats | `PicoSerDe.Core` |
+| `[PicoJsonSerializable]` | JSON only | `PicoJetson` |
+| `[PicoIniSerializable]` | INI only | `PicoIni` |
+| `[PicoTomlSerializable]` | TOML only | `PicoToml` |
+| `[PicoMsgPackSerializable]` | MsgPack only | `PicoMsgPack` |
+| `[PicoYamlSerializable]` | YAML only | `PicoYaml` |
+
+No attributes are required for basic usage — calling `Serialize<T>()` automatically triggers generation.
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -160,7 +193,7 @@ Available options:
 | linux-arm64 | ubuntu-24.04-arm |
 | osx-arm64 | macos-latest |
 
-Every push: build + test (498+ tests) + 5 benchmarks smoke + 5 AOT sample publishes.
+Every push: build + test (500+ tests) + 5 benchmarks smoke + 5 AOT sample publishes.
 Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
 
 ---

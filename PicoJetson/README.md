@@ -79,6 +79,8 @@ var result = JsonSerializer.Deserialize<MyModel>(json,
 
 | Attribute | Description |
 |-----------|-------------|
+| `[PicoSerializable]` | Generate serializer for all referenced formats |
+| `[PicoJsonSerializable]` | Generate JSON serializer only |
 | `[JsonPropertyName("name")]` | Override JSON key name |
 | `[JsonIgnore]` | Exclude from serialization |
 | `[JsonCamelCase]` | camelCase naming per class |

@@ -38,9 +38,11 @@ var user = MsgPackSerializer.Deserialize<User>(bytes);
 ## Customization
 
 ```csharp
-[MsgPackKey(0)]                    // integer key
-[MsgPackIgnore]                     // exclude property
-[MsgPackConverter(typeof(MyConv))]  // custom converter
+[PicoSerializable]                     // all formats
+[PicoMsgPackSerializable]              // MsgPack only
+[MsgPackKey(0)]                        // integer key
+[MsgPackIgnore]                        // exclude property
+[MsgPackConverter(typeof(MyConv))]     // custom converter
 ```
 
 ## Performance

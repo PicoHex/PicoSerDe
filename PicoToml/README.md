@@ -46,11 +46,13 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
 ## Customization
 
 ```csharp
-[TomlKey("custom_name")]             // override key name
-[TomlIgnore]                          // exclude property
-[TomlCamelCase]                       // camelCase keys
-[TomlConverter(typeof(MyConverter))]  // custom converter
-[TomlDateTimeFormat("yyyy-MM-dd")]   // custom DateTime format
+[PicoSerializable]                     // all formats
+[PicoTomlSerializable]                 // TOML only
+[TomlKey("custom_name")]              // override key name
+[TomlIgnore]                           // exclude property
+[TomlCamelCase]                        // camelCase keys
+[TomlConverter(typeof(MyConverter))]   // custom converter
+[TomlDateTimeFormat("yyyy-MM-dd")]    // custom DateTime format
 ```
 
 ## Performance
