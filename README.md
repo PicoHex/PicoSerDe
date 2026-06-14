@@ -27,11 +27,11 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**500+ tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+**505 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
 
 | Module | Tests | Competitor | Cross-Validation |
 |--------|:-----:|:-----------|:----------------:|
-| PicoJetson | 159 | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoJetson | 160 | System.Text.Json | ✅ bidirectional, all 19 property types |
 | PicoToml | 84 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
 | PicoYaml | 87 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
 | PicoIni | 91 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
@@ -77,11 +77,12 @@ IniSerializer.Serialize(config)         // → string via PicoIni
 
 ### Attribute-Driven Registration
 
-PicoSerDe source generators discover types through **three independent pipelines**:
+PicoSerDe source generators discover types through **four independent pipelines**:
 
 1. **Usage-driven** — calling `Serialize<T>()` or `Deserialize<T>()` triggers generation for `T`
 2. **Generic attribute** — `[PicoSerializable]` marks a type for all referenced format modules
 3. **Format-specific attribute** — `[PicoJsonSerializable]` / `[PicoIniSerializable]` / etc. marks a type for one format
+4. **Shorthand attribute** — `[GenerateSerializer(typeof(T))]` for central registration
 
 ```csharp
 // All referenced formats generate serializers
@@ -95,11 +96,17 @@ public class JsonOnlyDto { public string Label { get; set; } }
 // Indirect — target type from any assembly
 [PicoIniSerializable(typeof(ExternalLibrary.SharedDto))]
 class Config { }
+
+// Shorthand — equivalent to PicoSerializable(typeof(T))
+[GenerateSerializer(typeof(UserDto))]
+[GenerateSerializer(typeof(ProductDto))]
+class PicoSerDeConfig { }
 ```
 
 | Attribute | Scope | Defined in |
 |-----------|-------|------------|
-| `[PicoSerializable]` | All referenced formats | `PicoSerDe.Core` |
+| `[PicoSerializable]` | All formats — direct or `typeof(T)` | `PicoSerDe.Core` |
+| `[GenerateSerializer]` | Shorthand for `PicoSerializable(typeof(T))` | `PicoSerDe.Core` |
 | `[PicoJsonSerializable]` | JSON only | `PicoJetson` |
 | `[PicoIniSerializable]` | INI only | `PicoIni` |
 | `[PicoTomlSerializable]` | TOML only | `PicoToml` |
@@ -107,6 +114,13 @@ class Config { }
 | `[PicoYamlSerializable]` | YAML only | `PicoYaml` |
 
 No attributes are required for basic usage — calling `Serialize<T>()` automatically triggers generation.
+
+> **No non-generic `Serialize(Type, object?)` overloads.** PicoSerDe is designed for AOT-first
+> usage where all types are known at compile time. `Cache<T>` static fields are shared
+> across assemblies and provide faster lookup than a `ConcurrentDictionary<Type, ...>`.
+> Framework wrappers should call the generic API internally — the type's serializer is
+> guaranteed to be registered via `ModuleInitializer` as long as the type was discovered
+> by any pipeline (usage-driven, attribute, or shorthand).
 
 ```
 ┌──────────────────────────────────────────────┐
