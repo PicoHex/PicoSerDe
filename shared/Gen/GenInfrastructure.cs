@@ -168,6 +168,38 @@ internal static class GenInfrastructure
     // ── Public API (TransformType / ExtractNestedProperties) ──
     // Both delegate to the shared ExtractProperties core below.
 
+    /// <summary>
+    /// Convert an <see cref="INamedTypeSymbol"/> into a <see cref="TypeInfo"/> for code generation.
+    /// Shared by both usage-driven and attribute-driven pipelines.
+    /// </summary>
+    public static TypeInfo? TransformTypeSymbol(
+        INamedTypeSymbol namedType,
+        FormatConfig config,
+        AttributeHelpers attrs,
+        bool includeReadOnlyProperties = false
+    )
+    {
+        var ns = namedType.ContainingNamespace?.ToDisplayString() ?? "";
+        if (ns == "<global namespace>")
+            ns = "";
+
+        var useCamelCase = attrs.HasCamelCase(namedType);
+        var properties = ExtractProperties(
+            namedType,
+            config.FormatTag,
+            attrs,
+            includeReadOnlyProperties,
+            useCamelCase
+        );
+
+        return new TypeInfo(
+            namedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            ns,
+            namedType.Name,
+            properties.ToImmutableArray()
+        );
+    }
+
     public static TypeInfo? TransformType(
         GeneratorSyntaxContext ctx,
         FormatConfig config,
@@ -195,25 +227,45 @@ internal static class GenInfrastructure
         if (namedType.ContainingType is not null)
             return null;
 
-        var ns = namedType.ContainingNamespace?.ToDisplayString() ?? "";
-        if (ns == "<global namespace>")
-            ns = "";
+        return TransformTypeSymbol(namedType, config, attrs, includeReadOnlyProperties);
+    }
 
-        var useCamelCase = attrs.HasCamelCase(namedType);
-        var properties = ExtractProperties(
-            namedType,
-            config.FormatTag,
-            attrs,
-            includeReadOnlyProperties,
-            useCamelCase
-        );
+    /// <summary>
+    /// Expand <see cref="GeneratorAttributeSyntaxContext"/> into zero or more <see cref="TypeInfo"/> values.
+    /// Handles both <c>[PicoSerializable]</c> (uses <see cref="GeneratorAttributeSyntaxContext.TargetSymbol"/>)
+    /// and <c>[PicoSerializable(typeof(T))]</c> (extracts <c>T</c> from the attribute constructor argument).
+    /// </summary>
+    public static ImmutableArray<TypeInfo> ExpandAttributes(
+        GeneratorAttributeSyntaxContext ctx,
+        FormatConfig config,
+        AttributeHelpers attrs
+    )
+    {
+        var builder = ImmutableArray.CreateBuilder<TypeInfo>();
 
-        return new TypeInfo(
-            namedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            ns,
-            namedType.Name,
-            properties.ToImmutableArray()
-        );
+        foreach (var attr in ctx.Attributes)
+        {
+            // [PicoSerializable(typeof(ExternalType))]
+            if (
+                attr.ConstructorArguments.Length == 1
+                && attr.ConstructorArguments[0].Kind == TypedConstantKind.Type
+                && attr.ConstructorArguments[0].Value is INamedTypeSymbol externalType
+            )
+            {
+                var ti = TransformTypeSymbol(externalType, config, attrs);
+                if (ti.HasValue)
+                    builder.Add(ti.Value);
+            }
+            // [PicoSerializable] — no type argument, use the target symbol itself
+            else if (ctx.TargetSymbol is INamedTypeSymbol localType)
+            {
+                var ti = TransformTypeSymbol(localType, config, attrs);
+                if (ti.HasValue)
+                    builder.Add(ti.Value);
+            }
+        }
+
+        return builder.ToImmutable();
     }
 
     public static ImmutableArray<PropertyInfo> ExtractNestedProperties(

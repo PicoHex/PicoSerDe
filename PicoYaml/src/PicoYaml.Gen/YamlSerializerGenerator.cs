@@ -23,14 +23,44 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext ctx)
     {
-        var p = ctx
+        // Pipeline A: usage-driven (existing)
+        var usageD = ctx
             .SyntaxProvider.CreateSyntaxProvider(
                 predicate: static (n, _) => IsC(n),
                 transform: static (c, _) => Tf(c)
             )
             .Where(static t => t.HasValue)
             .Select(static (t, _) => t!.Value);
-        ctx.RegisterSourceOutput(p.Collect(), GenerateAll);
+
+        // Pipeline B: attribute-driven — discover types via [PicoSerializable]
+        var attrD = ctx
+            .SyntaxProvider.ForAttributeWithMetadataName(
+                "PicoSerDe.Core.PicoSerializableAttribute",
+                predicate: static (node, _) => node is TypeDeclarationSyntax,
+                transform: static (c, _) =>
+                    PicoSerDe.Gen.GenInfrastructure.ExpandAttributes(c, Config, Attrs)
+            )
+            .SelectMany(static (types, _) => types);
+
+        // Pipeline C: format-specific attribute — discover types via [PicoYamlSerializable]
+        var formatD = ctx
+            .SyntaxProvider.ForAttributeWithMetadataName(
+                "PicoYaml.PicoYamlSerializableAttribute",
+                predicate: static (node, _) => node is TypeDeclarationSyntax,
+                transform: static (c, _) =>
+                    PicoSerDe.Gen.GenInfrastructure.ExpandAttributes(c, Config, Attrs)
+            )
+            .SelectMany(static (types, _) => types);
+
+        // Merge all pipelines into one output
+        var all = usageD
+            .Collect()
+            .Combine(attrD.Collect())
+            .Select(static (pair, _) => pair.Left.AddRange(pair.Right))
+            .Combine(formatD.Collect())
+            .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
+
+        ctx.RegisterSourceOutput(all, GenerateAll);
     }
 
     private static bool IsC(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);

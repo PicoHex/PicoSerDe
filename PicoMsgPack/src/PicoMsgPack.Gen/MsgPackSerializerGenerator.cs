@@ -24,7 +24,8 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        var typeProviders = context
+        // Pipeline A: usage-driven (existing)
+        var usageDriven = context
             .SyntaxProvider.CreateSyntaxProvider(
                 predicate: static (n, _) => IsCandidate(n),
                 transform: static (ctx, _) => Transform(ctx)
@@ -32,10 +33,35 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             .Where(static t => t is not null)
             .Select(static (t, _) => t!.Value);
 
-        context.RegisterSourceOutput(
-            typeProviders.Collect(),
-            static (spc, types) => GenerateAll(spc, types)
-        );
+        // Pipeline B: attribute-driven — discover types via [PicoSerializable]
+        var attrDriven = context
+            .SyntaxProvider.ForAttributeWithMetadataName(
+                "PicoSerDe.Core.PicoSerializableAttribute",
+                predicate: static (node, _) => node is TypeDeclarationSyntax,
+                transform: static (ctx, _) =>
+                    PicoSerDe.Gen.GenInfrastructure.ExpandAttributes(ctx, Config, Attrs)
+            )
+            .SelectMany(static (types, _) => types);
+
+        // Pipeline C: format-specific attribute — discover types via [PicoMsgPackSerializable]
+        var formatAttr = context
+            .SyntaxProvider.ForAttributeWithMetadataName(
+                "PicoMsgPack.PicoMsgPackSerializableAttribute",
+                predicate: static (node, _) => node is TypeDeclarationSyntax,
+                transform: static (ctx, _) =>
+                    PicoSerDe.Gen.GenInfrastructure.ExpandAttributes(ctx, Config, Attrs)
+            )
+            .SelectMany(static (types, _) => types);
+
+        // Merge all pipelines into one output
+        var all = usageDriven
+            .Collect()
+            .Combine(attrDriven.Collect())
+            .Select(static (pair, _) => pair.Left.AddRange(pair.Right))
+            .Combine(formatAttr.Collect())
+            .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
+
+        context.RegisterSourceOutput(all, static (spc, types) => GenerateAll(spc, types));
     }
 
     static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
