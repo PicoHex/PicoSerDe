@@ -77,8 +77,67 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
     private static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
-    private static TypeInfo? Transform(GeneratorSyntaxContext ctx) =>
-        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+    private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
+    {
+        bool hasCtor = false;
+        if (
+            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is IMethodSymbol method
+            && method.TypeArguments.Length == 1
+            && method.TypeArguments[0] is INamedTypeSymbol namedType
+        )
+        {
+            if (namedType.IsRecord)
+            {
+                var ctors = namedType
+                    .Constructors.Where(c => c.DeclaredAccessibility == Accessibility.Public)
+                    .ToArray();
+                if (ctors.Length == 1 && !ctors[0].IsImplicitlyDeclared)
+                    hasCtor = true;
+            }
+            if (!hasCtor)
+            {
+                foreach (var ctor in namedType.Constructors)
+                {
+                    if (ctor.DeclaredAccessibility != Accessibility.Public)
+                        continue;
+                    foreach (var attr in ctor.GetAttributes())
+                    {
+                        if (attr.AttributeClass?.Name == "TomlConstructorAttribute")
+                        {
+                            hasCtor = true;
+                            break;
+                        }
+                    }
+                    if (hasCtor)
+                        break;
+                }
+            }
+        }
+        var info = PicoSerDe.Gen.GenInfrastructure.TransformType(
+            ctx,
+            Config,
+            Attrs,
+            includeReadOnlyProperties: hasCtor
+        );
+        if (info is not { } ti)
+            return null;
+        if (!hasCtor)
+            return ti;
+        if (
+            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method2
+            || method2.TypeArguments.Length != 1
+            || method2.TypeArguments[0] is not INamedTypeSymbol namedType2
+        )
+            return ti;
+        var ctorParams = PicoSerDe.Gen.GenInfrastructure.DetectConstructor(
+            namedType2,
+            Config.FormatTag,
+            "TomlConstructorAttribute"
+        );
+        if (ctorParams is not { } cp)
+            return ti;
+        return ti with { CtorParams = cp };
+    }
 
     // ── Attribute helpers ──
 
@@ -227,7 +286,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
         var sorted = props.OrderBy(x => x.JsonName).ToImmutableArray();
-        EmitPropertyDispatch(s, sorted, "k", "o", "                ", "                    ");
+        EmitPropertyDispatch(s, sorted, "k", "o", "                ", "                    ", null);
         s.AppendLine("            }");
         s.AppendLine("        }");
         s.AppendLine("        return o;");
@@ -275,9 +334,33 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(t.Name);
         s.AppendLine(" Deserialize(ReadOnlySpan<byte> d) {");
         s.AppendLine("        var r = new TomlReader(d);");
-        s.Append("        var o = new ");
-        s.Append(t.Name);
-        s.AppendLine("();");
+        var hasCtor = !t.CtorParams.IsDefaultOrEmpty && t.CtorParams.Length > 0;
+        Dictionary<string, int>? ctorMap = null;
+        if (hasCtor)
+        {
+            ctorMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int ci = 0; ci < t.CtorParams.Length; ci++)
+                ctorMap[t.CtorParams[ci].Name] = ci;
+        }
+        if (hasCtor)
+        {
+            for (int ci = 0; ci < t.CtorParams.Length; ci++)
+            {
+                var cp = t.CtorParams[ci];
+                var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                s.Append("        ");
+                s.Append(tn);
+                s.Append(" __cp_");
+                s.Append(ci);
+                s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
+            }
+        }
+        else
+        {
+            s.Append("        var o = new ");
+            s.Append(t.Name);
+            s.AppendLine("();");
+        }
         s.AppendLine("        r.Read();");
         s.AppendLine("        while (true) {");
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
@@ -294,7 +377,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 )
             )
             .ToImmutableArray();
-        EmitPropertyDispatch(s, scalarProps, "k", "o", "                ", "                    ");
+        EmitPropertyDispatch(
+            s,
+            scalarProps,
+            "k",
+            "o",
+            "                ",
+            "                    ",
+            ctorMap
+        );
         s.AppendLine("                if (!r.Read()) break;");
         s.AppendLine("                continue;");
         s.AppendLine("            }");
@@ -389,51 +480,73 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
         s.AppendLine("            if (!r.Read()) break;");
         s.AppendLine("        }");
-        s.AppendLine("        return o;");
+        if (hasCtor)
+        {
+            s.Append("        return new ");
+            s.Append(t.Name);
+            s.Append("(");
+            for (int ci = 0; ci < t.CtorParams.Length; ci++)
+            {
+                if (ci > 0)
+                    s.Append(", ");
+                s.Append("__cp_");
+                s.Append(ci);
+            }
+            s.AppendLine(");");
+        }
+        else
+            s.AppendLine("        return o;");
         s.AppendLine("    } }");
         s.AppendLine();
 
-        // Streaming (scalar properties only, skip nested objects)
-        s.Append("file static class ");
-        s.Append(t.Name);
-        s.AppendLine("_TomlStreaming {");
-        s.AppendLine(
-            "    internal static ReadStatus DeserializeStreaming(ref TomlReader r, out "
-                + t.Name
-                + "? result) {"
-        );
-        s.AppendLine("        result = default;");
-        s.Append("        var o = new ");
-        s.Append(t.Name);
-        s.AppendLine("();");
-        s.AppendLine("        while (true) {");
-        s.AppendLine(
-            "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
-        );
-        s.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
-        s.AppendLine("            var __sk = r.KeySpan;");
-        s.AppendLine(
-            "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
-        );
-        var simpleProps = t
-            .Properties.Where(p => p.TypeKind is not "object" and not "dict")
-            .ToImmutableArray();
-        EmitPropertyDispatch(s, simpleProps, "__sk", "o", "        ", "            ");
-        foreach (var p in t.Properties.Where(p => p.TypeKind is "object" or "dict"))
-        {
-            s.Append("            if (TextHelpers.Eq(__sk, \"");
-            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.AppendLine("\"u8)) {");
-            s.AppendLine("                r.Skip();");
-            s.AppendLine("            }");
+        // Streaming (scalar properties only, skip nested objects; not supported for ctor types)
+        if (hasCtor)
+        { /* skip streaming */
         }
-        s.AppendLine("        }");
-        s.AppendLine("        result = o;");
-        s.AppendLine("        return ReadStatus.Success;");
-        s.AppendLine("    }");
-        s.AppendLine("}");
+        else
+        {
+            s.Append("file static class ");
+            s.Append(t.Name);
+            s.AppendLine("_TomlStreaming {");
+            s.AppendLine(
+                "    internal static ReadStatus DeserializeStreaming(ref TomlReader r, out "
+                    + t.Name
+                    + "? result) {"
+            );
+            s.AppendLine("        result = default;");
+            s.Append("        var o = new ");
+            s.Append(t.Name);
+            s.AppendLine("();");
+            s.AppendLine("        while (true) {");
+            s.AppendLine(
+                "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+            );
+            s.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
+            s.AppendLine("            var __sk = r.KeySpan;");
+            s.AppendLine(
+                "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+            );
+            var simpleProps = t
+                .Properties.Where(p => p.TypeKind is not "object" and not "dict")
+                .ToImmutableArray();
+            EmitPropertyDispatch(s, simpleProps, "__sk", "o", "        ", "            ");
+            foreach (var p in t.Properties.Where(p => p.TypeKind is "object" or "dict"))
+            {
+                s.Append("            if (TextHelpers.Eq(__sk, \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                s.AppendLine("\"u8)) {");
+                s.AppendLine("                r.Skip();");
+                s.AppendLine("            }");
+            }
+            s.AppendLine("        }");
+            s.AppendLine("        result = o;");
+            s.AppendLine("        return ReadStatus.Success;");
+            s.AppendLine("    }");
+            s.AppendLine("}");
+        } // end skip-streaming else
         s.AppendLine();
 
+        // Registration
         s.Append("file static class ");
         s.Append(t.Name);
         s.Append("_Reg { [ModuleInitializer] internal static void R() { TomlSerializer.Register<");
@@ -443,11 +556,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("_TomlSer(), new ");
         s.Append(t.Name);
         s.AppendLine("_TomlDes());");
-        s.Append("TomlSerializer.RegisterStreaming<");
-        s.Append(t.Name);
-        s.Append(">(");
-        s.Append(t.Name);
-        s.AppendLine("_TomlStreaming.DeserializeStreaming); } }");
+        if (hasCtor)
+            s.AppendLine("            // Streaming skipped for constructor type");
+        else
+        {
+            s.Append("TomlSerializer.RegisterStreaming<");
+            s.Append(t.Name);
+            s.Append(">(");
+            s.Append(t.Name);
+            s.AppendLine("_TomlStreaming.DeserializeStreaming);");
+        }
+        s.AppendLine("    } }");
         return s.ToString();
     }
 
@@ -457,7 +576,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         string keyVar,
         string target,
         string indent,
-        string bodyIndent
+        string bodyIndent,
+        IReadOnlyDictionary<string, int>? ctorMap = null
     )
     {
         if (props.Length == 0)
@@ -510,7 +630,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(groupProps[i].JsonName)
                 );
                 s.AppendLine("\"u8)) {");
-                EmitDeserializeProp(s, groupProps[i], target, bodyIndent + "        ");
+                EmitDeserializePropOrAssign(
+                    s,
+                    groupProps[i],
+                    target,
+                    bodyIndent + "        ",
+                    ctorMap
+                );
                 s.Append(indent);
                 s.AppendLine("        }");
             }
@@ -982,8 +1108,42 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitDeserializeProp(StringBuilder s, PropertyInfo p, string tgt, string pad)
+    /// <summary>Dispatch to <see cref="EmitDeserializeProp"/> or generate constructor param assign.</summary>
+    private static void EmitDeserializePropOrAssign(
+        StringBuilder s,
+        PropertyInfo p,
+        string tgt,
+        string pad,
+        IReadOnlyDictionary<string, int>? ctorMap
+    )
     {
+        if (ctorMap is not null && ctorMap.TryGetValue(p.Name, out var cpIdx))
+            EmitDeserializeProp(s, p, $"__cp_{cpIdx}", pad, ctorAssign: true);
+        else
+            EmitDeserializeProp(s, p, tgt, pad);
+    }
+
+    private static void EmitDeserializeProp(
+        StringBuilder s,
+        PropertyInfo p,
+        string tgt,
+        string pad,
+        bool ctorAssign = false
+    )
+    {
+        // Assign-to: tgt.Name (normal) or tgt (ctor param, tgt = __cp_N)
+        void EmitAssign()
+        {
+            if (ctorAssign)
+                s.Append(tgt);
+            else
+            {
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+            }
+        }
+
         if (p.ConverterTypeFullName is not null)
         {
             s.Append(pad);
@@ -991,9 +1151,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(pad);
-            s.Append(tgt);
-            s.Append('.');
-            s.Append(p.Name);
+            EmitAssign();
             s.AppendLine(" = __cnv.Read(ref r);");
             return;
         }
@@ -1071,18 +1229,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             {
                 case "string":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitAssign();
                     s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
                     break;
                 case "int32":
                     s.Append(pad);
                     s.AppendLine("r.TryGetInt32(out var __v);");
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitAssign();
                     s.AppendLine(" = __v;");
                     break;
                 case "int64":
