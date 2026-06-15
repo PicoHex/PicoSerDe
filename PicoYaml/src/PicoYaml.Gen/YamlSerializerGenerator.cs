@@ -986,7 +986,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         else if (p.IsNullable)
         {
             s.Append(ind);
-            s.Append("if (");
+            s.Append(
+                "if (PicoYaml.YamlOptions.Current?.DefaultIgnoreCondition == PicoYaml.YamlIgnoreCondition.Never"
+            );
+            s.Append(" || ");
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);
