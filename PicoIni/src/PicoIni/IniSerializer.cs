@@ -2,6 +2,9 @@ namespace PicoIni;
 
 public static partial class IniSerializer
 {
+    /// <summary>HTTP Content-Type header value for INI.</summary>
+    public const string ContentType = "text/plain";
+
     private static class Cache<T>
     {
         internal static ISerializer<T>? Serializer;

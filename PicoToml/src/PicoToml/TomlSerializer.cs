@@ -2,6 +2,9 @@ namespace PicoToml;
 
 public static partial class TomlSerializer
 {
+    /// <summary>HTTP Content-Type header value for TOML.</summary>
+    public const string ContentType = "application/toml";
+
     private static class Cache<T>
     {
         internal static ISerializer<T>? Serializer;

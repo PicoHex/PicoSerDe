@@ -2,6 +2,9 @@ namespace PicoMsgPack;
 
 public static partial class MsgPackSerializer
 {
+    /// <summary>HTTP Content-Type header value for MsgPack.</summary>
+    public const string ContentType = "application/msgpack";
+
     private static class Cache<T>
     {
         internal static ISerializer<T>? Serializer;

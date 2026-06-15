@@ -2,6 +2,9 @@ namespace PicoJetson;
 
 public static partial class JsonSerializer
 {
+    /// <summary>HTTP Content-Type header value for JSON.</summary>
+    public const string ContentType = "application/json";
+
     private static class Cache<T>
     {
         internal static ISerializer<T>? Serializer;

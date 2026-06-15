@@ -2,6 +2,9 @@ namespace PicoYaml;
 
 public static partial class YamlSerializer
 {
+    /// <summary>HTTP Content-Type header value for YAML.</summary>
+    public const string ContentType = "application/yaml";
+
     private static class Cache<T>
     {
         internal static ISerializer<T>? Serializer;

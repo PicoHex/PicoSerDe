@@ -91,3 +91,12 @@ public class AttributeDiscoveryTests
         await Assert.That(json).Contains("99");
     }
 }
+
+public class ContentTypeTests
+{
+    [Test]
+    public async Task ContentType_Value()
+    {
+        await Assert.That(PicoJetson.JsonSerializer.ContentType).IsEqualTo("application/json");
+    }
+}
