@@ -80,15 +80,72 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
     static TypeInfo? Transform(GeneratorSyntaxContext ctx)
     {
-        var info = PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+        bool hasCtor = false;
+        INamedTypeSymbol? namedType = null;
+        if (
+            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is IMethodSymbol m
+            && m.TypeArguments.Length == 1
+            && m.TypeArguments[0] is INamedTypeSymbol nt
+        )
+        {
+            namedType = nt;
+            if (namedType.IsRecord)
+            {
+                var ctors = namedType
+                    .Constructors.Where(c => c.DeclaredAccessibility == Accessibility.Public)
+                    .ToArray();
+                if (ctors.Length == 1 && !ctors[0].IsImplicitlyDeclared)
+                    hasCtor = true;
+            }
+            if (!hasCtor)
+            {
+                foreach (var ctor in namedType.Constructors)
+                {
+                    if (ctor.DeclaredAccessibility != Accessibility.Public)
+                        continue;
+                    foreach (var attr in ctor.GetAttributes())
+                    {
+                        if (attr.AttributeClass?.Name == "MsgPackConstructorAttribute")
+                        {
+                            hasCtor = true;
+                            break;
+                        }
+                    }
+                    if (hasCtor)
+                        break;
+                }
+            }
+        }
+
+        var info = PicoSerDe.Gen.GenInfrastructure.TransformType(
+            ctx,
+            Config,
+            Attrs,
+            includeReadOnlyProperties: hasCtor
+        );
         if (info is not { } ti)
             return info;
 
+        if (hasCtor)
+        {
+            if (namedType is null)
+                return ti;
+            var ctorParams = PicoSerDe.Gen.GenInfrastructure.DetectConstructor(
+                namedType,
+                Config.FormatTag,
+                "MsgPackConstructorAttribute"
+            );
+            if (ctorParams is { } cp)
+                ti = ti with { CtorParams = cp };
+            return ti;
+        }
+
         // Check for [MsgPackExtensionTag] on properties and override type kind
         if (
-            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method
+            namedType is null
+            || ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method
             || method.TypeArguments.Length != 1
-            || method.TypeArguments[0] is not INamedTypeSymbol namedType
+            || method.TypeArguments[0] is not INamedTypeSymbol
         )
             return ti;
 
@@ -223,9 +280,34 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append("    public ");
         s.Append(type.Name);
         s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
-        s.AppendLine("        var reader = new MsgPackReader(data); var obj = new ");
-        s.Append(type.Name);
-        s.AppendLine("();");
+        var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
+        Dictionary<string, int>? ctorMap = null;
+        if (hasCtor)
+        {
+            ctorMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+                ctorMap[type.CtorParams[ci].Name] = ci;
+        }
+        if (!hasCtor)
+        {
+            s.AppendLine("        var reader = new MsgPackReader(data); var obj = new ");
+            s.Append(type.Name);
+            s.AppendLine("();");
+        }
+        else
+        {
+            s.AppendLine("        var reader = new MsgPackReader(data);");
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            {
+                var cp = type.CtorParams[ci];
+                var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                s.Append("        ");
+                s.Append(tn);
+                s.Append(" __cp_");
+                s.Append(ci);
+                s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
+            }
+        }
         s.AppendLine(
             "        reader.Read(); bool __isMap = reader.TokenType == TokenType.ObjectStart; int __pos = 0;"
         );
@@ -245,63 +327,85 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.Append("                case ");
             s.Append(p.IntKey ?? 0);
             s.AppendLine(":");
-            WriteDeser(s, p, "obj", "                ", ref c);
+            WriteDeser(s, p, "obj", "                ", ref c, ctorMap: ctorMap);
             s.AppendLine("                    break;");
         }
         s.AppendLine("                default: if (__isMap) reader.TrySkip(); break; }");
         s.AppendLine("            __pos++;");
         s.AppendLine("        }");
-        s.AppendLine("        return obj; } }");
+        if (hasCtor)
+        {
+            s.Append("        return new ");
+            s.Append(type.Name);
+            s.Append("(");
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            {
+                if (ci > 0)
+                    s.Append(", ");
+                s.Append("__cp_");
+                s.Append(ci);
+            }
+            s.AppendLine(");");
+        }
+        else
+            s.AppendLine("        return obj;");
+        s.AppendLine("    } }");
         s.AppendLine();
 
-        // Streaming deserializer
-        s.Append("file static class ");
-        s.Append(type.Name);
-        s.AppendLine("MsgPackStreaming {");
-        s.AppendLine(
-            "    internal static ReadStatus DeserializeStreaming(ref MsgPackReader reader, out "
-                + type.Name
-                + "? result) {"
-        );
-        s.AppendLine("        result = default;");
-        s.Append("        var obj = new ");
-        s.Append(type.Name);
-        s.AppendLine("();");
-        s.AppendLine(
-            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
-        );
-        s.AppendLine(
-            "        bool __isMap = reader.TokenType == TokenType.ObjectStart; int __pos = 0;"
-        );
-        s.AppendLine("        while (true) {");
-        s.AppendLine(
-            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
-        );
-        s.AppendLine(
-            "            if (reader.TokenType == TokenType.ObjectEnd || reader.TokenType == TokenType.ArrayEnd) break;"
-        );
-        s.AppendLine("            int __k;");
-        s.AppendLine("            if (__isMap) {");
-        s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
-        s.AppendLine("            } else {");
-        s.AppendLine("                __k = __pos;");
-        s.AppendLine("            }");
-        s.AppendLine("            switch (__k) {");
-        foreach (var p in sorted)
-        {
-            s.Append("                case ");
-            s.Append(p.IntKey ?? 0);
-            s.AppendLine(":");
-            WriteDeser(s, p, "obj", "                ", ref c);
-            s.AppendLine("                    break;");
+        // Streaming deserializer (skipped for constructor types)
+        if (hasCtor)
+        { /* skip */
         }
-        s.AppendLine("                default: if (__isMap) reader.TrySkip(); break; }");
-        s.AppendLine("            __pos++;");
-        s.AppendLine("        }");
-        s.AppendLine("        result = obj;");
-        s.AppendLine("        return ReadStatus.Success;");
-        s.AppendLine("    }");
-        s.AppendLine("}");
+        else
+        {
+            s.Append("file static class ");
+            s.Append(type.Name);
+            s.AppendLine("MsgPackStreaming {");
+            s.AppendLine(
+                "    internal static ReadStatus DeserializeStreaming(ref MsgPackReader reader, out "
+                    + type.Name
+                    + "? result) {"
+            );
+            s.AppendLine("        result = default;");
+            s.Append("        var obj = new ");
+            s.Append(type.Name);
+            s.AppendLine("();");
+            s.AppendLine(
+                "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+            );
+            s.AppendLine(
+                "        bool __isMap = reader.TokenType == TokenType.ObjectStart; int __pos = 0;"
+            );
+            s.AppendLine("        while (true) {");
+            s.AppendLine(
+                "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+            );
+            s.AppendLine(
+                "            if (reader.TokenType == TokenType.ObjectEnd || reader.TokenType == TokenType.ArrayEnd) break;"
+            );
+            s.AppendLine("            int __k;");
+            s.AppendLine("            if (__isMap) {");
+            s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
+            s.AppendLine("            } else {");
+            s.AppendLine("                __k = __pos;");
+            s.AppendLine("            }");
+            s.AppendLine("            switch (__k) {");
+            foreach (var p in sorted)
+            {
+                s.Append("                case ");
+                s.Append(p.IntKey ?? 0);
+                s.AppendLine(":");
+                WriteDeser(s, p, "obj", "                ", ref c);
+                s.AppendLine("                    break;");
+            }
+            s.AppendLine("                default: if (__isMap) reader.TrySkip(); break; }");
+            s.AppendLine("            __pos++;");
+            s.AppendLine("        }");
+            s.AppendLine("        result = obj;");
+            s.AppendLine("        return ReadStatus.Success;");
+            s.AppendLine("    }");
+            s.AppendLine("}");
+        } // end skip-streaming else
         s.AppendLine();
 
         s.Append("file static class ");
@@ -315,11 +419,16 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append("MsgPackSerializer(), new ");
         s.Append(type.Name);
         s.AppendLine("MsgPackDeserializer());");
-        s.Append("        MsgPackSerializer.RegisterStreaming<");
-        s.Append(type.Name);
-        s.Append(">(");
-        s.Append(type.Name);
-        s.AppendLine("MsgPackStreaming.DeserializeStreaming);");
+        if (hasCtor)
+            s.AppendLine("        // Streaming skipped for constructor type");
+        else
+        {
+            s.Append("        MsgPackSerializer.RegisterStreaming<");
+            s.Append(type.Name);
+            s.Append(">(");
+            s.Append(type.Name);
+            s.AppendLine("MsgPackStreaming.DeserializeStreaming);");
+        }
         s.AppendLine("    } }");
         return s.ToString();
     }
@@ -577,9 +686,23 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    static void WriteDeser(StringBuilder s, PropertyInfo p, string target, string ind, ref int c)
+    static void WriteDeser(
+        StringBuilder s,
+        PropertyInfo p,
+        string target,
+        string ind,
+        ref int c,
+        bool ctorAssign = false,
+        IReadOnlyDictionary<string, int>? ctorMap = null
+    )
     {
-        var t = $"{target}.{p.Name}";
+        // If property is in ctorMap, redirect to __cp_N
+        if (!ctorAssign && ctorMap is not null && ctorMap.TryGetValue(p.Name, out var __ci))
+        {
+            WriteDeser(s, p, $"__cp_{__ci}", ind, ref c, ctorAssign: true);
+            return;
+        }
+        var t = ctorAssign ? target : $"{target}.{p.Name}";
         if (p.ConverterTypeFullName is not null)
         {
             s.Append(ind);

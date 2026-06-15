@@ -594,7 +594,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(", \"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(props[i].JsonName));
                 s.AppendLine("\"u8)) {");
-                EmitDeserializeProp(s, props[i], target, bodyIndent);
+                EmitDeserializePropOrAssign(s, props[i], target, bodyIndent, ctorMap);
                 s.Append(indent);
                 s.AppendLine("}");
             }
