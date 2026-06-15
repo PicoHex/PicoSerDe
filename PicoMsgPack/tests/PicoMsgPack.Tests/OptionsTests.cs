@@ -31,3 +31,23 @@ public class MsgPackImmutableDto
     [MsgPackConstructor]
     public MsgPackImmutableDto(int value, string label) => (Value, Label) = (value, label);
 }
+
+public class RequiredMsgPackTests
+{
+    [Test]
+    public async Task RequiredMsgPackDto_RoundTrip()
+    {
+        var dto = new RequiredMsgPackDto { Name = "test", Value = 42 };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(dto);
+        var result = MsgPackSerializer.Deserialize<RequiredMsgPackDto>(bytes);
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("test");
+        await Assert.That(result.Value).IsEqualTo(42);
+    }
+}
+
+public class RequiredMsgPackDto
+{
+    public required string Name { get; set; }
+    public int Value { get; set; }
+}

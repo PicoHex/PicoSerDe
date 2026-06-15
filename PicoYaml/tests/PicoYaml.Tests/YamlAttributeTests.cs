@@ -28,3 +28,23 @@ public class YamlNullableDto
     public string Name { get; set; } = "";
     public string? Title { get; set; }
 }
+
+public class RequiredYamlTests
+{
+    [Test]
+    public async Task RequiredYamlDto_RoundTrip()
+    {
+        var dto = new RequiredYamlDto { Name = "test", Value = 42 };
+        var yaml = YamlSerializer.Serialize(dto);
+        var result = YamlSerializer.Deserialize<RequiredYamlDto>(Encoding.UTF8.GetBytes(yaml));
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("test");
+        await Assert.That(result.Value).IsEqualTo(42);
+    }
+}
+
+public class RequiredYamlDto
+{
+    public required string Name { get; set; }
+    public int Value { get; set; }
+}

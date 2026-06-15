@@ -742,9 +742,36 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append(t.Name);
         sb.AppendLine(" Deserialize(ReadOnlySpan<byte> d) {");
         sb.AppendLine("        var r = new YamlReader(d);");
-        sb.Append("        var o = new ");
-        sb.Append(t.Name);
-        sb.AppendLine("();");
+        var ylReq = t.Properties.Where(p => p.IsRequired).ToArray();
+        if (ylReq.Length > 0)
+        {
+            sb.Append("        var o = new ");
+            sb.Append(t.Name);
+            sb.AppendLine(" {");
+            foreach (var rp in ylReq)
+            {
+                sb.Append("            ");
+                sb.Append(rp.Name);
+                sb.Append(" = ");
+                switch (rp.TypeKind)
+                {
+                    case "string":
+                        sb.Append("null!");
+                        break;
+                    default:
+                        sb.Append("default");
+                        break;
+                }
+                sb.AppendLine(",");
+            }
+            sb.Append("        };");
+        }
+        else
+        {
+            sb.Append("        var o = new ");
+            sb.Append(t.Name);
+            sb.AppendLine("();");
+        }
         sb.AppendLine("        if (!r.Read()) return o;");
         sb.AppendLine("        while (true) {");
         sb.AppendLine("            if (r.TokenType != TokenType.PropertyName) {");
@@ -784,9 +811,36 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 + "? result) {"
         );
         sb.AppendLine("        result = default;");
-        sb.Append("        var o = new ");
-        sb.Append(t.Name);
-        sb.AppendLine("();");
+        var ysReq = t.Properties.Where(p => p.IsRequired).ToArray();
+        if (ysReq.Length > 0)
+        {
+            sb.Append("        var o = new ");
+            sb.Append(t.Name);
+            sb.AppendLine(" {");
+            foreach (var rp in ysReq)
+            {
+                sb.Append("            ");
+                sb.Append(rp.Name);
+                sb.Append(" = ");
+                switch (rp.TypeKind)
+                {
+                    case "string":
+                        sb.Append("null!");
+                        break;
+                    default:
+                        sb.Append("default");
+                        break;
+                }
+                sb.AppendLine(",");
+            }
+            sb.Append("        };");
+        }
+        else
+        {
+            sb.Append("        var o = new ");
+            sb.Append(t.Name);
+            sb.AppendLine("();");
+        }
         sb.AppendLine("        while (true) {");
         sb.AppendLine(
             "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"

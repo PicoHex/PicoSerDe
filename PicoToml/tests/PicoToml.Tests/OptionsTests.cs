@@ -61,3 +61,23 @@ public class TomlNullableDto
     public string Name { get; set; } = "";
     public string? Title { get; set; }
 }
+
+public class RequiredTomlTests
+{
+    [Test]
+    public async Task RequiredTomlDto_RoundTrip()
+    {
+        var dto = new RequiredTomlDto { Name = "test", Value = 42 };
+        var toml = TomlSerializer.Serialize(dto);
+        var result = TomlSerializer.Deserialize<RequiredTomlDto>(Encoding.UTF8.GetBytes(toml));
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("test");
+        await Assert.That(result.Value).IsEqualTo(42);
+    }
+}
+
+public class RequiredTomlDto
+{
+    public required string Name { get; set; }
+    public int Value { get; set; }
+}

@@ -290,9 +290,37 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         }
         if (!hasCtor)
         {
-            s.AppendLine("        var reader = new MsgPackReader(data); var obj = new ");
-            s.Append(type.Name);
-            s.AppendLine("();");
+            s.AppendLine("        var reader = new MsgPackReader(data);");
+            var mpReq = type.Properties.Where(p => p.IsRequired).ToArray();
+            if (mpReq.Length > 0)
+            {
+                s.Append("        var obj = new ");
+                s.Append(type.Name);
+                s.AppendLine(" {");
+                foreach (var rp in mpReq)
+                {
+                    s.Append("            ");
+                    s.Append(rp.Name);
+                    s.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            s.Append("null!");
+                            break;
+                        default:
+                            s.Append("default");
+                            break;
+                    }
+                    s.AppendLine(",");
+                }
+                s.Append("        };");
+            }
+            else
+            {
+                s.Append("        var obj = new ");
+                s.Append(type.Name);
+                s.AppendLine("();");
+            }
         }
         else
         {
@@ -367,9 +395,36 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     + "? result) {"
             );
             s.AppendLine("        result = default;");
-            s.Append("        var obj = new ");
-            s.Append(type.Name);
-            s.AppendLine("();");
+            var mpSrcReq = type.Properties.Where(p => p.IsRequired).ToArray();
+            if (mpSrcReq.Length > 0)
+            {
+                s.Append("        var obj = new ");
+                s.Append(type.Name);
+                s.AppendLine(" {");
+                foreach (var rp in mpSrcReq)
+                {
+                    s.Append("            ");
+                    s.Append(rp.Name);
+                    s.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            s.Append("null!");
+                            break;
+                        default:
+                            s.Append("default");
+                            break;
+                    }
+                    s.AppendLine(",");
+                }
+                s.Append("        };");
+            }
+            else
+            {
+                s.Append("        var obj = new ");
+                s.Append(type.Name);
+                s.AppendLine("();");
+            }
             s.AppendLine(
                 "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
             );

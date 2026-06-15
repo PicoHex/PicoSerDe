@@ -357,9 +357,36 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
         else
         {
-            s.Append("        var o = new ");
-            s.Append(t.Name);
-            s.AppendLine("();");
+            var tomlReq = t.Properties.Where(p => p.IsRequired).ToArray();
+            if (tomlReq.Length > 0)
+            {
+                s.Append("        var o = new ");
+                s.Append(t.Name);
+                s.AppendLine(" {");
+                foreach (var rp in tomlReq)
+                {
+                    s.Append("            ");
+                    s.Append(rp.Name);
+                    s.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            s.Append("null!");
+                            break;
+                        default:
+                            s.Append("default");
+                            break;
+                    }
+                    s.AppendLine(",");
+                }
+                s.Append("        };");
+            }
+            else
+            {
+                s.Append("        var o = new ");
+                s.Append(t.Name);
+                s.AppendLine("();");
+            }
         }
         s.AppendLine("        r.Read();");
         s.AppendLine("        while (true) {");
@@ -514,9 +541,36 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     + "? result) {"
             );
             s.AppendLine("        result = default;");
-            s.Append("        var o = new ");
-            s.Append(t.Name);
-            s.AppendLine("();");
+            var streamReq = t.Properties.Where(p => p.IsRequired).ToArray();
+            if (streamReq.Length > 0)
+            {
+                s.Append("        var o = new ");
+                s.Append(t.Name);
+                s.AppendLine(" {");
+                foreach (var rp in streamReq)
+                {
+                    s.Append("            ");
+                    s.Append(rp.Name);
+                    s.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            s.Append("null!");
+                            break;
+                        default:
+                            s.Append("default");
+                            break;
+                    }
+                    s.AppendLine(",");
+                }
+                s.Append("        };");
+            }
+            else
+            {
+                s.Append("        var o = new ");
+                s.Append(t.Name);
+                s.AppendLine("();");
+            }
             s.AppendLine("        while (true) {");
             s.AppendLine(
                 "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
