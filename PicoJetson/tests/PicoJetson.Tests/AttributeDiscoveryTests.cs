@@ -121,3 +121,24 @@ public class IncludeFieldsTests
         await Assert.That(result).DoesNotContain("Name");
     }
 }
+
+public class IncludeFieldsDto
+{
+    public string Name = "default";  // field
+    public int Count;                 // field
+    public string Label { get; set; } = "";  // property (still works)
+}
+
+public class IncludeFieldsTests2
+{
+    [Test]
+    public async Task Fields_Excluded_ByDefault()
+    {
+        var json = JsonSerializer.Serialize(new IncludeFieldsDto { Name = "test" });
+        // "Label" is a property, should be serialized
+        await Assert.That(json).Contains("Label");
+        // "Name" and "Count" are fields, should NOT be serialized by default
+        await Assert.That(json).DoesNotContain("Name");
+        await Assert.That(json).DoesNotContain("Count");
+    }
+}

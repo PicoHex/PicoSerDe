@@ -177,7 +177,8 @@ internal static class GenInfrastructure
         INamedTypeSymbol namedType,
         FormatConfig config,
         AttributeHelpers attrs,
-        bool includeReadOnlyProperties = false
+        bool includeReadOnlyProperties = false,
+        bool includeFields = false
     )
     {
         var ns = namedType.ContainingNamespace?.ToDisplayString() ?? "";
@@ -190,7 +191,8 @@ internal static class GenInfrastructure
             config.FormatTag,
             attrs,
             includeReadOnlyProperties,
-            useCamelCase
+            useCamelCase,
+            includeFields: includeFields
         );
 
         return new TypeInfo(
@@ -291,7 +293,8 @@ internal static class GenInfrastructure
         string formatTag,
         AttributeHelpers attrs,
         bool includeReadOnlyProperties,
-        bool useCamelCase
+        bool useCamelCase,
+        bool includeFields = false
     )
     {
         return ExtractProperties(
@@ -300,7 +303,8 @@ internal static class GenInfrastructure
             attrs,
             includeReadOnlyProperties,
             useCamelCase,
-            null
+            null,
+            includeFields
         );
     }
 
@@ -314,7 +318,8 @@ internal static class GenInfrastructure
         AttributeHelpers attrs,
         bool includeReadOnlyProperties,
         bool useCamelCase,
-        List<Diagnostic>? diagnostics
+        List<Diagnostic>? diagnostics,
+        bool includeFields = false
     )
     {
         var list = new List<PropertyInfo>();
@@ -322,6 +327,41 @@ internal static class GenInfrastructure
 
         foreach (var member in type.GetMembers())
         {
+            // Public fields (when IncludeFields is enabled)
+            if (includeFields && member is IFieldSymbol field)
+            {
+                if (field.DeclaredAccessibility != Accessibility.Public)
+                    continue;
+                if (field.IsStatic)
+                    continue;
+                var (fk, fn, _) = TypeKindResolver.Resolve(field.Type, formatTag);
+                if (fk is null)
+                    continue;
+                bool fnNrt = false;
+                if (!fn && field.Type.NullableAnnotation == NullableAnnotation.Annotated)
+                {
+                    fn = true;
+                    fnNrt = true;
+                }
+                list.Add(
+                    new PropertyInfo(
+                        field.Name,
+                        field.Name,
+                        fk,
+                        field.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                        fn,
+                        null,
+                        null,
+                        null,
+                        null,
+                        ImmutableArray<PropertyInfo>.Empty,
+                        null,
+                        IsNullableReference: fnNrt
+                    )
+                );
+                continue;
+            }
+
             if (member is not IPropertySymbol prop)
                 continue;
             if (prop.DeclaredAccessibility != Accessibility.Public)
