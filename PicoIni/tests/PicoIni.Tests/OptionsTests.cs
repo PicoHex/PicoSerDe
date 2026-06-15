@@ -68,3 +68,23 @@ public class NullableIniDto
     public string Name { get; set; } = "";
     public string? Title { get; set; }
 }
+
+public class RequiredIniTests
+{
+    [Test]
+    public async Task RequiredIniDto_RoundTrip()
+    {
+        var dto = new RequiredIniDto { Name = "test", Value = 42 };
+        var ini = IniSerializer.Serialize(dto);
+        var result = IniSerializer.Deserialize<RequiredIniDto>(Encoding.UTF8.GetBytes(ini));
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("test");
+        await Assert.That(result.Value).IsEqualTo(42);
+    }
+}
+
+public class RequiredIniDto
+{
+    public required string Name { get; set; }
+    public int Value { get; set; }
+}

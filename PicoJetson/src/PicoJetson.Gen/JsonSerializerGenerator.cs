@@ -303,9 +303,36 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(fullName);
         sb.AppendLine(" Deserialize(ref JsonReader reader)");
         sb.AppendLine("    {");
-        sb.Append("        var obj = new ");
-        sb.Append(fullName);
-        sb.AppendLine("();");
+        var reqInner = props.Where(p => p.IsRequired).ToArray();
+        if (reqInner.Length > 0)
+        {
+            sb.Append("        var obj = new ");
+            sb.Append(fullName);
+            sb.AppendLine(" {");
+            foreach (var rp in reqInner)
+            {
+                sb.Append("            ");
+                sb.Append(rp.Name);
+                sb.Append(" = ");
+                switch (rp.TypeKind)
+                {
+                    case "string":
+                        sb.Append("null!");
+                        break;
+                    default:
+                        sb.Append("default");
+                        break;
+                }
+                sb.AppendLine(",");
+            }
+            sb.Append("        };");
+        }
+        else
+        {
+            sb.Append("        var obj = new ");
+            sb.Append(fullName);
+            sb.AppendLine("();");
+        }
         sb.AppendLine(
             "        while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
         );
@@ -793,9 +820,36 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
         else
         {
-            sb.Append("            var obj = new ");
-            sb.Append(type.Name);
-            sb.AppendLine("();");
+            var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
+            if (reqProps.Length > 0)
+            {
+                sb.Append("            var obj = new ");
+                sb.Append(type.Name);
+                sb.AppendLine(" {");
+                foreach (var rp in reqProps)
+                {
+                    sb.Append("                ");
+                    sb.Append(rp.Name);
+                    sb.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            sb.Append("null!");
+                            break;
+                        default:
+                            sb.Append("default");
+                            break;
+                    }
+                    sb.AppendLine(",");
+                }
+                sb.Append("            };");
+            }
+            else
+            {
+                sb.Append("            var obj = new ");
+                sb.Append(type.Name);
+                sb.AppendLine("();");
+            }
         }
 
         sb.AppendLine("            reader.Read();");
@@ -1896,9 +1950,36 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
         else
         {
-            sb.Append("        result = new ");
-            sb.Append(type.Name);
-            sb.AppendLine("();");
+            var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
+            if (reqProps.Length > 0)
+            {
+                sb.Append("        result = new ");
+                sb.Append(type.Name);
+                sb.AppendLine(" {");
+                foreach (var rp in reqProps)
+                {
+                    sb.Append("            ");
+                    sb.Append(rp.Name);
+                    sb.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            sb.Append("null!");
+                            break;
+                        default:
+                            sb.Append("default");
+                            break;
+                    }
+                    sb.AppendLine(",");
+                }
+                sb.Append("        };");
+            }
+            else
+            {
+                sb.Append("        result = new ");
+                sb.Append(type.Name);
+                sb.AppendLine("();");
+            }
         }
         sb.AppendLine();
         sb.AppendLine("        // ReadStart");

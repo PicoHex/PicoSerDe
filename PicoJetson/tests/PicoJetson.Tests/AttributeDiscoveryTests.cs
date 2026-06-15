@@ -142,3 +142,22 @@ public class IncludeFieldsTests2
         await Assert.That(json).DoesNotContain("Count");
     }
 }
+
+public class RequiredCreateDto
+{
+    public required string Name { get; set; }
+    public int Value { get; set; }
+}
+
+public class RequiredCreateTests
+{
+    [Test]
+    public async Task RequiredDto_Deserialize_Succeeds()
+    {
+        var json = """{"Name":"test","Value":42}"""u8;
+        var result = JsonSerializer.Deserialize<RequiredCreateDto>(json);
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("test");
+        await Assert.That(result.Value).IsEqualTo(42);
+    }
+}

@@ -343,7 +343,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("            ? value.");
                 s.Append(p.Name);
                 if (p.IsNullable && !p.IsNullableReference)
-                    s.Append(" == null\n");
+                    s.Append(" != null\n");
                 else
                     s.Append(" != null\n");
                 s.Append("            : true)\n");
@@ -461,9 +461,36 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         }
         else
         {
-            s.Append("        var obj = new ");
-            s.Append(type.Name);
-            s.AppendLine("();");
+            var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
+            if (reqProps.Length > 0)
+            {
+                s.Append("        var obj = new ");
+                s.Append(type.Name);
+                s.AppendLine(" {");
+                foreach (var rp in reqProps)
+                {
+                    s.Append("            ");
+                    s.Append(rp.Name);
+                    s.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            s.Append("null!");
+                            break;
+                        default:
+                            s.Append("default");
+                            break;
+                    }
+                    s.AppendLine(",");
+                }
+                s.Append("        };");
+            }
+            else
+            {
+                s.Append("        var obj = new ");
+                s.Append(type.Name);
+                s.AppendLine("();");
+            }
         }
         if (sec.Count > 0 || dicts.Count > 0)
             s.AppendLine("        int __sec = -1;");
@@ -629,9 +656,36 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     + "? result) {"
             );
             s.AppendLine("        result = default;");
-            s.Append("        var obj = new ");
-            s.Append(type.Name);
-            s.AppendLine("();");
+            var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
+            if (reqProps.Length > 0)
+            {
+                s.Append("        var obj = new ");
+                s.Append(type.Name);
+                s.AppendLine(" {");
+                foreach (var rp in reqProps)
+                {
+                    s.Append("            ");
+                    s.Append(rp.Name);
+                    s.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            s.Append("null!");
+                            break;
+                        default:
+                            s.Append("default");
+                            break;
+                    }
+                    s.AppendLine(",");
+                }
+                s.Append("        };");
+            }
+            else
+            {
+                s.Append("        var obj = new ");
+                s.Append(type.Name);
+                s.AppendLine("();");
+            }
             s.AppendLine("        while (true) {");
             s.AppendLine(
                 "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
