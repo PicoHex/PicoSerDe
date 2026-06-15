@@ -48,3 +48,24 @@ public class RequiredYamlDto
     public required string Name { get; set; }
     public int Value { get; set; }
 }
+
+public class YamlCtorTests
+{
+    [Test]
+    public async Task YamlImmutable_RoundTrip()
+    {
+        var dto = new YamlImmutableDto("hello", 7);
+        var yaml = YamlSerializer.Serialize(dto);
+        var result = YamlSerializer.Deserialize<YamlImmutableDto>(Encoding.UTF8.GetBytes(yaml));
+        await Assert.That(result!.Label).IsEqualTo("hello");
+        await Assert.That(result.Count).IsEqualTo(7);
+    }
+}
+
+public class YamlImmutableDto
+{
+    public string Label { get; }
+    public int Count { get; }
+    [YamlConstructor]
+    public YamlImmutableDto(string label, int count) => (Label, Count) = (label, count);
+}

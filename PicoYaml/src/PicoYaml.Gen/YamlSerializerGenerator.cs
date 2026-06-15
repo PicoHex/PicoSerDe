@@ -79,16 +79,68 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
     private static TypeInfo? Tf(GeneratorSyntaxContext ctx)
     {
-        var info = PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+        bool hasCtor = false;
+        INamedTypeSymbol? namedType = null;
+        if (
+            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is IMethodSymbol m
+            && m.TypeArguments.Length == 1
+            && m.TypeArguments[0] is INamedTypeSymbol nt
+        )
+        {
+            namedType = nt;
+            if (namedType.IsRecord)
+            {
+                var ctors = namedType
+                    .Constructors.Where(c => c.DeclaredAccessibility == Accessibility.Public)
+                    .ToArray();
+                if (ctors.Length == 1 && !ctors[0].IsImplicitlyDeclared)
+                    hasCtor = true;
+            }
+            if (!hasCtor)
+            {
+                foreach (var ctor in namedType.Constructors)
+                {
+                    if (ctor.DeclaredAccessibility != Accessibility.Public)
+                        continue;
+                    foreach (var attr in ctor.GetAttributes())
+                    {
+                        if (attr.AttributeClass?.Name == "YamlConstructorAttribute")
+                        {
+                            hasCtor = true;
+                            break;
+                        }
+                    }
+                    if (hasCtor)
+                        break;
+                }
+            }
+        }
+
+        var info = PicoSerDe.Gen.GenInfrastructure.TransformType(
+            ctx,
+            Config,
+            Attrs,
+            includeReadOnlyProperties: hasCtor
+        );
         if (info is not { } ti)
             return null;
 
+        if (hasCtor)
+        {
+            if (namedType is null)
+                return ti;
+            var cp = PicoSerDe.Gen.GenInfrastructure.DetectConstructor(
+                namedType,
+                Config.FormatTag,
+                "YamlConstructorAttribute"
+            );
+            if (cp is { } ctorParams)
+                ti = ti with { CtorParams = ctorParams };
+            return ti;
+        }
+
         // Detect [YamlTag] on the target type
-        if (
-            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method
-            || method.TypeArguments.Length != 1
-            || method.TypeArguments[0] is not INamedTypeSymbol namedType
-        )
+        if (namedType is null)
             return ti;
 
         foreach (var attr in namedType.GetAttributes())
@@ -742,37 +794,62 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append(t.Name);
         sb.AppendLine(" Deserialize(ReadOnlySpan<byte> d) {");
         sb.AppendLine("        var r = new YamlReader(d);");
-        var ylReq = t.Properties.Where(p => p.IsRequired).ToArray();
-        if (ylReq.Length > 0)
+        var ylHasCtor = !t.CtorParams.IsDefaultOrEmpty && t.CtorParams.Length > 0;
+        Dictionary<string, int>? ylCtorMap = null;
+        if (ylHasCtor)
         {
-            sb.Append("        var o = new ");
-            sb.Append(t.Name);
-            sb.AppendLine(" {");
-            foreach (var rp in ylReq)
+            ylCtorMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int ylCi = 0; ylCi < t.CtorParams.Length; ylCi++)
+                ylCtorMap[t.CtorParams[ylCi].Name] = ylCi;
+        }
+        if (ylHasCtor)
+        {
+            for (int yci = 0; yci < t.CtorParams.Length; yci++)
             {
-                sb.Append("            ");
-                sb.Append(rp.Name);
-                sb.Append(" = ");
-                switch (rp.TypeKind)
-                {
-                    case "string":
-                        sb.Append("null!");
-                        break;
-                    default:
-                        sb.Append("default");
-                        break;
-                }
-                sb.AppendLine(",");
+                var cp = t.CtorParams[yci];
+                var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                sb.Append("        ");
+                sb.Append(tn);
+                sb.Append(" __cp_");
+                sb.Append(yci);
+                sb.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
             }
-            sb.Append("        };");
         }
         else
         {
-            sb.Append("        var o = new ");
-            sb.Append(t.Name);
-            sb.AppendLine("();");
+            var ylReq = t.Properties.Where(p => p.IsRequired).ToArray();
+            if (ylReq.Length > 0)
+            {
+                sb.Append("        var o = new ");
+                sb.Append(t.Name);
+                sb.AppendLine(" {");
+                foreach (var rp in ylReq)
+                {
+                    sb.Append("            ");
+                    sb.Append(rp.Name);
+                    sb.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            sb.Append("null!");
+                            break;
+                        default:
+                            sb.Append("default");
+                            break;
+                    }
+                    sb.AppendLine(",");
+                }
+                sb.Append("        };");
+            }
+            else
+            {
+                sb.Append("        var o = new ");
+                sb.Append(t.Name);
+                sb.AppendLine("();");
+            }
         }
-        sb.AppendLine("        if (!r.Read()) return o;");
+        if (!ylHasCtor)
+            sb.AppendLine("        if (!r.Read()) return o;");
         sb.AppendLine("        while (true) {");
         sb.AppendLine("            if (r.TokenType != TokenType.PropertyName) {");
         sb.AppendLine("                if (!r.Read()) break;");
@@ -787,7 +864,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             sb.Append(" (TextHelpers.Eq(k, \"");
             sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             sb.AppendLine("\"u8)) {");
-            EmitDeserialize(sb, p, "o", "                ");
+            EmitDeserialize(sb, p, "o", "                ", ctorMap: ylCtorMap);
             sb.AppendLine("            }");
         }
         sb.AppendLine("            else {");
@@ -802,74 +879,80 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine();
 
         // Streaming (scalar properties only, skip nested objects/dicts)
-        sb.Append("file static class ");
-        sb.Append(t.Name);
-        sb.AppendLine("_YamlStreaming {");
-        sb.AppendLine(
-            "    internal static ReadStatus DeserializeStreaming(ref YamlReader r, out "
-                + t.Name
-                + "? result) {"
-        );
-        sb.AppendLine("        result = default;");
-        var ysReq = t.Properties.Where(p => p.IsRequired).ToArray();
-        if (ysReq.Length > 0)
-        {
-            sb.Append("        var o = new ");
-            sb.Append(t.Name);
-            sb.AppendLine(" {");
-            foreach (var rp in ysReq)
-            {
-                sb.Append("            ");
-                sb.Append(rp.Name);
-                sb.Append(" = ");
-                switch (rp.TypeKind)
-                {
-                    case "string":
-                        sb.Append("null!");
-                        break;
-                    default:
-                        sb.Append("default");
-                        break;
-                }
-                sb.AppendLine(",");
-            }
-            sb.Append("        };");
+        if (ylHasCtor)
+        { /* skip streaming */
         }
         else
         {
-            sb.Append("        var o = new ");
+            sb.Append("file static class ");
             sb.Append(t.Name);
-            sb.AppendLine("();");
-        }
-        sb.AppendLine("        while (true) {");
-        sb.AppendLine(
-            "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
-        );
-        sb.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
-        sb.AppendLine("            var __k = r.KeySpan;");
-        sb.AppendLine(
-            "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
-        );
-        int yi = 0;
-        foreach (var p in t.Properties.Where(p => p.TypeKind is not "object" and not "dict"))
-        {
-            var kw = yi++ == 0 ? "if" : "else if";
-            sb.Append("            ");
-            sb.Append(kw);
-            sb.Append(" (TextHelpers.Eq(__k, \"");
-            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            sb.AppendLine("\"u8)) {");
-            EmitDeserialize(sb, p, "o", "                ");
-            sb.AppendLine("            }");
-        }
-        sb.AppendLine(
-            "            else { if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput; }"
-        );
-        sb.AppendLine("        }");
-        sb.AppendLine("        result = o;");
-        sb.AppendLine("        return ReadStatus.Success;");
-        sb.AppendLine("    }");
-        sb.AppendLine("}");
+            sb.AppendLine("_YamlStreaming {");
+            sb.AppendLine(
+                "    internal static ReadStatus DeserializeStreaming(ref YamlReader r, out "
+                    + t.Name
+                    + "? result) {"
+            );
+            sb.AppendLine("        result = default;");
+            var ysReq = t.Properties.Where(p => p.IsRequired).ToArray();
+            if (ysReq.Length > 0)
+            {
+                sb.Append("        var o = new ");
+                sb.Append(t.Name);
+                sb.AppendLine(" {");
+                foreach (var rp in ysReq)
+                {
+                    sb.Append("            ");
+                    sb.Append(rp.Name);
+                    sb.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            sb.Append("null!");
+                            break;
+                        default:
+                            sb.Append("default");
+                            break;
+                    }
+                    sb.AppendLine(",");
+                }
+                sb.Append("        };");
+            }
+            else
+            {
+                sb.Append("        var o = new ");
+                sb.Append(t.Name);
+                sb.AppendLine("();");
+            }
+            sb.AppendLine("        while (true) {");
+            sb.AppendLine(
+                "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+            );
+            sb.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
+            sb.AppendLine("            var __k = r.KeySpan;");
+            sb.AppendLine(
+                "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+            );
+            int yi = 0;
+            foreach (var p in t.Properties.Where(p => p.TypeKind is not "object" and not "dict"))
+            {
+                var kw = yi++ == 0 ? "if" : "else if";
+                sb.Append("            ");
+                sb.Append(kw);
+                sb.Append(" (TextHelpers.Eq(__k, \"");
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                sb.AppendLine("\"u8)) {");
+                EmitDeserialize(sb, p, "o", "                ");
+                sb.AppendLine("            }");
+            }
+            sb.AppendLine(
+                "            else { if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput; }"
+            );
+            sb.AppendLine("        }");
+            sb.AppendLine("        result = o;");
+            sb.AppendLine("        return ReadStatus.Success;");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+        } // end skip-streaming else
         sb.AppendLine();
 
         sb.Append("file static class ");
@@ -881,11 +964,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append("_YS(), new ");
         sb.Append(t.Name);
         sb.AppendLine("_YD());");
-        sb.Append("YamlSerializer.RegisterStreaming<");
-        sb.Append(t.Name);
-        sb.Append(">(");
-        sb.Append(t.Name);
-        sb.AppendLine("_YamlStreaming.DeserializeStreaming); } }");
+        if (ylHasCtor)
+            sb.AppendLine("            // Streaming skipped for constructor type");
+        else
+        {
+            sb.Append("YamlSerializer.RegisterStreaming<");
+            sb.Append(t.Name);
+            sb.Append(">(");
+            sb.Append(t.Name);
+            sb.AppendLine("_YamlStreaming.DeserializeStreaming);");
+        }
+        sb.AppendLine("    } }");
         return sb.ToString();
     }
 
@@ -1249,8 +1338,32 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitDeserialize(StringBuilder s, PropertyInfo p, string tgt, string pad)
+    private static void EmitDeserialize(
+        StringBuilder s,
+        PropertyInfo p,
+        string tgt,
+        string pad,
+        bool ctorAssign = false,
+        IReadOnlyDictionary<string, int>? ctorMap = null
+    )
     {
+        // If property is in ctorMap, redirect to __cp_N
+        if (!ctorAssign && ctorMap is not null && ctorMap.TryGetValue(p.Name, out var __ci))
+        {
+            EmitDeserialize(s, p, $"__cp_{__ci}", pad, ctorAssign: true);
+            return;
+        }
+        void EmitTgt()
+        {
+            if (ctorAssign)
+                s.Append(tgt);
+            else
+            {
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+            }
+        }
         if (p.ConverterTypeFullName is not null)
         {
             s.Append(pad);
@@ -1258,9 +1371,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(pad);
-            s.Append(tgt);
-            s.Append('.');
-            s.Append(p.Name);
+            EmitTgt();
             s.AppendLine(" = __cnv.Read(ref r);");
             s.Append(pad);
             s.AppendLine("if (!r.Read()) break;");
