@@ -68,7 +68,8 @@ internal readonly record struct PropertyInfo(
     string? Comment = null,
     string? NestedElementTypeKind = null,
     byte? ExtensionTag = null,
-    bool IsNullableReference = false
+    bool IsNullableReference = false,
+    bool IsRequired = false
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -444,7 +445,8 @@ internal static class GenInfrastructure
                     SectionName: attrs.GetSectionName?.Invoke(prop),
                     Comment: attrs.GetPropertyComment?.Invoke(prop)
                         ?? attrs.GetComment?.Invoke(prop.ContainingType),
-                    IsNullableReference: isNrtNullable
+                    IsNullableReference: isNrtNullable,
+                    IsRequired: prop.IsRequired
                 )
             );
         }
