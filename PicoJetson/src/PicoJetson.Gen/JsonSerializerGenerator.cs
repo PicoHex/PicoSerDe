@@ -127,9 +127,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         if (typeArg is not INamedTypeSymbol namedType2)
             return ti;
 
-        var ctorParams = PicoSerDe.Gen.GenInfrastructure.DetectJsonConstructor(
+        var ctorParams = PicoSerDe.Gen.GenInfrastructure.DetectConstructor(
             namedType2,
-            Config.FormatTag
+            Config.FormatTag,
+            "JsonConstructorAttribute"
         );
         if (ctorParams is not { } cp)
             return ti;

@@ -17,3 +17,22 @@ public class OptionsTests
         IniOptions.Current = null;
     }
 }
+
+public class ConstructorTests
+{
+    [Test]
+    public async Task RegularDto_RoundTrip()
+    {
+        var person = new RegularDto { Name = "Alice", Age = 30 };
+        var ini = IniSerializer.Serialize(person);
+        var result = IniSerializer.Deserialize<RegularDto>(Encoding.UTF8.GetBytes(ini));
+        await Assert.That(result!.Name).IsEqualTo("Alice");
+        await Assert.That(result.Age).IsEqualTo(30);
+    }
+}
+
+public class RegularDto
+{
+    public string Name { get; set; } = "";
+    public int Age { get; set; }
+}

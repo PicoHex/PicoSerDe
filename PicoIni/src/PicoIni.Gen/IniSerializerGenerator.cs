@@ -82,8 +82,79 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     private static bool IsCandidate(SyntaxNode node) =>
         PicoSerDe.Gen.GenInfrastructure.IsCandidate(node);
 
-    private static TypeInfo? Transform(GeneratorSyntaxContext ctx) =>
-        PicoSerDe.Gen.GenInfrastructure.TransformType(ctx, Config, Attrs);
+    private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
+    {
+        // Detect [IniConstructor] and record primary constructors
+        bool hasCtor = false;
+        if (
+            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is IMethodSymbol method
+            && method.TypeArguments.Length == 1
+            && method.TypeArguments[0] is INamedTypeSymbol namedType
+        )
+        {
+            // Record primary constructor auto-detection
+            if (namedType.IsRecord)
+            {
+                var ctors = namedType
+                    .Constructors.Where(c => c.DeclaredAccessibility == Accessibility.Public)
+                    .ToArray();
+                if (ctors.Length == 1 && !ctors[0].IsImplicitlyDeclared)
+                    hasCtor = true;
+            }
+            // [IniConstructor] attribute
+            if (!hasCtor)
+            {
+                foreach (var ctor in namedType.Constructors)
+                {
+                    if (ctor.DeclaredAccessibility != Accessibility.Public)
+                        continue;
+                    foreach (var attr in ctor.GetAttributes())
+                    {
+                        if (attr.AttributeClass?.Name == "IniConstructorAttribute")
+                        {
+                            hasCtor = true;
+                            break;
+                        }
+                    }
+                    if (hasCtor)
+                        break;
+                }
+            }
+        }
+
+        var info = PicoSerDe.Gen.GenInfrastructure.TransformType(
+            ctx,
+            Config,
+            Attrs,
+            includeReadOnlyProperties: hasCtor
+        );
+        if (info is not { } ti)
+            return null;
+
+        if (!hasCtor)
+            return ti;
+
+        // Extract constructor parameters
+        if (
+            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method2
+            || method2.TypeArguments.Length != 1
+            || method2.TypeArguments[0] is not INamedTypeSymbol namedType2
+        )
+            return ti;
+
+        var ctorParams = PicoSerDe.Gen.GenInfrastructure.DetectConstructor(
+            namedType2,
+            Config.FormatTag,
+            "IniConstructorAttribute"
+        );
+        if (ctorParams is not { } cp)
+            return ti;
+
+        return ti with
+        {
+            CtorParams = cp,
+        };
+    }
 
     // ── Attribute helpers ──
 
@@ -358,9 +429,29 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append(type.Name);
         s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
         s.AppendLine("        var reader = new IniReader(data);");
-        s.Append("        var obj = new ");
-        s.Append(type.Name);
-        s.AppendLine("();");
+        var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
+        if (hasCtor)
+        {
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            {
+                var cp = type.CtorParams[ci];
+                var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                var def = cp.TypeKind == "string" ? "null!" : "default";
+                s.Append("        ");
+                s.Append(tn);
+                s.Append(" __cp_");
+                s.Append(ci);
+                s.Append(" = ");
+                s.Append(def);
+                s.AppendLine(";");
+            }
+        }
+        else
+        {
+            s.Append("        var obj = new ");
+            s.Append(type.Name);
+            s.AppendLine("();");
+        }
         if (sec.Count > 0 || dicts.Count > 0)
             s.AppendLine("        int __sec = -1;");
         s.AppendLine("        while (reader.Read()) {");
@@ -482,7 +573,24 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine("            }");
         }
         s.AppendLine("        }");
-        s.AppendLine("        return obj;");
+        if (hasCtor)
+        {
+            s.Append("        return new ");
+            s.Append(type.Name);
+            s.Append("(");
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            {
+                if (ci > 0)
+                    s.Append(", ");
+                s.Append("__cp_");
+                s.Append(ci);
+            }
+            s.AppendLine(");");
+        }
+        else
+        {
+            s.AppendLine("        return obj;");
+        }
         s.AppendLine("    } }");
         s.AppendLine();
 

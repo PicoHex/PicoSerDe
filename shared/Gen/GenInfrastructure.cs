@@ -556,9 +556,10 @@ internal static class GenInfrastructure
     }
 
     /// <summary>Detects [JsonConstructor] attribute and returns ctor param info.</summary>
-    public static ImmutableArray<CtorParamInfo>? DetectJsonConstructor(
+    public static ImmutableArray<CtorParamInfo>? DetectConstructor(
         INamedTypeSymbol type,
-        string formatTag
+        string formatTag,
+        string attributeName
     )
     {
         foreach (var ctor in type.Constructors)
@@ -568,7 +569,7 @@ internal static class GenInfrastructure
             bool hasAttr = false;
             foreach (var attr in ctor.GetAttributes())
             {
-                if (attr.AttributeClass?.Name == "JsonConstructorAttribute")
+                if (attr.AttributeClass?.Name == attributeName)
                 {
                     hasAttr = true;
                     break;
