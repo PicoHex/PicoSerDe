@@ -874,7 +874,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("                if (!r.Read()) break;");
         sb.AppendLine("            }");
         sb.AppendLine("        }");
-        sb.AppendLine("        return o;");
+        if (ylHasCtor)
+        {
+            sb.Append("        return new ");
+            sb.Append(t.Name);
+            sb.Append("(");
+            for (int yri = 0; yri < t.CtorParams.Length; yri++)
+            {
+                if (yri > 0)
+                    sb.Append(", ");
+                sb.Append("__cp_");
+                sb.Append(yri);
+            }
+            sb.AppendLine(");");
+        }
+        else
+            sb.AppendLine("        return o;");
         sb.AppendLine("    } }");
         sb.AppendLine();
 
@@ -1420,9 +1435,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("}");
             }
             s.Append(pad);
-            s.Append(tgt);
-            s.Append('.');
-            s.Append(p.Name);
+            EmitTgt();
             s.Append(" = __tmpList");
             if (p.TypeKind == "array")
                 s.Append(".ToArray()");
@@ -1432,9 +1445,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         {
             var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.TypeFullName!);
             s.Append(pad);
-            s.Append(tgt);
-            s.Append('.');
-            s.Append(p.Name);
+            EmitTgt();
             s.Append(" = ");
             s.Append(sn);
             s.AppendLine(".Deserialize(ref r);");
@@ -1462,18 +1473,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("        r.TryGetInt32(out var __dv);");
                 s.Append(pad);
                 s.Append("        ");
-                s.Append(tgt);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitTgt();
                 s.AppendLine("[__dk] = __dv;");
             }
             else
             {
                 s.Append(pad);
                 s.Append("        ");
-                s.Append(tgt);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitTgt();
                 s.AppendLine("[__dk] = Encoding.UTF8.GetString(r.ValueSpan);");
             }
             s.Append(pad);
@@ -1487,18 +1494,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             {
                 case "string":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
                     break;
                 case "int32":
                     s.Append(pad);
                     s.AppendLine("r.TryGetInt32(out var __v);");
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = __v;");
                     break;
                 case "int64":
