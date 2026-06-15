@@ -334,20 +334,33 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(p.Comment);
                 s.AppendLine("\");");
             }
-            if (p.IsNullable && !p.IsNullableReference)
+            bool checkNull = p.IsNullable || p.IsNullableReference;
+            if (checkNull)
             {
-                s.Append("        if (value.");
+                s.Append(
+                    "        if (PicoIni.IniOptions.Current?.DefaultIgnoreCondition != PicoIni.IniIgnoreCondition.Never\n"
+                );
+                s.Append("            ? value.");
                 s.Append(p.Name);
-                s.AppendLine(".HasValue)");
-                s.Append("        {");
-                s.AppendLine();
+                if (p.IsNullable && !p.IsNullableReference)
+                    s.Append(" == null\n");
+                else
+                    s.Append(" != null\n");
+                s.Append("            : true)\n");
+                s.Append("        {\n");
                 s.Append("            iw.WriteKeyValue(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-                s.Append("\"u8, value.");
-                s.Append(p.Name);
-                s.AppendLine(".Value);");
-                s.Append("        }");
-                s.AppendLine();
+                s.Append("\"u8, ");
+                if (p.IsNullable && !p.IsNullableReference)
+                {
+                    s.Append($"value.{p.Name}.Value");
+                }
+                else
+                {
+                    WriteValue(s, p, $"value.{p.Name}");
+                }
+                s.AppendLine(");");
+                s.AppendLine("        }");
             }
             else
             {

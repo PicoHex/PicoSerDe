@@ -788,7 +788,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         else if (p.IsNullable && !p.IsNullableReference)
         {
             s.Append(indent);
-            s.Append("if (");
+            s.Append(
+                "if (PicoToml.TomlOptions.Current?.DefaultIgnoreCondition == PicoToml.TomlIgnoreCondition.Never"
+            );
+            s.Append(" || ");
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);
@@ -807,7 +810,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         else if (p.IsNullable && p.IsNullableReference)
         {
             s.Append(indent);
-            s.Append("if (");
+            s.Append(
+                "if (PicoToml.TomlOptions.Current?.DefaultIgnoreCondition == PicoToml.TomlIgnoreCondition.Never"
+            );
+            s.Append(" || ");
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);

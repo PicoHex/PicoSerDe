@@ -39,3 +39,32 @@ public class ImmutablePerson
     [IniConstructor]
     public ImmutablePerson(string name, int age) => (Name, Age) = (name, age);
 }
+
+public class OptionsSGTests
+{
+    [Test]
+    public async Task IniOptions_IgnoreNull_OmitsNullProperty()
+    {
+        var dto = new NullableIniDto { Name = "test" }; // Title is null
+        IniOptions.Current = new IniOptions
+        {
+            DefaultIgnoreCondition = IniIgnoreCondition.WhenWritingNull,
+        };
+        try
+        {
+            var ini = IniSerializer.Serialize(dto);
+            await Assert.That(ini).Contains("Name");
+            await Assert.That(ini).DoesNotContain("Title");
+        }
+        finally
+        {
+            IniOptions.Current = null;
+        }
+    }
+}
+
+public class NullableIniDto
+{
+    public string Name { get; set; } = "";
+    public string? Title { get; set; }
+}

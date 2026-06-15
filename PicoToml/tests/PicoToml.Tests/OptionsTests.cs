@@ -31,3 +31,33 @@ public class TomlImmutablePerson
     [TomlConstructor]
     public TomlImmutablePerson(string name, int age) => (Name, Age) = (name, age);
 }
+
+public class TomlOptionsSGTests
+{
+    [Test]
+    public async Task TomlOptions_IgnoreNull_Never_WritesAllProperties()
+    {
+        var dto = new TomlNullableDto { Name = "test", Title = "Mr" };
+        TomlOptions.Current = new TomlOptions
+        {
+            DefaultIgnoreCondition = TomlIgnoreCondition.Never,
+        };
+        try
+        {
+            var toml = TomlSerializer.Serialize(dto);
+            await Assert.That(toml).Contains("Name");
+            await Assert.That(toml).Contains("Title");
+            await Assert.That(toml).Contains("Mr");
+        }
+        finally
+        {
+            TomlOptions.Current = null;
+        }
+    }
+}
+
+public class TomlNullableDto
+{
+    public string Name { get; set; } = "";
+    public string? Title { get; set; }
+}
