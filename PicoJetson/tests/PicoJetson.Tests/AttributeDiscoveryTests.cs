@@ -104,3 +104,20 @@ public class ContentTypeTests
 // Required member tests disabled — `required` keyword adds CS9035 codegen complexity
 // that requires format-specific deserializer changes beyond the current scope.
 // PropertyInfo.IsRequired is tracked for all formats; runtime validation TBD.
+
+public class FieldDto
+{
+    public string Name = "default"; // field, not property
+}
+
+public class IncludeFieldsTests
+{
+    [Test]
+    public async Task Fields_NotSerialized_ByDefault()
+    {
+        var dto = new FieldDto { Name = "test" };
+        var json = JsonSerializer.SerializeToUtf8Bytes(dto);
+        var result = System.Text.Encoding.UTF8.GetString(json);
+        await Assert.That(result).DoesNotContain("Name");
+    }
+}
