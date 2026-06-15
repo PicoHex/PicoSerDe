@@ -21,18 +21,21 @@ public class OptionsTests
 public class ConstructorTests
 {
     [Test]
-    public async Task RegularDto_RoundTrip()
+    public async Task ImmutablePerson_RoundTrip()
     {
-        var person = new RegularDto { Name = "Alice", Age = 30 };
+        var person = new ImmutablePerson("Alice", 30);
         var ini = IniSerializer.Serialize(person);
-        var result = IniSerializer.Deserialize<RegularDto>(Encoding.UTF8.GetBytes(ini));
+        var result = IniSerializer.Deserialize<ImmutablePerson>(Encoding.UTF8.GetBytes(ini));
         await Assert.That(result!.Name).IsEqualTo("Alice");
         await Assert.That(result.Age).IsEqualTo(30);
     }
 }
 
-public class RegularDto
+public class ImmutablePerson
 {
-    public string Name { get; set; } = "";
-    public int Age { get; set; }
+    public string Name { get; }
+    public int Age { get; }
+
+    [IniConstructor]
+    public ImmutablePerson(string name, int age) => (Name, Age) = (name, age);
 }

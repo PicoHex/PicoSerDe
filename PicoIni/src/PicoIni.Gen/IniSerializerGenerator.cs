@@ -459,6 +459,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("                var __k = reader.GetStringRaw();");
         s.AppendLine("                reader.ReadValue(); // fast path: consume pending value");
 
+        // Build ctor param name → index map for constructor deserialization
+        Dictionary<string, int>? ctorMap = null;
+        if (hasCtor)
+        {
+            ctorMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+                ctorMap[type.CtorParams[ci].Name] = ci;
+        }
+
         // Top-level key matching
         if (top.Count > 0)
         {
@@ -469,7 +478,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 "obj",
                 sec.Count > 0 ? "__sec < 0" : null,
                 "                ",
-                "                    "
+                "                    ",
+                ctorMap
             );
         }
         if (sec.Count > 0 || dicts.Count > 0)
@@ -594,36 +604,39 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    } }");
         s.AppendLine();
 
-        // Streaming deserializer
-        s.Append("file static class ");
-        s.Append(type.Name);
-        s.AppendLine("IniStreaming {");
-        s.AppendLine(
-            "    internal static ReadStatus DeserializeStreaming(ref IniReader reader, out "
-                + type.Name
-                + "? result) {"
-        );
-        s.AppendLine("        result = default;");
-        s.Append("        var obj = new ");
-        s.Append(type.Name);
-        s.AppendLine("();");
-        s.AppendLine("        while (true) {");
-        s.AppendLine(
-            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
-        );
-        s.AppendLine("            if (reader.TokenType == TokenType.ObjectEnd) break;");
-        s.AppendLine("            if (reader.TokenType != TokenType.PropertyName) continue;");
-        s.AppendLine("            var __k = reader.GetStringRaw();");
-        s.AppendLine("            reader.ReadValue();");
-        if (top.Count > 0)
+        // Streaming deserializer (skip for constructor types — needs deferred construction)
+        if (!hasCtor)
         {
-            EmitKeyDispatch(s, top, "__k", "obj", null, "            ", "                ");
-        }
-        s.AppendLine("        }");
-        s.AppendLine("        result = obj;");
-        s.AppendLine("        return ReadStatus.Success;");
-        s.AppendLine("    }");
-        s.AppendLine("}");
+            s.Append("file static class ");
+            s.Append(type.Name);
+            s.AppendLine("IniStreaming {");
+            s.AppendLine(
+                "    internal static ReadStatus DeserializeStreaming(ref IniReader reader, out "
+                    + type.Name
+                    + "? result) {"
+            );
+            s.AppendLine("        result = default;");
+            s.Append("        var obj = new ");
+            s.Append(type.Name);
+            s.AppendLine("();");
+            s.AppendLine("        while (true) {");
+            s.AppendLine(
+                "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+            );
+            s.AppendLine("            if (reader.TokenType == TokenType.ObjectEnd) break;");
+            s.AppendLine("            if (reader.TokenType != TokenType.PropertyName) continue;");
+            s.AppendLine("            var __k = reader.GetStringRaw();");
+            s.AppendLine("            reader.ReadValue();");
+            if (top.Count > 0)
+            {
+                EmitKeyDispatch(s, top, "__k", "obj", null, "            ", "                ");
+            }
+            s.AppendLine("        }");
+            s.AppendLine("        result = obj;");
+            s.AppendLine("        return ReadStatus.Success;");
+            s.AppendLine("    }");
+            s.AppendLine("}");
+        } // end if (!hasCtor)
         s.AppendLine();
 
         // Registration
@@ -639,11 +652,16 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append("IniSerializer(), new ");
         s.Append(type.Name);
         s.AppendLine("IniDeserializer());");
-        s.Append("        IniSerializer.RegisterStreaming<");
-        s.Append(type.Name);
-        s.Append(">(");
-        s.Append(type.Name);
-        s.AppendLine("IniStreaming.DeserializeStreaming);");
+        if (hasCtor)
+            s.AppendLine("        // Streaming deserializer skipped for constructor types");
+        else
+        {
+            s.Append("        IniSerializer.RegisterStreaming<");
+            s.Append(type.Name);
+            s.Append(">(");
+            s.Append(type.Name);
+            s.AppendLine("IniStreaming.DeserializeStreaming);");
+        }
         s.AppendLine("    } }");
         return s.ToString();
     }
@@ -711,7 +729,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         string target,
         string? guard,
         string indent,
-        string bodyIndent
+        string bodyIndent,
+        IReadOnlyDictionary<string, int>? ctorMap = null
     )
     {
         if (props.Count <= 2)
@@ -730,7 +749,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(", \"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(props[i].JsonName));
                 s.AppendLine("\"u8)) {");
-                EmitRead(s, props[i], target, bodyIndent);
+                EmitReadOrAssign(s, props[i], target, bodyIndent, ctorMap);
                 s.Append(indent);
                 s.AppendLine("}");
             }
@@ -777,7 +796,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(groupProps[i].JsonName)
                 );
                 s.AppendLine("\"u8)) {");
-                EmitRead(s, groupProps[i], target, bodyIndent + "        ");
+                EmitReadOrAssign(s, groupProps[i], target, bodyIndent + "        ", ctorMap);
                 s.Append(indent);
                 s.AppendLine("        }");
             }
@@ -794,8 +813,38 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitRead(StringBuilder s, PropertyInfo p, string target, string pad)
+    /// <summary>
+    /// Call <see cref="EmitRead"/> directly, or generate constructor parameter assign if <paramref name="ctorMap"/> matches.
+    /// </summary>
+    /// <summary>
+    /// Call <see cref="EmitRead"/> directly, or generate constructor parameter assign if <paramref name="ctorMap"/> matches.
+    /// </summary>
+    private static void EmitReadOrAssign(
+        StringBuilder s,
+        PropertyInfo p,
+        string target,
+        string pad,
+        IReadOnlyDictionary<string, int>? ctorMap
+    )
     {
+        if (ctorMap is not null && ctorMap.TryGetValue(p.Name, out var cpIdx))
+        {
+            var assignTarget = $"__cp_{cpIdx}";
+            EmitRead(s, p, assignTarget, pad, ctorAssign: true);
+            return;
+        }
+        EmitRead(s, p, target, pad);
+    }
+
+    private static void EmitRead(
+        StringBuilder s,
+        PropertyInfo p,
+        string target,
+        string pad,
+        bool ctorAssign = false
+    )
+    {
+        // ctorAssign: assign to target directly (__cp_N) instead of target.PropName
         if (p.ConverterTypeFullName is not null)
         {
             s.Append(pad);
@@ -803,9 +852,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(pad);
-            s.Append(target);
-            s.Append('.');
-            s.Append(p.Name);
+            if (ctorAssign)
+                s.Append(target);
+            else
+            {
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+            }
             s.AppendLine(" = __c.Read(reader.GetStringRaw());");
             return;
         }
@@ -813,18 +867,28 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         {
             case "string":
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                if (ctorAssign)
+                    s.Append(target);
+                else
+                {
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                }
                 s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
                 break;
             case "int32":
                 s.Append(pad);
                 s.AppendLine("reader.TryGetInt32(out var __v);");
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                if (ctorAssign)
+                    s.Append(target);
+                else
+                {
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                }
                 s.AppendLine(" = __v;");
                 break;
             case "int64":
