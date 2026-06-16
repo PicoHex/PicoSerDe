@@ -230,7 +230,25 @@ internal static class GenInfrastructure
         if (namedType.ContainingType is not null)
             return null;
 
-        return TransformTypeSymbol(namedType, config, attrs, includeReadOnlyProperties);
+        // Check for [PicoSerializable(IncludeFields = true)] on the type
+        bool includeFields = false;
+        foreach (var attr in namedType.GetAttributes())
+        {
+            if (attr.AttributeClass?.Name == "PicoSerializableAttribute")
+            {
+                foreach (var na in attr.NamedArguments)
+                    if (na.Key == "IncludeFields" && na.Value.Value is bool bf && bf)
+                        includeFields = true;
+            }
+        }
+
+        return TransformTypeSymbol(
+            namedType,
+            config,
+            attrs,
+            includeReadOnlyProperties,
+            includeFields
+        );
     }
 
     /// <summary>
@@ -248,6 +266,12 @@ internal static class GenInfrastructure
 
         foreach (var attr in ctx.Attributes)
         {
+            // Extract IncludeFields from named arguments
+            bool includeFields = false;
+            foreach (var na in attr.NamedArguments)
+                if (na.Key == "IncludeFields" && na.Value.Value is bool bf)
+                    includeFields = bf;
+
             // [PicoSerializable(typeof(ExternalType))]
             if (
                 attr.ConstructorArguments.Length == 1
@@ -255,14 +279,24 @@ internal static class GenInfrastructure
                 && attr.ConstructorArguments[0].Value is INamedTypeSymbol externalType
             )
             {
-                var ti = TransformTypeSymbol(externalType, config, attrs);
+                var ti = TransformTypeSymbol(
+                    externalType,
+                    config,
+                    attrs,
+                    includeFields: includeFields
+                );
                 if (ti.HasValue)
                     builder.Add(ti.Value);
             }
             // [PicoSerializable] — no type argument, use the target symbol itself
             else if (ctx.TargetSymbol is INamedTypeSymbol localType)
             {
-                var ti = TransformTypeSymbol(localType, config, attrs);
+                var ti = TransformTypeSymbol(
+                    localType,
+                    config,
+                    attrs,
+                    includeFields: includeFields
+                );
                 if (ti.HasValue)
                     builder.Add(ti.Value);
             }

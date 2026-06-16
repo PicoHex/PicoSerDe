@@ -161,3 +161,21 @@ public class RequiredCreateTests
         await Assert.That(result.Value).IsEqualTo(42);
     }
 }
+
+[PicoSerializable(IncludeFields = true)]
+public class FieldDto2
+{
+    public string Label = "default";  // field
+}
+
+public class IncludeFieldsTriggerTests
+{
+    [Test]
+    public async Task PicoSerializable_IncludeFields_SerializesFields()
+    {
+        var dto = new FieldDto2 { Label = "works" };
+        var json = JsonSerializer.Serialize(dto);
+        await Assert.That(json).Contains("Label");
+        await Assert.That(json).Contains("works");
+    }
+}

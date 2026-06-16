@@ -20,6 +20,9 @@ public class PicoSerializableAttribute : Attribute
     /// <summary>The type to generate serializers for, or <c>null</c> to use the target type itself.</summary>
     public Type? Type { get; }
 
+    /// <summary>When true, includes public fields in addition to properties.</summary>
+    public bool IncludeFields { get; set; }
+
     /// <summary>Mark the target type itself for serialization.</summary>
     public PicoSerializableAttribute() { }
 
