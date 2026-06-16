@@ -69,3 +69,24 @@ public class YamlImmutableDto
     [YamlConstructor]
     public YamlImmutableDto(string label, int count) => (Label, Count) = (label, count);
 }
+
+public class YamlCtorAllTypes
+{
+    [Test]
+    public async Task YamlCtor_Decimal_RoundTrip()
+    {
+        var dto = new YamlCtorDecimal(99.99m, "test");
+        var yaml = YamlSerializer.Serialize(dto);
+        var result = YamlSerializer.Deserialize<YamlCtorDecimal>(Encoding.UTF8.GetBytes(yaml));
+        await Assert.That(result!.Price).IsEqualTo(99.99m);
+        await Assert.That(result.Name).IsEqualTo("test");
+    }
+}
+
+public class YamlCtorDecimal
+{
+    public decimal Price { get; }
+    public string Name { get; }
+    [YamlConstructor]
+    public YamlCtorDecimal(decimal price, string name) => (Price, Name) = (price, name);
+}

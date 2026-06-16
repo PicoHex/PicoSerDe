@@ -1453,9 +1453,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         else if (p.TypeKind is "dict")
         {
             s.Append(pad);
-            s.Append(tgt);
-            s.Append('.');
-            s.Append(p.Name);
+            EmitTgt();
             s.Append(" ??= new System.Collections.Generic.Dictionary<");
             s.Append(p.KeyTypeName ?? "string");
             s.Append(", ");
@@ -1506,30 +1504,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "int64":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = long.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "float32":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = float.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "float64":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = double.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "boolean":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = r.ValueSpan.Length > 0 && r.ValueSpan[0] == (byte)'t';");
                     break;
                 case "datetime":
@@ -1549,66 +1539,55 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                             "System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
                         );
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = __dt;");
+                    break;
+                case "long":
+                    s.Append(pad);
+                    EmitTgt();
+                    s.AppendLine(" = long.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "guid":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = System.Guid.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "dateonly":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(
                         " = System.DateOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture);"
                     );
                     break;
                 case "timeonly":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(
                         " = System.TimeOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture);"
                     );
                     break;
                 case "timespan":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = System.TimeSpan.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "enum":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.Append(" = System.Enum.Parse<");
                     s.Append(p.TypeFullName);
                     s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "decimal":
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(
                         " = decimal.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
                     );
                     break;
                 default:
                     s.Append(pad);
-                    s.Append(tgt);
-                    s.Append('.');
-                    s.Append(p.Name);
+                    EmitTgt();
                     s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
                     break;
             }
