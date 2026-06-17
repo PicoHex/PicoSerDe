@@ -347,7 +347,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(kw);
             sb.Append(" (TextHelpers.Eq(__n, \"");
             sb.Append(EscapeCSharpString(np.JsonName));
-            sb.AppendLine("\"u8))");
+            sb.AppendLine(
+                "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
+            );
             sb.AppendLine("            {");
             EmitDeserializeProperty(sb, np, "obj", "                ");
             sb.AppendLine("            }");
@@ -869,7 +871,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(keyword);
             sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
             sb.Append(EscapeCSharpString(prop.JsonName));
-            sb.AppendLine("\"u8))");
+            sb.AppendLine(
+                "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
+            );
             sb.AppendLine("                {");
 
             if (hasCtor)
@@ -1479,7 +1483,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(propVarName);
             sb.Append(", \"");
             sb.Append(EscapeCSharpString(np.JsonName));
-            sb.AppendLine("\"u8))");
+            sb.AppendLine(
+                "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
+            );
             sb.Append(indent);
             sb.AppendLine("{");
             EmitDeserializeProperty(sb, np, target, indent + "    ", nestLevel);
@@ -2005,7 +2011,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(keyword);
             sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
             sb.Append(EscapeCSharpString(prop.JsonName));
-            sb.AppendLine("\"u8))");
+            sb.AppendLine(
+                "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
+            );
             sb.AppendLine("            {");
             if (hasCtor)
                 EmitDeserializeCtorParam(sb, prop, type, "                ");

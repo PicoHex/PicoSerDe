@@ -817,4 +817,169 @@ public class JsonReaderTests
         }
         await Assert.That(finalDepth).IsEqualTo(0);
     }
+
+    [Test]
+    public async Task ReadNaN_WithAllowNamedFloats_ReturnsFloat64NaN()
+    {
+        // Capture ref struct values before any await
+        bool ok;
+        TokenType tt;
+        bool gotNaN;
+        double value;
+        {
+            var prev = PicoJetson.JsonOptions.Current;
+            try
+            {
+                PicoJetson.JsonOptions.Current = new JsonOptions
+                {
+                    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+                };
+                var r = new JsonReader("NaN"u8);
+                ok = r.Read();
+                tt = r.TokenType;
+                gotNaN = r.TryGetFloat64(out value);
+            }
+            finally
+            {
+                PicoJetson.JsonOptions.Current = prev;
+            }
+        }
+
+        await Assert.That(ok).IsTrue();
+        await Assert.That(tt).IsEqualTo(TokenType.Float64);
+        await Assert.That(gotNaN).IsTrue();
+        await Assert.That(double.IsNaN(value)).IsTrue();
+    }
+
+    [Test]
+    public async Task SequenceReader_Infinity_WithAllowNamedFloats_ReturnsFloat64Infinity()
+    {
+        bool ok;
+        TokenType tt;
+        bool gotInf;
+        double value;
+        {
+            var prev = PicoJetson.JsonOptions.Current;
+            try
+            {
+                PicoJetson.JsonOptions.Current = new JsonOptions
+                {
+                    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+                };
+                var json = "Infinity"u8.ToArray();
+                var seq = new ReadOnlySequence<byte>(json);
+                var r = new JsonReader(seq);
+                ok = r.Read();
+                tt = r.TokenType;
+                gotInf = r.TryGetFloat64(out value);
+            }
+            finally
+            {
+                PicoJetson.JsonOptions.Current = prev;
+            }
+        }
+
+        await Assert.That(ok).IsTrue();
+        await Assert.That(tt).IsEqualTo(TokenType.Float64);
+        await Assert.That(gotInf).IsTrue();
+        await Assert.That(double.IsPositiveInfinity(value)).IsTrue();
+    }
+
+    [Test]
+    public async Task SequenceReader_NegativeInfinity_WithAllowNamedFloats_ReturnsFloat64NegativeInfinity()
+    {
+        bool ok;
+        TokenType tt;
+        bool gotInf;
+        double value;
+        {
+            var prev = PicoJetson.JsonOptions.Current;
+            try
+            {
+                PicoJetson.JsonOptions.Current = new JsonOptions
+                {
+                    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+                };
+                var json = "-Infinity"u8.ToArray();
+                var seq = new ReadOnlySequence<byte>(json);
+                var r = new JsonReader(seq);
+                ok = r.Read();
+                tt = r.TokenType;
+                gotInf = r.TryGetFloat64(out value);
+            }
+            finally
+            {
+                PicoJetson.JsonOptions.Current = prev;
+            }
+        }
+
+        await Assert.That(ok).IsTrue();
+        await Assert.That(tt).IsEqualTo(TokenType.Float64);
+        await Assert.That(gotInf).IsTrue();
+        await Assert.That(double.IsNegativeInfinity(value)).IsTrue();
+    }
+
+    [Test]
+    public async Task SequenceReader_BareMinus_ThrowsFormatException()
+    {
+        // In Sequence mode, bare '-' should throw FormatException (same as Span mode)
+        {
+            var json = "-"u8.ToArray();
+            var seq = new ReadOnlySequence<byte>(json);
+            var r = new JsonReader(seq);
+            try
+            {
+                r.Read();
+                throw new Exception("Expected FormatException");
+            }
+            catch (FormatException) { }
+        }
+        await Assert.That(true).IsTrue();
+    }
+
+    [Test]
+    public async Task SpanReader_BareMinus_ThrowsFormatException()
+    {
+        // Span mode: bare '-' should throw FormatException (consistent with Sequence mode)
+        var r = new JsonReader("-"u8);
+        try
+        {
+            r.Read();
+            throw new Exception("Expected FormatException");
+        }
+        catch (FormatException) { }
+        await Assert.That(true).IsTrue();
+    }
+
+    [Test]
+    public async Task SpanReader_MinusNonDigit_ThrowsFormatException()
+    {
+        // Span mode: '-abc' should throw FormatException
+        var r = new JsonReader("-abc"u8);
+        try
+        {
+            r.Read();
+            throw new Exception("Expected FormatException");
+        }
+        catch (FormatException) { }
+        await Assert.That(true).IsTrue();
+    }
+
+    [Test]
+    public async Task SequenceReader_MinusNonDigit_ThrowsFormatException()
+    {
+        // Sequence mode: '-abc' should throw FormatException (consistent with Span mode)
+        {
+            var json = "-abc"u8.ToArray();
+            var seq = new ReadOnlySequence<byte>(json);
+            var r = new JsonReader(seq);
+            try
+            {
+                r.Read();
+                throw new Exception("Expected FormatException");
+            }
+            catch (FormatException) { }
+        }
+        await Assert.That(true).IsTrue();
+    }
 }

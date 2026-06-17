@@ -210,18 +210,48 @@ public class JsonCrossValidationTests
     }
 
     [Test]
-    public async Task NumberHandling_AllowNamedFloats_SerializesNaN()
+    public async Task AllowNamedFloats_NaN_RoundTrip_Span()
     {
         var opts = new JsonOptions
         {
             NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
         };
         var model = ComplexModelFactory.Create();
-        // We need a model with NaN — use a custom approach
+        model.Double = double.NaN;
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model, opts);
-        // Just verify basic round-trip works
-        var back = JsonSerializer.Deserialize<ComplexModel>(bytes);
+        var back = JsonSerializer.Deserialize<ComplexModel>(bytes, opts);
         await Assert.That(back).IsNotNull();
+        await Assert.That(double.IsNaN(back!.Double)).IsTrue();
+    }
+
+    [Test]
+    public async Task AllowNamedFloats_Infinity_RoundTrip_Span()
+    {
+        var opts = new JsonOptions
+        {
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        };
+        var model = ComplexModelFactory.Create();
+        model.Double = double.PositiveInfinity;
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model, opts);
+        var back = JsonSerializer.Deserialize<ComplexModel>(bytes, opts);
+        await Assert.That(back).IsNotNull();
+        await Assert.That(double.IsPositiveInfinity(back!.Double)).IsTrue();
+    }
+
+    [Test]
+    public async Task AllowNamedFloats_NegativeInfinity_RoundTrip_Span()
+    {
+        var opts = new JsonOptions
+        {
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        };
+        var model = ComplexModelFactory.Create();
+        model.Double = double.NegativeInfinity;
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model, opts);
+        var back = JsonSerializer.Deserialize<ComplexModel>(bytes, opts);
+        await Assert.That(back).IsNotNull();
+        await Assert.That(double.IsNegativeInfinity(back!.Double)).IsTrue();
     }
 
     [Test]
@@ -245,5 +275,37 @@ public class JsonCrossValidationTests
         await Assert.That(pico.StringList.Count).IsEqualTo(0);
         await Assert.That(pico.IntArray.Length).IsEqualTo(0);
         await Assert.That(pico.StringDict.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task AllowNamedFloats_NaN_RoundTrip_Streaming()
+    {
+        var opts = new JsonOptions
+        {
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        };
+        var model = ComplexModelFactory.Create();
+        model.Double = double.NaN;
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model, opts);
+        using var stream = new MemoryStream(bytes);
+        var back = await JsonSerializer.DeserializeFromStreamAsync<ComplexModel>(stream, opts);
+        await Assert.That(back).IsNotNull();
+        await Assert.That(double.IsNaN(back!.Double)).IsTrue();
+    }
+
+    [Test]
+    public async Task AllowNamedFloats_Infinity_RoundTrip_Streaming()
+    {
+        var opts = new JsonOptions
+        {
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        };
+        var model = ComplexModelFactory.Create();
+        model.Double = double.PositiveInfinity;
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model, opts);
+        using var stream = new MemoryStream(bytes);
+        var back = await JsonSerializer.DeserializeFromStreamAsync<ComplexModel>(stream, opts);
+        await Assert.That(back).IsNotNull();
+        await Assert.That(double.IsPositiveInfinity(back!.Double)).IsTrue();
     }
 }

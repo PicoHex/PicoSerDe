@@ -95,7 +95,13 @@ internal sealed class SnakeCaseNamingPolicy : JsonNamingPolicy
         {
             if (char.IsUpper(name[i]))
             {
-                if (i > 0 && (i + 1 < name.Length && !char.IsUpper(name[i + 1]) || i > 0))
+                if (
+                    i > 0
+                    && (
+                        char.IsLower(name[i - 1])
+                        || (i + 1 < name.Length && char.IsLower(name[i + 1]))
+                    )
+                )
                     sb.Append('_');
                 sb.Append(char.ToLowerInvariant(name[i]));
             }
@@ -117,7 +123,13 @@ internal sealed class KebabCaseNamingPolicy : JsonNamingPolicy
         {
             if (char.IsUpper(name[i]))
             {
-                if (i > 0 && (i + 1 < name.Length && !char.IsUpper(name[i + 1]) || i > 0))
+                if (
+                    i > 0
+                    && (
+                        char.IsLower(name[i - 1])
+                        || (i + 1 < name.Length && char.IsLower(name[i + 1]))
+                    )
+                )
                     sb.Append('-');
                 sb.Append(char.ToLowerInvariant(name[i]));
             }
@@ -156,7 +168,11 @@ public class JsonOptions
 
     // ── Deserialization options ──
 
-    /// <summary>Whether property name matching is case-insensitive during deserialization. Default: false.</summary>
+    /// <summary>
+    /// Whether property name matching is case-insensitive during deserialization.
+    /// When true (or unset/left as default), property names match case-insensitively.
+    /// When explicitly set to false, property names must match exactly (case-sensitive).
+    /// </summary>
     public bool PropertyNameCaseInsensitive { get; set; } = false;
 
     /// <summary>Whether to allow trailing commas in objects and arrays. Default: false.</summary>

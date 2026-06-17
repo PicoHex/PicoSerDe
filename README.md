@@ -27,11 +27,11 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**505 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+**565 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
 
 | Module | Tests | Competitor | Cross-Validation |
 |--------|:-----:|:-----------|:----------------:|
-| PicoJetson | 160 | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoJetson | 179 | System.Text.Json | ✅ bidirectional, all 19 property types |
 | PicoToml | 84 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
 | PicoYaml | 87 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
 | PicoIni | 91 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |

@@ -264,20 +264,22 @@ public ref struct JsonReader
             case (byte)'f':
                 return ReadLiteral("false"u8, TokenType.Bool);
             case (byte)'n':
-                // Check for NaN (not null)
+                return ReadLiteral("null"u8, TokenType.Null);
+            case (byte)'N':
                 if (
                     PicoJetson.JsonOptions.Current?.NumberHandling
-                        == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
-                    && _data[_position..].StartsWith("NaN"u8)
+                    == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
                 )
                     return ReadLiteral("NaN"u8, TokenType.Float64);
-                return ReadLiteral("null"u8, TokenType.Null);
+                throw new FormatException(
+                    $"Unexpected byte 0x{(byte)'N':X2} at offset {BytesConsumed}"
+                );
             case (byte)'-':
                 // Check for -Infinity
                 if (
                     PicoJetson.JsonOptions.Current?.NumberHandling
                         == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
-                    && _data[_position..].StartsWith("-Infinity"u8)
+                    && PeekStartsWith("-Infinity"u8)
                 )
                     return ReadLiteral("-Infinity"u8, TokenType.Float64);
                 goto case (byte)'0';
@@ -286,7 +288,7 @@ public ref struct JsonReader
                 if (
                     PicoJetson.JsonOptions.Current?.NumberHandling
                         == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
-                    && _data[_position..].StartsWith("Infinity"u8)
+                    && PeekStartsWith("Infinity"u8)
                 )
                     return ReadLiteral("Infinity"u8, TokenType.Float64);
                 throw new FormatException(
@@ -524,6 +526,29 @@ public ref struct JsonReader
                 return;
             _seqReader.Advance(1);
         }
+    }
+
+    /// <summary>
+    /// Checks whether the remaining data at the current reader position starts
+    /// with the specified UTF-8 bytes, without advancing the reader.
+    /// Mode-aware: works correctly for both Span and Sequence modes.
+    /// </summary>
+    private bool PeekStartsWith(ReadOnlySpan<byte> expected)
+    {
+        if (_isSequence)
+        {
+            if (_seqReader.Remaining < expected.Length)
+                return false;
+            var seq = _seqReader.Sequence.Slice(_seqReader.Position, expected.Length);
+            // Fast path: single segment (common for small literals)
+            if (seq.FirstSpan.Length >= expected.Length)
+                return seq.FirstSpan.Slice(0, expected.Length).SequenceEqual(expected);
+            // Multi-segment fallback
+            Span<byte> buf = stackalloc byte[expected.Length];
+            seq.CopyTo(buf);
+            return buf.SequenceEqual(expected);
+        }
+        return _data[_position..].StartsWith(expected);
     }
 
     // ── String / Property reading ──
@@ -998,6 +1023,8 @@ public ref struct JsonReader
             }
             if (digitCount > 1 && firstIsZero)
                 throw new FormatException("Leading zeros are not allowed");
+            if (digitCount == 0 && di > 0)
+                throw new FormatException($"Expected digit at offset {BytesConsumed}");
             if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'.')
             {
                 isFloat = true;
