@@ -12,5 +12,5 @@ public class TomlOptions
     public TomlIgnoreCondition DefaultIgnoreCondition { get; set; } = TomlIgnoreCondition.Never;
 
     [ThreadStatic]
-    internal static TomlOptions? Current;
+    public static TomlOptions? Current;
 }

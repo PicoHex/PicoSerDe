@@ -20,5 +20,5 @@ public class IniOptions
     public IniIgnoreCondition DefaultIgnoreCondition { get; set; } = IniIgnoreCondition.Never;
 
     [ThreadStatic]
-    internal static IniOptions? Current;
+    public static IniOptions? Current;
 }

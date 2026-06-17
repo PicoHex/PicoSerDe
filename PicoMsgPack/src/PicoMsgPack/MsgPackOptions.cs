@@ -8,8 +8,9 @@ public enum MsgPackIgnoreCondition
 
 public class MsgPackOptions
 {
-    public MsgPackIgnoreCondition DefaultIgnoreCondition { get; set; } = MsgPackIgnoreCondition.Never;
+    public MsgPackIgnoreCondition DefaultIgnoreCondition { get; set; } =
+        MsgPackIgnoreCondition.Never;
 
     [ThreadStatic]
-    internal static MsgPackOptions? Current;
+    public static MsgPackOptions? Current;
 }

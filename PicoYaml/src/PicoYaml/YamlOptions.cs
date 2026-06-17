@@ -12,5 +12,5 @@ public class YamlOptions
     public YamlIgnoreCondition DefaultIgnoreCondition { get; set; } = YamlIgnoreCondition.Never;
 
     [ThreadStatic]
-    internal static YamlOptions? Current;
+    public static YamlOptions? Current;
 }
