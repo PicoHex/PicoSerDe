@@ -6,6 +6,9 @@
   <Folder Name="/PicoSerDe.Core/tests/">
     <Project Path="PicoSerDe.Core/tests/PicoSerDe.Core.Tests/PicoSerDe.Core.Tests.csproj" />
   </Folder>
+  <Folder Name="/PicoSerDe.Core/samples/">
+    <Project Path="PicoSerDe.Core/samples/PicoSerDe.Core.Sample/PicoSerDe.Core.Sample.csproj" />
+  </Folder>
 
   <Folder Name="/PicoJetson/" />
   <Folder Name="/PicoJetson/src/">
