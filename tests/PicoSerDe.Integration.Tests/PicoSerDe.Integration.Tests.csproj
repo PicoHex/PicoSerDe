@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <TrimMode>full</TrimMode>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" Version="1.49.0" />
+  </ItemGroup>
+
+  <!-- All 5 format libraries -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\PicoJetson\src\PicoJetson\PicoJetson.csproj" />
+    <ProjectReference Include="..\..\PicoIni\src\PicoIni\PicoIni.csproj" />
+    <ProjectReference Include="..\..\PicoToml\src\PicoToml\PicoToml.csproj" />
+    <ProjectReference Include="..\..\PicoYaml\src\PicoYaml\PicoYaml.csproj" />
+    <ProjectReference Include="..\..\PicoMsgPack\src\PicoMsgPack\PicoMsgPack.csproj" />
+    <ProjectReference Include="..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
+  </ItemGroup>
+
+  <!-- All 5 source generators -->
+  <ItemGroup>
+    <ProjectReference
+      Include="..\..\PicoJetson\src\PicoJetson.Gen\PicoJetson.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
+    <ProjectReference
+      Include="..\..\PicoIni\src\PicoIni.Gen\PicoIni.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
+    <ProjectReference
+      Include="..\..\PicoToml\src\PicoToml.Gen\PicoToml.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
+    <ProjectReference
+      Include="..\..\PicoYaml\src\PicoYaml.Gen\PicoYaml.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
+    <ProjectReference
+      Include="..\..\PicoMsgPack\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Shared models -->
+  <ItemGroup>
+    <Compile Include="..\..\shared\CrossValidationModels.cs" Link="CrossValidationModels.cs" />
+  </ItemGroup>
+</Project>

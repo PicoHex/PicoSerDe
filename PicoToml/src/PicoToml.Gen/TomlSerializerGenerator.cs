@@ -822,21 +822,42 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             if (p.NestedProperties.Length > 0)
             {
+                bool nullGuard = p.IsNullable || p.IsNullableReference;
+                if (nullGuard)
+                {
+                    s.Append(indent);
+                    s.Append("if (");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(" != null)");
+                    s.Append(indent);
+                    s.AppendLine("{");
+                }
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                     "TomlInner",
                     p.TypeFullName!
                 );
                 s.Append(indent);
+                if (nullGuard)
+                    s.Append("    ");
                 s.Append("tw.WriteTable(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
                 s.AppendLine("\"u8);");
                 s.Append(indent);
+                if (nullGuard)
+                    s.Append("    ");
                 s.Append(sn);
                 s.Append(".Serialize(tw, ");
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
                 s.AppendLine(");");
+                if (nullGuard)
+                {
+                    s.Append(indent);
+                    s.AppendLine("}");
+                }
             }
         }
         else if (p.IsNullable && !p.IsNullableReference)

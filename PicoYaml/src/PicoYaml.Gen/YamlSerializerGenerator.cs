@@ -1078,7 +1078,21 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
         else if (p.TypeKind is "object")
         {
+            bool nullGuard = p.IsNullable || p.IsNullableReference;
+            if (nullGuard)
+            {
+                s.Append(ind);
+                s.Append("if (");
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" != null)");
+                s.Append(ind);
+                s.AppendLine("{");
+            }
             s.Append(ind);
+            if (nullGuard)
+                s.Append("    ");
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
@@ -1089,12 +1103,19 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     p.TypeFullName!
                 );
                 s.Append(ind);
+                if (nullGuard)
+                    s.Append("    ");
                 s.Append(sn);
                 s.Append(".Serialize(yw, ");
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
                 s.AppendLine(");");
+            }
+            if (nullGuard)
+            {
+                s.Append(ind);
+                s.AppendLine("}");
             }
             else
             {
@@ -1408,9 +1429,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     p.ElementTypeName ?? "object"
                 );
                 s.Append(pad);
+                s.AppendLine("bool __more;");
+                s.Append(pad);
                 s.AppendLine("r.Read(); // skip indentation ObjectStart after PropertyName");
                 s.Append(pad);
-                s.AppendLine("while (r.Read()) {");
+                s.AppendLine("while ((__more = r.Read())) {");
                 s.Append(pad);
                 s.AppendLine(
                     "    if (r.TokenType != TokenType.String) break; // String('') = sequence item; ObjectEnd = list end"
@@ -1429,7 +1452,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             else
             {
                 s.Append(pad);
-                s.AppendLine("while (r.Read() && r.TokenType == TokenType.String) {");
+                s.AppendLine("bool __more;");
+                s.Append(pad);
+                s.AppendLine("while ((__more = r.Read()) && r.TokenType == TokenType.String) {");
                 EmitDeserializeListElementTemp(s, p, pad + "    ");
                 s.Append(pad);
                 s.AppendLine("}");
@@ -1440,6 +1465,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             if (p.TypeKind == "array")
                 s.Append(".ToArray()");
             s.AppendLine(";");
+            s.Append(pad);
+            s.AppendLine("if (!__more) break;");
         }
         else if (p.TypeKind is "object" && p.NestedProperties.Length > 0)
         {

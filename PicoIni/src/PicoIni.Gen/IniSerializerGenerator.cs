@@ -400,6 +400,13 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         {
             if (p.TypeKind != "object")
                 continue;
+            bool nullGuard = p.IsNullable || p.IsNullableReference;
+            if (nullGuard)
+            {
+                s.Append("        if (value.");
+                s.Append(p.Name);
+                s.AppendLine(" != null) {");
+            }
             if (!first)
                 s.AppendLine("        iw.WriteBlankLine();");
             var sn = p.SectionName ?? p.JsonName;
@@ -414,6 +421,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 WriteValue(s, np, $"value.{p.Name}.{np.Name}");
                 s.AppendLine(");");
             }
+            if (nullGuard)
+                s.AppendLine("        }");
             first = false;
         }
         s.AppendLine("    } }");
