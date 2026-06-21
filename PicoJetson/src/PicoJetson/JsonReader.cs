@@ -341,12 +341,24 @@ public ref struct JsonReader
 
     public bool TryGetInt32(out int v)
     {
-        if (_tokenType != TokenType.Int32)
+        if (_tokenType is TokenType.Int32)
+            return Utf8Parser.TryParse(_valueSpan, out v, out _);
+
+        if (_tokenType is TokenType.Int64)
         {
-            v = 0;
-            return false;
+            if (
+                Utf8Parser.TryParse(_valueSpan, out long lv, out _)
+                && lv >= int.MinValue
+                && lv <= int.MaxValue
+            )
+            {
+                v = (int)lv;
+                return true;
+            }
         }
-        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+
+        v = 0;
+        return false;
     }
 
     public bool TryReadNextInt32(out int v)
@@ -992,7 +1004,12 @@ public ref struct JsonReader
                 throw new FormatException($"Expected digit in exponent at offset {expStart}");
         }
         _valueSpan = _data[start.._position];
-        _tokenType = isFloat ? TokenType.Float64 : TokenType.Int32;
+        if (isFloat)
+            _tokenType = TokenType.Float64;
+        else if (Utf8Parser.TryParse(_valueSpan, out int _, out _))
+            _tokenType = TokenType.Int32;
+        else
+            _tokenType = TokenType.Int64;
     }
 
     private void ReadNumberSeq()
@@ -1063,7 +1080,12 @@ public ref struct JsonReader
                 }
             }
             _valueSpan = buf.AsSpan(0, di);
-            _tokenType = isFloat ? TokenType.Float64 : TokenType.Int32;
+            if (isFloat)
+                _tokenType = TokenType.Float64;
+            else if (Utf8Parser.TryParse(_valueSpan, out int _, out _))
+                _tokenType = TokenType.Int32;
+            else
+                _tokenType = TokenType.Int64;
         }
         catch
         {

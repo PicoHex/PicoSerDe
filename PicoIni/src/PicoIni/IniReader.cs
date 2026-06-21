@@ -364,7 +364,7 @@ public ref struct IniReader
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
             _position++;
-            var buf = ArrayPool<byte>.Shared.Rent(256);
+            var buf = ArrayPool<byte>.Shared.Rent(Math.Max(256, _data.Length - _position));
             TrackBuffer(buf);
             int di = 0;
             while (_position < _data.Length && _data[_position] != (byte)'"')
@@ -542,6 +542,14 @@ public ref struct IniReader
                 !_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'
             )
             {
+                if (di >= buf.Length)
+                {
+                    var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
+                    buf.AsSpan(0, di).CopyTo(newBuf);
+                    ArrayPool<byte>.Shared.Return(buf);
+                    buf = newBuf;
+                    TrackBuffer(buf);
+                }
                 if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\\')
                 {
                     _seqReader.Advance(1);

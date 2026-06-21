@@ -148,7 +148,7 @@ public class IniWriterTests
         var writer = new IniWriter(buf);
         writer.WriteKeyValue("Path", "C:\\dir;D:\\dir");
         var output = Encoding.UTF8.GetString(buf.WrittenSpan);
-        await Assert.That(output).IsEqualTo("Path = \"C:\\dir;D:\\dir\"\r\n");
+        await Assert.That(output).IsEqualTo("Path = \"C:\\\\dir;D:\\\\dir\"\r\n");
     }
 
     [Test]

@@ -360,7 +360,18 @@ public ref struct IniWriter
         for (int i = 0; i < utf8.Length; i++)
         {
             var b = utf8[i];
-            if (b is (byte)' ' or (byte)'\t' or (byte)'=' or (byte)';' or (byte)'#' or (byte)'"')
+            if (
+                b
+                is (byte)' '
+                    or (byte)'\t'
+                    or (byte)'='
+                    or (byte)';'
+                    or (byte)'#'
+                    or (byte)'"'
+                    or (byte)'\\'
+                    or (byte)'\r'
+                    or (byte)'\n'
+            )
                 return true;
         }
         return false;
@@ -371,11 +382,27 @@ public ref struct IniWriter
         WriteByte((byte)'"');
         for (int i = 0; i < utf8.Length; i++)
         {
-            if (utf8[i] == (byte)'"')
+            switch (utf8[i])
             {
-                WriteByte((byte)'\\');
+                case (byte)'\\':
+                    WriteRaw("\\\\"u8);
+                    break;
+                case (byte)'"':
+                    WriteRaw("\\\""u8);
+                    break;
+                case (byte)'\n':
+                    WriteRaw("\\n"u8);
+                    break;
+                case (byte)'\r':
+                    WriteRaw("\\r"u8);
+                    break;
+                case (byte)'\t':
+                    WriteRaw("\\t"u8);
+                    break;
+                default:
+                    WriteByte(utf8[i]);
+                    break;
             }
-            WriteByte(utf8[i]);
         }
         WriteByte((byte)'"');
     }

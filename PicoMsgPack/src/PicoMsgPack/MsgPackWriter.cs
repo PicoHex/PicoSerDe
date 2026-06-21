@@ -122,13 +122,21 @@ public ref struct MsgPackWriter
             _buffer.Advance(1);
             _bytesWritten++;
         }
-        else
+        else if (count <= ushort.MaxValue)
         {
             Span<byte> s = _buffer.GetSpan(3);
             s[0] = 0xDE;
             BinaryPrimitives.WriteUInt16BigEndian(s.Slice(1), (ushort)count);
             _buffer.Advance(3);
             _bytesWritten += 3;
+        }
+        else
+        {
+            Span<byte> s = _buffer.GetSpan(5);
+            s[0] = 0xDF;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(1), (uint)count);
+            _buffer.Advance(5);
+            _bytesWritten += 5;
         }
     }
 
@@ -150,6 +158,54 @@ public ref struct MsgPackWriter
             s[0] = (byte)value;
             _buffer.Advance(1);
             _bytesWritten++;
+        }
+        else if (value >= 0 && value <= byte.MaxValue)
+        {
+            Span<byte> s = _buffer.GetSpan(2);
+            s[0] = 0xCC;
+            s[1] = (byte)value;
+            _buffer.Advance(2);
+            _bytesWritten += 2;
+        }
+        else if (value >= sbyte.MinValue && value < 0)
+        {
+            Span<byte> s = _buffer.GetSpan(2);
+            s[0] = 0xD0;
+            s[1] = (byte)value;
+            _buffer.Advance(2);
+            _bytesWritten += 2;
+        }
+        else if (value >= 0 && value <= ushort.MaxValue)
+        {
+            Span<byte> s = _buffer.GetSpan(3);
+            s[0] = 0xCD;
+            BinaryPrimitives.WriteUInt16BigEndian(s.Slice(1), (ushort)value);
+            _buffer.Advance(3);
+            _bytesWritten += 3;
+        }
+        else if (value >= short.MinValue && value <= short.MaxValue)
+        {
+            Span<byte> s = _buffer.GetSpan(3);
+            s[0] = 0xD1;
+            BinaryPrimitives.WriteInt16BigEndian(s.Slice(1), (short)value);
+            _buffer.Advance(3);
+            _bytesWritten += 3;
+        }
+        else if (value >= 0 && value <= uint.MaxValue)
+        {
+            Span<byte> s = _buffer.GetSpan(5);
+            s[0] = 0xCE;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(1), (uint)value);
+            _buffer.Advance(5);
+            _bytesWritten += 5;
+        }
+        else if (value >= int.MinValue && value <= int.MaxValue)
+        {
+            Span<byte> s = _buffer.GetSpan(5);
+            s[0] = 0xD2;
+            BinaryPrimitives.WriteInt32BigEndian(s.Slice(1), (int)value);
+            _buffer.Advance(5);
+            _bytesWritten += 5;
         }
         else
         {
@@ -179,13 +235,21 @@ public ref struct MsgPackWriter
             _buffer.Advance(1);
             _bytesWritten++;
         }
-        else
+        else if (count <= ushort.MaxValue)
         {
             Span<byte> s = _buffer.GetSpan(3);
             s[0] = 0xDC;
             BinaryPrimitives.WriteUInt16BigEndian(s.Slice(1), (ushort)count);
             _buffer.Advance(3);
             _bytesWritten += 3;
+        }
+        else
+        {
+            Span<byte> s = _buffer.GetSpan(5);
+            s[0] = 0xDD;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(1), (uint)count);
+            _buffer.Advance(5);
+            _bytesWritten += 5;
         }
     }
 

@@ -272,6 +272,7 @@ public ref struct MsgPackReader
         // Fixmap 0x80-0x8F
         if (b >= 0x80 && b <= 0x8F)
         {
+            CountElement();
             PushLevel(true, (b & 0x0F) * 2);
             _tokenType = TokenType.ObjectStart;
             return true;
@@ -280,6 +281,7 @@ public ref struct MsgPackReader
         // Fixarray 0x90-0x9F
         if (b >= 0x90 && b <= 0x9F)
         {
+            CountElement();
             PushLevel(false, b & 0x0F);
             _tokenType = TokenType.ArrayStart;
             return true;
@@ -319,7 +321,7 @@ public ref struct MsgPackReader
                 return true;
             case 0xCD:
                 _valueSpan = ReadBytes(2);
-                _tokenType = TokenType.Int32;
+                _tokenType = TokenType.UInt16;
                 CountElement();
                 return true;
             case 0xCE:
@@ -451,18 +453,22 @@ public ref struct MsgPackReader
             case 0xDB:
                 return ReadString(ReadByteLen(4));
             case 0xDC:
+                CountElement();
                 PushLevel(false, ReadByteLen(2));
                 _tokenType = TokenType.ArrayStart;
                 return true;
             case 0xDD:
+                CountElement();
                 PushLevel(false, ReadByteLen(4));
                 _tokenType = TokenType.ArrayStart;
                 return true;
             case 0xDE:
+                CountElement();
                 PushLevel(true, ReadByteLen(2) * 2);
                 _tokenType = TokenType.ObjectStart;
                 return true;
             case 0xDF:
+                CountElement();
                 PushLevel(true, ReadByteLen(4) * 2);
                 _tokenType = TokenType.ObjectStart;
                 return true;
@@ -497,6 +503,7 @@ public ref struct MsgPackReader
             _tokenType
             is TokenType.Int32
                 or TokenType.UInt8
+                or TokenType.UInt16
                 or TokenType.UInt32
                 or TokenType.Int64
                 or TokenType.UInt64
@@ -507,7 +514,9 @@ public ref struct MsgPackReader
                 1 => _tokenType == TokenType.UInt8
                     ? _valueSpan[0]
                     : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]),
-                2 => BinaryPrimitives.ReadInt16BigEndian(_valueSpan),
+                2 => _tokenType == TokenType.UInt16
+                    ? BinaryPrimitives.ReadUInt16BigEndian(_valueSpan)
+                    : BinaryPrimitives.ReadInt16BigEndian(_valueSpan),
                 4 => BinaryPrimitives.ReadInt32BigEndian(_valueSpan),
                 8 => (int)BinaryPrimitives.ReadInt64BigEndian(_valueSpan),
                 _ => 0,
@@ -529,6 +538,7 @@ public ref struct MsgPackReader
             _tokenType
             is TokenType.Int32
                 or TokenType.UInt8
+                or TokenType.UInt16
                 or TokenType.UInt32
                 or TokenType.Int64
                 or TokenType.UInt64
@@ -539,7 +549,9 @@ public ref struct MsgPackReader
                 1 => _tokenType == TokenType.UInt8
                     ? _valueSpan[0]
                     : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]),
-                2 => BinaryPrimitives.ReadInt16BigEndian(_valueSpan),
+                2 => _tokenType == TokenType.UInt16
+                    ? BinaryPrimitives.ReadUInt16BigEndian(_valueSpan)
+                    : BinaryPrimitives.ReadInt16BigEndian(_valueSpan),
                 4 => _tokenType == TokenType.UInt32
                     ? BinaryPrimitives.ReadUInt32BigEndian(_valueSpan)
                     : BinaryPrimitives.ReadInt32BigEndian(_valueSpan),

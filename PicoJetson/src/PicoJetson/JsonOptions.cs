@@ -170,10 +170,9 @@ public class JsonOptions
 
     /// <summary>
     /// Whether property name matching is case-insensitive during deserialization.
-    /// When true (or unset/left as default), property names match case-insensitively.
-    /// When explicitly set to false, property names must match exactly (case-sensitive).
+    /// Default: true (case-insensitive). Set to false for exact case-sensitive matching.
     /// </summary>
-    public bool PropertyNameCaseInsensitive { get; set; } = false;
+    public bool PropertyNameCaseInsensitive { get; set; } = true;
 
     /// <summary>Whether to allow trailing commas in objects and arrays. Default: false.</summary>
     public bool AllowTrailingCommas { get; set; } = false;

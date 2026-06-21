@@ -58,7 +58,18 @@ public static partial class JsonSerializer
     public static string Serialize<T>(T value, JsonOptions? options = null)
     {
         if (Cache<T>.Serializer is { } s)
-            return s.SerializeToString(value);
+        {
+            var prev = JsonOptions.Current;
+            JsonOptions.Current = options;
+            try
+            {
+                return s.SerializeToString(value);
+            }
+            finally
+            {
+                JsonOptions.Current = prev;
+            }
+        }
         SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
         return "";
     }

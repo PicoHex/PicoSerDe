@@ -976,7 +976,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetInt32(out var __v);");
+                sb.AppendLine("if (!reader.TryGetInt32(out var __v))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lv);");
+                sb.Append(indent);
+                sb.AppendLine("    __v = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __v;");
@@ -1162,7 +1170,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetInt32(out var __intValue);");
+                sb.AppendLine("if (!reader.TryGetInt32(out var __intValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lv);");
+                sb.Append(indent);
+                sb.AppendLine("    __intValue = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -1520,7 +1536,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetInt32(out var __elementValue);");
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__elementValue);");
@@ -1738,7 +1762,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetInt32(out var __elementValue);");
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
                 sb.Append(indent);
                 sb.Append(dictVar);
                 sb.Append("[");
