@@ -3,6 +3,7 @@
     <IsPackable Condition="'$(IsPackable)' == ''">false</IsPackable>
     <Version>0.0.0-dev</Version>
     <UseProjectReferences Condition="'$(UseProjectReferences)' == ''">true</UseProjectReferences>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -16,10 +17,6 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(IsPackable)' == 'true'">
-    <PackageReference
-      Include="Microsoft.SourceLink.GitHub"
-      Version="10.0.103"
-      PrivateAssets="All"
-    />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
   </ItemGroup>
 </Project>

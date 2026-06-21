@@ -11,8 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="TUnit" Version="1.49.0" />
-    <PackageReference Include="MessagePack" Version="3.1.*" />
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="MessagePack" />
   </ItemGroup>
 
   <ItemGroup>

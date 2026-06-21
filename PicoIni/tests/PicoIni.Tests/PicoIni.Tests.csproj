@@ -12,8 +12,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="TUnit" Version="1.49.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Ini" Version="9.0.*" />
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Ini" />
   </ItemGroup>
 
   <ItemGroup>

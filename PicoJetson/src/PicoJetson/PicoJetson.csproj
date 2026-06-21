@@ -50,7 +50,5 @@
       Condition="!Exists('..\PicoJetson.Gen\bin\$(Configuration)\netstandard2.0\PicoJetson.Gen.dll')"
     />
   </Target>
-  <ItemGroup>
-    <PackageReference Update="Microsoft.SourceLink.GitHub" Version="10.0.300" />
-  </ItemGroup>
+
 </Project>

@@ -11,8 +11,8 @@
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="TUnit" Version="1.49.0" />
-    <PackageReference Include="YamlDotNet" Version="16.*" />
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\PicoYaml\PicoYaml.csproj" />
