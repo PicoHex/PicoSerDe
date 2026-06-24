@@ -1,6 +1,6 @@
 class Program
 {
-    static void Main()
+    static async Task Main()
     {
         // ═══ 1. Complex Model (all types, nested, collections) ═══
         var order = new Order
@@ -195,6 +195,44 @@ class Program
         Console.WriteLine(
             $"  Deserialized: {immBack?.UserName}, age={immBack?.Level}, date={immBack?.Since:yyyy-MM-dd}"
         );
+
+        // ═══ 11. JSON Lines (JSONL) ═══
+        Console.WriteLine("\n=== 11. JSON Lines (JSONL) ===");
+
+        // Sync batch serialize/deserialize
+        var people = new[]
+        {
+            new Person { Name = "Alice", Age = 30 },
+            new Person { Name = "Bob", Age = 25 },
+            new Person { Name = "Charlie", Age = 35 },
+        };
+        var jsonl = JsonSerializer.SerializeLines(people);
+        Console.WriteLine($"  Serialized {people.Length} people to JSONL ({jsonl.Length} bytes):");
+        foreach (var line in Encoding.UTF8.GetString(jsonl).Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            Console.WriteLine($"    {line}");
+
+        var restoredPeople = JsonSerializer.DeserializeLines<Person>(jsonl);
+        Console.WriteLine($"  Deserialized {restoredPeople.Length} people:");
+        foreach (var p in restoredPeople)
+            Console.WriteLine($"    {p!.Name}, {p.Age}");
+
+        // Streaming deserialization
+        Console.WriteLine("  Streaming deserialization:");
+        using var stream = new MemoryStream(jsonl);
+        var streamResults = new List<Person?>();
+        await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(stream))
+            streamResults.Add(p);
+        Console.WriteLine($"  Streamed {streamResults.Count} people OK");
+
+        // Streaming JSON array mode
+        var arr = Encoding.UTF8.GetBytes(
+            "[{\"Name\":\"D\",\"Age\":1},{\"Name\":\"E\",\"Age\":2}]");
+        using var arrStream = new MemoryStream(arr);
+        var arrResults = new List<Person?>();
+        await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+            arrStream, topLevelValues: false))
+            arrResults.Add(p);
+        Console.WriteLine($"  Array-mode streamed {arrResults.Count} people OK");
     }
 }
 

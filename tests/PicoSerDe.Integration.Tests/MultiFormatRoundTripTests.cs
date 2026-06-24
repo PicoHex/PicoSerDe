@@ -305,3 +305,99 @@ public class PicoSerializableCrossFormatTests
         await Assert.That(back!.Int).IsEqualTo(42);
     }
 }
+
+/// <summary>
+/// Tests for JSON Lines (JSONL) serialization and deserialization.
+/// </summary>
+public class PicoJetsonJsonLinesTests
+{
+    [Test]
+    public async Task JsonLines_SyncRoundTrip()
+    {
+        var models = Enumerable.Range(0, 5).Select(_ => AllFormatsModelFactory.Create()).ToArray();
+
+        var jsonl = JsonSerializer.SerializeLines(models);
+        var restored = JsonSerializer.DeserializeLines<AllFormatsModel>(jsonl);
+
+        await Assert.That(restored.Length).IsEqualTo(5);
+        for (int i = 0; i < 5; i++)
+        {
+            await Assert.That(restored[i]!.Int).IsEqualTo(models[i].Int);
+            await Assert.That(restored[i]!.String).IsEqualTo(models[i].String);
+            await Assert.That(restored[i]!.Guid).IsEqualTo(models[i].Guid);
+        }
+    }
+
+    [Test]
+    public async Task JsonLines_StreamingRoundTrip()
+    {
+        var models = Enumerable.Range(0, 3).Select(_ => AllFormatsModelFactory.Create()).ToArray();
+        var jsonl = JsonSerializer.SerializeLines(models);
+
+        using var stream = new MemoryStream(jsonl);
+        var results = new List<AllFormatsModel?>();
+        await foreach (var m in JsonSerializer.DeserializeAsyncEnumerable<AllFormatsModel>(stream))
+        {
+            results.Add(m);
+        }
+
+        await Assert.That(results.Count).IsEqualTo(3);
+        for (int i = 0; i < 3; i++)
+        {
+            await Assert.That(results[i]!.Int).IsEqualTo(models[i].Int);
+            await Assert.That(results[i]!.String).IsEqualTo(models[i].String);
+        }
+    }
+
+    [Test]
+    public async Task JsonLines_StreamingArrayMode()
+    {
+        var models = Enumerable.Range(0, 2).Select(_ => AllFormatsModelFactory.Create()).ToArray();
+
+        // Build a JSON array manually
+        var sb = new StringBuilder();
+        sb.Append("[");
+        for (int i = 0; i < models.Length; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append(Encoding.UTF8.GetString(
+                JsonSerializer.SerializeToUtf8Bytes(models[i])));
+        }
+        sb.Append("]");
+        var json = Encoding.UTF8.GetBytes(sb.ToString());
+
+        using var stream = new MemoryStream(json);
+        var results = new List<AllFormatsModel?>();
+        await foreach (var m in JsonSerializer.DeserializeAsyncEnumerable<AllFormatsModel>(
+            stream, topLevelValues: false))
+        {
+            results.Add(m);
+        }
+
+        await Assert.That(results.Count).IsEqualTo(2);
+        await Assert.That(results[0]!.Int).IsEqualTo(models[0].Int);
+        await Assert.That(results[1]!.Int).IsEqualTo(models[1].Int);
+    }
+
+    [Test]
+    public async Task JsonLines_SingleItem()
+    {
+        var model = AllFormatsModelFactory.Create();
+        var jsonl = JsonSerializer.SerializeLines([model]);
+        var restored = JsonSerializer.DeserializeLines<AllFormatsModel>(jsonl);
+
+        await Assert.That(restored.Length).IsEqualTo(1);
+        await Assert.That(restored[0]!.Int).IsEqualTo(42);
+        await Assert.That(restored[0]!.String).IsEqualTo("Hello, PicoSerDe! üñîçødé ¡测试");
+    }
+
+    [Test]
+    public async Task JsonLines_EmptyCollection()
+    {
+        var jsonl = JsonSerializer.SerializeLines<AllFormatsModel>(Array.Empty<AllFormatsModel>());
+        var restored = JsonSerializer.DeserializeLines<AllFormatsModel>(jsonl);
+
+        await Assert.That(jsonl.Length).IsEqualTo(0);
+        await Assert.That(restored.Length).IsEqualTo(0);
+    }
+}
