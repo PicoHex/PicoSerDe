@@ -146,4 +146,62 @@ public class JsonLinesTests
         await Assert.That(result.Length).IsEqualTo(1);
         await Assert.That(result[0]).IsNull();
     }
+
+    [Test]
+    public async Task DeserializeAsyncEnumerable_JsonlMode_StreamsAllItems()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var jsonl = JsonSerializer.SerializeLines(new[]
+        {
+            new Person { Name = "Alice", Age = 30 },
+            new Person { Name = "Bob", Age = 25 },
+        });
+        using var stream = new MemoryStream(jsonl);
+
+        var results = new List<Person?>();
+        await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(stream))
+        {
+            results.Add(person);
+        }
+
+        await Assert.That(results.Count).IsEqualTo(2);
+        await Assert.That(results[0]!.Name).IsEqualTo("Alice");
+        await Assert.That(results[1]!.Name).IsEqualTo("Bob");
+    }
+
+    [Test]
+    public async Task DeserializeAsyncEnumerable_JsonlMode_EmptyStream_ReturnsNothing()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        using var stream = new MemoryStream(Array.Empty<byte>());
+
+        var results = new List<Person?>();
+        await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(stream))
+        {
+            results.Add(person);
+        }
+
+        await Assert.That(results.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task DeserializeAsyncEnumerable_JsonlMode_SingleItem_Works()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var jsonl = JsonSerializer.SerializeLines(
+            new[] { new Person { Name = "Alice", Age = 30 } });
+        using var stream = new MemoryStream(jsonl);
+
+        var results = new List<Person?>();
+        await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(stream))
+        {
+            results.Add(person);
+        }
+
+        await Assert.That(results.Count).IsEqualTo(1);
+        await Assert.That(results[0]!.Name).IsEqualTo("Alice");
+    }
 }

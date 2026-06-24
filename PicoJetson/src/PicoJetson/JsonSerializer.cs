@@ -261,4 +261,105 @@ public static partial class JsonSerializer
             JsonOptions.Current = prev;
         }
     }
+
+    /// <summary>
+    /// Wraps a UTF-8 stream into an <see cref="IAsyncEnumerable{T}"/> that yields one
+    /// <typeparamref name="T"/> per top-level JSON value (JSONL mode, <c>topLevelValues = true</c>)
+    /// or per root-level array element (JSON array mode, <c>topLevelValues = false</c>).
+    /// Requires a deserializer to be registered for <typeparamref name="T"/>
+    /// (auto-registered by the SG via <c>ModuleInitializer</c>).
+    /// </summary>
+    public static IAsyncEnumerable<T?> DeserializeAsyncEnumerable<T>(
+        Stream stream,
+        bool topLevelValues = true,
+        JsonOptions? options = null,
+        CancellationToken ct = default
+    )
+    {
+        return DeserializeAsyncEnumerableImpl<T>(stream, topLevelValues, options, ct);
+    }
+
+    private static async IAsyncEnumerable<T?> DeserializeAsyncEnumerableImpl<T>(
+        Stream stream,
+        bool topLevelValues,
+        JsonOptions? options,
+        [EnumeratorCancellation] CancellationToken ct
+    )
+    {
+        // Verify deserializer is registered before entering the loop
+        if (Cache<T>.Deserializer is not { } deserializer)
+        {
+            SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
+            yield break;
+        }
+
+        var prev = JsonOptions.Current;
+        JsonOptions.Current = options;
+        try
+        {
+            if (topLevelValues)
+            {
+                var readBuf = new byte[4096];
+                var accum = new List<byte>(4096);
+
+                while (true)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int bytesRead = await stream.ReadAsync(readBuf, ct);
+                    if (bytesRead == 0)
+                    {
+                        if (accum.Count > 0)
+                        {
+                            // Copy remaining to array before yielding (Span can't cross yield boundary)
+                            var lastLine = accum.ToArray();
+                            yield return deserializer.Deserialize(lastLine);
+                        }
+                        yield break;
+                    }
+
+                    accum.AddRange(readBuf.AsSpan(0, bytesRead));
+
+                    int consumed = 0;
+                    while (consumed < accum.Count)
+                    {
+                        int nlPos = accum.IndexOf((byte)'\n', consumed);
+                        if (nlPos < 0)
+                            break;
+
+                        int lineStart = consumed;
+                        int lineEnd = nlPos;
+                        consumed = lineEnd + 1;
+
+                        if (lineEnd > lineStart)
+                        {
+                            // Copy line bytes; List<T>.GetRange avoids Span crossing yield
+                            var lineBytes = accum.GetRange(lineStart, lineEnd - lineStart).ToArray();
+                            yield return deserializer.Deserialize(lineBytes);
+                        }
+                    }
+
+                    if (consumed > 0)
+                    {
+                        if (consumed < accum.Count)
+                        {
+                            accum.RemoveRange(0, consumed);
+                        }
+                        else
+                        {
+                            accum.Clear();
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Array mode — implemented in Task 4
+                yield break;
+            }
+        }
+        finally
+        {
+            JsonOptions.Current = prev;
+        }
+    }
 }
