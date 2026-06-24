@@ -206,4 +206,59 @@ public static partial class JsonSerializer
             JsonOptions.Current = prev;
         }
     }
+
+    /// <summary>
+    /// Deserializes each line of a JSONL byte span into an array of <typeparamref name="T"/>.
+    /// Empty lines are skipped. Each line must be a complete, valid JSON value.
+    /// </summary>
+    public static T?[] DeserializeLines<T>(
+        ReadOnlySpan<byte> data,
+        JsonOptions? options = null
+    )
+    {
+        if (data.IsEmpty)
+            return [];
+
+        var prev = JsonOptions.Current;
+        JsonOptions.Current = options;
+        try
+        {
+            var results = new List<T?>();
+            var remaining = data;
+
+            while (remaining.Length > 0)
+            {
+                int newlineIdx = remaining.IndexOf((byte)'\n');
+                ReadOnlySpan<byte> line;
+                if (newlineIdx >= 0)
+                {
+                    line = remaining[..newlineIdx];
+                    remaining = remaining[(newlineIdx + 1)..];
+                }
+                else
+                {
+                    line = remaining;
+                    remaining = default;
+                }
+
+                if (line.IsEmpty)
+                    continue;
+
+                if (Cache<T>.Deserializer is { } d)
+                {
+                    results.Add(d.Deserialize(line));
+                }
+                else
+                {
+                    SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
+                }
+            }
+
+            return results.ToArray();
+        }
+        finally
+        {
+            JsonOptions.Current = prev;
+        }
+    }
 }

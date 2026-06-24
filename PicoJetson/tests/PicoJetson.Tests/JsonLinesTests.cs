@@ -90,4 +90,60 @@ public class JsonLinesTests
         await Assert.That(lines[0]).Contains("Alice");
         await Assert.That(lines[1]).Contains("Bob");
     }
+
+    [Test]
+    public async Task DeserializeLines_EmptyData_ReturnsEmptyArray()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var result = JsonSerializer.DeserializeLines<Person>(ReadOnlySpan<byte>.Empty);
+
+        await Assert.That(result.Length).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task DeserializeLines_SingleLine_ReturnsOneItem()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var jsonl = JsonSerializer.SerializeLines(
+            new[] { new Person { Name = "Alice", Age = 30 } });
+        var result = JsonSerializer.DeserializeLines<Person>(jsonl);
+
+        await Assert.That(result.Length).IsEqualTo(1);
+        await Assert.That(result[0]!.Name).IsEqualTo("Alice");
+        await Assert.That(result[0]!.Age).IsEqualTo(30);
+    }
+
+    [Test]
+    public async Task DeserializeLines_MultipleLines_ReturnsAllItems()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var people = new[]
+        {
+            new Person { Name = "Alice", Age = 30 },
+            new Person { Name = "Bob", Age = 25 },
+            new Person { Name = "Charlie", Age = 35 },
+        };
+        var jsonl = JsonSerializer.SerializeLines(people);
+        var result = JsonSerializer.DeserializeLines<Person>(jsonl);
+
+        await Assert.That(result.Length).IsEqualTo(3);
+        await Assert.That(result[0]!.Name).IsEqualTo("Alice");
+        await Assert.That(result[1]!.Name).IsEqualTo("Bob");
+        await Assert.That(result[2]!.Name).IsEqualTo("Charlie");
+    }
+
+    [Test]
+    public async Task DeserializeLines_NullValuesInStream_ReturnsNullableNulls()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var data = "null\n"u8.ToArray();
+        var result = JsonSerializer.DeserializeLines<Person>(data);
+
+        await Assert.That(result.Length).IsEqualTo(1);
+        await Assert.That(result[0]).IsNull();
+    }
 }
