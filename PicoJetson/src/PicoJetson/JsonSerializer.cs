@@ -172,4 +172,38 @@ public static partial class JsonSerializer
             JsonOptions.Current = prev;
         }
     }
+
+    /// <summary>
+    /// Serializes each value in <paramref name="values"/> as a JSON line,
+    /// separated by <c>'\n'</c>. Returns a JSONL byte array.
+    /// </summary>
+    public static byte[] SerializeLines<T>(
+        IEnumerable<T> values,
+        JsonOptions? options = null
+    )
+    {
+        var prev = JsonOptions.Current;
+        JsonOptions.Current = options;
+        try
+        {
+            var buf = new ArrayBufferWriter<byte>(1024);
+            foreach (var v in values)
+            {
+                if (Cache<T>.Serializer is { } s)
+                {
+                    s.Serialize(buf, v);
+                    buf.Write("\n"u8);
+                }
+                else
+                {
+                    SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
+                }
+            }
+            return buf.WrittenSpan.ToArray();
+        }
+        finally
+        {
+            JsonOptions.Current = prev;
+        }
+    }
 }
