@@ -353,8 +353,109 @@ public static partial class JsonSerializer
             }
             else
             {
-                // Array mode — implemented in Task 4
-                yield break;
+                // ── Array mode: bracket-counting value extraction ──
+                var readBuf = new byte[4096];
+                var accum = new List<byte>(4096);
+                bool sawOpeningBracket = false;
+                int depth = 0;
+                int valueStart = -1;
+
+                while (true)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int bytesRead = await stream.ReadAsync(readBuf, ct);
+                    if (bytesRead == 0)
+                    {
+                        if (!sawOpeningBracket)
+                            throw new FormatException("Expected '[' at start of JSON array stream.");
+                        if (depth > 0)
+                            throw new FormatException("Unexpected end of stream inside JSON array.");
+                        yield break;
+                    }
+
+                    accum.AddRange(readBuf.AsSpan(0, bytesRead));
+
+                    int i = 0;
+                    while (i < accum.Count)
+                    {
+                        byte b = accum[i];
+
+                        if (!sawOpeningBracket)
+                        {
+                            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r')
+                            { i++; continue; }
+                            if (b == (byte)'[')
+                            { sawOpeningBracket = true; depth = 1; i++; continue; }
+                            throw new FormatException("Expected '[' at start of JSON array stream.");
+                        }
+
+                        if (b == (byte)'"')
+                        {
+                            i++;
+                            while (i < accum.Count)
+                            {
+                                if (accum[i] == (byte)'\\')
+                                { i += 2; continue; }
+                                if (accum[i] == (byte)'"')
+                                { i++; break; }
+                                i++;
+                            }
+                            continue;
+                        }
+
+                        if (b is (byte)'{' or (byte)'[')
+                        {
+                            if (depth == 1)
+                                valueStart = i;
+                            depth++;
+                            i++;
+                            continue;
+                        }
+
+                        if (b is (byte)'}' or (byte)']')
+                        {
+                            depth--;
+                            if (depth == 0 && b == (byte)']')
+                            {
+                                if (valueStart >= 0)
+                                {
+                                    var valBytes = accum.GetRange(valueStart, i - valueStart).ToArray();
+                                    yield return deserializer.Deserialize(valBytes);
+                                }
+                                yield break;
+                            }
+                            if (depth == 1 && b == (byte)'}')
+                            {
+                                var valBytes = accum.GetRange(valueStart, i + 1 - valueStart).ToArray();
+                                yield return deserializer.Deserialize(valBytes);
+                                valueStart = -1;
+                                int consumed = i + 1;
+                                while (consumed < accum.Count && accum[consumed] <= 32)
+                                    consumed++;
+                                if (consumed < accum.Count && accum[consumed] == (byte)',')
+                                    consumed++;
+                                accum.RemoveRange(0, consumed);
+                                i = 0;
+                                continue;
+                            }
+                            i++;
+                            continue;
+                        }
+
+                        i++;
+                    }
+
+                    if (valueStart < 0 && depth == 1)
+                    {
+                        int trim = 0;
+                        while (trim < accum.Count && accum[trim] <= 32)
+                            trim++;
+                        if (trim < accum.Count && accum[trim] == (byte)',')
+                            trim++;
+                        if (trim > 0)
+                            accum.RemoveRange(0, trim);
+                    }
+                }
             }
         }
         finally

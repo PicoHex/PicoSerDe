@@ -204,4 +204,78 @@ public class JsonLinesTests
         await Assert.That(results.Count).IsEqualTo(1);
         await Assert.That(results[0]!.Name).IsEqualTo("Alice");
     }
+
+    [Test]
+    public async Task DeserializeAsyncEnumerable_ArrayMode_SingleElement_Works()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var json = "[\n  {\"Name\":\"Alice\",\"Age\":30}\n]"u8.ToArray();
+        using var stream = new MemoryStream(json);
+
+        var results = new List<Person?>();
+        await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+            stream, topLevelValues: false))
+        {
+            results.Add(person);
+        }
+
+        await Assert.That(results.Count).IsEqualTo(1);
+        await Assert.That(results[0]!.Name).IsEqualTo("Alice");
+    }
+
+    [Test]
+    public async Task DeserializeAsyncEnumerable_ArrayMode_MultipleElements_Works()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var json = "[\n  {\"Name\":\"Alice\",\"Age\":30},\n  {\"Name\":\"Bob\",\"Age\":25}\n]"u8.ToArray();
+        using var stream = new MemoryStream(json);
+
+        var results = new List<Person?>();
+        await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+            stream, topLevelValues: false))
+        {
+            results.Add(person);
+        }
+
+        await Assert.That(results.Count).IsEqualTo(2);
+        await Assert.That(results[0]!.Name).IsEqualTo("Alice");
+        await Assert.That(results[1]!.Name).IsEqualTo("Bob");
+    }
+
+    [Test]
+    public async Task DeserializeAsyncEnumerable_ArrayMode_EmptyArray_ReturnsNothing()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var json = "[]"u8.ToArray();
+        using var stream = new MemoryStream(json);
+
+        var results = new List<Person?>();
+        await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+            stream, topLevelValues: false))
+        {
+            results.Add(person);
+        }
+
+        await Assert.That(results.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task DeserializeAsyncEnumerable_ArrayMode_MissingOpenBracket_Throws()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var json = "{\"Name\":\"Alice\"}"u8.ToArray();
+        using var stream = new MemoryStream(json);
+
+        await Assert.ThrowsAsync<FormatException>(async () =>
+        {
+            await foreach (var _ in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+                stream, topLevelValues: false))
+            {
+            }
+        });
+    }
 }
