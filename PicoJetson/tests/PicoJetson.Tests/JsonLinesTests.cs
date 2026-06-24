@@ -278,4 +278,82 @@ public class JsonLinesTests
             }
         });
     }
+
+    [Test]
+    public async Task DeserializeAsyncEnumerable_CancellationToken_ThrowsOperationCanceled()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var jsonl = "{\"Name\":\"Alice\",\"Age\":30}\n"u8.ToArray();
+        using var stream = new MemoryStream(jsonl);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var _ in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+                stream, ct: cts.Token))
+            {
+            }
+        });
+    }
+
+    [Test]
+    public async Task DeserializeLines_HandlesCrlfLineEndings()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var data = "{\"Name\":\"Alice\",\"Age\":30}\r\n"u8.ToArray();
+        var result = JsonSerializer.DeserializeLines<Person>(data);
+
+        await Assert.That(result.Length).IsEqualTo(1);
+        await Assert.That(result[0]!.Name).IsEqualTo("Alice");
+    }
+
+    [Test]
+    public async Task DeserializeLines_LastLineWithoutNewline_Works()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var data = "{\"Name\":\"Alice\",\"Age\":30}\n{\"Name\":\"Bob\",\"Age\":25}"u8.ToArray();
+        var result = JsonSerializer.DeserializeLines<Person>(data);
+
+        await Assert.That(result.Length).IsEqualTo(2);
+        await Assert.That(result[0]!.Name).IsEqualTo("Alice");
+        await Assert.That(result[1]!.Name).IsEqualTo("Bob");
+    }
+
+    [Test]
+    public async Task DeserializeLines_EmptyLines_Skipped()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var data = "\n\n{\"Name\":\"Alice\",\"Age\":30}\n\n{\"Name\":\"Bob\",\"Age\":25}\n\n"u8.ToArray();
+        var result = JsonSerializer.DeserializeLines<Person>(data);
+
+        await Assert.That(result.Length).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task SerializeLines_RoundTrip_PreservesData()
+    {
+        JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
+
+        var original = new[]
+        {
+            new Person { Name = "Alice", Age = 30 },
+            new Person { Name = "Bob", Age = 25 },
+            new Person { Name = "Charlie", Age = 35 },
+        };
+        var jsonl = JsonSerializer.SerializeLines(original);
+        var restored = JsonSerializer.DeserializeLines<Person>(jsonl);
+
+        await Assert.That(restored.Length).IsEqualTo(original.Length);
+        for (int i = 0; i < original.Length; i++)
+        {
+            await Assert.That(restored[i]!.Name).IsEqualTo(original[i].Name);
+            await Assert.That(restored[i]!.Age).IsEqualTo(original[i].Age);
+        }
+    }
 }
