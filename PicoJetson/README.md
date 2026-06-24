@@ -75,6 +75,45 @@ var result = JsonSerializer.Deserialize<MyModel>(json,
 | `ReadCommentHandling` | `Disallow` | `Skip` — ignore `//` and `/* */` |
 | `UnmappedMemberHandling` | `Skip` | `Disallow` — throw on unknown properties |
 
+## JSON Lines (JSONL)
+
+JSON Lines (`.jsonl` / NDJSON) — each line is a complete JSON value, per [jsonlines.org](https://jsonlines.org/).
+
+```csharp
+using PicoJetson;
+
+// Sync batch: serialize/deserialize collections
+var people = new[] { new Person("Alice", 30), new Person("Bob", 25) };
+byte[] jsonl = JsonSerializer.SerializeLines(people);
+// → {"Name":"Alice","Age":30}\n{"Name":"Bob","Age":25}\n
+
+var restored = JsonSerializer.DeserializeLines<Person>(jsonl);
+// → [ Person { Alice, 30 }, Person { Bob, 25 } ]
+
+// Streaming: process large files line-by-line
+using var stream = File.OpenRead("data.jsonl");
+await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(stream))
+{
+    Console.WriteLine(person.Name);
+}
+
+// Streaming JSON array mode (root-level [...])
+using var arrStream = new MemoryStream("[{\"Name\":\"A\"},{\"Name\":\"B\"}]"u8.ToArray());
+await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+    arrStream, topLevelValues: false))
+{
+    Console.WriteLine(p.Name);
+}
+```
+
+### JSONL API Reference
+
+| Method | Description |
+|--------|-------------|
+| `SerializeLines<T>(IEnumerable<T>)` | Serialize collection to `byte[]` with `\n` between values |
+| `DeserializeLines<T>(ReadOnlySpan<byte>)` | Deserialize JSONL byte span to `T?[]` |
+| `DeserializeAsyncEnumerable<T>(Stream, topLevelValues, options, ct)` | `IAsyncEnumerable<T?>` — `topLevelValues: true` = JSONL, `false` = root-level JSON array `[...]` |
+
 ## Attributes
 
 | Attribute | Description |
