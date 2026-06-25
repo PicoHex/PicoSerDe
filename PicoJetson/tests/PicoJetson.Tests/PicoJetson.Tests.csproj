@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -20,7 +21,7 @@
     <ProjectReference
       Include="..\..\src\PicoJetson.Gen\PicoJetson.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false"
+      ReferenceOutputAssembly="true"
     />
     <Compile Include="..\..\..\shared\CrossValidationModels.cs" Link="CrossValidationModels.cs" />
   </ItemGroup>

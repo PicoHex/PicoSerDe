@@ -608,6 +608,8 @@ internal static class GenInfrastructure
         Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes
     )
     {
+        if (string.IsNullOrEmpty(fullName))
+            return;
         if (nestedTypes.ContainsKey(fullName))
             return;
         nestedTypes[fullName] = props;

@@ -228,13 +228,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         foreach (var t in types)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(t, nestedTypes);
 
+        var hintNames = new HashSet<string>();
         foreach (var kv in nestedTypes)
         {
             var fullName = kv.Key;
             var props = kv.Value;
             var safeName = PicoSerDe.Gen.GenInfrastructure.SafeName(fullName);
+            var hintName = $"{safeName}_TomlInner.g.cs";
+            if (!hintNames.Add(hintName))
+                continue;
             spc.AddSource(
-                $"{safeName}_TomlInner.g.cs",
+                hintName,
                 SourceText.From(GenInner(fullName, safeName, props), Encoding.UTF8)
             );
         }
@@ -242,11 +246,26 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         var seen = new HashSet<string>();
         foreach (var t in types)
         {
-            if (seen.Add(t.FullyQualifiedName))
-                spc.AddSource(
-                    $"{t.Name}_TomlSerializer.g.cs",
-                    SourceText.From(Gen(t), Encoding.UTF8)
-                );
+            if (!seen.Add(t.FullyQualifiedName))
+                continue;
+            // Guard: skip types with empty/null Name
+            if (string.IsNullOrEmpty(t.Name))
+                continue;
+            // Try short name first; fall back to FQN on collision
+            var shortHintName = $"{t.Name}_TomlSerializer.g.cs";
+            string hintName;
+            if (hintNames.Add(shortHintName))
+            {
+                hintName = shortHintName;
+            }
+            else
+            {
+                // SafeName handles "global::" removal and dot→underscore conversion
+                var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(t.FullyQualifiedName ?? "");
+                hintName = $"{safeFq}_TomlSerializer.g.cs";
+                hintNames.Add(hintName);
+            }
+            spc.AddSource(hintName, SourceText.From(Gen(t), Encoding.UTF8));
         }
     }
 

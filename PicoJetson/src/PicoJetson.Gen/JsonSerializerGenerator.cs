@@ -12,6 +12,24 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         "json"
     );
 
+    private static readonly DiagnosticDescriptor HintNameTrace = new(
+        id: "PICOJETSON001",
+        title: "AddSource hintName trace",
+        messageFormat: "AddSource hintName: '{0}'",
+        category: "PicoJetson.Gen",
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true
+    );
+
+    private static readonly DiagnosticDescriptor EmptyTypeName = new(
+        id: "PICOJETSON002",
+        title: "Empty type name detected",
+        messageFormat: "TypeInfo has empty/null Name (FullyQualifiedName='{0}'). Skipping to prevent invalid hintName.",
+        category: "PicoJetson.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
         HasJsonCamelCase,
         GetJsonPropertyName,
@@ -219,6 +237,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
         var seen = new HashSet<string>();
+        var hintNames = new HashSet<string>();
 
         // Collect all unique nested object types (M×N dedup: emit once, reference from parents)
         var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
@@ -232,8 +251,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var props = kv.Value;
             var cleanName = fullName.Replace("global::", "");
             var safeName = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanName);
+            var hintName = $"{safeName}_JsonInner.g.cs";
+            if (!hintNames.Add(hintName))
+                spc.ReportDiagnostic(
+                    Diagnostic.Create(
+                        HintNameTrace,
+                        null,
+                        $"DUPLICATE inner hintName: '{hintName}' (fullName='{fullName}')"
+                    )
+                );
             spc.AddSource(
-                $"{safeName}_JsonInner.g.cs",
+                hintName,
                 SourceText.From(GenerateInnerHelper(cleanName, safeName, props), Encoding.UTF8)
             );
         }
@@ -241,13 +269,45 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         // Generate main type files
         foreach (var type in types)
         {
-            if (!seen.Add(type.FullyQualifiedName))
+            if (!seen.Add(type.FullyQualifiedName!))
                 continue;
+
+            // Guard: skip types with empty/null Name to prevent bare '_JsonSerializer.g.cs'
+            if (string.IsNullOrEmpty(type.Name))
+            {
+                spc.ReportDiagnostic(
+                    Diagnostic.Create(EmptyTypeName, null, type.FullyQualifiedName ?? "(null)")
+                );
+                continue;
+            }
+
+            // Try short name first; fall back to FQN on collision
+            // (e.g. Ns1.ManifestData vs Ns2.ManifestData with same short name)
+            var shortHintName = $"{type.Name}_JsonSerializer.g.cs";
+            string mainHintName;
+            if (hintNames.Add(shortHintName))
+            {
+                mainHintName = shortHintName;
+            }
+            else
+            {
+                // SafeName handles "global::" removal and dot→underscore conversion
+                var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(
+                    type.FullyQualifiedName ?? ""
+                );
+                mainHintName = $"{safeFq}_JsonSerializer.g.cs";
+                hintNames.Add(mainHintName);
+                spc.ReportDiagnostic(
+                    Diagnostic.Create(
+                        HintNameTrace,
+                        null,
+                        $"COLLISION hintName: '{shortHintName}' → using '{mainHintName}' (Name='{type.Name}', FQN='{type.FullyQualifiedName}')"
+                    )
+                );
+            }
+
             var source = GenerateTypeCode(type);
-            spc.AddSource(
-                $"{type.Name}_JsonSerializer.g.cs",
-                SourceText.From(source, Encoding.UTF8)
-            );
+            spc.AddSource(mainHintName, SourceText.From(source, Encoding.UTF8));
         }
     }
 

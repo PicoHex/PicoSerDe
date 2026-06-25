@@ -236,7 +236,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> ts)
     {
-        var s = new HashSet<string>();
+        var seen = new HashSet<string>();
+        var hintNames = new HashSet<string>();
 
         var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
         foreach (var t in ts)
@@ -248,15 +249,38 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             var props = kv.Value;
             var cleanName = fullName.Replace("global::", "");
             var sn = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanName);
+            var hintName = $"{sn}_YamlInner.g.cs";
+            if (!hintNames.Add(hintName))
+                continue;
             spc.AddSource(
-                $"{sn}_YamlInner.g.cs",
+                hintName,
                 SourceText.From(GenerateInnerHelper(cleanName, sn, props), Encoding.UTF8)
             );
         }
 
         foreach (var t in ts)
-            if (s.Add(t.FullyQualifiedName))
-                spc.AddSource($"{t.Name}_Yaml.g.cs", SourceText.From(Gen(t), Encoding.UTF8));
+        {
+            if (!seen.Add(t.FullyQualifiedName))
+                continue;
+            // Guard: skip types with empty/null Name
+            if (string.IsNullOrEmpty(t.Name))
+                continue;
+            // Try short name first; fall back to FQN on collision
+            var shortHintName = $"{t.Name}_Yaml.g.cs";
+            string hintName;
+            if (hintNames.Add(shortHintName))
+            {
+                hintName = shortHintName;
+            }
+            else
+            {
+                // SafeName handles "global::" removal and dot→underscore conversion
+                var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(t.FullyQualifiedName ?? "");
+                hintName = $"{safeFq}_Yaml.g.cs";
+                hintNames.Add(hintName);
+            }
+            spc.AddSource(hintName, SourceText.From(Gen(t), Encoding.UTF8));
+        }
     }
 
     private static string GenerateInnerHelper(
