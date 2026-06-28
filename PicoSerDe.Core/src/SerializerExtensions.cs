@@ -55,7 +55,7 @@ public static class SerializerExtensions
 
     /// <summary>Throws a descriptive InvalidOperationException when no SG is registered for a type.</summary>
     [System.Diagnostics.CodeAnalysis.DoesNotReturn]
-    public static void ThrowNoSerializer<T>(string formatPackage) =>
+    public static void ThrowNoSerializer<T>(string formatPackage) where T : allows ref struct =>
         throw new InvalidOperationException(
             $"No serializer/deserializer registered for {typeof(T)}. Ensure {formatPackage} is referenced and the type is used with serializer methods."
         );

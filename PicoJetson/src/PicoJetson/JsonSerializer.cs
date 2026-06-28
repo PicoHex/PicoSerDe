@@ -5,9 +5,15 @@ public static partial class JsonSerializer
     /// <summary>HTTP Content-Type header value for JSON.</summary>
     public const string ContentType = "application/json";
 
+    // Serialization cache — allows ref struct via delegate
+    private static class SerCache<T> where T : allows ref struct
+    {
+        internal static SerDelegate<T>? Handler;
+    }
+
+    // Deserialization cache — unchanged (no ref struct support)
     private static class Cache<T>
     {
-        internal static ISerializer<T>? Serializer;
         internal static IDeserializer<T>? Deserializer;
     }
 
@@ -28,22 +34,40 @@ public static partial class JsonSerializer
     /// <summary>True when a streaming deserializer has been registered for T.</summary>
     public static bool HasStreamingDelegate<T>() => StreamingCache<T>.Func is not null;
 
+    /// <summary>Register a delegate-based serializer (SG primary path).</summary>
+    public static void Register<T>(SerDelegate<T> handler)
+        where T : allows ref struct
+    {
+        SerCache<T>.Handler = handler;
+    }
+
+    /// <summary>
+    /// Register serializer + deserializer (compat path for hand-written ISerializer/IDeserializer).
+    /// The ISerializer&lt;T&gt; is wrapped into a SerDelegate&lt;T&gt; internally.
+    /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        Cache<T>.Serializer = serializer;
+        SerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
+        Cache<T>.Deserializer = deserializer;
+    }
+
+    /// <summary>Register a deserializer only.</summary>
+    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
+    {
         Cache<T>.Deserializer = deserializer;
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value, JsonOptions? options = null)
+        where T : allows ref struct
     {
-        if (Cache<T>.Serializer is { } s)
+        if (SerCache<T>.Handler is { } h)
         {
             var prev = JsonOptions.Current;
             JsonOptions.Current = options;
             try
             {
                 var writer = SerializerExtensions.RentWriter();
-                s.Serialize(writer, value);
+                h(writer, value);
                 return writer.WrittenSpan.ToArray();
             }
             finally
@@ -56,14 +80,17 @@ public static partial class JsonSerializer
     }
 
     public static string Serialize<T>(T value, JsonOptions? options = null)
+        where T : allows ref struct
     {
-        if (Cache<T>.Serializer is { } s)
+        if (SerCache<T>.Handler is { } h)
         {
             var prev = JsonOptions.Current;
             JsonOptions.Current = options;
             try
             {
-                return s.SerializeToString(value);
+                var writer = SerializerExtensions.RentWriter();
+                h(writer, value);
+                return Encoding.UTF8.GetString(writer.WrittenSpan);
             }
             finally
             {
@@ -79,14 +106,15 @@ public static partial class JsonSerializer
         T value,
         JsonOptions? options = null
     )
+        where T : allows ref struct
     {
-        if (Cache<T>.Serializer is { } s)
+        if (SerCache<T>.Handler is { } h)
         {
             var prev = JsonOptions.Current;
             JsonOptions.Current = options;
             try
             {
-                s.Serialize(writer, value);
+                h(writer, value);
             }
             finally
             {
@@ -181,6 +209,7 @@ public static partial class JsonSerializer
         IEnumerable<T> values,
         JsonOptions? options = null
     )
+        where T : allows ref struct
     {
         var prev = JsonOptions.Current;
         JsonOptions.Current = options;
@@ -189,9 +218,9 @@ public static partial class JsonSerializer
             var buf = new ArrayBufferWriter<byte>(1024);
             foreach (var v in values)
             {
-                if (Cache<T>.Serializer is { } s)
+                if (SerCache<T>.Handler is { } h)
                 {
-                    s.Serialize(buf, v);
+                    h(buf, v);
                     buf.Write("\n"u8);
                 }
                 else
