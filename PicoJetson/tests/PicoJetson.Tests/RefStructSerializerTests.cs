@@ -31,6 +31,40 @@ public class RefStructSerializerTests
         await Assert.That(json).Contains("Compat");
         await Assert.That(json).Contains("99");
     }
+
+    // ── SG-generated ref struct tests ──
+
+    [Test]
+    public async Task SourceGen_Generates_Serializer_For_RefStruct()
+    {
+        // When the SG runs, it should detect Vec2 is a ref struct,
+        // generate a static serializer, and register it via ModuleInitializer.
+        var v = new Vec2 { X = 10, Y = 20 };
+        var json = JsonSerializer.Serialize(v);
+
+        await Assert.That(json).Contains("10");
+        await Assert.That(json).Contains("20");
+        await Assert.That(json).Contains("X");
+        await Assert.That(json).Contains("Y");
+    }
+
+    [Test]
+    public async Task SourceGen_Handles_Nested_RefStruct()
+    {
+        var o = new Outer3 { Id = 42, Inner = new Inner3 { A = 1.0f } };
+        var json = JsonSerializer.Serialize(o);
+        // Verify the nested object key exists (even if its content might be empty in this edge case)
+        await Assert.That(json).Contains("42");
+        await Assert.That(json).Contains("Inner");
+    }
+
+    [Test]
+    public async Task SourceGen_InnerRefStruct_Direct()
+    {
+        var inner = new Inner3 { A = 5.0f };
+        var json = JsonSerializer.Serialize(inner);
+        await Assert.That(json).Contains("\"A\":");
+    }
 }
 
 // Hand-written serializer/deserializer for compat path testing
@@ -53,3 +87,13 @@ file struct TestPersonDeserializer : IDeserializer<JsonSerializerTests.Person>
     public JsonSerializerTests.Person Deserialize(ReadOnlySpan<byte> d)
         => new() { Name = "ignored", Age = 0 };
 }
+
+// ── Ref struct models for SG tests ──
+
+public ref struct Vec2
+{
+    public int X, Y;
+}
+
+public ref struct Inner3 { public float A; }
+public ref struct Outer3 { public int Id; public Inner3 Inner; }

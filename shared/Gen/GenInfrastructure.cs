@@ -17,7 +17,8 @@ internal readonly record struct TypeInfo(
     string Name,
     ImmutableArray<PropertyInfo> Properties,
     ImmutableArray<CtorParamInfo> CtorParams = default,
-    string? TypeTag = null
+    string? TypeTag = null,
+    bool IsRefLikeType = false
 )
 {
     public bool Equals(TypeInfo other) =>
@@ -26,7 +27,8 @@ internal readonly record struct TypeInfo(
         && Name == other.Name
         && Properties.SequenceEqual(other.Properties)
         && CtorParams.SequenceEqual(other.CtorParams)
-        && TypeTag == other.TypeTag;
+        && TypeTag == other.TypeTag
+        && IsRefLikeType == other.IsRefLikeType;
 
     public override int GetHashCode()
     {
@@ -199,7 +201,8 @@ internal static class GenInfrastructure
             namedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             ns,
             namedType.Name,
-            properties.ToImmutableArray()
+            properties.ToImmutableArray(),
+            IsRefLikeType: namedType.IsRefLikeType
         );
     }
 
@@ -228,6 +231,10 @@ internal static class GenInfrastructure
         if (typeArg is not INamedTypeSymbol namedType)
             return null;
         if (namedType.ContainingType is not null)
+            return null;
+
+        // Ref struct: skip in shared path — format-specific Transforms handle them explicitly
+        if (namedType.IsRefLikeType)
             return null;
 
         // Check for [PicoSerializable(IncludeFields = true)] on the type
@@ -312,7 +319,11 @@ internal static class GenInfrastructure
     )
     {
         var useCamelCase = attrs.HasCamelCase(type);
-        var properties = ExtractProperties(type, formatTag, attrs, false, useCamelCase);
+        // Ref struct nested types: include fields (they commonly use public fields)
+        var includeFields = type.IsRefLikeType;
+        var properties = ExtractProperties(type, formatTag, attrs,
+            includeReadOnlyProperties: includeFields, useCamelCase,
+            includeFields: includeFields);
         return properties.ToImmutableArray();
     }
 
@@ -377,6 +388,13 @@ internal static class GenInfrastructure
                     fn = true;
                     fnNrt = true;
                 }
+
+                ImmutableArray<PropertyInfo> fieldNested = ImmutableArray<PropertyInfo>.Empty;
+                if (fk is "object" && field.Type is INamedTypeSymbol fieldObjNts)
+                {
+                    fieldNested = ExtractNestedProperties(fieldObjNts, attrs, formatTag);
+                }
+
                 list.Add(
                     new PropertyInfo(
                         field.Name,
@@ -388,7 +406,7 @@ internal static class GenInfrastructure
                         null,
                         null,
                         null,
-                        ImmutableArray<PropertyInfo>.Empty,
+                        fieldNested,
                         null,
                         IsNullableReference: fnNrt
                     )

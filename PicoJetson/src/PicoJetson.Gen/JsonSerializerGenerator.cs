@@ -107,6 +107,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             && method.TypeArguments[0] is INamedTypeSymbol namedType
         )
         {
+            // Ref struct: handle with includes, skip constructor detection
+            if (namedType.IsRefLikeType)
+            {
+                return PicoSerDe.Gen.GenInfrastructure.TransformTypeSymbol(
+                    namedType, Config, Attrs,
+                    includeReadOnlyProperties: true,
+                    includeFields: true
+                );
+            }
+
             foreach (var ctor in namedType.Constructors)
             {
                 if (ctor.DeclaredAccessibility != Accessibility.Public)
@@ -446,17 +456,30 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
 
         sb.AppendLine();
-        EmitSerializer(sb, type);
-        sb.AppendLine();
-        EmitDeserializer(sb, type);
-        sb.AppendLine();
-        EmitRegistration(sb, type);
-        sb.AppendLine();
-        // Skip streaming for types with [JsonConstructor] (immutable types)
-        // Support for these requires temp variables and deferred construction.
-        var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
-        if (type.Properties.Length > 0)
-            EmitStreamingDeserializer(sb, type);
+
+        if (type.IsRefLikeType)
+        {
+            // Ref struct: static method serializer only, no deserializer.
+            // EmitSerializer already outputs the static class shape for all types.
+            EmitSerializer(sb, type);
+            sb.AppendLine();
+            EmitRefStructRegistration(sb, type);
+        }
+        else
+        {
+            // Regular type: static method serializer + interface deserializer
+            EmitSerializer(sb, type);
+            sb.AppendLine();
+            EmitDeserializer(sb, type);
+            sb.AppendLine();
+            EmitRegistration(sb, type);
+            sb.AppendLine();
+            // Skip streaming for types with [JsonConstructor] (immutable types)
+            var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
+            if (type.Properties.Length > 0)
+                EmitStreamingDeserializer(sb, type);
+        }
+
         return sb.ToString();
     }
 
@@ -464,13 +487,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     private static void EmitSerializer(StringBuilder sb, TypeInfo type)
     {
-        sb.Append("    file readonly struct ");
+        sb.Append("    file static class ");
         sb.Append(type.Name);
-        sb.Append("JsonSerializer : ISerializer<");
-        sb.Append(type.Name);
-        sb.AppendLine(">");
+        sb.AppendLine("JsonSer");
         sb.AppendLine("    {");
-        sb.Append("        public void Serialize(IBufferWriter<byte> writer, ");
+        sb.Append("        public static void Serialize(IBufferWriter<byte> writer, ");
         sb.Append(type.Name);
         sb.AppendLine(" value)");
         sb.AppendLine("        {");
@@ -715,13 +736,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     prop.TypeFullName!
                 );
                 sb.Append(indent);
-                sb.Append("if (");
-                sb.Append(effectiveAccessor);
-                sb.AppendLine(" == null) jw.WriteNull();");
-                sb.Append(indent);
-                sb.AppendLine("else");
-                sb.Append(indent);
-                sb.Append("    ");
+                if (prop.IsNullable || prop.IsNullableReference)
+                {
+                    sb.Append("if (");
+                    sb.Append(effectiveAccessor);
+                    sb.AppendLine(" == null) jw.WriteNull();");
+                    sb.Append(indent);
+                    sb.AppendLine("else");
+                    sb.Append(indent);
+                    sb.Append("    ");
+                }
                 sb.Append(sn);
                 sb.Append(".Serialize(ref jw, ");
                 sb.Append(effectiveAccessor);
@@ -2155,9 +2179,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("        global::PicoJetson.JsonSerializer.Register<");
         sb.Append(typeRef);
         sb.AppendLine(">(");
-        sb.Append("            new ");
+        sb.Append("            ");
         sb.Append(type.Name);
-        sb.AppendLine("JsonSerializer(),");
+        sb.AppendLine("JsonSer.Serialize);");
+        sb.AppendLine("        global::PicoJetson.JsonSerializer.RegisterDeserializer<");
+        sb.Append(typeRef);
+        sb.AppendLine(">(");
         sb.Append("            new ");
         sb.Append(type.Name);
         sb.AppendLine("JsonDeserializer());");
@@ -2169,6 +2196,30 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(type.Name);
             sb.AppendLine("Streaming.DeserializeStreaming);");
         }
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+    }
+
+    /// <summary>Ref struct registration — serializer only, no deserializer.</summary>
+    private static void EmitRefStructRegistration(StringBuilder sb, TypeInfo type)
+    {
+        var typeRef = string.IsNullOrEmpty(type.Namespace)
+            ? type.Name
+            : $"global::{type.Namespace}.{type.Name}";
+        sb.Append("file static class ");
+        sb.Append(type.Name);
+        sb.AppendLine("SerDeRegistration");
+        sb.AppendLine("{");
+        sb.AppendLine("    [System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.AppendLine("    internal static void Register()");
+        sb.AppendLine("    {");
+        sb.Append("        global::PicoJetson.JsonSerializer.Register<");
+        sb.Append(typeRef);
+        sb.AppendLine(">(");
+        sb.Append("            ");
+        sb.Append(type.Name);
+        sb.AppendLine("JsonSer.Serialize);");
+        sb.AppendLine("        // No deserializer — ref structs cannot be deserialized");
         sb.AppendLine("    }");
         sb.AppendLine("}");
     }

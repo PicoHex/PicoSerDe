@@ -132,6 +132,18 @@ internal static class TypeKindResolver
                 {
                     return ("object", false, null);
                 }
+                // Also accept public instance fields (ref structs commonly use fields)
+                if (
+                    member
+                        is IFieldSymbol
+                        {
+                            DeclaredAccessibility: Accessibility.Public,
+                            IsStatic: false
+                        }
+                )
+                {
+                    return ("object", false, null);
+                }
             }
         }
 
