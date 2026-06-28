@@ -43,6 +43,7 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 - **YAML format** — indentation-based, flow style, anchors & aliases
 - **`ref struct`** reader/writer — stack-allocated on the hot path
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
+- **Ref struct serialization** — serialize `ref struct` types directly
 - **Only AOT YAML library** — YamlDotNet and VYaml cannot run under NativeAOT
 - **Anchors & aliases** — `&name` / `*name` with self-referencing support
 - **Multi-document** — `---` separator support

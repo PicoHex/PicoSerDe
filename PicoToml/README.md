@@ -37,6 +37,7 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
 - **TOML format** — tables, arrays, inline tables, multi-line strings
 - **`ref struct`** reader/writer — stack-allocated on the hot path
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
+- **Ref struct serialization** — serialize `ref struct` types directly
 - **Multi-line strings** — basic (`"""`) and literal (`'''`) support
 - **Inline tables** — `{key = value, ...}` syntax
 - **Array tables** — `[[array]]` syntax

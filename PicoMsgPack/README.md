@@ -31,6 +31,7 @@ var user = MsgPackSerializer.Deserialize<User>(bytes);
 - **Full MessagePack spec** — fixint, fixstr, fixmap, fixarray, bin, ext types
 - **Zero heap allocation** — `ref struct` reader/writer, stack-allocated stacks
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
+- **Ref struct serialization** — serialize `ref struct` types directly
 - **Extension type support** — `TryGetExtension(out byte tag, out ReadOnlySpan<byte> data)`
 - **Binary primitives** — `BinaryPrimitives.ReadInt16BigEndian` for efficient decoding
 - **Dual-mode** reader: `ReadOnlySpan<byte>` + `ReadOnlySequence<byte>`

@@ -42,6 +42,7 @@ var ini = IniSerializer.Serialize(config);
 - **INI format** — sections, key-value pairs, comments (`;` / `#`)
 - **`ref struct`** reader/writer — stack-allocated on the hot path
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
+- **Ref struct serialization** — serialize `ref struct` types directly
 - **Quoted values** — with escape sequence support (`\"`, `\n`, `\t`, `\r`, `\\`)
 - **Case-insensitive** property name matching
 - **Zero-allocation formatting** — stackalloc-based UTF-8 encoding for DateTime, Guid, TimeSpan
