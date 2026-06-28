@@ -33,6 +33,7 @@ No attributes required.
 - **SIMD-accelerated** whitespace & backslash scanning (Vector128)
 - **Zero-copy** string access — `GetStringRaw()` returns `ReadOnlySpan<byte>` into source buffer
 - **Zero heap allocation** on the hot path — `ref struct` reader/writer
+- **Ref struct serialization** — `ref struct` types can be serialized directly via source-generated static methods
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
 - **Dual-mode** reader: `ReadOnlySpan<byte>` + `ReadOnlySequence<byte>` (PipeReader)
 - Unicode escape sequences including surrogate pairs

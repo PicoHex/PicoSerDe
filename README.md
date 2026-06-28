@@ -27,16 +27,16 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**614 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+**673 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
 
 | Module | Tests | Competitor | Cross-Validation |
 |--------|:-----:|:-----------|:----------------:|
-| PicoJetson | 218 | System.Text.Json | ✅ bidirectional, all 19 property types |
-| PicoToml | 84 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
-| PicoYaml | 87 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
-| PicoIni | 91 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
-| PicoMsgPack | 83 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
-| PicoSerDe.Core | 35 | — | — |
+| PicoJetson | 232 | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoToml | 88 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
+| PicoYaml | 88 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
+| PicoIni | 102 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
+| PicoMsgPack | 111 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
+| PicoSerDe.Core | 36 | — | — |
 
 ## Performance Summary
 
@@ -143,6 +143,7 @@ No attributes are required for basic usage — calling `Serialize<T>()` automati
 - **`ref struct`** readers/writers — stack-allocated, zero heap allocation on hot path
 - **Static `Cache<T>`** — JIT/AOT inlineable, no dictionary lookups
 - **`file struct`** generated implementations — devirtualization without sealed class overhead
+- **Ref struct serialization** — `ref struct` types are supported as serializable types (JSON). Source-generator-generated static methods + delegate dispatch bypass the `ISerializer<T>` interface constraint that prevents `ref struct` generic parameters.
 - **`JsonOptions`** — runtime configuration (indentation, naming policy, ignore conditions, etc.) flowing through ThreadStatic to SG-generated code
 
 ### PicoJetson JsonOptions
@@ -220,7 +221,7 @@ Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
 | AOT | ✅ | ✅ | ❌ | ⚠️ | ❌ | ❌ |
 | Zero-reflection | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Zero annotations | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
-| ref struct | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| ref struct readers | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | SIMD | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ---
