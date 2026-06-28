@@ -5,9 +5,15 @@ public static partial class IniSerializer
     /// <summary>HTTP Content-Type header value for INI.</summary>
     public const string ContentType = "text/plain";
 
+    // Serialization cache — allows ref struct via delegate
+    private static class SerCache<T> where T : allows ref struct
+    {
+        internal static SerDelegate<T>? Handler;
+    }
+
+    // Deserialization cache — unchanged (no ref struct support)
     private static class Cache<T>
     {
-        internal static ISerializer<T>? Serializer;
         internal static IDeserializer<T>? Deserializer;
     }
 
@@ -27,18 +33,35 @@ public static partial class IniSerializer
 
     public static bool HasStreamingDelegate<T>() => StreamingCache<T>.Func is not null;
 
+    /// <summary>Register a delegate-based serializer (SG primary path).</summary>
+    public static void Register<T>(SerDelegate<T> handler)
+        where T : allows ref struct
+    {
+        SerCache<T>.Handler = handler;
+    }
+
+    /// <summary>
+    /// Register serializer + deserializer (compat path for hand-written ISerializer/IDeserializer).
+    /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        Cache<T>.Serializer = serializer;
+        SerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
+        Cache<T>.Deserializer = deserializer;
+    }
+
+    /// <summary>Register a deserializer only.</summary>
+    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
+    {
         Cache<T>.Deserializer = deserializer;
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
+        where T : allows ref struct
     {
-        if (Cache<T>.Serializer is { } s)
+        if (SerCache<T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
-            s.Serialize(writer, value);
+            h(writer, value);
             return writer.WrittenSpan.ToArray();
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
@@ -46,17 +69,23 @@ public static partial class IniSerializer
     }
 
     public static string Serialize<T>(T value)
+        where T : allows ref struct
     {
-        if (Cache<T>.Serializer is { } s)
-            return s.SerializeToString(value);
+        if (SerCache<T>.Handler is { } h)
+        {
+            var writer = SerializerExtensions.RentWriter();
+            h(writer, value);
+            return Encoding.UTF8.GetString(writer.WrittenSpan);
+        }
         SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
         return "";
     }
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
+        where T : allows ref struct
     {
-        if (Cache<T>.Serializer is { } s)
-            s.Serialize(writer, value);
+        if (SerCache<T>.Handler is { } h)
+            h(writer, value);
         else
             SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
     }
