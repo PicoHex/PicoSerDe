@@ -53,9 +53,9 @@ public class RefStructSerializerTests
     {
         var o = new Outer3 { Id = 42, Inner = new Inner3 { A = 1.0f } };
         var json = JsonSerializer.Serialize(o);
-        // Verify the nested object key exists (even if its content might be empty in this edge case)
         await Assert.That(json).Contains("42");
         await Assert.That(json).Contains("Inner");
+        await Assert.That(json).Contains("\"A\":");
     }
 
     [Test]
