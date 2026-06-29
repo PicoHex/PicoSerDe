@@ -1,5 +1,7 @@
 // Tests for source generator hintName uniqueness.
 // Uses SafeName (public method) and direct hintName logic testing.
+// After refactoring: hintName always uses FQN (SafeName(FullyQualifiedName)),
+// matching the Inner Helper naming strategy. No two-step short-then-FQN fallback.
 
 using PicoJetson.Gen;
 
@@ -45,105 +47,77 @@ public sealed class GeneratorHintNameTests
         await Assert.That(result).IsEqualTo("SimpleName");
     }
 
-    // ── HintName format and dedup ──
+    // ── HintName: always uses FQN, zero collision risk ──
 
     [Test]
-    public async Task HintName_WithShortNameOnly_NoCollision()
+    public async Task HintName_AlwaysUsesFQN_EvenWhenNoCollision()
     {
-        // Simulate: unique short name → hintName uses short name
-        var usedHintNames = new HashSet<string>();
-        var hintName = GenerateHintName(
-            "MyType",
-            "global::MyApp.MyType",
-            usedHintNames,
-            "_JsonSerializer.g.cs"
-        );
-        await Assert.That(hintName).IsEqualTo("MyType_JsonSerializer.g.cs");
+        // Single unique type → still uses FQN, not short name
+        var hintName = GenerateHintName("global::MyApp.MyType", "_JsonSerializer.g.cs");
+        await Assert.That(hintName).IsEqualTo("MyApp_MyType_JsonSerializer.g.cs");
     }
 
     [Test]
-    public async Task HintName_CrossNamespaceCollision_FallsBackToFQN()
+    public async Task HintName_CrossNamespaceSameShortName_EveryTypeUsesFQN()
     {
-        // Simulate: two types with same short name in different namespaces
-        var usedHintNames = new HashSet<string>();
+        // Two types with same short name in different namespaces —
+        // both use FQN, no collision, no "first gets short name" special case
+        var hint1 = GenerateHintName("global::Ns1.SharedName", "_JsonSerializer.g.cs");
+        var hint2 = GenerateHintName("global::Ns2.SharedName", "_JsonSerializer.g.cs");
 
-        // First type gets short name
-        var hint1 = GenerateHintName(
-            "SharedName",
-            "global::Ns1.SharedName",
-            usedHintNames,
-            "_JsonSerializer.g.cs"
-        );
-        await Assert.That(hint1).IsEqualTo("SharedName_JsonSerializer.g.cs");
-
-        // Second type (same short name) must use FQN to avoid collision
-        var hint2 = GenerateHintName(
-            "SharedName",
-            "global::Ns2.SharedName",
-            usedHintNames,
-            "_JsonSerializer.g.cs"
-        );
-        await Assert.That(hint2).IsNotEqualTo(hint1);
+        await Assert.That(hint1).IsEqualTo("Ns1_SharedName_JsonSerializer.g.cs");
         await Assert.That(hint2).IsEqualTo("Ns2_SharedName_JsonSerializer.g.cs");
+        await Assert.That(hint1).IsNotEqualTo(hint2);
     }
 
     [Test]
-    public async Task HintName_ThreeWayCollision_AllUnique()
+    public async Task HintName_ThreeSameNamedTypes_AllHaveUniqueFQNNames()
     {
         // Three types with same short name across three namespaces
-        var usedHintNames = new HashSet<string>();
-        var hints = new List<string>();
-
-        hints.Add(
-            GenerateHintName("Data", "global::Ns1.Data", usedHintNames, "_JsonSerializer.g.cs")
-        );
-        hints.Add(
-            GenerateHintName("Data", "global::Ns2.Data", usedHintNames, "_JsonSerializer.g.cs")
-        );
-        hints.Add(
-            GenerateHintName("Data", "global::Ns3.Data", usedHintNames, "_JsonSerializer.g.cs")
-        );
+        var hints = new[]
+        {
+            GenerateHintName("global::Ns1.Data", "_JsonSerializer.g.cs"),
+            GenerateHintName("global::Ns2.Data", "_JsonSerializer.g.cs"),
+            GenerateHintName("global::Ns3.Data", "_JsonSerializer.g.cs"),
+        };
 
         await Assert.That(hints.Distinct().Count()).IsEqualTo(3);
-        await Assert.That(hints[0]).IsEqualTo("Data_JsonSerializer.g.cs"); // first gets short name
+        // None uses short name — all are FQN-based
+        await Assert.That(hints[0]).IsEqualTo("Ns1_Data_JsonSerializer.g.cs");
+        await Assert.That(hints[1]).IsEqualTo("Ns2_Data_JsonSerializer.g.cs");
+        await Assert.That(hints[2]).IsEqualTo("Ns3_Data_JsonSerializer.g.cs");
     }
 
     [Test]
-    public async Task HintName_WithNullFQN_HintNameUsesShortName()
+    public async Task HintName_GlobalNamespaceType_NoExtraUnderscore()
     {
-        var usedHintNames = new HashSet<string>();
-        var hintName = GenerateHintName(
-            "Fallback",
-            "global::SomeNs.Fallback",
-            usedHintNames,
-            "_JsonSerializer.g.cs"
-        );
-        await Assert.That(hintName).IsEqualTo("Fallback_JsonSerializer.g.cs");
+        // Type with no namespace (global::) should not produce a leading underscore
+        var hintName = GenerateHintName("global::GlobalType", "_JsonSerializer.g.cs");
+        await Assert.That(hintName).IsEqualTo("GlobalType_JsonSerializer.g.cs");
     }
 
-    // ── HintName generator helper (mirrors the logic in GenerateAll) ──
+    [Test]
+    public async Task HintName_NestedNamespace_DotsBecomeUnderscores()
+    {
+        var hintName = GenerateHintName(
+            "global::MyCompany.MyApp.Core.Models.UserProfile",
+            "_JsonSerializer.g.cs"
+        );
+        await Assert
+            .That(hintName)
+            .IsEqualTo("MyCompany_MyApp_Core_Models_UserProfile_JsonSerializer.g.cs");
+    }
+
+    // ── HintName generator helper (mirrors the new FQN-only logic in GenerateAll) ──
 
     /// <summary>
-    /// Generate a hintName using the short-name-first, FQN-fallback approach.
-    /// This helper exists to TDD the hintName logic before implementing in the SG.
+    /// Generate a hintName using the FQN-based approach.
+    /// Always uses SafeName(FullyQualifiedName) — no short-name-fallback.
     /// </summary>
-    private static string GenerateHintName(
-        string shortName,
-        string fullyQualifiedName,
-        HashSet<string> usedHintNames,
-        string suffix
-    )
+    private static string GenerateHintName(string fullyQualifiedName, string suffix)
     {
-        // First try: short name
-        var hintName = $"{shortName}{suffix}";
-        if (usedHintNames.Add(hintName))
-            return hintName;
-
-        // Collision detected: use FQN-based safe name
         var cleanFq = (fullyQualifiedName ?? "").Replace("global::", "");
         var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanFq);
-        hintName = $"{safeFq}{suffix}";
-        usedHintNames.Add(hintName);
-        return hintName;
+        return $"{safeFq}{suffix}";
     }
 }

@@ -96,7 +96,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             if (namedType.IsRefLikeType)
             {
                 return PicoSerDe.Gen.GenInfrastructure.TransformTypeSymbol(
-                    namedType, Config, Attrs,
+                    namedType,
+                    Config,
+                    Attrs,
                     includeReadOnlyProperties: true,
                     includeFields: true
                 );
@@ -289,7 +291,6 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
         var seen = new HashSet<string>();
-        var hintNames = new HashSet<string>();
         foreach (var t in types)
         {
             if (!seen.Add(t.FullyQualifiedName))
@@ -297,19 +298,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             // Guard: skip types with empty/null Name
             if (string.IsNullOrEmpty(t.Name))
                 continue;
-            // Try short name first; fall back to FQN on collision
-            var shortHintName = $"{t.Name}_IniSerializer.g.cs";
-            string hintName;
-            if (hintNames.Add(shortHintName))
-            {
-                hintName = shortHintName;
-            }
-            else
-            {
-                var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(t.FullyQualifiedName ?? "");
-                hintName = $"{safeFq}_IniSerializer.g.cs";
-                hintNames.Add(hintName);
-            }
+            // Always use FQN-based hintName — zero collision risk
+            var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(t.FullyQualifiedName ?? "");
+            var hintName = $"{safeFq}_IniSerializer.g.cs";
             var code = t.IsRefLikeType ? GenRefStruct(t) : Gen(t);
             spc.AddSource(hintName, SourceText.From(code, Encoding.UTF8));
         }
@@ -798,7 +789,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine(" value) {");
         s.AppendLine("        var iw = new IniWriter(writer);");
 
-        var top = type.Properties.Where(p => p.TypeKind != "object" && p.TypeKind != "dict").ToList();
+        var top = type
+            .Properties.Where(p => p.TypeKind != "object" && p.TypeKind != "dict")
+            .ToList();
         foreach (var p in top)
         {
             s.Append("        iw.WriteKeyValue(\"");

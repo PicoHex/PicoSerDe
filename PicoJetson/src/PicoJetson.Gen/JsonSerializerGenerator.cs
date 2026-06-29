@@ -111,7 +111,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (namedType.IsRefLikeType)
             {
                 return PicoSerDe.Gen.GenInfrastructure.TransformTypeSymbol(
-                    namedType, Config, Attrs,
+                    namedType,
+                    Config,
+                    Attrs,
                     includeReadOnlyProperties: true,
                     includeFields: true
                 );
@@ -282,7 +284,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (!seen.Add(type.FullyQualifiedName!))
                 continue;
 
-            // Guard: skip types with empty/null Name to prevent bare '_JsonSerializer.g.cs'
+            // Guard: skip types with empty/null Name
             if (string.IsNullOrEmpty(type.Name))
             {
                 spc.ReportDiagnostic(
@@ -291,30 +293,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 continue;
             }
 
-            // Try short name first; fall back to FQN on collision
-            // (e.g. Ns1.ManifestData vs Ns2.ManifestData with same short name)
-            var shortHintName = $"{type.Name}_JsonSerializer.g.cs";
-            string mainHintName;
-            if (hintNames.Add(shortHintName))
-            {
-                mainHintName = shortHintName;
-            }
-            else
-            {
-                // SafeName handles "global::" removal and dot→underscore conversion
-                var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(
-                    type.FullyQualifiedName ?? ""
-                );
-                mainHintName = $"{safeFq}_JsonSerializer.g.cs";
-                hintNames.Add(mainHintName);
-                spc.ReportDiagnostic(
-                    Diagnostic.Create(
-                        HintNameTrace,
-                        null,
-                        $"COLLISION hintName: '{shortHintName}' → using '{mainHintName}' (Name='{type.Name}', FQN='{type.FullyQualifiedName}')"
-                    )
-                );
-            }
+            // Always use FQN-based hintName — zero collision risk (same strategy as Inner Helpers)
+            var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(type.FullyQualifiedName ?? "");
+            var mainHintName = $"{safeFq}_JsonSerializer.g.cs";
 
             var source = GenerateTypeCode(type);
             spc.AddSource(mainHintName, SourceText.From(source, Encoding.UTF8));
