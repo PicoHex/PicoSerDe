@@ -17,8 +17,7 @@ public class AttributeDiscoveryTests
         await Assert.That(ini).Contains("Key");
         await Assert.That(ini).Contains("test");
 
-        var result = IniSerializer.Deserialize<IniOnlyDto>(
-            Encoding.UTF8.GetBytes(ini));
+        var result = IniSerializer.Deserialize<IniOnlyDto>(Encoding.UTF8.GetBytes(ini));
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Key).IsEqualTo("test");
         await Assert.That(result.Value).IsEqualTo(42);

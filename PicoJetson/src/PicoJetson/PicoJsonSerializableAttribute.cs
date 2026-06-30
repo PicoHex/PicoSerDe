@@ -25,5 +25,6 @@ public sealed class PicoJsonSerializableAttribute : PicoSerDe.Core.PicoSerializa
     public PicoJsonSerializableAttribute() { }
 
     /// <summary>Mark <paramref name="type"/> for JSON serialization.</summary>
-    public PicoJsonSerializableAttribute(Type type) : base(type) { }
+    public PicoJsonSerializableAttribute(Type type)
+        : base(type) { }
 }

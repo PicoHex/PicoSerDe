@@ -2,8 +2,17 @@ using PicoSerDe.Core;
 
 namespace PicoYaml.Tests;
 
-public ref struct YamlPoint { public int X, Y; }
-public class YamlSimple { public string Name { get; set; } = ""; public int Value { get; set; } }
+public ref struct YamlPoint
+{
+    public int X,
+        Y;
+}
+
+public class YamlSimple
+{
+    public string Name { get; set; } = "";
+    public int Value { get; set; }
+}
 
 public class YamlRefStructTests
 {

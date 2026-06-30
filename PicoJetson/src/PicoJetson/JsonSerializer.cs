@@ -6,7 +6,8 @@ public static partial class JsonSerializer
     public const string ContentType = "application/json";
 
     // Serialization cache — allows ref struct via delegate
-    private static class SerCache<T> where T : allows ref struct
+    private static class SerCache<T>
+        where T : allows ref struct
     {
         internal static SerDelegate<T>? Handler;
     }
@@ -205,10 +206,7 @@ public static partial class JsonSerializer
     /// Serializes each value in <paramref name="values"/> as a JSON line,
     /// separated by <c>'\n'</c>. Returns a JSONL byte array.
     /// </summary>
-    public static byte[] SerializeLines<T>(
-        IEnumerable<T> values,
-        JsonOptions? options = null
-    )
+    public static byte[] SerializeLines<T>(IEnumerable<T> values, JsonOptions? options = null)
         where T : allows ref struct
     {
         var prev = JsonOptions.Current;
@@ -240,10 +238,7 @@ public static partial class JsonSerializer
     /// Deserializes each line of a JSONL byte span into an array of <typeparamref name="T"/>.
     /// Empty lines are skipped. Each line must be a complete, valid JSON value.
     /// </summary>
-    public static T?[] DeserializeLines<T>(
-        ReadOnlySpan<byte> data,
-        JsonOptions? options = null
-    )
+    public static T?[] DeserializeLines<T>(ReadOnlySpan<byte> data, JsonOptions? options = null)
     {
         if (data.IsEmpty)
             return [];
@@ -362,7 +357,9 @@ public static partial class JsonSerializer
                         if (lineEnd > lineStart)
                         {
                             // Copy line bytes; List<T>.GetRange avoids Span crossing yield
-                            var lineBytes = accum.GetRange(lineStart, lineEnd - lineStart).ToArray();
+                            var lineBytes = accum
+                                .GetRange(lineStart, lineEnd - lineStart)
+                                .ToArray();
                             yield return deserializer.Deserialize(lineBytes);
                         }
                     }
@@ -396,9 +393,13 @@ public static partial class JsonSerializer
                     if (bytesRead == 0)
                     {
                         if (!sawOpeningBracket)
-                            throw new FormatException("Expected '[' at start of JSON array stream.");
+                            throw new FormatException(
+                                "Expected '[' at start of JSON array stream."
+                            );
                         if (depth > 0)
-                            throw new FormatException("Unexpected end of stream inside JSON array.");
+                            throw new FormatException(
+                                "Unexpected end of stream inside JSON array."
+                            );
                         yield break;
                     }
 
@@ -412,10 +413,20 @@ public static partial class JsonSerializer
                         if (!sawOpeningBracket)
                         {
                             if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r')
-                            { i++; continue; }
+                            {
+                                i++;
+                                continue;
+                            }
                             if (b == (byte)'[')
-                            { sawOpeningBracket = true; depth = 1; i++; continue; }
-                            throw new FormatException("Expected '[' at start of JSON array stream.");
+                            {
+                                sawOpeningBracket = true;
+                                depth = 1;
+                                i++;
+                                continue;
+                            }
+                            throw new FormatException(
+                                "Expected '[' at start of JSON array stream."
+                            );
                         }
 
                         if (b == (byte)'"')
@@ -424,9 +435,15 @@ public static partial class JsonSerializer
                             while (i < accum.Count)
                             {
                                 if (accum[i] == (byte)'\\')
-                                { i += 2; continue; }
+                                {
+                                    i += 2;
+                                    continue;
+                                }
                                 if (accum[i] == (byte)'"')
-                                { i++; break; }
+                                {
+                                    i++;
+                                    break;
+                                }
                                 i++;
                             }
                             continue;
@@ -448,14 +465,18 @@ public static partial class JsonSerializer
                             {
                                 if (valueStart >= 0)
                                 {
-                                    var valBytes = accum.GetRange(valueStart, i - valueStart).ToArray();
+                                    var valBytes = accum
+                                        .GetRange(valueStart, i - valueStart)
+                                        .ToArray();
                                     yield return deserializer.Deserialize(valBytes);
                                 }
                                 yield break;
                             }
                             if (depth == 1 && b == (byte)'}')
                             {
-                                var valBytes = accum.GetRange(valueStart, i + 1 - valueStart).ToArray();
+                                var valBytes = accum
+                                    .GetRange(valueStart, i + 1 - valueStart)
+                                    .ToArray();
                                 yield return deserializer.Deserialize(valBytes);
                                 valueStart = -1;
                                 int consumed = i + 1;

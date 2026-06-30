@@ -64,7 +64,10 @@ public class JsonLinesTests
     {
         JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
 
-        var people = new[] { new Person { Name = "Alice", Age = 30 } };
+        var people = new[]
+        {
+            new Person { Name = "Alice", Age = 30 },
+        };
         var result = JsonSerializer.SerializeLines(people);
 
         var text = Encoding.UTF8.GetString(result);
@@ -107,7 +110,11 @@ public class JsonLinesTests
         JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
 
         var jsonl = JsonSerializer.SerializeLines(
-            new[] { new Person { Name = "Alice", Age = 30 } });
+            new[]
+            {
+                new Person { Name = "Alice", Age = 30 },
+            }
+        );
         var result = JsonSerializer.DeserializeLines<Person>(jsonl);
 
         await Assert.That(result.Length).IsEqualTo(1);
@@ -152,11 +159,13 @@ public class JsonLinesTests
     {
         JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
 
-        var jsonl = JsonSerializer.SerializeLines(new[]
-        {
-            new Person { Name = "Alice", Age = 30 },
-            new Person { Name = "Bob", Age = 25 },
-        });
+        var jsonl = JsonSerializer.SerializeLines(
+            new[]
+            {
+                new Person { Name = "Alice", Age = 30 },
+                new Person { Name = "Bob", Age = 25 },
+            }
+        );
         using var stream = new MemoryStream(jsonl);
 
         var results = new List<Person?>();
@@ -192,7 +201,11 @@ public class JsonLinesTests
         JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
 
         var jsonl = JsonSerializer.SerializeLines(
-            new[] { new Person { Name = "Alice", Age = 30 } });
+            new[]
+            {
+                new Person { Name = "Alice", Age = 30 },
+            }
+        );
         using var stream = new MemoryStream(jsonl);
 
         var results = new List<Person?>();
@@ -214,8 +227,12 @@ public class JsonLinesTests
         using var stream = new MemoryStream(json);
 
         var results = new List<Person?>();
-        await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(
-            stream, topLevelValues: false))
+        await foreach (
+            var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+                stream,
+                topLevelValues: false
+            )
+        )
         {
             results.Add(person);
         }
@@ -229,12 +246,17 @@ public class JsonLinesTests
     {
         JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
 
-        var json = "[\n  {\"Name\":\"Alice\",\"Age\":30},\n  {\"Name\":\"Bob\",\"Age\":25}\n]"u8.ToArray();
+        var json =
+            "[\n  {\"Name\":\"Alice\",\"Age\":30},\n  {\"Name\":\"Bob\",\"Age\":25}\n]"u8.ToArray();
         using var stream = new MemoryStream(json);
 
         var results = new List<Person?>();
-        await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(
-            stream, topLevelValues: false))
+        await foreach (
+            var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+                stream,
+                topLevelValues: false
+            )
+        )
         {
             results.Add(person);
         }
@@ -253,8 +275,12 @@ public class JsonLinesTests
         using var stream = new MemoryStream(json);
 
         var results = new List<Person?>();
-        await foreach (var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(
-            stream, topLevelValues: false))
+        await foreach (
+            var person in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+                stream,
+                topLevelValues: false
+            )
+        )
         {
             results.Add(person);
         }
@@ -272,10 +298,12 @@ public class JsonLinesTests
 
         await Assert.ThrowsAsync<FormatException>(async () =>
         {
-            await foreach (var _ in JsonSerializer.DeserializeAsyncEnumerable<Person>(
-                stream, topLevelValues: false))
-            {
-            }
+            await foreach (
+                var _ in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+                    stream,
+                    topLevelValues: false
+                )
+            ) { }
         });
     }
 
@@ -292,10 +320,9 @@ public class JsonLinesTests
 
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
         {
-            await foreach (var _ in JsonSerializer.DeserializeAsyncEnumerable<Person>(
-                stream, ct: cts.Token))
-            {
-            }
+            await foreach (
+                var _ in JsonSerializer.DeserializeAsyncEnumerable<Person>(stream, ct: cts.Token)
+            ) { }
         });
     }
 
@@ -329,7 +356,8 @@ public class JsonLinesTests
     {
         JsonSerializer.Register<Person>(new PersonSerializer(), new PersonDeserializer());
 
-        var data = "\n\n{\"Name\":\"Alice\",\"Age\":30}\n\n{\"Name\":\"Bob\",\"Age\":25}\n\n"u8.ToArray();
+        var data =
+            "\n\n{\"Name\":\"Alice\",\"Age\":30}\n\n{\"Name\":\"Bob\",\"Age\":25}\n\n"u8.ToArray();
         var result = JsonSerializer.DeserializeLines<Person>(data);
 
         await Assert.That(result.Length).IsEqualTo(2);

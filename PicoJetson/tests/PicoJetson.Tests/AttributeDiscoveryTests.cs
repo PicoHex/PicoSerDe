@@ -124,9 +124,9 @@ public class IncludeFieldsTests
 
 public class IncludeFieldsDto
 {
-    public string Name = "default";  // field
-    public int Count;                 // field
-    public string Label { get; set; } = "";  // property (still works)
+    public string Name = "default"; // field
+    public int Count; // field
+    public string Label { get; set; } = ""; // property (still works)
 }
 
 public class IncludeFieldsTests2
@@ -165,7 +165,7 @@ public class RequiredCreateTests
 [PicoSerializable(IncludeFields = true)]
 public class FieldDto2
 {
-    public string Label = "default";  // field
+    public string Label = "default"; // field
 }
 
 public class IncludeFieldsTriggerTests

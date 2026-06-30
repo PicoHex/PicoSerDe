@@ -17,8 +17,7 @@ public class AttributeDiscoveryTests
         await Assert.That(yaml).Contains("Name");
         await Assert.That(yaml).Contains("yaml-attr");
 
-        var result = YamlSerializer.Deserialize<YamlAttrDto>(
-            Encoding.UTF8.GetBytes(yaml));
+        var result = YamlSerializer.Deserialize<YamlAttrDto>(Encoding.UTF8.GetBytes(yaml));
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Name).IsEqualTo("yaml-attr");
         await Assert.That(result.Count).IsEqualTo(42);

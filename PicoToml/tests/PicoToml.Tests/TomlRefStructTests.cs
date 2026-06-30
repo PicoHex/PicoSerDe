@@ -2,8 +2,17 @@ using PicoSerDe.Core;
 
 namespace PicoToml.Tests;
 
-public ref struct TomlPoint { public int X, Y; }
-public class TomlSimple { public string Name { get; set; } = ""; public int Value { get; set; } }
+public ref struct TomlPoint
+{
+    public int X,
+        Y;
+}
+
+public class TomlSimple
+{
+    public string Name { get; set; } = "";
+    public int Value { get; set; }
+}
 
 public class TomlRefStructTests
 {

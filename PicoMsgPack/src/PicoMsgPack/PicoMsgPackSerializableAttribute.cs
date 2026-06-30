@@ -4,5 +4,7 @@ namespace PicoMsgPack;
 public sealed class PicoMsgPackSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
 {
     public PicoMsgPackSerializableAttribute() { }
-    public PicoMsgPackSerializableAttribute(Type type) : base(type) { }
+
+    public PicoMsgPackSerializableAttribute(Type type)
+        : base(type) { }
 }

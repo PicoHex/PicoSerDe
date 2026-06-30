@@ -66,6 +66,7 @@ public class YamlImmutableDto
 {
     public string Label { get; }
     public int Count { get; }
+
     [YamlConstructor]
     public YamlImmutableDto(string label, int count) => (Label, Count) = (label, count);
 }
@@ -87,6 +88,7 @@ public class YamlCtorDecimal
 {
     public decimal Price { get; }
     public string Name { get; }
+
     [YamlConstructor]
     public YamlCtorDecimal(decimal price, string name) => (Price, Name) = (price, name);
 }

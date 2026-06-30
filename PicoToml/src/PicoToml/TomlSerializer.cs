@@ -6,7 +6,8 @@ public static partial class TomlSerializer
     public const string ContentType = "application/toml";
 
     // Serialization cache — allows ref struct via delegate
-    private static class SerCache<T> where T : allows ref struct
+    private static class SerCache<T>
+        where T : allows ref struct
     {
         internal static SerDelegate<T>? Handler;
     }

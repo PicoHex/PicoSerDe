@@ -2,8 +2,17 @@ using PicoSerDe.Core;
 
 namespace PicoMsgPack.Tests;
 
-public ref struct MpPoint { public int X, Y; }
-public class MpSimple { public string Name { get; set; } = ""; public int Value { get; set; } }
+public ref struct MpPoint
+{
+    public int X,
+        Y;
+}
+
+public class MpSimple
+{
+    public string Name { get; set; } = "";
+    public int Value { get; set; }
+}
 
 public class MsgPackRefStructTests
 {

@@ -30,23 +30,28 @@
     <ProjectReference
       Include="..\..\PicoJetson\src\PicoJetson.Gen\PicoJetson.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false" />
+      ReferenceOutputAssembly="false"
+    />
     <ProjectReference
       Include="..\..\PicoIni\src\PicoIni.Gen\PicoIni.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false" />
+      ReferenceOutputAssembly="false"
+    />
     <ProjectReference
       Include="..\..\PicoToml\src\PicoToml.Gen\PicoToml.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false" />
+      ReferenceOutputAssembly="false"
+    />
     <ProjectReference
       Include="..\..\PicoYaml\src\PicoYaml.Gen\PicoYaml.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false" />
+      ReferenceOutputAssembly="false"
+    />
     <ProjectReference
       Include="..\..\PicoMsgPack\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false" />
+      ReferenceOutputAssembly="false"
+    />
   </ItemGroup>
 
   <!-- Shared models -->

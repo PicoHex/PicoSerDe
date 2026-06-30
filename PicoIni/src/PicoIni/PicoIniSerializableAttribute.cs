@@ -4,5 +4,7 @@ namespace PicoIni;
 public sealed class PicoIniSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
 {
     public PicoIniSerializableAttribute() { }
-    public PicoIniSerializableAttribute(Type type) : base(type) { }
+
+    public PicoIniSerializableAttribute(Type type)
+        : base(type) { }
 }

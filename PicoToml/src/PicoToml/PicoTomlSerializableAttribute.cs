@@ -4,5 +4,7 @@ namespace PicoToml;
 public sealed class PicoTomlSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
 {
     public PicoTomlSerializableAttribute() { }
-    public PicoTomlSerializableAttribute(Type type) : base(type) { }
+
+    public PicoTomlSerializableAttribute(Type type)
+        : base(type) { }
 }

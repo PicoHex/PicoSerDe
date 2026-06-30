@@ -4,5 +4,7 @@ namespace PicoYaml;
 public sealed class PicoYamlSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
 {
     public PicoYamlSerializableAttribute() { }
-    public PicoYamlSerializableAttribute(Type type) : base(type) { }
+
+    public PicoYamlSerializableAttribute(Type type)
+        : base(type) { }
 }

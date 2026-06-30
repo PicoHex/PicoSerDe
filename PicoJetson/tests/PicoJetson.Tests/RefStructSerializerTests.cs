@@ -25,7 +25,8 @@ public class RefStructSerializerTests
         // through the compat two-param Register overload.
         JsonSerializer.Register<JsonSerializerTests.Person>(
             new TestPersonSerializer(),
-            new TestPersonDeserializer());
+            new TestPersonDeserializer()
+        );
         var person = new JsonSerializerTests.Person { Name = "Compat", Age = 99 };
         var json = JsonSerializer.Serialize(person);
         await Assert.That(json).Contains("Compat");
@@ -51,7 +52,11 @@ public class RefStructSerializerTests
     [Test]
     public async Task SourceGen_Handles_Nested_RefStruct()
     {
-        var o = new Outer3 { Id = 42, Inner = new Inner3 { A = 1.0f } };
+        var o = new Outer3
+        {
+            Id = 42,
+            Inner = new Inner3 { A = 1.0f },
+        };
         var json = JsonSerializer.Serialize(o);
         await Assert.That(json).Contains("42");
         await Assert.That(json).Contains("Inner");
@@ -84,16 +89,25 @@ file struct TestPersonSerializer : ISerializer<JsonSerializerTests.Person>
 
 file struct TestPersonDeserializer : IDeserializer<JsonSerializerTests.Person>
 {
-    public JsonSerializerTests.Person Deserialize(ReadOnlySpan<byte> d)
-        => new() { Name = "ignored", Age = 0 };
+    public JsonSerializerTests.Person Deserialize(ReadOnlySpan<byte> d) =>
+        new() { Name = "ignored", Age = 0 };
 }
 
 // ── Ref struct models for SG tests ──
 
 public ref struct Vec2
 {
-    public int X, Y;
+    public int X,
+        Y;
 }
 
-public ref struct Inner3 { public float A; }
-public ref struct Outer3 { public int Id; public Inner3 Inner; }
+public ref struct Inner3
+{
+    public float A;
+}
+
+public ref struct Outer3
+{
+    public int Id;
+    public Inner3 Inner;
+}

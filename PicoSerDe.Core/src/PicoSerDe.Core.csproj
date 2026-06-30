@@ -24,6 +24,4 @@
   <ItemGroup>
     <Compile Include="..\..\shared\TextHelpers.cs" Link="TextHelpers.cs" />
   </ItemGroup>
-
-
 </Project>

@@ -188,9 +188,11 @@ public class MultiFormatRoundTripTests
         // Step 1: verify raw YAML reader handles these bytes
         var testReader = new PicoYaml.YamlReader(yBytes);
         int yr = 0;
-        while (testReader.Read()) {
+        while (testReader.Read())
+        {
             yr++;
-            if (yr > 500) break;
+            if (yr > 500)
+                break;
         }
         await Assert.That(yr).IsLessThan(100, "Raw YAML reader should not loop");
         // Step 2: verify full deserialization works
@@ -359,17 +361,21 @@ public class PicoJetsonJsonLinesTests
         sb.Append("[");
         for (int i = 0; i < models.Length; i++)
         {
-            if (i > 0) sb.Append(',');
-            sb.Append(Encoding.UTF8.GetString(
-                JsonSerializer.SerializeToUtf8Bytes(models[i])));
+            if (i > 0)
+                sb.Append(',');
+            sb.Append(Encoding.UTF8.GetString(JsonSerializer.SerializeToUtf8Bytes(models[i])));
         }
         sb.Append("]");
         var json = Encoding.UTF8.GetBytes(sb.ToString());
 
         using var stream = new MemoryStream(json);
         var results = new List<AllFormatsModel?>();
-        await foreach (var m in JsonSerializer.DeserializeAsyncEnumerable<AllFormatsModel>(
-            stream, topLevelValues: false))
+        await foreach (
+            var m in JsonSerializer.DeserializeAsyncEnumerable<AllFormatsModel>(
+                stream,
+                topLevelValues: false
+            )
+        )
         {
             results.Add(m);
         }

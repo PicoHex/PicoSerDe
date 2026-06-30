@@ -2,7 +2,10 @@ using PicoSerDe.Core;
 
 namespace PicoSerDe.Core.Tests;
 
-public ref struct SmokeRef { public int X; }
+public ref struct SmokeRef
+{
+    public int X;
+}
 
 public class SerDelegateTests
 {

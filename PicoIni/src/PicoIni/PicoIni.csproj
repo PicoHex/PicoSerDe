@@ -50,5 +50,4 @@
       Condition="!Exists('..\PicoIni.Gen\bin\$(Configuration)\netstandard2.0\PicoIni.Gen.dll')"
     />
   </Target>
-
 </Project>

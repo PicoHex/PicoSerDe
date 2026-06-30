@@ -50,5 +50,4 @@
       Condition="!Exists('..\PicoToml.Gen\bin\$(Configuration)\netstandard2.0\PicoToml.Gen.dll')"
     />
   </Target>
-
 </Project>

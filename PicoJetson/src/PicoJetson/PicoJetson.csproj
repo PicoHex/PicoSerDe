@@ -50,5 +50,4 @@
       Condition="!Exists('..\PicoJetson.Gen\bin\$(Configuration)\netstandard2.0\PicoJetson.Gen.dll')"
     />
   </Target>
-
 </Project>

@@ -17,8 +17,7 @@ public class AttributeDiscoveryTests
         await Assert.That(toml).Contains("Name");
         await Assert.That(toml).Contains("test");
 
-        var result = TomlSerializer.Deserialize<TomlAttrDto>(
-            Encoding.UTF8.GetBytes(toml));
+        var result = TomlSerializer.Deserialize<TomlAttrDto>(Encoding.UTF8.GetBytes(toml));
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Name).IsEqualTo("test");
         await Assert.That(result.Count).IsEqualTo(7);

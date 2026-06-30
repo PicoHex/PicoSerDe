@@ -6,10 +6,15 @@ namespace PicoIni.Tests;
 
 public ref struct IniPoint
 {
-    public int X, Y;
+    public int X,
+        Y;
 }
 
-public class IniSimpleModel { public string Title { get; set; } = ""; public int Port { get; set; } }
+public class IniSimpleModel
+{
+    public string Title { get; set; } = "";
+    public int Port { get; set; }
+}
 
 public class IniRefStructTests
 {

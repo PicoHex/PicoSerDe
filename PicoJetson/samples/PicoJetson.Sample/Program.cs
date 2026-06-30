@@ -208,7 +208,11 @@ class Program
         };
         var jsonl = JsonSerializer.SerializeLines(people);
         Console.WriteLine($"  Serialized {people.Length} people to JSONL ({jsonl.Length} bytes):");
-        foreach (var line in Encoding.UTF8.GetString(jsonl).Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (
+            var line in Encoding
+                .UTF8.GetString(jsonl)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        )
             Console.WriteLine($"    {line}");
 
         var restoredPeople = JsonSerializer.DeserializeLines<Person>(jsonl);
@@ -225,12 +229,15 @@ class Program
         Console.WriteLine($"  Streamed {streamResults.Count} people OK");
 
         // Streaming JSON array mode
-        var arr = Encoding.UTF8.GetBytes(
-            "[{\"Name\":\"D\",\"Age\":1},{\"Name\":\"E\",\"Age\":2}]");
+        var arr = Encoding.UTF8.GetBytes("[{\"Name\":\"D\",\"Age\":1},{\"Name\":\"E\",\"Age\":2}]");
         using var arrStream = new MemoryStream(arr);
         var arrResults = new List<Person?>();
-        await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
-            arrStream, topLevelValues: false))
+        await foreach (
+            var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
+                arrStream,
+                topLevelValues: false
+            )
+        )
             arrResults.Add(p);
         Console.WriteLine($"  Array-mode streamed {arrResults.Count} people OK");
     }
