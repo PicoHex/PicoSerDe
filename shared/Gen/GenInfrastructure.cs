@@ -134,12 +134,23 @@ internal static class GenInfrastructure
     /// <summary>Converts a fully qualified type name to a safe identifier (replaces . and :: with _).</summary>
     public static string SafeName(string fullName)
     {
-        return fullName.Replace("global::", "").Replace('.', '_');
+        return fullName
+            .Replace("global::", "")
+            .Replace('.', '_')
+            .Replace('<', '_')
+            .Replace('>', '_')
+            .Replace(',', '_')
+            .Replace(' ', '_');
     }
 
     /// <summary>Returns the fully qualified inner helper class name (e.g. "global::Ns.Sub_TypeJsonInner").</summary>
     public static string InnerClassName(string suffix, string typeFullName)
     {
+        // For generic type names (containing '<'), don't try to extract a
+        // namespace — the class is emitted at global scope.
+        if (typeFullName.Contains('<'))
+            return $"global::{SafeName(typeFullName)}{suffix}";
+
         var lastDot = typeFullName.LastIndexOf('.');
         var safeName = SafeName(typeFullName);
         if (lastDot <= 0)
@@ -321,9 +332,14 @@ internal static class GenInfrastructure
         var useCamelCase = attrs.HasCamelCase(type);
         // Ref struct nested types: include fields (they commonly use public fields)
         var includeFields = type.IsRefLikeType;
-        var properties = ExtractProperties(type, formatTag, attrs,
-            includeReadOnlyProperties: includeFields, useCamelCase,
-            includeFields: includeFields);
+        var properties = ExtractProperties(
+            type,
+            formatTag,
+            attrs,
+            includeReadOnlyProperties: includeFields,
+            useCamelCase,
+            includeFields: includeFields
+        );
         return properties.ToImmutableArray();
     }
 
@@ -504,7 +520,18 @@ internal static class GenInfrastructure
                     elementTypeKind = vk;
                     elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
+                    {
                         nestedProperties = ExtractNestedProperties(vNtsObj, attrs, formatTag);
+                    }
+                    else if (
+                        vk is "dict"
+                        && valType is INamedTypeSymbol vNtsDict
+                        && vNtsDict.TypeArguments.Length == 2
+                    )
+                    {
+                        // Nested Dictionary<K2,V2> — resolve inner dict's K/V and wrap as synthetic PropertyInfo
+                        nestedProperties = BuildNestedDictElement(vNtsDict, formatTag, attrs);
+                    }
                 }
                 else
                 {
@@ -596,6 +623,117 @@ internal static class GenInfrastructure
         return ImmutableArray.Create(wrapper);
     }
 
+    /// <summary>
+    /// Builds a synthetic PropertyInfo chain for a nested Dictionary value type.
+    /// E.g. for Dictionary&lt;string, Dictionary&lt;string, Foo&gt;&gt;,
+    /// the inner dict's value resolves to: PropertyInfo(TypeKind="dict",
+    ///   KeyTypeKind="string", ElementTypeKind="object", ElementTypeName="Foo",
+    ///   NestedProperties=[Foo's properties]).
+    /// This single-element array is stored in NestedProperties of the outer dict prop
+    /// so that CollectNestedDictTypes can find and generate inner helpers from it.
+    /// </summary>
+    private static ImmutableArray<PropertyInfo> BuildNestedDictElement(
+        INamedTypeSymbol dictType,
+        string formatTag,
+        AttributeHelpers attrs
+    )
+    {
+        if (dictType.TypeArguments.Length != 2)
+            return ImmutableArray<PropertyInfo>.Empty;
+
+        var innerKeyType = dictType.TypeArguments[0];
+        var innerValType = dictType.TypeArguments[1];
+        var (ik, _, _) = TypeKindResolver.Resolve(innerKeyType, formatTag);
+        var (iv, _, _) = TypeKindResolver.Resolve(innerValType, formatTag);
+        if (ik is null || iv is null)
+            return ImmutableArray<PropertyInfo>.Empty;
+
+        var innerKeyTypeName = TypeKindResolver.MapTypeName(ik, innerKeyType);
+        var innerValTypeName = TypeKindResolver.MapTypeName(iv, innerValType);
+        var innerValFullName = innerValType.ToDisplayString(
+            SymbolDisplayFormat.FullyQualifiedFormat
+        );
+        ImmutableArray<PropertyInfo> innerNested = ImmutableArray<PropertyInfo>.Empty;
+        var dictFullName = dictType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+        if (iv is "object" && innerValType is INamedTypeSymbol ivNtsObj)
+        {
+            innerNested = ExtractNestedProperties(ivNtsObj, attrs, formatTag);
+        }
+        else if (
+            iv is "dict"
+            && innerValType is INamedTypeSymbol ivNtsDict
+            && ivNtsDict.TypeArguments.Length == 2
+        )
+        {
+            innerNested = BuildNestedDictElement(ivNtsDict, formatTag, attrs);
+        }
+
+        var wrapper = new PropertyInfo(
+            Name: "__nested_dict",
+            JsonName: "__nested_dict",
+            TypeKind: "dict",
+            TypeFullName: dictFullName,
+            IsNullable: false,
+            ElementTypeKind: iv,
+            ElementTypeName: innerValTypeName,
+            KeyTypeKind: ik,
+            KeyTypeName: innerKeyTypeName,
+            NestedProperties: innerNested,
+            ConverterTypeFullName: null
+        );
+
+        return ImmutableArray.Create(wrapper);
+    }
+
+    /// <summary>
+    /// Collects nested Dictionary types from TypeInfo properties.
+    /// For dict-valued dicts (ElementTypeKind == "dict"), the inner dict's synthetic
+    /// PropertyInfo is stored in NestedProperties[0]. This method walks the type tree
+    /// and collects them all, keyed by fully-qualified type name.
+    /// </summary>
+    public static Dictionary<string, PropertyInfo> CollectNestedDictTypes(
+        TypeInfo type,
+        Dictionary<string, PropertyInfo>? existing = null
+    )
+    {
+        var result = existing ?? new Dictionary<string, PropertyInfo>();
+        foreach (var prop in type.Properties)
+        {
+            if (
+                prop.TypeKind == "dict"
+                && prop.ElementTypeKind == "dict"
+                && prop.NestedProperties.Length > 0
+                && !string.IsNullOrEmpty(prop.NestedProperties[0].TypeFullName)
+            )
+            {
+                AddNestedDictType(prop.NestedProperties[0], result);
+            }
+        }
+        return result;
+    }
+
+    private static void AddNestedDictType(
+        PropertyInfo dictProp,
+        Dictionary<string, PropertyInfo> result
+    )
+    {
+        var fqn = dictProp.TypeFullName!;
+        if (string.IsNullOrEmpty(fqn) || result.ContainsKey(fqn))
+            return;
+        result[fqn] = dictProp;
+
+        // Recurse: if this dict's value is also a dict, collect it too
+        if (
+            dictProp.ElementTypeKind == "dict"
+            && dictProp.NestedProperties.Length > 0
+            && !string.IsNullOrEmpty(dictProp.NestedProperties[0].TypeFullName)
+        )
+        {
+            AddNestedDictType(dictProp.NestedProperties[0], result);
+        }
+    }
+
     public static void CollectNestedTypes(
         TypeInfo type,
         Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes
@@ -617,6 +755,28 @@ internal static class GenInfrastructure
                 && !string.IsNullOrEmpty(prop.ElementTypeName)
             )
                 AddNestedType(prop.ElementTypeName!, prop.NestedProperties, nestedTypes);
+            // Recurse into nested-dict synthetic PropertyInfo to collect object value types
+            if (prop.TypeKind == "dict" && prop.NestedProperties.Length > 0)
+            {
+                foreach (var dnp in prop.NestedProperties)
+                    AddNestedTypeFromDict(dnp, nestedTypes);
+            }
+        }
+    }
+
+    private static void AddNestedTypeFromDict(
+        PropertyInfo dictProp,
+        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes
+    )
+    {
+        // If this dict's value is an object, collect it
+        if (dictProp.ElementTypeKind == "object" && !string.IsNullOrEmpty(dictProp.ElementTypeName))
+            AddNestedType(dictProp.ElementTypeName!, dictProp.NestedProperties, nestedTypes);
+        // If this dict's value is also a dict, recurse deeper
+        if (dictProp.ElementTypeKind == "dict" && dictProp.NestedProperties.Length > 0)
+        {
+            foreach (var dnp in dictProp.NestedProperties)
+                AddNestedTypeFromDict(dnp, nestedTypes);
         }
     }
 
@@ -648,6 +808,12 @@ internal static class GenInfrastructure
                 && !string.IsNullOrEmpty(np.ElementTypeName)
             )
                 AddNestedType(np.ElementTypeName!, np.NestedProperties, nestedTypes);
+            // Recurse into nested-dict synthetic props inside a collected object
+            if (np.TypeKind == "dict" && np.NestedProperties.Length > 0)
+            {
+                foreach (var dnp in np.NestedProperties)
+                    AddNestedTypeFromDict(dnp, nestedTypes);
+            }
         }
     }
 

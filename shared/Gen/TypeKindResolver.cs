@@ -134,12 +134,11 @@ internal static class TypeKindResolver
                 }
                 // Also accept public instance fields (ref structs commonly use fields)
                 if (
-                    member
-                        is IFieldSymbol
-                        {
-                            DeclaredAccessibility: Accessibility.Public,
-                            IsStatic: false
-                        }
+                    member is IFieldSymbol
+                    {
+                        DeclaredAccessibility: Accessibility.Public,
+                        IsStatic: false
+                    }
                 )
                 {
                     return ("object", false, null);
@@ -169,6 +168,7 @@ internal static class TypeKindResolver
             "enum" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "list" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "array" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "dict" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "object" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             _ => "object",
         };
