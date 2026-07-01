@@ -18,7 +18,9 @@ internal readonly record struct TypeInfo(
     ImmutableArray<PropertyInfo> Properties,
     ImmutableArray<CtorParamInfo> CtorParams = default,
     string? TypeTag = null,
-    bool IsRefLikeType = false
+    bool IsRefLikeType = false,
+    string? DiscriminatorPropertyName = null,
+    ImmutableArray<DerivedTypeInfo> DerivedTypes = default
 )
 {
     public bool Equals(TypeInfo other) =>
@@ -28,7 +30,9 @@ internal readonly record struct TypeInfo(
         && Properties.SequenceEqual(other.Properties)
         && CtorParams.SequenceEqual(other.CtorParams)
         && TypeTag == other.TypeTag
-        && IsRefLikeType == other.IsRefLikeType;
+        && IsRefLikeType == other.IsRefLikeType
+        && DiscriminatorPropertyName == other.DiscriminatorPropertyName
+        && DerivedTypes.SequenceEqual(other.DerivedTypes);
 
     public override int GetHashCode()
     {
@@ -39,9 +43,18 @@ internal readonly record struct TypeInfo(
             hash = (hash * 397) ^ p.GetHashCode();
         foreach (var cp in CtorParams)
             hash = (hash * 397) ^ cp.GetHashCode();
+        hash = (hash * 397) ^ (DiscriminatorPropertyName?.GetHashCode() ?? 0);
+        foreach (var dt in DerivedTypes)
+            hash = (hash * 397) ^ dt.GetHashCode();
         return hash;
     }
 }
+
+/// <summary>Describes one derived type in a polymorphic hierarchy.</summary>
+internal readonly record struct DerivedTypeInfo(
+    string FullyQualifiedName,
+    string TypeDiscriminator
+);
 
 /// <summary>Constructor parameter info for [JsonConstructor] support.</summary>
 internal readonly record struct CtorParamInfo(
@@ -857,5 +870,100 @@ internal static class GenInfrastructure
             return ctorParams.ToImmutableArray();
         }
         return null;
+    }
+
+    /// <summary>
+    /// Processes [PicoDerivedType] and [PicoPolymorphic] attributes on a type.
+    /// Returns TypeInfo for the base type (with DerivedTypes populated) plus
+    /// TypeInfo for each derived type (so their serializers are generated).
+    /// </summary>
+    public static ImmutableArray<TypeInfo> ExpandPolymorphicTypes(
+        GeneratorAttributeSyntaxContext ctx,
+        FormatConfig config,
+        AttributeHelpers attrs
+    )
+    {
+        if (ctx.TargetSymbol is not INamedTypeSymbol baseType)
+            return ImmutableArray<TypeInfo>.Empty;
+
+        var builder = ImmutableArray.CreateBuilder<TypeInfo>();
+        var derivedList = ImmutableArray.CreateBuilder<DerivedTypeInfo>();
+        var derivedTypeSymbols = new List<INamedTypeSymbol>();
+        var discriminatorPropertyName = "$type";
+
+        foreach (var attr in baseType.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name == "PicoPolymorphicAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString()
+                    == "PicoSerDe.Core"
+            )
+            {
+                foreach (var na in attr.NamedArguments)
+                    if (
+                        na.Key == "TypeDiscriminatorPropertyName"
+                        && na.Value.Value is string dpn
+                    )
+                        discriminatorPropertyName = dpn;
+            }
+
+            if (
+                attr.AttributeClass?.Name == "PicoDerivedTypeAttribute"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString()
+                    == "PicoSerDe.Core"
+                && attr.ConstructorArguments.Length == 2
+                && attr.ConstructorArguments[0].Value is INamedTypeSymbol derivedType
+                && attr.ConstructorArguments[1].Value is string discriminator
+            )
+            {
+                derivedList.Add(
+                    new DerivedTypeInfo(
+                        derivedType.ToDisplayString(
+                            SymbolDisplayFormat.FullyQualifiedFormat
+                        ),
+                        discriminator
+                    )
+                );
+                derivedTypeSymbols.Add(derivedType);
+            }
+        }
+
+        if (derivedList.Count == 0)
+            return ImmutableArray<TypeInfo>.Empty;
+
+        // Generate base type TypeInfo (with DerivedTypes populated)
+        var baseInfo = TransformTypeSymbol(baseType, config, attrs);
+        if (baseInfo.HasValue)
+        {
+            builder.Add(
+                baseInfo.Value
+                    with
+                {
+                    DiscriminatorPropertyName = discriminatorPropertyName,
+                    DerivedTypes = derivedList.ToImmutable(),
+                }
+            );
+        }
+
+        // Generate derived type TypeInfos (with [JsonConstructor] detection)
+        foreach (var dt in derivedTypeSymbols)
+        {
+            var ti = TransformTypeSymbol(dt, config, attrs);
+            if (!ti.HasValue)
+                continue;
+
+            // Detect [JsonConstructor] — same pattern as Transform
+            var ctorParams = DetectConstructor(
+                dt,
+                config.FormatTag,
+                "JsonConstructorAttribute"
+            );
+            if (ctorParams.HasValue)
+                ti = ti.Value with { CtorParams = ctorParams.Value };
+
+            builder.Add(ti.Value);
+        }
+
+        return builder.ToImmutable();
     }
 }
