@@ -24,10 +24,14 @@ public class TomlPolymorphicTests
     {
         TomlSessionEntry entry = new TomlMsgEntry { Content = "hello", Sequence = 1 };
         var toml = TomlSerializer.Serialize(entry);
+        // Debug: print actual TOML output
+        Console.WriteLine("TOML output:");
+        Console.WriteLine(toml);
         var result = TomlSerializer.Deserialize<TomlSessionEntry>(Encoding.UTF8.GetBytes(toml));
         await Assert.That(result).IsTypeOf<TomlMsgEntry>();
         var msg = (TomlMsgEntry)result!;
         await Assert.That(msg.Content).IsEqualTo("hello");
+        await Assert.That(msg.Sequence).IsEqualTo(1);
     }
 
     [Test]

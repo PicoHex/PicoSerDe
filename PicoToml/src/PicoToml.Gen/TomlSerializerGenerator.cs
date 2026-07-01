@@ -2076,7 +2076,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("();");
             s.AppendLine("            while (reader.Read() && reader.TokenType == TokenType.PropertyName) {");
             s.AppendLine("                var __k = reader.KeySpan;");
-            s.AppendLine("                reader.Read();");
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
