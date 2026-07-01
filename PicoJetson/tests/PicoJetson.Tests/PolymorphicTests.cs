@@ -155,6 +155,18 @@ public class PolymorphicTests
         await Assert.That(ex).IsNotNull();
     }
 
+    [Test]
+    public async Task Deserialize_WrongDiscriminatorPropertyName_Throws()
+    {
+        // AppEvent uses "kind" as discriminator field, not "$type"
+        var json = """{"$type":"email","To":"a@b.com","Subject":"Test"}"""u8.ToArray();
+
+        var ex = Assert.Throws<FormatException>(
+            () => JsonSerializer.Deserialize<AppEvent>(json)
+        );
+        await Assert.That(ex.Message).Contains("kind");
+    }
+
     // ── [JsonConstructor] derived type ──
 
     [Test]
