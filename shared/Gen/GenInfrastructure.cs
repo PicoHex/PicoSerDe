@@ -948,17 +948,24 @@ internal static class GenInfrastructure
         // Generate derived type TypeInfos (with [JsonConstructor] detection)
         foreach (var dt in derivedTypeSymbols)
         {
-            var ti = TransformTypeSymbol(dt, config, attrs);
-            if (!ti.HasValue)
-                continue;
-
-            // Detect [JsonConstructor] — same pattern as Transform
+            // Detect [JsonConstructor] first so we include read-only properties
             var ctorParams = DetectConstructor(
                 dt,
                 config.FormatTag,
                 "JsonConstructorAttribute"
             );
-            if (ctorParams.HasValue)
+            var hasCtor = ctorParams.HasValue;
+
+            var ti = TransformTypeSymbol(
+                dt,
+                config,
+                attrs,
+                includeReadOnlyProperties: hasCtor
+            );
+            if (!ti.HasValue)
+                continue;
+
+            if (hasCtor)
                 ti = ti.Value with { CtorParams = ctorParams.Value };
 
             builder.Add(ti.Value);
