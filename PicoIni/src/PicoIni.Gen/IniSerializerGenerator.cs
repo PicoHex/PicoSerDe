@@ -10,7 +10,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     private static readonly PicoSerDe.Gen.FormatConfig Config = new(
         "IniSerializer",
         "PicoIni",
-        "ini"
+        "ini",
+        "IniConstructorAttribute"
     );
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(

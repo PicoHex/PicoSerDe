@@ -11,6 +11,7 @@ public class MessageEntry : SessionEntry
 {
     public string Content { get; set; } = "";
     public int Sequence { get; set; }
+    public string? OptionalNote { get; set; }
 }
 
 public class CompactionEntry : SessionEntry
@@ -205,5 +206,21 @@ public class PolymorphicTests
 
         await Assert.That(json2).Contains("\"$type\"");
         await Assert.That(json2).Contains("\"message\"");
+    }
+
+    // ── DefaultIgnoreCondition ──
+
+    [Test]
+    public async Task Serialize_Poly_WhenWritingNull_SkipsNullProperties()
+    {
+        var entry = new MessageEntry { Content = "hi", Sequence = 42, OptionalNote = null };
+        SessionEntry session = entry;
+        var json = JsonSerializer.Serialize(
+            session,
+            new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }
+        );
+        await Assert.That(json).DoesNotContain("OptionalNote");
+        await Assert.That(json).Contains("Content");
+        await Assert.That(json).Contains("Sequence");
     }
 }

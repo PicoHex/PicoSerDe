@@ -7,7 +7,8 @@ namespace PicoSerDe.Gen;
 public readonly record struct FormatConfig(
     string SerializerClassName,
     string Namespace,
-    string FormatTag // "json" | "ini" | "msgpack" | "toml" | "yaml"
+    string FormatTag, // "json" | "ini" | "msgpack" | "toml" | "yaml"
+    string ConstructorAttributeName // e.g. "JsonConstructorAttribute"
 );
 
 /// <summary>Shared type descriptor used by all 5 format SGs.</summary>
@@ -952,7 +953,7 @@ internal static class GenInfrastructure
             var ctorParams = DetectConstructor(
                 dt,
                 config.FormatTag,
-                "JsonConstructorAttribute"
+                config.ConstructorAttributeName
             );
             var hasCtor = ctorParams.HasValue;
 

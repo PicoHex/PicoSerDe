@@ -9,7 +9,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     private static readonly PicoSerDe.Gen.FormatConfig Config = new(
         "YamlSerializer",
         "PicoYaml",
-        "yaml"
+        "yaml",
+        "YamlConstructorAttribute"
     );
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
@@ -2334,6 +2335,24 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(acc);
             s.Append(");");
         }
+        else if (p.TypeKind == "int64")
+        {
+            s.Append("yw.WriteInt64(");
+            s.Append(acc);
+            s.Append(");");
+        }
+        else if (p.TypeKind == "float64" || p.TypeKind == "float32")
+        {
+            s.Append("yw.WriteNumber((int)");
+            s.Append(acc);
+            s.Append(");");
+        }
+        else if (p.TypeKind == "boolean")
+        {
+            s.Append("yw.WriteBoolean(");
+            s.Append(acc);
+            s.Append(");");
+        }
         else
         {
             s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
@@ -2348,6 +2367,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("Encoding.UTF8.GetString(__v)");
         else if (p.TypeKind == "int32")
             s.Append("int.TryParse(__v, out var __iv) ? __iv : 0");
+        else if (p.TypeKind == "int64")
+            s.Append("long.TryParse(__v, out var __lv) ? __lv : 0");
+        else if (p.TypeKind == "float64" || p.TypeKind == "float32")
+            s.Append("double.TryParse(__v, out var __dv) ? __dv : 0");
+        else if (p.TypeKind == "boolean")
+            s.Append("bool.TryParse(__v, out var __bv) ? __bv : false");
         else
             s.Append("default");
     }

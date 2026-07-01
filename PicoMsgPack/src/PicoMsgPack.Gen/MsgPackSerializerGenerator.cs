@@ -9,7 +9,8 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     private static readonly PicoSerDe.Gen.FormatConfig Config = new(
         "MsgPackSerializer",
         "PicoMsgPack",
-        "msgpack"
+        "msgpack",
+        "MsgPackConstructorAttribute"
     );
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(

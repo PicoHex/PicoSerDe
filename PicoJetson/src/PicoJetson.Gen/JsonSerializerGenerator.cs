@@ -9,7 +9,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     private static readonly PicoSerDe.Gen.FormatConfig Config = new(
         "JsonSerializer",
         "PicoJetson",
-        "json"
+        "json",
+        "JsonConstructorAttribute"
     );
 
     private static readonly DiagnosticDescriptor HintNameTrace = new(
@@ -2702,10 +2703,31 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("\"));");
             foreach (var prop in dtProps)
             {
+                bool checkNull = prop.IsNullable || prop.IsNullableReference;
+                if (prop.TypeKind == "list" || prop.TypeKind == "array" || prop.TypeKind == "dict")
+                    checkNull = false;
+                if (checkNull)
+                {
+                    sb.AppendLine(
+                        "                    if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
+                    );
+                    sb.AppendLine("                        ? __v." + prop.Name + " != null");
+                    sb.AppendLine(
+                        "                        : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+                    );
+                    if (prop.TypeKind is "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal")
+                        sb.AppendLine("                        ? __v." + prop.Name + " != default");
+                    else
+                        sb.AppendLine("                        ? __v." + prop.Name + " != null");
+                    sb.AppendLine("                        : true)");
+                    sb.AppendLine("                    {");
+                }
                 sb.Append("                    jw.WritePropertyName(\"");
                 sb.Append(EscapeCSharpString(prop.JsonName));
                 sb.AppendLine("\"u8);");
                 EmitSerializeProperty(sb, prop, "__v." + prop.Name, "                    ");
+                if (checkNull)
+                    sb.AppendLine("                    }");
             }
             sb.AppendLine("                    break;");
         }

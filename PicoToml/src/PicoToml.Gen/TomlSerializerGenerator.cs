@@ -9,7 +9,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     private static readonly PicoSerDe.Gen.FormatConfig Config = new(
         "TomlSerializer",
         "PicoToml",
-        "toml"
+        "toml",
+        "TomlConstructorAttribute"
     );
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
