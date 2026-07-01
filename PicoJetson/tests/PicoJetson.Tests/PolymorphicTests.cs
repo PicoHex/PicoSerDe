@@ -134,25 +134,25 @@ public class PolymorphicTests
     }
 
     [Test]
-    public void Deserialize_UnknownDiscriminator_Throws()
+    public async Task Deserialize_UnknownDiscriminator_Throws()
     {
         var json = """{"$type":"unknown_type","x":1}"""u8.ToArray();
 
         var ex = Assert.Throws<FormatException>(
             () => JsonSerializer.Deserialize<SessionEntry>(json)
         );
-        Assert.That(ex).IsNotNull();
+        await Assert.That(ex).IsNotNull();
     }
 
     [Test]
-    public void Deserialize_DiscriminatorNotFirst_Throws()
+    public async Task Deserialize_DiscriminatorNotFirst_Throws()
     {
         var json = """{"Content":"hi","$type":"message"}"""u8.ToArray();
 
         var ex = Assert.Throws<FormatException>(
             () => JsonSerializer.Deserialize<SessionEntry>(json)
         );
-        Assert.That(ex).IsNotNull();
+        await Assert.That(ex).IsNotNull();
     }
 
     // ── [JsonConstructor] derived type ──
@@ -160,7 +160,7 @@ public class PolymorphicTests
     [Test]
     public async Task Deserialize_PolyWithJsonConstructor_Works()
     {
-        var json = """{"$type":"immutable_msg","content":"hello","id":99}"""u8;
+        var json = """{"$type":"immutable_msg","Content":"hello","Id":99}"""u8;
         var result = JsonSerializer.Deserialize<PolyEntry>(json);
 
         await Assert.That(result).IsTypeOf<ImmutableMessage>();
