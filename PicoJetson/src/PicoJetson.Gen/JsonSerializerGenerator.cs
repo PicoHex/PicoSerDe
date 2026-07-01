@@ -351,7 +351,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var source = GenerateTypeCode(type, typeMap);
             spc.AddSource(mainHintName, SourceText.From(source, Encoding.UTF8));
         }
-
     }
 
     private static string GenerateInnerHelper(
@@ -820,7 +819,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     private static string GenerateTypeCode(
         TypeInfo type,
-        Dictionary<string, TypeInfo> derivedLookup = null!
+        Dictionary<string, TypeInfo> derivedLookup
     )
     {
         var sb = new StringBuilder();
@@ -2753,7 +2752,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             var dt = type.DerivedTypes[i];
             var keyword = i == 0 ? "if" : "else if";
-            var dti = derivedLookup.TryGetValue(dt.FullyQualifiedName, out var found) ? found : default;
+            var dti = derivedLookup.TryGetValue(dt.FullyQualifiedName, out var found)
+                ? found
+                : default(TypeInfo);
+            var dtProps = dti.Properties.IsDefault
+                ? ImmutableArray<PropertyInfo>.Empty
+                : dti.Properties;
             var hasCtor = !dti.CtorParams.IsDefaultOrEmpty && dti.CtorParams.Length > 0;
 
             sb.Append("            ");
@@ -2800,9 +2804,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("                {");
             sb.AppendLine("                    var __n = reader.GetStringRaw();");
             sb.AppendLine("                    reader.Read();");
-            for (int pi = 0; pi < dti.Properties.Length; pi++)
+            for (int pi = 0; pi < dtProps.Length; pi++)
             {
-                var prop = dti.Properties[pi];
+                var prop = dtProps[pi];
                 var kw2 = pi == 0 ? "if" : "else if";
                 sb.Append("                    ");
                 sb.Append(kw2);
@@ -2816,7 +2820,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     EmitDeserializeProperty(sb, prop, "obj", "                        ");
                 sb.AppendLine("                    }");
             }
-            if (dti.Properties.Length > 0)
+            if (dtProps.Length > 0)
                 sb.AppendLine("                    else reader.TrySkip();");
             sb.AppendLine("                }");
 
