@@ -128,6 +128,84 @@ public readonly struct PicoElement
         throw new FormatException($"Cannot parse '{Encoding.UTF8.GetString(v)}' as Int32.");
     }
 
+    public long GetInt64()
+    {
+        if (ValueKind != PicoValueKind.Number)
+            throw new InvalidOperationException("Not a number.");
+        ref readonly var n = ref _doc._nodes[_nodeIdx];
+        var v =
+            n.ValueEnd > n.ValueStart
+                ? _doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart)
+                : default;
+        if (v.IsEmpty)
+            return 0;
+        if (long.TryParse(v, out var r))
+            return r;
+        if (
+            double.TryParse(
+                v,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var dr
+            )
+        )
+            return (long)dr;
+        throw new FormatException($"Cannot parse '{Encoding.UTF8.GetString(v)}' as Int64.");
+    }
+
+    public double GetDouble()
+    {
+        if (ValueKind != PicoValueKind.Number)
+            throw new InvalidOperationException("Not a number.");
+        ref readonly var n = ref _doc._nodes[_nodeIdx];
+        var v =
+            n.ValueEnd > n.ValueStart
+                ? _doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart)
+                : default;
+        if (v.IsEmpty)
+            return 0;
+        if (
+            double.TryParse(
+                v,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var dr
+            )
+        )
+            return dr;
+        throw new FormatException($"Cannot parse '{Encoding.UTF8.GetString(v)}' as Double.");
+    }
+
+    public bool TryGetInt32(out int value)
+    {
+        value = 0;
+        if (ValueKind != PicoValueKind.Number)
+            return false;
+        ref readonly var n = ref _doc._nodes[_nodeIdx];
+        var v =
+            n.ValueEnd > n.ValueStart
+                ? _doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart)
+                : default;
+        if (v.IsEmpty)
+            return false;
+        return int.TryParse(v, out value);
+    }
+
+    public bool TryGetInt64(out long value)
+    {
+        value = 0;
+        if (ValueKind != PicoValueKind.Number)
+            return false;
+        ref readonly var n = ref _doc._nodes[_nodeIdx];
+        var v =
+            n.ValueEnd > n.ValueStart
+                ? _doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart)
+                : default;
+        if (v.IsEmpty)
+            return false;
+        return long.TryParse(v, out value);
+    }
+
     public bool GetBoolean()
     {
         return ValueKind switch

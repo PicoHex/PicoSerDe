@@ -333,4 +333,79 @@ public class PicoDocumentTests
         await Assert.That(doc.RootElement[2].ValueKind).IsEqualTo(PicoValueKind.True);
         await Assert.That(doc.RootElement[3].ValueKind).IsEqualTo(PicoValueKind.Null);
     }
+
+    // ── Extended numeric APIs ──
+
+    [Test]
+    public async Task GetInt64_ReturnsCorrectValue()
+    {
+        var doc = PicoDocument.Parse("9223372036854775807"u8.ToArray());
+        await Assert.That(doc.RootElement.GetInt64()).IsEqualTo(9223372036854775807L);
+    }
+
+    [Test]
+    public async Task GetInt64_Negative_ReturnsCorrectValue()
+    {
+        var doc = PicoDocument.Parse("-42"u8.ToArray());
+        await Assert.That(doc.RootElement.GetInt64()).IsEqualTo(-42L);
+    }
+
+    [Test]
+    public async Task GetDouble_ReturnsCorrectValue()
+    {
+        var doc = PicoDocument.Parse("3.14159"u8.ToArray());
+        await Assert.That(doc.RootElement.GetDouble()).IsEqualTo(3.14159).Within(0.0001);
+    }
+
+    [Test]
+    public async Task GetDouble_Integer_ReturnsDouble()
+    {
+        var doc = PicoDocument.Parse("42"u8.ToArray());
+        await Assert.That(doc.RootElement.GetDouble()).IsEqualTo(42.0);
+    }
+
+    [Test]
+    public async Task TryGetInt32_ValidNumber_ReturnsTrue()
+    {
+        var doc = PicoDocument.Parse("42"u8.ToArray());
+        var ok = doc.RootElement.TryGetInt32(out var val);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(val).IsEqualTo(42);
+    }
+
+    [Test]
+    public async Task TryGetInt32_NotANumber_ReturnsFalse()
+    {
+        var doc = PicoDocument.Parse("3.14"u8.ToArray());
+        var ok = doc.RootElement.TryGetInt32(out var val);
+        await Assert.That(ok).IsFalse();
+        await Assert.That(val).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task TryGetInt64_ValidNumber_ReturnsTrue()
+    {
+        var doc = PicoDocument.Parse("9223372036854775807"u8.ToArray());
+        var ok = doc.RootElement.TryGetInt64(out var val);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(val).IsEqualTo(9223372036854775807L);
+    }
+
+    [Test]
+    public async Task TryGetInt64_NotANumber_ReturnsFalse()
+    {
+        var doc = PicoDocument.Parse("3.14"u8.ToArray());
+        var ok = doc.RootElement.TryGetInt64(out var val);
+        await Assert.That(ok).IsFalse();
+        await Assert.That(val).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task TryGetInt32_StringValue_ReturnsFalse()
+    {
+        var json = Encoding.UTF8.GetBytes("\"not a number\"");
+        var doc = PicoDocument.Parse(json);
+        var ok = doc.RootElement.TryGetInt32(out _);
+        await Assert.That(ok).IsFalse();
+    }
 }
