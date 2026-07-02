@@ -48,10 +48,14 @@ public readonly struct PicoElement
         while (c >= 0)
         {
             ref readonly var n = ref _doc._nodes[c];
-            if (n.NameSpan is { } ns && ns.SequenceEqual(utf8Key))
+            if (n.NameEnd > n.NameStart)
             {
-                value = new PicoElement(_doc, c);
-                return true;
+                var nameSpan = _doc._json.AsSpan(n.NameStart, n.NameEnd - n.NameStart);
+                if (nameSpan.SequenceEqual(utf8Key))
+                {
+                    value = new PicoElement(_doc, c);
+                    return true;
+                }
             }
             c = n.NextSibling;
         }
@@ -91,14 +95,23 @@ public readonly struct PicoElement
     {
         if (ValueKind != PicoValueKind.String)
             throw new InvalidOperationException("Not a string.");
-        return _doc._nodes[_nodeIdx].Value ?? "";
+        ref readonly var n = ref _doc._nodes[_nodeIdx];
+        if (n.ValueEnd <= n.ValueStart)
+            return "";
+        return Encoding.UTF8.GetString(_doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart));
     }
 
     public int GetInt32()
     {
         if (ValueKind != PicoValueKind.Number)
             throw new InvalidOperationException("Not a number.");
-        var v = _doc._nodes[_nodeIdx].Value ?? "0";
+        ref readonly var n = ref _doc._nodes[_nodeIdx];
+        var v =
+            n.ValueEnd > n.ValueStart
+                ? _doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart)
+                : default;
+        if (v.IsEmpty)
+            return 0;
         if (int.TryParse(v, out var r))
             return r;
         if (long.TryParse(v, out var lr))
@@ -112,7 +125,7 @@ public readonly struct PicoElement
             )
         )
             return (int)dr;
-        throw new FormatException($"Cannot parse '{v}' as Int32.");
+        throw new FormatException($"Cannot parse '{Encoding.UTF8.GetString(v)}' as Int32.");
     }
 
     public bool GetBoolean()
@@ -125,10 +138,13 @@ public readonly struct PicoElement
         };
     }
 
+    /// <summary>Returns the raw UTF-8 bytes of the value (no copy).</summary>
     public ReadOnlySpan<byte> GetRawValue()
     {
-        var v = _doc._nodes[_nodeIdx].ValueRaw;
-        return v ?? default;
+        ref readonly var n = ref _doc._nodes[_nodeIdx];
+        if (n.ValueEnd <= n.ValueStart)
+            return default;
+        return _doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart);
     }
 
     public ArrayEnumerator EnumerateArray() => new(_doc, _nodeIdx);
@@ -140,15 +156,14 @@ public struct ArrayEnumerator
 {
     private readonly PicoDocument _doc;
     private int _child;
-    private bool _started;
-    private bool _done;
+    private bool _started,
+        _done;
 
     internal ArrayEnumerator(PicoDocument doc, int nodeIdx)
     {
         _doc = doc;
         _child = nodeIdx >= 0 ? doc._nodes[nodeIdx].FirstChild : -1;
-        _started = false;
-        _done = false;
+        _started = _done = false;
     }
 
     public PicoElement Current => new(_doc, _child);
@@ -183,15 +198,14 @@ public struct ObjectEnumerator
 {
     private readonly PicoDocument _doc;
     private int _child;
-    private bool _started;
-    private bool _done;
+    private bool _started,
+        _done;
 
     internal ObjectEnumerator(PicoDocument doc, int nodeIdx)
     {
         _doc = doc;
         _child = nodeIdx >= 0 ? doc._nodes[nodeIdx].FirstChild : -1;
-        _started = false;
-        _done = false;
+        _started = _done = false;
     }
 
     public PicoProperty Current => new(_doc, _child);
@@ -233,45 +247,60 @@ public readonly ref struct PicoProperty
         _nodeIdx = nodeIdx;
     }
 
-    public string Name => _doc._nodes[_nodeIdx].Name ?? "";
+    public string Name
+    {
+        get
+        {
+            ref readonly var n = ref _doc._nodes[_nodeIdx];
+            if (n.NameEnd <= n.NameStart)
+                return "";
+            return Encoding.UTF8.GetString(_doc._json.AsSpan(n.NameStart, n.NameEnd - n.NameStart));
+        }
+    }
     public PicoElement Value => new(_doc, _nodeIdx);
 }
 
-internal sealed class PicoDocNode
+internal struct PicoDocNode
 {
     public PicoValueKind Kind;
-    public string? Name;
-    public string? Value;
-    public byte[]? NameSpan; // UTF-8 property name (for zero-alloc key lookup)
-    public byte[]? ValueRaw;
-    public int FirstChild = -1;
-    public int LastChild = -1;
-    public int NextSibling = -1;
+    public int NameStart,
+        NameEnd;
+    public int ValueStart,
+        ValueEnd;
+    public int FirstChild,
+        LastChild,
+        NextSibling;
+
+    public PicoDocNode()
+    {
+        FirstChild = LastChild = NextSibling = -1;
+    }
 }
 
 public class PicoDocument
 {
+    internal readonly byte[] _json;
     internal readonly PicoDocNode[] _nodes;
     private readonly int _rootIdx;
 
-    private PicoDocument(PicoDocNode[] nodes, int rootIdx)
+    private PicoDocument(byte[] json, PicoDocNode[] nodes, int rootIdx)
     {
+        _json = json;
         _nodes = nodes;
         _rootIdx = rootIdx;
     }
 
     public PicoElement RootElement => new(this, _rootIdx);
 
-    /// <summary>Parses JSON bytes into a document. Max nesting depth = 64.</summary>
     public static PicoDocument Parse(byte[] json) => Parse(json, maxDepth: 64);
 
-    /// <summary>Parses JSON bytes with explicit max depth.</summary>
     public static PicoDocument Parse(byte[] json, int maxDepth)
     {
         var reader = new JsonReader(json, maxDepth: maxDepth);
         var nodes = new List<PicoDocNode>(64);
         var stack = new Stack<int>(16);
-        string? pendingName = null;
+        int pendingNameStart = 0,
+            pendingNameEnd = 0;
         int rootIdx = -1;
 
         void Add(PicoDocNode n)
@@ -284,13 +313,13 @@ public class PicoDocument
                 var parent = nodes[p];
                 if (parent.FirstChild < 0)
                 {
-                    parent.FirstChild = idx;
-                    parent.LastChild = idx;
+                    nodes[p] = parent with { FirstChild = idx, LastChild = idx };
                 }
                 else
                 {
-                    nodes[parent.LastChild].NextSibling = idx;
-                    parent.LastChild = idx;
+                    var last = nodes[parent.LastChild];
+                    nodes[parent.LastChild] = last with { NextSibling = idx };
+                    nodes[p] = nodes[p] with { LastChild = idx };
                 }
             }
             else if (rootIdx < 0)
@@ -299,18 +328,19 @@ public class PicoDocument
 
         if (!reader.Read())
             throw new FormatException("Empty JSON input.");
-        Process(reader, nodes, ref pendingName, stack, Add, maxDepth);
+        Process(reader, nodes, ref pendingNameStart, ref pendingNameEnd, stack, Add, maxDepth);
         while (reader.Read())
-            Process(reader, nodes, ref pendingName, stack, Add, maxDepth);
+            Process(reader, nodes, ref pendingNameStart, ref pendingNameEnd, stack, Add, maxDepth);
         if (stack.Count > 0)
             throw new FormatException("Unclosed container.");
-        return new PicoDocument(nodes.ToArray(), rootIdx);
+        return new PicoDocument(json, nodes.ToArray(), rootIdx);
     }
 
     private static void Process(
         JsonReader reader,
         List<PicoDocNode> nodes,
-        ref string? pendingName,
+        ref int pendingNameStart,
+        ref int pendingNameEnd,
         Stack<int> stack,
         Action<PicoDocNode> add,
         int maxDepth
@@ -325,14 +355,12 @@ public class PicoDocument
                     new PicoDocNode
                     {
                         Kind = PicoValueKind.Object,
-                        Name = pendingName,
-                        NameSpan = pendingName is not null
-                            ? Encoding.UTF8.GetBytes(pendingName)
-                            : null,
+                        NameStart = pendingNameStart,
+                        NameEnd = pendingNameEnd,
                     }
                 );
                 stack.Push(nodes.Count - 1);
-                pendingName = null;
+                pendingNameStart = pendingNameEnd = 0;
                 break;
             case TokenType.ArrayStart:
                 if (stack.Count >= maxDepth)
@@ -341,14 +369,12 @@ public class PicoDocument
                     new PicoDocNode
                     {
                         Kind = PicoValueKind.Array,
-                        Name = pendingName,
-                        NameSpan = pendingName is not null
-                            ? Encoding.UTF8.GetBytes(pendingName)
-                            : null,
+                        NameStart = pendingNameStart,
+                        NameEnd = pendingNameEnd,
                     }
                 );
                 stack.Push(nodes.Count - 1);
-                pendingName = null;
+                pendingNameStart = pendingNameEnd = 0;
                 break;
             case TokenType.ObjectEnd:
             case TokenType.ArrayEnd:
@@ -357,26 +383,22 @@ public class PicoDocument
                 stack.Pop();
                 break;
             case TokenType.PropertyName:
-                pendingName = Encoding.UTF8.GetString(reader.GetStringRaw());
+                pendingNameStart = reader.TokenValueStart;
+                pendingNameEnd = reader.TokenValueEnd;
                 break;
             case TokenType.String:
-            {
-                var raw = reader.GetStringRaw();
                 add(
                     new PicoDocNode
                     {
                         Kind = PicoValueKind.String,
-                        Name = pendingName,
-                        NameSpan = pendingName is not null
-                            ? Encoding.UTF8.GetBytes(pendingName)
-                            : null,
-                        Value = Encoding.UTF8.GetString(raw),
-                        ValueRaw = raw.ToArray(),
+                        NameStart = pendingNameStart,
+                        NameEnd = pendingNameEnd,
+                        ValueStart = reader.TokenValueStart,
+                        ValueEnd = reader.TokenValueEnd,
                     }
                 );
-                pendingName = null;
+                pendingNameStart = pendingNameEnd = 0;
                 break;
-            }
             case TokenType.Int64:
             case TokenType.Float64:
             case TokenType.Int32:
@@ -385,31 +407,28 @@ public class PicoDocument
                     new PicoDocNode
                     {
                         Kind = PicoValueKind.Number,
-                        Name = pendingName,
-                        NameSpan = pendingName is not null
-                            ? Encoding.UTF8.GetBytes(pendingName)
-                            : null,
-                        Value = Encoding.UTF8.GetString(reader.GetStringRaw()),
+                        NameStart = pendingNameStart,
+                        NameEnd = pendingNameEnd,
+                        ValueStart = reader.TokenValueStart,
+                        ValueEnd = reader.TokenValueEnd,
                     }
                 );
-                pendingName = null;
+                pendingNameStart = pendingNameEnd = 0;
                 break;
             case TokenType.Bool:
             {
-                var raw = reader.GetStringRaw();
-                bool isTrue = raw.SequenceEqual("true"u8);
+                bool isTrue = reader.GetStringRaw().SequenceEqual("true"u8);
                 add(
                     new PicoDocNode
                     {
                         Kind = isTrue ? PicoValueKind.True : PicoValueKind.False,
-                        Name = pendingName,
-                        NameSpan = pendingName is not null
-                            ? Encoding.UTF8.GetBytes(pendingName)
-                            : null,
-                        Value = isTrue ? "true" : "false",
+                        NameStart = pendingNameStart,
+                        NameEnd = pendingNameEnd,
+                        ValueStart = reader.TokenValueStart,
+                        ValueEnd = reader.TokenValueEnd,
                     }
                 );
-                pendingName = null;
+                pendingNameStart = pendingNameEnd = 0;
                 break;
             }
             case TokenType.Null:
@@ -417,13 +436,11 @@ public class PicoDocument
                     new PicoDocNode
                     {
                         Kind = PicoValueKind.Null,
-                        Name = pendingName,
-                        NameSpan = pendingName is not null
-                            ? Encoding.UTF8.GetBytes(pendingName)
-                            : null,
+                        NameStart = pendingNameStart,
+                        NameEnd = pendingNameEnd,
                     }
                 );
-                pendingName = null;
+                pendingNameStart = pendingNameEnd = 0;
                 break;
         }
     }

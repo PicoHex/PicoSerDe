@@ -131,6 +131,21 @@ public ref struct JsonReader
     /// <summary>Direct position access for optimized generated code (span mode only).</summary>
     public int RawPos => _isSequence ? -1 : _position;
 
+    /// <summary>Byte offset of the current token's value within the source buffer.</summary>
+    public int TokenValueStart
+    {
+        get
+        {
+            if (_isSequence || _valueSpan.IsEmpty)
+                return -1;
+            _data.Overlaps(_valueSpan, out int offset);
+            return offset;
+        }
+    }
+
+    /// <summary>Byte offset of the end of the current token's value (exclusive).</summary>
+    public int TokenValueEnd => TokenValueStart + _valueSpan.Length;
+
     public void SetRawPos(int pos)
     {
         _position = pos;
