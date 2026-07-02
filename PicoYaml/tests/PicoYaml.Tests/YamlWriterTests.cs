@@ -40,4 +40,106 @@ public class YamlWriterTests
         var result = Encoding.UTF8.GetString(buf.WrittenSpan);
         await Assert.That(result).IsEqualTo("# config section\nkey: value\n");
     }
+
+    // ── NeedsQuoting: YAML literals ──
+
+    [Test]
+    public async Task WriteString_BooleanLiteral_IsQuoted()
+    {
+        foreach (var literal in new[] { "true", "false", "yes", "no", "on", "off" })
+        {
+            var buf = new ArrayBufferWriter<byte>(256);
+            var w = new YamlWriter(buf);
+            w.WritePropertyName("key"u8);
+            w.WriteString(Encoding.UTF8.GetBytes(literal));
+            var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+            await Assert.That(result).Contains("\"" + literal + "\"");
+        }
+    }
+
+    [Test]
+    public async Task WriteString_NullLiteral_IsQuoted()
+    {
+        foreach (var literal in new[] { "null", "~" })
+        {
+            var buf = new ArrayBufferWriter<byte>(256);
+            var w = new YamlWriter(buf);
+            w.WritePropertyName("key"u8);
+            w.WriteString(Encoding.UTF8.GetBytes(literal));
+            var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+            await Assert.That(result).Contains("\"" + literal + "\"");
+        }
+    }
+
+    [Test]
+    public async Task WriteString_NumericString_IsQuoted()
+    {
+        // Note: numeric-like strings ("123", "1.5") are NOT auto-quoted.
+        // Quoting them would break round-trip for int list elements.
+        // The SG should use WriteNumber for numeric values instead.
+        foreach (var literal in new[] { "123", "1.5", "-42" })
+        {
+            var buf = new ArrayBufferWriter<byte>(256);
+            var w = new YamlWriter(buf);
+            w.WritePropertyName("key"u8);
+            w.WriteString(Encoding.UTF8.GetBytes(literal));
+            var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+            // These are written unquoted (existing behavior)
+            await Assert.That(result).Contains(": " + literal);
+        }
+    }
+
+    [Test]
+    public async Task WriteString_LeadingIndicator_IsQuoted()
+    {
+        foreach (var literal in new[] { "?query", "@at", "%pct", "`bt" })
+        {
+            var buf = new ArrayBufferWriter<byte>(256);
+            var w = new YamlWriter(buf);
+            w.WritePropertyName("key"u8);
+            w.WriteString(Encoding.UTF8.GetBytes(literal));
+            var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+            await Assert.That(result).Contains("\"" + literal + "\"");
+        }
+    }
+
+    [Test]
+    public async Task WriteString_SpaceBoundary_IsQuoted()
+    {
+        foreach (var literal in new[] { " leading", "trailing ", " both " })
+        {
+            var buf = new ArrayBufferWriter<byte>(256);
+            var w = new YamlWriter(buf);
+            w.WritePropertyName("key"u8);
+            w.WriteString(Encoding.UTF8.GetBytes(literal));
+            var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+            await Assert.That(result).Contains("\"" + literal + "\"");
+        }
+    }
+
+    // ── WriteEscaped: control characters ──
+
+    [Test]
+    public async Task WriteString_WithCarriageReturn_IsEscaped()
+    {
+        var buf = new ArrayBufferWriter<byte>(256);
+        var w = new YamlWriter(buf);
+        w.WritePropertyName("key"u8);
+        w.WriteString(Encoding.UTF8.GetBytes("line1\rline2"));
+        var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+        // \r should be escaped, not raw
+        await Assert.That(result).DoesNotContain("\r");
+        await Assert.That(result).Contains("\\r");
+    }
+
+    [Test]
+    public async Task WriteString_WithNullChar_IsEscaped()
+    {
+        var buf = new ArrayBufferWriter<byte>(256);
+        var w = new YamlWriter(buf);
+        w.WritePropertyName("key"u8);
+        w.WriteString(new byte[] { (byte)'a', 0, (byte)'b' });
+        var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+        await Assert.That(result).Contains("\\0");
+    }
 }
