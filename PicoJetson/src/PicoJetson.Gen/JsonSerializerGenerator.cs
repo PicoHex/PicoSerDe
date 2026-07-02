@@ -112,41 +112,50 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
     {
+        if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method)
+            return null;
+        if (method.TypeArguments.Length != 1)
+            return null;
+
+        var typeArg = method.TypeArguments[0];
+
+        // ── Top-level array types (e.g. DiscoveredModel[], string[], Message[]) ──
+        if (typeArg is IArrayTypeSymbol arrType)
+            return TransformArray(arrType);
+
+        // ── Named type (class/struct) ──
+        if (typeArg is not INamedTypeSymbol namedType)
+            return null;
+
         // Detect [JsonConstructor] first to know if we should include read-only props
         bool hasCtor = false;
-        if (
-            ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is IMethodSymbol method
-            && method.TypeArguments.Length == 1
-            && method.TypeArguments[0] is INamedTypeSymbol namedType
-        )
-        {
-            // Ref struct: handle with includes, skip constructor detection
-            if (namedType.IsRefLikeType)
-            {
-                return PicoSerDe.Gen.GenInfrastructure.TransformTypeSymbol(
-                    namedType,
-                    Config,
-                    Attrs,
-                    includeReadOnlyProperties: true,
-                    includeFields: true
-                );
-            }
 
-            foreach (var ctor in namedType.Constructors)
+        // Ref struct: handle with includes, skip constructor detection
+        if (namedType.IsRefLikeType)
+        {
+            return PicoSerDe.Gen.GenInfrastructure.TransformTypeSymbol(
+                namedType,
+                Config,
+                Attrs,
+                includeReadOnlyProperties: true,
+                includeFields: true
+            );
+        }
+
+        foreach (var ctor in namedType.Constructors)
+        {
+            if (ctor.DeclaredAccessibility != Accessibility.Public)
+                continue;
+            foreach (var attr in ctor.GetAttributes())
             {
-                if (ctor.DeclaredAccessibility != Accessibility.Public)
-                    continue;
-                foreach (var attr in ctor.GetAttributes())
+                if (attr.AttributeClass?.Name == "JsonConstructorAttribute")
                 {
-                    if (attr.AttributeClass?.Name == "JsonConstructorAttribute")
-                    {
-                        hasCtor = true;
-                        break;
-                    }
-                }
-                if (hasCtor)
+                    hasCtor = true;
                     break;
+                }
             }
+            if (hasCtor)
+                break;
         }
 
         var info = PicoSerDe.Gen.GenInfrastructure.TransformType(
@@ -166,8 +175,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             return ti;
         if (method2.TypeArguments.Length != 1)
             return ti;
-        var typeArg = method2.TypeArguments[0];
-        if (typeArg is not INamedTypeSymbol namedType2)
+        var typeArg2 = method2.TypeArguments[0];
+        if (typeArg2 is not INamedTypeSymbol namedType2)
             return ti;
 
         var ctorParams = PicoSerDe.Gen.GenInfrastructure.DetectConstructor(
@@ -182,6 +191,42 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             CtorParams = cp,
         };
+    }
+
+    /// <summary>
+    /// Creates a synthetic TypeInfo for a top-level array type (e.g. string[], DiscoveredModel[]).
+    /// The SG will emit array-specific serializer/deserializer code.
+    /// </summary>
+    private static TypeInfo TransformArray(IArrayTypeSymbol arrType)
+    {
+        var elementType = arrType.ElementType;
+        var (ek, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(elementType, Config.FormatTag);
+        if (ek is null)
+            return new TypeInfo(); // will be skipped by caller check on Name being empty
+
+        var arrFqn = arrType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var elemFqn = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        ImmutableArray<PropertyInfo> elemNested = default;
+
+        if (ek is "object" && elementType is INamedTypeSymbol eNts)
+        {
+            // Extract nested properties so GenerateAll can emit inner helpers
+            elemNested = PicoSerDe.Gen.GenInfrastructure.ExtractNestedProperties(
+                eNts,
+                Attrs,
+                Config.FormatTag
+            );
+        }
+
+        return new TypeInfo(
+            FullyQualifiedName: arrFqn,
+            Namespace: "",
+            Name: $"Array_{PicoSerDe.Gen.GenInfrastructure.SafeName(arrFqn)}",
+            Properties: ImmutableArray<PropertyInfo>.Empty,
+            ArrayElementKind: ek,
+            ArrayElementName: elemFqn,
+            ArrayElementNestedProps: elemNested
+        );
     }
 
     // ── Attribute helpers ──
@@ -267,6 +312,21 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
         foreach (var type in types)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(type, nestedTypes);
+
+        // Also collect array element types (e.g. DiscoveredModel for DiscoveredModel[])
+        foreach (var type in types)
+        {
+            if (
+                type.ArrayElementKind is "object"
+                && !string.IsNullOrEmpty(type.ArrayElementName)
+                && !type.ArrayElementNestedProps.IsDefaultOrEmpty
+            )
+            {
+                var elemFqn = type.ArrayElementName.Replace("global::", "");
+                if (!nestedTypes.ContainsKey(elemFqn))
+                    nestedTypes[elemFqn] = type.ArrayElementNestedProps;
+            }
+        }
 
         // Collect nested Dictionary types (e.g. Dictionary<string, Dictionary<string, Foo>>)
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
@@ -849,6 +909,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             EmitSerializer(sb, type);
             sb.AppendLine();
             EmitRefStructRegistration(sb, type);
+        }
+        else if (type.ArrayElementKind is not null)
+        {
+            // Top-level array type (e.g. string[], DiscoveredModel[])
+            EmitArraySerializer(sb, type);
+            sb.AppendLine();
+            EmitArrayDeserializer(sb, type);
+            sb.AppendLine();
+            EmitRegistration(sb, type);
+            sb.AppendLine();
+            EmitArrayStreamingDeserializer(sb, type);
         }
         else if (!type.DerivedTypes.IsDefaultOrEmpty)
         {
@@ -2600,8 +2671,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     private static void EmitRegistration(StringBuilder sb, TypeInfo type)
     {
-        var typeRef = string.IsNullOrEmpty(type.Namespace)
-            ? type.Name
+        // For array types, use the actual array FQN (e.g. "string[]") as the
+        // generic type parameter. For regular types, reconstruct from namespace+name.
+        var typeRef =
+            type.ArrayElementKind is not null ? type.FullyQualifiedName
+            : string.IsNullOrEmpty(type.Namespace) ? type.Name
             : $"global::{type.Namespace}.{type.Name}";
         var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
         sb.Append("file static class ");
@@ -2623,7 +2697,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("            new ");
         sb.Append(type.Name);
         sb.AppendLine("JsonDeserializer());");
-        if (type.Properties.Length > 0)
+        // Skip streaming for polymorphic types — EmitStreamingDeserializer is
+        // only emitted for regular types (see GenerateTypeCode). Array types
+        // have zero properties but DO have EmitArrayStreamingDeserializer.
+        if (
+            (type.Properties.Length > 0 || type.ArrayElementKind is not null)
+            && type.DerivedTypes.IsDefaultOrEmpty
+        )
         {
             sb.AppendLine("        global::PicoJetson.JsonSerializer.RegisterStreaming<");
             sb.Append(typeRef);
@@ -2715,7 +2795,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.AppendLine(
                         "                        : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
                     );
-                    if (prop.TypeKind is "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal")
+                    if (
+                        prop.TypeKind
+                        is "int32"
+                            or "int64"
+                            or "float32"
+                            or "float64"
+                            or "boolean"
+                            or "decimal"
+                    )
                         sb.AppendLine("                        ? __v." + prop.Name + " != default");
                     else
                         sb.AppendLine("                        ? __v." + prop.Name + " != null");
@@ -2764,7 +2852,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("            if (!TextHelpers.Eq(reader.GetStringRaw(), \"");
         sb.Append(EscapeCSharpString(dpn));
         sb.AppendLine("\"u8, false))");
-        sb.Append("                throw new System.FormatException(\"Expected discriminator property '");
+        sb.Append(
+            "                throw new System.FormatException(\"Expected discriminator property '"
+        );
         sb.Append(EscapeCSharpString(dpn));
         sb.AppendLine("' but found different property name\");");
         sb.AppendLine("            reader.Read(); // discriminator value");
@@ -2834,7 +2924,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(kw2);
                 sb.Append(" (TextHelpers.Eq(__n, \"");
                 sb.Append(EscapeCSharpString(prop.JsonName));
-                sb.AppendLine("\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))");
+                sb.AppendLine(
+                    "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
+                );
                 sb.AppendLine("                    {");
                 if (hasCtor)
                     EmitDeserializeCtorParam(sb, prop, dti, "                        ");
@@ -2853,7 +2945,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append("(");
                 for (int ci = 0; ci < dti.CtorParams.Length; ci++)
                 {
-                    if (ci > 0) sb.Append(", ");
+                    if (ci > 0)
+                        sb.Append(", ");
                     sb.Append("__cp_");
                     sb.Append(ci);
                 }
@@ -3014,6 +3107,313 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "array" => "object",
             _ => "object",
         };
+
+    // ── Array type code generation ──
+
+    private static void EmitArraySerializer(StringBuilder sb, TypeInfo type)
+    {
+        var arrTypeName = type.FullyQualifiedName;
+        var elemKind = type.ArrayElementKind!;
+        var elemTypeName = type.ArrayElementName!;
+
+        sb.Append("file static class ");
+        sb.Append(type.Name);
+        sb.AppendLine("JsonSer");
+        sb.AppendLine("    {");
+        sb.Append("        public static void Serialize(IBufferWriter<byte> writer, ");
+        sb.Append(arrTypeName);
+        sb.AppendLine(" value)");
+        sb.AppendLine("        {");
+        sb.AppendLine(
+            "            var jw = new JsonWriter(writer, indented: PicoJetson.JsonOptions.Current?.Indented ?? false, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 63);"
+        );
+        sb.AppendLine("            jw.WriteStartArray();");
+        sb.AppendLine("            foreach (var __item in value)");
+        sb.AppendLine("            {");
+        EmitArrayElementSerialize(sb, elemKind, elemTypeName, "                ");
+        sb.AppendLine("            }");
+        sb.AppendLine("            jw.WriteEndArray();");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+    }
+
+    private static void EmitArrayElementSerialize(
+        StringBuilder sb,
+        string elemKind,
+        string elemTypeName,
+        string indent
+    )
+    {
+        switch (elemKind)
+        {
+            case "string":
+                sb.Append(indent);
+                sb.AppendLine("jw.WriteString(System.Text.Encoding.UTF8.GetBytes(__item));");
+                break;
+            case "int32":
+            case "int64":
+            case "float32":
+            case "float64":
+                sb.Append(indent);
+                sb.AppendLine("jw.WriteNumber(__item);");
+                break;
+            case "boolean":
+                sb.Append(indent);
+                sb.AppendLine("jw.WriteBoolean(__item);");
+                break;
+            case "datetime":
+                sb.Append(indent);
+                sb.AppendLine(
+                    "jw.WriteString(System.Text.Encoding.UTF8.GetBytes(__item.ToString(\"O\")));"
+                );
+                break;
+            case "guid":
+                sb.Append(indent);
+                sb.AppendLine(
+                    "jw.WriteString(System.Text.Encoding.UTF8.GetBytes(__item.ToString()));"
+                );
+                break;
+            case "decimal":
+            case "enum":
+                sb.Append(indent);
+                sb.AppendLine("jw.WriteNumber(__item);");
+                break;
+            case "object":
+            {
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("JsonInner", elemTypeName);
+                sb.Append(indent);
+                sb.Append(sn);
+                sb.AppendLine(".Serialize(ref jw, __item);");
+                break;
+            }
+            default:
+                sb.Append(indent);
+                sb.AppendLine(
+                    "jw.WriteString(System.Text.Encoding.UTF8.GetBytes(__item.ToString()));"
+                );
+                break;
+        }
+    }
+
+    private static void EmitArrayDeserializer(StringBuilder sb, TypeInfo type)
+    {
+        var arrTypeName = type.FullyQualifiedName;
+        var elemKind = type.ArrayElementKind!;
+        var elemTypeName = type.ArrayElementName!;
+        var elemCsType = ElementCSharpTypeName(elemKind, elemTypeName);
+
+        sb.Append("    file readonly struct ");
+        sb.Append(type.Name);
+        sb.Append("JsonDeserializer : IDeserializer<");
+        sb.Append(arrTypeName);
+        sb.AppendLine(">");
+        sb.AppendLine("    {");
+        sb.Append("        public ");
+        sb.Append(arrTypeName);
+        sb.AppendLine(" Deserialize(ReadOnlySpan<byte> data)");
+        sb.AppendLine("        {");
+        sb.AppendLine(
+            "            var reader = new JsonReader(data, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 256);"
+        );
+        sb.Append("            var __list = new System.Collections.Generic.List<");
+        sb.Append(elemCsType);
+        sb.AppendLine(">();");
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
+        sb.AppendLine(
+            "                if (!reader.Read() || reader.TokenType != TokenType.ArrayStart)"
+        );
+        sb.Append("                    return Array.Empty<");
+        sb.Append(elemCsType);
+        sb.AppendLine(">();");
+        sb.AppendLine(
+            "                while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+        );
+        sb.AppendLine("                {");
+        EmitArrayElementDeserialize(sb, elemKind, elemTypeName, "                    ");
+        sb.AppendLine("                }");
+        sb.AppendLine("                return __list.ToArray();");
+        sb.AppendLine("            }");
+        sb.AppendLine("            finally");
+        sb.AppendLine("            {");
+        sb.AppendLine("                reader.Dispose();");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+    }
+
+    private static string ElementCSharpTypeName(string elemKind, string elemTypeName) =>
+        elemKind switch
+        {
+            "string" => "string",
+            "int32" => "int",
+            "int64" => "long",
+            "float32" => "float",
+            "float64" => "double",
+            "boolean" => "bool",
+            "datetime" => "System.DateTime",
+            "dateonly" => "System.DateOnly",
+            "timeonly" => "System.TimeOnly",
+            "timespan" => "System.TimeSpan",
+            "guid" => "System.Guid",
+            "decimal" => "decimal",
+            "object" => elemTypeName,
+            "enum" => elemTypeName,
+            _ => "object",
+        };
+
+    private static void EmitArrayElementDeserialize(
+        StringBuilder sb,
+        string elemKind,
+        string elemTypeName,
+        string indent
+    )
+    {
+        switch (elemKind)
+        {
+            case "string":
+                sb.Append(indent);
+                sb.AppendLine(
+                    "__list.Add(System.Text.Encoding.UTF8.GetString(reader.GetStringRaw()));"
+                );
+                break;
+            case "int32":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(__ev);");
+                break;
+            case "int64":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetInt64(out var __ev);");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(__ev);");
+                break;
+            case "float32":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetFloat64(out var __ev);");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add((float)__ev);");
+                break;
+            case "float64":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetFloat64(out var __ev);");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(__ev);");
+                break;
+            case "boolean":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetBool(out var __ev);");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(__ev);");
+                break;
+            case "datetime":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __ev);"
+                );
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(__ev);");
+                break;
+            case "guid":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("System.Guid.TryParse(__rawBytes, out var __ev);");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(__ev);");
+                break;
+            case "decimal":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "decimal.TryParse(__rawBytes, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __ev);"
+                );
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(__ev);");
+                break;
+            case "enum":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
+                sb.Append(indent);
+                sb.Append("System.Enum.TryParse<");
+                sb.Append(elemTypeName);
+                sb.AppendLine(">(__strValue, out var __ev);");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(__ev);");
+                break;
+            case "object":
+            {
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("JsonInner", elemTypeName);
+                sb.Append(indent);
+                sb.Append("__list.Add(");
+                sb.Append(sn);
+                sb.AppendLine(".Deserialize(ref reader));");
+                break;
+            }
+            default:
+                sb.Append(indent);
+                sb.AppendLine(
+                    "__list.Add(System.Text.Encoding.UTF8.GetString(reader.GetStringRaw()));"
+                );
+                break;
+        }
+    }
+
+    private static void EmitArrayStreamingDeserializer(StringBuilder sb, TypeInfo type)
+    {
+        var arrTypeName = type.FullyQualifiedName;
+        var elemKind = type.ArrayElementKind!;
+        var elemTypeName = type.ArrayElementName!;
+        var elemCsType = ElementCSharpTypeName(elemKind, elemTypeName);
+
+        sb.Append("file static class ");
+        sb.Append(type.Name);
+        sb.AppendLine("Streaming");
+        sb.AppendLine("{");
+        sb.Append(
+            "    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, out "
+        );
+        sb.Append(arrTypeName);
+        sb.AppendLine("? result)");
+        sb.AppendLine("    {");
+        sb.Append("        var __list = new System.Collections.Generic.List<");
+        sb.Append(elemCsType);
+        sb.AppendLine(">();");
+        sb.AppendLine("        result = default;");
+        sb.AppendLine();
+        sb.AppendLine(
+            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
+        );
+        sb.AppendLine();
+        sb.AppendLine("        while (true)");
+        sb.AppendLine("        {");
+        sb.AppendLine(
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+        );
+        sb.AppendLine("            if (reader.TokenType == TokenType.ArrayEnd) break;");
+        EmitArrayElementDeserialize(sb, elemKind, elemTypeName, "            ");
+        sb.AppendLine("        }");
+        sb.AppendLine("        result = __list.ToArray();");
+        sb.AppendLine("        return ReadStatus.Success;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+    }
 
     /// <summary>
     /// Escapes \\ and \" for safe embedding in generated C# string literals.

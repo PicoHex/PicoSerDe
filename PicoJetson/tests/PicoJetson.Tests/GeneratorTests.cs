@@ -955,4 +955,94 @@ public class GeneratorTests
         await Assert.That(result.Home!.Line).IsEqualTo("123 Main");
         await Assert.That(result.Work!.Code).IsEqualTo("90210");
     }
+
+    // ── Top-level array serialization ──
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelStringArray_Roundtrips()
+    {
+        var arr = new[] { "hello", "world", "foo" };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(arr);
+        var result = JsonSerializer.Deserialize<string[]>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result[0]).IsEqualTo("hello");
+        await Assert.That(result[1]).IsEqualTo("world");
+        await Assert.That(result[2]).IsEqualTo("foo");
+    }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelIntArray_Roundtrips()
+    {
+        var arr = new[] { 1, 42, -7 };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(arr);
+        var result = JsonSerializer.Deserialize<int[]>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result[0]).IsEqualTo(1);
+        await Assert.That(result[1]).IsEqualTo(42);
+        await Assert.That(result[2]).IsEqualTo(-7);
+    }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelObjectArray_Roundtrips()
+    {
+        var arr = new[]
+        {
+            new PersonWithDate { Name = "Alice", CreatedAt = new DateTime(2024, 1, 1) },
+            new PersonWithDate { Name = "Bob", CreatedAt = new DateTime(2024, 6, 15) },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(arr);
+        var result = JsonSerializer.Deserialize<PersonWithDate[]>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result[0].Name).IsEqualTo("Alice");
+        await Assert.That(result[1].Name).IsEqualTo("Bob");
+        await Assert.That(result[1].CreatedAt.Year).IsEqualTo(2024);
+    }
+
+    // ── Array streaming ──
+
+    [Test]
+    public async Task HasStreamingDelegate_TopLevelStringArray_ReturnsTrue()
+    {
+        var hasDelegate = JsonSerializer.HasStreamingDelegate<string[]>();
+        await Assert.That(hasDelegate).IsTrue();
+    }
+
+    [Test]
+    public async Task HasStreamingDelegate_TopLevelIntArray_ReturnsTrue()
+    {
+        var hasDelegate = JsonSerializer.HasStreamingDelegate<int[]>();
+        await Assert.That(hasDelegate).IsTrue();
+    }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_TopLevelStringArray_Roundtrips()
+    {
+        var json = "[\"hello\",\"world\",\"foo\"]"u8;
+        using var stream = new MemoryStream(json.ToArray());
+        var result = await JsonSerializer.DeserializeFromStreamAsync<string[]>(stream);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result).HasCount().EqualTo(3);
+        await Assert.That(result[0]).IsEqualTo("hello");
+        await Assert.That(result[2]).IsEqualTo("foo");
+    }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_TopLevelIntArray_Roundtrips()
+    {
+        var json = "[1,42,-7]"u8;
+        using var stream = new MemoryStream(json.ToArray());
+        var result = await JsonSerializer.DeserializeFromStreamAsync<int[]>(stream);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result).HasCount().EqualTo(3);
+        await Assert.That(result[0]).IsEqualTo(1);
+        await Assert.That(result[2]).IsEqualTo(-7);
+    }
 }

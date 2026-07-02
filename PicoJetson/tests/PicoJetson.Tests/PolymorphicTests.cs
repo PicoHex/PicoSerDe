@@ -139,8 +139,8 @@ public class PolymorphicTests
     {
         var json = """{"$type":"unknown_type","x":1}"""u8.ToArray();
 
-        var ex = Assert.Throws<FormatException>(
-            () => JsonSerializer.Deserialize<SessionEntry>(json)
+        var ex = Assert.Throws<FormatException>(() =>
+            JsonSerializer.Deserialize<SessionEntry>(json)
         );
         await Assert.That(ex).IsNotNull();
     }
@@ -150,8 +150,8 @@ public class PolymorphicTests
     {
         var json = """{"Content":"hi","$type":"message"}"""u8.ToArray();
 
-        var ex = Assert.Throws<FormatException>(
-            () => JsonSerializer.Deserialize<SessionEntry>(json)
+        var ex = Assert.Throws<FormatException>(() =>
+            JsonSerializer.Deserialize<SessionEntry>(json)
         );
         await Assert.That(ex).IsNotNull();
     }
@@ -162,9 +162,7 @@ public class PolymorphicTests
         // AppEvent uses "kind" as discriminator field, not "$type"
         var json = """{"$type":"email","To":"a@b.com","Subject":"Test"}"""u8.ToArray();
 
-        var ex = Assert.Throws<FormatException>(
-            () => JsonSerializer.Deserialize<AppEvent>(json)
-        );
+        var ex = Assert.Throws<FormatException>(() => JsonSerializer.Deserialize<AppEvent>(json));
         await Assert.That(ex.Message).Contains("kind");
     }
 
@@ -213,7 +211,12 @@ public class PolymorphicTests
     [Test]
     public async Task Serialize_Poly_WhenWritingNull_SkipsNullProperties()
     {
-        var entry = new MessageEntry { Content = "hi", Sequence = 42, OptionalNote = null };
+        var entry = new MessageEntry
+        {
+            Content = "hi",
+            Sequence = 42,
+            OptionalNote = null,
+        };
         SessionEntry session = entry;
         var json = JsonSerializer.Serialize(
             session,
@@ -222,5 +225,45 @@ public class PolymorphicTests
         await Assert.That(json).DoesNotContain("OptionalNote");
         await Assert.That(json).Contains("Content");
         await Assert.That(json).Contains("Sequence");
+    }
+
+    // ── Streaming (regression: poly types must not register missing streaming class) ──
+
+    [Test]
+    public async Task HasStreamingDelegate_PolyBase_ReturnsFalse()
+    {
+        // Polymorphic types don't have streaming deserializers.
+        // This also proves the SG didn't emit a dead reference (CS0103 regression).
+        var hasDelegate = JsonSerializer.HasStreamingDelegate<SessionEntry>();
+        await Assert.That(hasDelegate).IsFalse();
+    }
+
+    [Test]
+    public async Task HasStreamingDelegate_PolyBase_CustomDiscriminator_ReturnsFalse()
+    {
+        var hasDelegate = JsonSerializer.HasStreamingDelegate<AppEvent>();
+        await Assert.That(hasDelegate).IsFalse();
+    }
+
+    [Test]
+    public async Task HasStreamingDelegate_ConcreteDerived_ReturnsTrue()
+    {
+        // Concrete derived types ARE regular types and should have streaming.
+        var hasDelegate = JsonSerializer.HasStreamingDelegate<MessageEntry>();
+        await Assert.That(hasDelegate).IsTrue();
+    }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_PolyBase_ThrowsBecauseNoStreamingSupport()
+    {
+        // Polymorphic base types intentionally lack streaming deserializers.
+        // The SG must not register a non-existent class (CS0103 regression guard).
+        var json = "{\"$type\":\"message\",\"Content\":\"hi\",\"Sequence\":1}"u8;
+        using var stream = new MemoryStream(json.ToArray());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await JsonSerializer.DeserializeFromStreamAsync<SessionEntry>(stream)
+        );
+        await Assert.That(ex).IsNotNull();
     }
 }

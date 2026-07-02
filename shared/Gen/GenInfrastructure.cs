@@ -21,7 +21,12 @@ internal readonly record struct TypeInfo(
     string? TypeTag = null,
     bool IsRefLikeType = false,
     string? DiscriminatorPropertyName = null,
-    ImmutableArray<DerivedTypeInfo> DerivedTypes = default
+    ImmutableArray<DerivedTypeInfo> DerivedTypes = default,
+    // Non-null when this TypeInfo represents a top-level array type (e.g. string[]).
+    // The element kind drives code gen (EmitArraySerializer / EmitArrayDeserializer).
+    string? ArrayElementKind = null,
+    string? ArrayElementName = null,
+    ImmutableArray<PropertyInfo> ArrayElementNestedProps = default
 )
 {
     public bool Equals(TypeInfo other) =>
@@ -154,7 +159,9 @@ internal static class GenInfrastructure
             .Replace('<', '_')
             .Replace('>', '_')
             .Replace(',', '_')
-            .Replace(' ', '_');
+            .Replace(' ', '_')
+            .Replace('[', '_')
+            .Replace(']', '_');
     }
 
     /// <summary>Returns the fully qualified inner helper class name (e.g. "global::Ns.Sub_TypeJsonInner").</summary>
@@ -896,22 +903,17 @@ internal static class GenInfrastructure
         {
             if (
                 attr.AttributeClass?.Name == "PicoPolymorphicAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString()
-                    == "PicoSerDe.Core"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoSerDe.Core"
             )
             {
                 foreach (var na in attr.NamedArguments)
-                    if (
-                        na.Key == "TypeDiscriminatorPropertyName"
-                        && na.Value.Value is string dpn
-                    )
+                    if (na.Key == "TypeDiscriminatorPropertyName" && na.Value.Value is string dpn)
                         discriminatorPropertyName = dpn;
             }
 
             if (
                 attr.AttributeClass?.Name == "PicoDerivedTypeAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString()
-                    == "PicoSerDe.Core"
+                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoSerDe.Core"
                 && attr.ConstructorArguments.Length == 2
                 && attr.ConstructorArguments[0].Value is INamedTypeSymbol derivedType
                 && attr.ConstructorArguments[1].Value is string discriminator
@@ -919,9 +921,7 @@ internal static class GenInfrastructure
             {
                 derivedList.Add(
                     new DerivedTypeInfo(
-                        derivedType.ToDisplayString(
-                            SymbolDisplayFormat.FullyQualifiedFormat
-                        ),
+                        derivedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                         discriminator
                     )
                 );
@@ -937,8 +937,7 @@ internal static class GenInfrastructure
         if (baseInfo.HasValue)
         {
             builder.Add(
-                baseInfo.Value
-                    with
+                baseInfo.Value with
                 {
                     DiscriminatorPropertyName = discriminatorPropertyName,
                     DerivedTypes = derivedList.ToImmutable(),
@@ -957,12 +956,7 @@ internal static class GenInfrastructure
             );
             var hasCtor = ctorParams.HasValue;
 
-            var ti = TransformTypeSymbol(
-                dt,
-                config,
-                attrs,
-                includeReadOnlyProperties: hasCtor
-            );
+            var ti = TransformTypeSymbol(dt, config, attrs, includeReadOnlyProperties: hasCtor);
             if (!ti.HasValue)
                 continue;
 
