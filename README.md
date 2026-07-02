@@ -27,11 +27,11 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**681 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+**781 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
 
 | Module | Tests | Competitor | Cross-Validation |
 |--------|:-----:|:-----------|:----------------:|
-| PicoJetson | 232 | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoJetson | 324 | System.Text.Json | ✅ bidirectional, all 19 property types |
 | PicoToml | 90 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
 | PicoYaml | 90 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
 | PicoIni | 104 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
@@ -115,6 +115,58 @@ class PicoSerDeConfig { }
 
 No attributes are required for basic usage — calling `Serialize<T>()` automatically triggers generation.
 
+## Key Features
+
+### Polymorphic Deserialization (Type Discriminator)
+
+Base types declare derived types at compile time. Zero reflection, AOT-safe. Since v2026.3.0.
+
+```csharp
+[PicoSerializable]
+[PicoDerivedType(typeof(MessageEntry), "message")]
+[PicoDerivedType(typeof(CompactionEntry), "compaction")]
+abstract class SessionEntry { }
+
+class MessageEntry : SessionEntry { public string Content { get; set; } = ""; }
+class CompactionEntry : SessionEntry { public int From { get; set; } }
+
+var json = """{"$type":"message","Content":"hello"}"""u8;
+var result = JsonSerializer.Deserialize<SessionEntry>(json);
+// result is MessageEntry at runtime
+```
+
+| Feature | Support |
+|---------|---------|
+| Serialization + Deserialization | ✅ v2026.3.0 |
+| Streaming (PipeReader) | ✅ v2026.3.2 |
+| Base class properties | ✅ v2026.3.3 |
+| `[JsonConstructor]` on derived types | ✅ |
+| Cross-format (INI/MsgPack/TOML/YAML) | ❌ JSON only |
+
+### DOM Layer (PicoDocument / PicoElement)
+
+Schema-less JSON inspection without `System.Text.Json`. Zero-copy. Since v2026.3.4.
+
+```csharp
+var doc = PicoDocument.Parse("""{"name":"Alice","age":30}"""u8.ToArray());
+
+var name = doc.RootElement["name"].GetString();         // "Alice"
+var ok   = doc.RootElement.TryGetProperty("age", out _); // true
+bool valid = PicoDocument.IsValid("{}"u8);               // true
+```
+
+### C# Records
+
+`record` and `record struct` types are fully supported. Primary constructor auto-detected — no `[JsonConstructor]` needed. `init`-only properties work correctly. Since v2026.3.3.
+
+### Top-Level Arrays
+
+`Serialize<T[]>(...)` / `Deserialize<T[]>(...)` and streaming `DeserializeFromStreamAsync<T[]>(stream)` work directly. Since v2026.3.2.
+
+### Three-Layer Test Structure
+
+PicoJetson tests are split into Unit / Integration / Functional projects with clear boundaries. Since v2026.3.2.
+
 > **No non-generic `Serialize(Type, object?)` overloads.** PicoSerDe is designed for AOT-first
 > usage where all types are known at compile time. `Cache<T>` static fields are shared
 > across assemblies and provide faster lookup than a `ConcurrentDictionary<Type, ...>`.
@@ -145,6 +197,10 @@ No attributes are required for basic usage — calling `Serialize<T>()` automati
 - **`file struct`** generated implementations — devirtualization without sealed class overhead
 - **Ref struct serialization** — `ref struct` types are supported as serializable types across all 5 formats. Source-generator-generated static methods + delegate dispatch bypass the `ISerializer<T>` interface constraint.
 - **`JsonOptions`** — runtime configuration (indentation, naming policy, ignore conditions, etc.) flowing through ThreadStatic to SG-generated code
+- **Polymorphic deserialization** — type discriminator dispatch via `[PicoDerivedType]`; serialization + deserialization + streaming (v2026.3.0)
+- **`PicoDocument` / `PicoElement`** — zero-copy JSON DOM for schema-less inspection (v2026.3.4)
+- **C# records** — primary constructor auto-detection, `init`-only support (v2026.3.3)
+- **Top-level arrays** — `Serialize<T[]>()` / `Deserialize<T[]>()` with streaming (v2026.3.2)
 
 ### PicoJetson JsonOptions
 
@@ -223,6 +279,8 @@ Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
 | Zero annotations | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
 | ref struct readers | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | SIMD | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| JSON DOM | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Polymorphic | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 ---
 
