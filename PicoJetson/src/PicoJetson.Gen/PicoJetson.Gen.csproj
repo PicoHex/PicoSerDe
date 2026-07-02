@@ -39,4 +39,7 @@
     <Compile Include="..\..\..\shared\Gen\TypeKindResolver.cs" Link="Gen\TypeKindResolver.cs" />
     <Compile Include="..\..\..\shared\Gen\GenInfrastructure.cs" Link="Gen\GenInfrastructure.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PicoJetson.Integration.Tests" />
+  </ItemGroup>
 </Project>

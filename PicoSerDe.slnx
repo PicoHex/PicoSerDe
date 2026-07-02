@@ -16,7 +16,9 @@
     <Project Path="PicoJetson/src/PicoJetson.Gen/PicoJetson.Gen.csproj" />
   </Folder>
   <Folder Name="/PicoJetson/tests/">
-    <Project Path="PicoJetson/tests/PicoJetson.Tests/PicoJetson.Tests.csproj" />
+    <Project Path="PicoJetson/tests/PicoJetson.Unit.Tests/PicoJetson.Unit.Tests.csproj" />
+    <Project Path="PicoJetson/tests/PicoJetson.Integration.Tests/PicoJetson.Integration.Tests.csproj" />
+    <Project Path="PicoJetson/tests/PicoJetson.Functional.Tests/PicoJetson.Functional.Tests.csproj" />
   </Folder>
   <Folder Name="/PicoJetson/samples/">
     <Project Path="PicoJetson/samples/PicoJetson.Sample/PicoJetson.Sample.csproj" />

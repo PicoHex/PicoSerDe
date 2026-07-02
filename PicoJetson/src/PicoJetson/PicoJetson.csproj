@@ -27,7 +27,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="PicoJetson.Tests" />
+    <InternalsVisibleTo Include="PicoJetson.Unit.Tests" />
+    <InternalsVisibleTo Include="PicoJetson.Integration.Tests" />
+    <InternalsVisibleTo Include="PicoJetson.Functional.Tests" />
   </ItemGroup>
 
   <!-- Embed the PicoJetson.Gen source generator DLL in the consumer NuGet package -->
