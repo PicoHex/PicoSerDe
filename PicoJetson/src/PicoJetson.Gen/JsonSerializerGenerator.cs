@@ -929,6 +929,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             EmitPolyDeserializer(sb, type, derivedLookup);
             sb.AppendLine();
             EmitRegistration(sb, type);
+            sb.AppendLine();
+            EmitPolyStreamingDeserializer(sb, type, derivedLookup);
         }
         else
         {
@@ -2697,12 +2699,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("            new ");
         sb.Append(type.Name);
         sb.AppendLine("JsonDeserializer());");
-        // Skip streaming for polymorphic types — EmitStreamingDeserializer is
-        // only emitted for regular types (see GenerateTypeCode). Array types
-        // have zero properties but DO have EmitArrayStreamingDeserializer.
+        // Streaming: emitted for regular, array, and now poly types.
+        // (EmitPolyStreamingDeserializer fills the original gap.)
         if (
-            (type.Properties.Length > 0 || type.ArrayElementKind is not null)
-            && type.DerivedTypes.IsDefaultOrEmpty
+            type.Properties.Length > 0
+            || type.ArrayElementKind is not null
+            || !type.DerivedTypes.IsDefaultOrEmpty
         )
         {
             sb.AppendLine("        global::PicoJetson.JsonSerializer.RegisterStreaming<");
@@ -2966,6 +2968,178 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         );
         sb.AppendLine("        }");
         sb.AppendLine("    }");
+    }
+
+    // ── Polymorphic streaming deserializer ──
+
+    private static void EmitPolyStreamingDeserializer(
+        StringBuilder sb,
+        TypeInfo type,
+        Dictionary<string, TypeInfo> derivedLookup
+    )
+    {
+        sb.Append("file static class ");
+        sb.Append(type.Name);
+        sb.AppendLine("Streaming");
+        sb.AppendLine("{");
+        sb.Append(
+            "    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, out "
+        );
+        sb.Append(type.Name);
+        sb.AppendLine("? result)");
+        sb.AppendLine("    {");
+        sb.Append("        result = default;");
+        sb.AppendLine();
+
+        var dpn = type.DiscriminatorPropertyName ?? "$type";
+
+        // ReadStart — consume opening brace
+        sb.AppendLine("        // ReadStart");
+        sb.AppendLine(
+            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
+        );
+        sb.AppendLine();
+
+        // Read discriminator property name
+        sb.AppendLine(
+            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+        );
+        sb.AppendLine(
+            "        if (reader.TokenType != TokenType.PropertyName) return ReadStatus.Success;"
+        );
+        sb.Append("        if (!TextHelpers.Eq(reader.GetStringRaw(), \"");
+        sb.Append(EscapeCSharpString(dpn));
+        sb.AppendLine("\"u8, false))");
+        sb.Append(
+            "            throw new System.FormatException(\"Expected discriminator property '"
+        );
+        sb.Append(EscapeCSharpString(dpn));
+        sb.AppendLine("' but found different property name\");");
+
+        // Read discriminator value
+        sb.AppendLine(
+            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+        );
+        sb.AppendLine("        var __disc = reader.GetStringRaw();");
+        sb.AppendLine();
+
+        for (int i = 0; i < type.DerivedTypes.Length; i++)
+        {
+            var dt = type.DerivedTypes[i];
+            var keyword = i == 0 ? "if" : "else if";
+            var dti = derivedLookup.TryGetValue(dt.FullyQualifiedName, out var found)
+                ? found
+                : default(TypeInfo);
+            var dtProps = dti.Properties.IsDefault
+                ? ImmutableArray<PropertyInfo>.Empty
+                : dti.Properties;
+            var hasCtor = !dti.CtorParams.IsDefaultOrEmpty && dti.CtorParams.Length > 0;
+            var dtName = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
+
+            sb.Append("        ");
+            sb.Append(keyword);
+            sb.Append(" (TextHelpers.Eq(__disc, \"");
+            sb.Append(EscapeCSharpString(dt.TypeDiscriminator));
+            sb.AppendLine("\"u8, false))");
+            sb.AppendLine("        {");
+
+            // Initialize: parameterless for non-ctor types; only ctor temps for [JsonConstructor]
+            if (!hasCtor)
+            {
+                sb.Append("            var __polyObj = new ");
+                sb.Append(dtName);
+                sb.AppendLine("();");
+            }
+
+            if (hasCtor)
+            {
+                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                {
+                    var cp = dti.CtorParams[ci];
+                    var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                    var dv = cp.TypeKind switch
+                    {
+                        "string" => "null!",
+                        "int32" or "int64" or "float64" => "0",
+                        "boolean" => "false",
+                        _ => "default!",
+                    };
+                    sb.Append("            ");
+                    sb.Append(tn);
+                    sb.Append(" __cp_");
+                    sb.Append(ci);
+                    sb.Append(" = ");
+                    sb.Append(dv);
+                    sb.AppendLine(";");
+                }
+            }
+
+            // Read remaining properties using streaming loop
+            sb.AppendLine("            while (true)");
+            sb.AppendLine("            {");
+            sb.AppendLine(
+                "                if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+            );
+            sb.AppendLine("                if (reader.TokenType != TokenType.PropertyName) break;");
+            sb.AppendLine("                var propNameSpan = reader.GetStringRaw();");
+            sb.AppendLine(
+                "                if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+            );
+
+            for (int pi = 0; pi < dtProps.Length; pi++)
+            {
+                var prop = dtProps[pi];
+                var kw2 = pi == 0 ? "if" : "else if";
+                sb.Append("                ");
+                sb.Append(kw2);
+                sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
+                sb.Append(EscapeCSharpString(prop.JsonName));
+                sb.AppendLine(
+                    "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
+                );
+                sb.AppendLine("                {");
+                if (hasCtor)
+                    EmitDeserializeCtorParam(sb, prop, dti, "                    ");
+                else
+                    EmitDeserializeProperty(sb, prop, "__polyObj", "                    ");
+                sb.AppendLine("                }");
+            }
+
+            if (dtProps.Length > 0)
+                sb.AppendLine("                else reader.TrySkip();");
+            sb.AppendLine("            }");
+
+            // Construct result
+            if (hasCtor)
+            {
+                sb.Append("            var __polyObj = new ");
+                sb.Append(dtName);
+                sb.Append("(");
+                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                {
+                    if (ci > 0)
+                        sb.Append(", ");
+                    sb.Append("__cp_");
+                    sb.Append(ci);
+                }
+                sb.AppendLine(");");
+                sb.AppendLine("            result = __polyObj;");
+            }
+            else
+            {
+                sb.AppendLine("            result = __polyObj;");
+            }
+
+            sb.AppendLine("            return ReadStatus.Success;");
+            sb.AppendLine("        }");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine(
+            "        throw new System.FormatException($\"Unknown type discriminator: {System.Text.Encoding.UTF8.GetString(__disc)}\");"
+        );
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
     }
 
     // ── Recursive nested-list helpers ──

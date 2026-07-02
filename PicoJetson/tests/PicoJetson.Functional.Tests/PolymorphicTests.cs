@@ -227,43 +227,52 @@ public class PolymorphicTests
         await Assert.That(json).Contains("Sequence");
     }
 
-    // ── Streaming (regression: poly types must not register missing streaming class) ──
+    // ── Streaming ──
 
     [Test]
-    public async Task HasStreamingDelegate_PolyBase_ReturnsFalse()
+    public async Task HasStreamingDelegate_PolyBase_ReturnsTrue()
     {
-        // Polymorphic types don't have streaming deserializers.
-        // This also proves the SG didn't emit a dead reference (CS0103 regression).
         var hasDelegate = JsonSerializer.HasStreamingDelegate<SessionEntry>();
-        await Assert.That(hasDelegate).IsFalse();
+        await Assert.That(hasDelegate).IsTrue();
     }
 
     [Test]
-    public async Task HasStreamingDelegate_PolyBase_CustomDiscriminator_ReturnsFalse()
+    public async Task HasStreamingDelegate_PolyBase_CustomDiscriminator_ReturnsTrue()
     {
         var hasDelegate = JsonSerializer.HasStreamingDelegate<AppEvent>();
-        await Assert.That(hasDelegate).IsFalse();
+        await Assert.That(hasDelegate).IsTrue();
     }
 
     [Test]
     public async Task HasStreamingDelegate_ConcreteDerived_ReturnsTrue()
     {
-        // Concrete derived types ARE regular types and should have streaming.
         var hasDelegate = JsonSerializer.HasStreamingDelegate<MessageEntry>();
         await Assert.That(hasDelegate).IsTrue();
     }
 
     [Test]
-    public async Task DeserializeFromStreamAsync_PolyBase_ThrowsBecauseNoStreamingSupport()
+    public async Task DeserializeFromStreamAsync_PolyBase_RoundTrips()
     {
-        // Polymorphic base types intentionally lack streaming deserializers.
-        // The SG must not register a non-existent class (CS0103 regression guard).
         var json = "{\"$type\":\"message\",\"Content\":\"hi\",\"Sequence\":1}"u8;
         using var stream = new MemoryStream(json.ToArray());
+        var result = await JsonSerializer.DeserializeFromStreamAsync<SessionEntry>(stream);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await JsonSerializer.DeserializeFromStreamAsync<SessionEntry>(stream)
-        );
-        await Assert.That(ex).IsNotNull();
+        await Assert.That(result).IsTypeOf<MessageEntry>();
+        var msg = (MessageEntry)result;
+        await Assert.That(msg.Content).IsEqualTo("hi");
+        await Assert.That(msg.Sequence).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_PolyBase_CustomDiscriminator_RoundTrips()
+    {
+        var json = "{\"kind\":\"sms\",\"Phone\":\"555-1234\",\"Text\":\"Hi\"}"u8;
+        using var stream = new MemoryStream(json.ToArray());
+        var result = await JsonSerializer.DeserializeFromStreamAsync<AppEvent>(stream);
+
+        await Assert.That(result).IsTypeOf<SmsEvent>();
+        var sms = (SmsEvent)result;
+        await Assert.That(sms.Phone).IsEqualTo("555-1234");
+        await Assert.That(sms.Text).IsEqualTo("Hi");
     }
 }

@@ -159,22 +159,22 @@ public class FunctionalTypeMatrix
     }
 
     [Test]
-    public async Task Poly_HasStreamingDelegate_ReturnsFalse_NoCrash()
+    public async Task Poly_HasStreamingDelegate_ReturnsTrue()
     {
-        // Polymorphic types intentionally lack streaming deserializers.
-        // Regression guard for CS0103 — verify no compile-time breakage.
-        await Assert.That(JsonSerializer.HasStreamingDelegate<MatrixAnimal>()).IsFalse();
+        await Assert.That(JsonSerializer.HasStreamingDelegate<MatrixAnimal>()).IsTrue();
     }
 
     [Test]
-    public async Task Poly_Streaming_ThrowsBecauseNotSupported()
+    public async Task Poly_Streaming_RoundTrips()
     {
         var json = """{"$type":"dog","Breed":"Pug","Age":1}"""u8;
         using var stream = new MemoryStream(json.ToArray());
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await JsonSerializer.DeserializeFromStreamAsync<MatrixAnimal>(stream)
-        );
-        await Assert.That(ex).IsNotNull();
+        var result = await JsonSerializer.DeserializeFromStreamAsync<MatrixAnimal>(stream);
+
+        await Assert.That(result).IsTypeOf<MatrixDog>();
+        var dog = (MatrixDog)result;
+        await Assert.That(dog.Breed).IsEqualTo("Pug");
+        await Assert.That(dog.Age).IsEqualTo(1);
     }
 
     // ═══ [JsonConstructor] immutable type ═══

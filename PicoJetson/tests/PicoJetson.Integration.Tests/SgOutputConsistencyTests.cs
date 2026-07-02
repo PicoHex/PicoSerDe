@@ -58,20 +58,16 @@ public class SgOutputConsistencyTests
     }
 
     [Test]
-    public async Task PolyBase_HasNoStreamingDelegate_And_ThrowsGracefully()
+    public async Task PolyBase_HasStreamingDelegate_And_StreamingWorks()
     {
-        // This pair of assertions is the regression guard for the CS0103 bug:
-        // 1. Poly types must NOT have streaming delegates (no dead reference)
-        // 2. Calling DeserializeFromStreamAsync must throw InvalidOperationException,
-        //    NOT a compiler error.
         var hasDelegate = JsonSerializer.HasStreamingDelegate<SgConsistencyBase>();
-        await Assert.That(hasDelegate).IsFalse();
+        await Assert.That(hasDelegate).IsTrue();
 
         var json = """{"$type":"child","Data":"x"}"""u8;
         using var stream = new MemoryStream(json.ToArray());
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await JsonSerializer.DeserializeFromStreamAsync<SgConsistencyBase>(stream)
-        );
+        var result = await JsonSerializer.DeserializeFromStreamAsync<SgConsistencyBase>(stream);
+        await Assert.That(result).IsTypeOf<SgConsistencyChild>();
+        await Assert.That(((SgConsistencyChild)result).Data).IsEqualTo("x");
     }
 
     [Test]
