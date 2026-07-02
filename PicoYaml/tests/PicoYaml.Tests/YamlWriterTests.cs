@@ -74,19 +74,29 @@ public class YamlWriterTests
     [Test]
     public async Task WriteString_NumericString_IsQuoted()
     {
-        // Note: numeric-like strings ("123", "1.5") are NOT auto-quoted.
-        // Quoting them would break round-trip for int list elements.
-        // The SG should use WriteNumber for numeric values instead.
-        foreach (var literal in new[] { "123", "1.5", "-42" })
+        foreach (var literal in new[] { "123", "1.5", "-42", "0x1f" })
         {
             var buf = new ArrayBufferWriter<byte>(256);
             var w = new YamlWriter(buf);
             w.WritePropertyName("key"u8);
             w.WriteString(Encoding.UTF8.GetBytes(literal));
             var result = Encoding.UTF8.GetString(buf.WrittenSpan);
-            // These are written unquoted (existing behavior)
-            await Assert.That(result).Contains(": " + literal);
+            await Assert.That(result).Contains("\"" + literal + "\"");
         }
+    }
+
+    [Test]
+    public async Task WriteSequenceItem_IntList_NotQuoted()
+    {
+        // Numeric sequence items use WriteSequenceItem(int), bypassing NeedsQuoting
+        var buf = new ArrayBufferWriter<byte>(256);
+        var w = new YamlWriter(buf);
+        w.WriteSequenceItem(10);
+        w.WriteSequenceItem(20);
+        var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+        await Assert.That(result).Contains("- 10");
+        await Assert.That(result).Contains("- 20");
+        await Assert.That(result).DoesNotContain("\"10\"");
     }
 
     [Test]

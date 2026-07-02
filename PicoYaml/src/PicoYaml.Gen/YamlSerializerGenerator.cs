@@ -1799,6 +1799,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".Serialize(yw, __item);");
                 break;
             }
+            case "int32":
+                s.Append(ind);
+                s.AppendLine("yw.WriteSequenceItem(__item);");
+                break;
+            case "int64":
+                s.Append(ind);
+                s.AppendLine("yw.WriteSequenceItem((long)__item);");
+                break;
+            case "float32":
+                s.Append(ind);
+                s.AppendLine("yw.WriteSequenceItem((double)__item);");
+                break;
+            case "float64":
+                s.Append(ind);
+                s.AppendLine("yw.WriteSequenceItem(__item);");
+                break;
             default:
                 s.Append(ind);
                 s.AppendLine("yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString()));");
@@ -2206,7 +2222,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        {");
         foreach (var dt in type.DerivedTypes)
         {
-            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti)) continue;
+            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti))
+                continue;
             var ds = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
             var desc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dt.TypeDiscriminator);
             s.Append("            case ");
@@ -2217,7 +2234,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"u8);");
             foreach (var prop in dti.Properties)
             {
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict") continue;
+                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
+                    continue;
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 s.Append("                yw.WritePropertyName(\"");
                 s.Append(pn);
@@ -2255,7 +2273,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         for (int i = 0; i < type.DerivedTypes.Length; i++)
         {
             var dt = type.DerivedTypes[i];
-            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti)) continue;
+            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti))
+                continue;
             var kw = i == 0 ? "if" : "else if";
             var ds = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
             var desc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dt.TypeDiscriminator);
@@ -2268,13 +2287,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("            var obj = new ");
             s.Append(ds);
             s.AppendLine("();");
-            s.AppendLine("            while (reader.Read() && reader.TokenType == TokenType.PropertyName) {");
+            s.AppendLine(
+                "            while (reader.Read() && reader.TokenType == TokenType.PropertyName) {"
+            );
             s.AppendLine("                var __k = reader.KeySpan;");
             s.AppendLine("                var __v = reader.ValueSpan;");
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict") continue;
+                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
+                    continue;
                 var kw2 = pi == 0 ? "if" : "else if";
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 s.Append("                ");
@@ -2294,13 +2316,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("        }");
         }
 
-        s.AppendLine("        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");");
+        s.AppendLine(
+            "        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");"
+        );
         s.AppendLine("    }");
         s.AppendLine("}");
         s.AppendLine();
 
         var typeRef = string.IsNullOrEmpty(type.Namespace)
-            ? type.Name : $"{type.Namespace}.{type.Name}";
+            ? type.Name
+            : $"{type.Namespace}.{type.Name}";
         s.Append("file static class ");
         s.Append(type.Name);
         s.AppendLine("SerDeRegistration {");

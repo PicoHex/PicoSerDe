@@ -223,6 +223,36 @@ public ref struct YamlWriter
         WriteNewLine();
     }
 
+    public void WriteSequenceItem(int value)
+    {
+        WriteSequencePrefix();
+        WriteNumber(value);
+    }
+
+    public void WriteSequenceItem(long value)
+    {
+        WriteSequencePrefix();
+        WriteInt64(value);
+    }
+
+    public void WriteSequenceItem(double value)
+    {
+        WriteSequencePrefix();
+        WriteDouble(value);
+    }
+
+    private void WriteSequencePrefix()
+    {
+        if (_afterKey)
+        {
+            WriteNewLine();
+            _afterKey = false;
+        }
+        for (var i = 0; i < _depth; i++)
+            WriteRaw("  "u8);
+        WriteRaw("- "u8);
+    }
+
     /// <summary>Writes a block sequence item that starts a mapping (-\n indented properties).</summary>
     public void WriteStartSequenceBlock()
     {
@@ -383,6 +413,10 @@ public ref struct YamlWriter
             )
                 return true;
         }
+
+        // Numeric-looking strings (e.g. "123", "1.5", "0x1f")
+        if (LooksLikeNumber(u))
+            return true;
 
         // Leading indicator characters (except '-' which is a valid YAML list item marker)
         byte first = u[0];
