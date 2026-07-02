@@ -31,6 +31,8 @@ public ref struct JsonReader
     private int _depth;
     private readonly int _maxDepth;
     private ReadOnlySpan<byte> _valueSpan;
+    private int _tokenValueStart;
+    private int _tokenValueEnd;
     private byte[]? _rentedBuffer;
     private byte[]? _rb0,
         _rb1,
@@ -132,19 +134,10 @@ public ref struct JsonReader
     public int RawPos => _isSequence ? -1 : _position;
 
     /// <summary>Byte offset of the current token's value within the source buffer.</summary>
-    public int TokenValueStart
-    {
-        get
-        {
-            if (_isSequence || _valueSpan.IsEmpty)
-                return -1;
-            _data.Overlaps(_valueSpan, out int offset);
-            return offset;
-        }
-    }
+    public int TokenValueStart => _isSequence ? -1 : _tokenValueStart;
 
     /// <summary>Byte offset of the end of the current token's value (exclusive).</summary>
-    public int TokenValueEnd => TokenValueStart + _valueSpan.Length;
+    public int TokenValueEnd => _isSequence ? -1 : _tokenValueEnd;
 
     public void SetRawPos(int pos)
     {
@@ -643,6 +636,8 @@ public ref struct JsonReader
             throw new FormatException($"Unterminated string at offset {_position}");
 
         _valueSpan = _data[start.._position];
+        _tokenValueStart = start;
+        _tokenValueEnd = _position;
         _position++;
         UnescapeIfNeeded();
 
@@ -907,12 +902,6 @@ public ref struct JsonReader
     {
         if (ContainsBackslash(_valueSpan))
         {
-            // Design note: the token-layer spec calls for stackalloc on short
-            // escaped strings. C# escape analysis prevents assigning stackalloc
-            // Span<byte> to a ref struct field (CS8352). We mitigate by renting
-            // a tight pool buffer: short strings use ArrayPool directly, which
-            // is still cheaper than the old Rent(_valueSpan.Length) for large
-            // strings.  For ≤256 bytes we rent exactly di (decoded size).
             var decoded = ArrayPool<byte>.Shared.Rent(_valueSpan.Length);
             TrackBuffer(decoded);
             try
@@ -1019,6 +1008,8 @@ public ref struct JsonReader
                 throw new FormatException($"Expected digit in exponent at offset {expStart}");
         }
         _valueSpan = _data[start.._position];
+        _tokenValueStart = start;
+        _tokenValueEnd = _position;
         if (isFloat)
             _tokenType = TokenType.Float64;
         else if (Utf8Parser.TryParse(_valueSpan, out int _, out _))
@@ -1125,8 +1116,10 @@ public ref struct JsonReader
         if (!_data.Slice(_position, expected.Length).SequenceEqual(expected))
             throw new FormatException($"Invalid literal at offset {_position}");
         _valueSpan = _data.Slice(_position, expected.Length);
+        _tokenValueStart = _position;
         _tokenType = token;
         _position += expected.Length;
+        _tokenValueEnd = _position;
         return true;
     }
 

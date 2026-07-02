@@ -394,14 +394,71 @@ public class PicoDocumentTests
     [Test]
     public async Task NestedJson_StringValue_DoesNotThrow()
     {
-        // String value containing JSON-like text (no escaped quotes needed)
-        var json = """{"payload":"{\"inner\":1}"}"""u8;
+        // String value containing JSON-like text
+        var json = """{"payload":"plain text"}"""u8;
         var doc = PicoDocument.Parse(json.ToArray());
         var payload = doc.RootElement["payload"].GetString();
-        // The \" in JSON source is an escaped quote in the JSON string.
-        // JsonReader currently does not unescape — this is a known limitation.
-        // The raw span will contain the literal backslash+quote bytes.
-        await Assert.That(payload.Length).IsGreaterThan(0);
+        await Assert.That(payload).IsEqualTo("plain text");
+    }
+
+    [Test]
+    public async Task EscapedQuote_InString_ParsesCorrectly()
+    {
+        // Build JSON bytes directly to avoid C# escaping ambiguity:
+        // {"key":"val\"ue"}
+        var bytes = new byte[]
+        {
+            (byte)'{',
+            (byte)'"',
+            (byte)'k',
+            (byte)'e',
+            (byte)'y',
+            (byte)'"',
+            (byte)':',
+            (byte)'"',
+            (byte)'v',
+            (byte)'a',
+            (byte)'l',
+            (byte)'\\',
+            (byte)'"',
+            (byte)'u',
+            (byte)'e',
+            (byte)'"',
+            (byte)'}',
+        };
+        var doc = PicoDocument.Parse(bytes);
+        var val = doc.RootElement["key"].GetString();
+        // After unescaping, \" becomes "
+        await Assert.That(val).IsEqualTo("val\"ue");
+    }
+
+    [Test]
+    public async Task EscapedBackslash_InString_ParsesCorrectly()
+    {
+        // {"key":"path\\to"}
+        var bytes = new byte[]
+        {
+            (byte)'{',
+            (byte)'"',
+            (byte)'k',
+            (byte)'e',
+            (byte)'y',
+            (byte)'"',
+            (byte)':',
+            (byte)'"',
+            (byte)'p',
+            (byte)'a',
+            (byte)'t',
+            (byte)'h',
+            (byte)'\\',
+            (byte)'\\',
+            (byte)'t',
+            (byte)'o',
+            (byte)'"',
+            (byte)'}',
+        };
+        var doc = PicoDocument.Parse(bytes);
+        await Assert.That(doc.RootElement["key"].GetString()).IsEqualTo("path\\to");
     }
 
     [Test]

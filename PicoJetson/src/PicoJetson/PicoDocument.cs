@@ -99,6 +99,9 @@ public readonly struct PicoElement
         if (ValueKind != PicoValueKind.String)
             throw new InvalidOperationException("Not a string.");
         ref readonly var n = ref _doc._nodes[_nodeIdx];
+        // Use captured unescaped bytes if available (strings with escape sequences)
+        if (n.StringValueIndex >= 0 && n.StringValueIndex < _doc._stringValues.Length)
+            return Encoding.UTF8.GetString(_doc._stringValues[n.StringValueIndex]);
         if (n.ValueEnd <= n.ValueStart)
             return "";
         return Encoding.UTF8.GetString(_doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart));
@@ -407,9 +410,13 @@ internal struct PicoDocNode
         LastChild,
         NextSibling;
 
+    /// <summary>Index into _stringValues for unescaped string content (-1 = use offsets).</summary>
+    public int StringValueIndex;
+
     public PicoDocNode()
     {
         FirstChild = LastChild = NextSibling = -1;
+        StringValueIndex = -1;
     }
 }
 
@@ -417,12 +424,14 @@ public class PicoDocument
 {
     internal readonly byte[] _json;
     internal readonly PicoDocNode[] _nodes;
+    internal readonly byte[][] _stringValues; // unescaped string values
     private readonly int _rootIdx;
 
-    private PicoDocument(byte[] json, PicoDocNode[] nodes, int rootIdx)
+    private PicoDocument(byte[] json, PicoDocNode[] nodes, byte[][] stringValues, int rootIdx)
     {
         _json = json;
         _nodes = nodes;
+        _stringValues = stringValues;
         _rootIdx = rootIdx;
     }
 
@@ -438,6 +447,7 @@ public class PicoDocument
         int pendingNameStart = 0,
             pendingNameEnd = 0;
         int rootIdx = -1;
+        var stringValues = new List<byte[]>();
 
         void Add(PicoDocNode n)
         {
@@ -464,17 +474,36 @@ public class PicoDocument
 
         if (!reader.Read())
             throw new FormatException("Empty JSON input.");
-        Process(reader, nodes, ref pendingNameStart, ref pendingNameEnd, stack, Add, maxDepth);
+        Process(
+            reader,
+            nodes,
+            stringValues,
+            ref pendingNameStart,
+            ref pendingNameEnd,
+            stack,
+            Add,
+            maxDepth
+        );
         while (reader.Read())
-            Process(reader, nodes, ref pendingNameStart, ref pendingNameEnd, stack, Add, maxDepth);
+            Process(
+                reader,
+                nodes,
+                stringValues,
+                ref pendingNameStart,
+                ref pendingNameEnd,
+                stack,
+                Add,
+                maxDepth
+            );
         if (stack.Count > 0)
             throw new FormatException("Unclosed container.");
-        return new PicoDocument(json, nodes.ToArray(), rootIdx);
+        return new PicoDocument(json, nodes.ToArray(), stringValues.ToArray(), rootIdx);
     }
 
     private static void Process(
         JsonReader reader,
         List<PicoDocNode> nodes,
+        List<byte[]> stringValues,
         ref int pendingNameStart,
         ref int pendingNameEnd,
         Stack<int> stack,
@@ -523,6 +552,10 @@ public class PicoDocument
                 pendingNameEnd = reader.TokenValueEnd;
                 break;
             case TokenType.String:
+            {
+                var raw = reader.GetStringRaw();
+                int svIdx = stringValues.Count;
+                stringValues.Add(raw.ToArray());
                 add(
                     new PicoDocNode
                     {
@@ -531,10 +564,12 @@ public class PicoDocument
                         NameEnd = pendingNameEnd,
                         ValueStart = reader.TokenValueStart,
                         ValueEnd = reader.TokenValueEnd,
+                        StringValueIndex = svIdx,
                     }
                 );
                 pendingNameStart = pendingNameEnd = 0;
                 break;
+            }
             case TokenType.Int64:
             case TokenType.Float64:
             case TokenType.Int32:
