@@ -1,5 +1,6 @@
 namespace PicoJetson.Gen;
 
+using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -142,6 +143,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             );
         }
 
+        // Record primary constructor auto-detection (like [JsonConstructor] for records)
+        if (namedType.IsRecord && !hasCtor)
+        {
+            var ctors = namedType
+                .Constructors.Where(c => c.DeclaredAccessibility == Accessibility.Public)
+                .ToArray();
+            if (ctors.Length == 1 && !ctors[0].IsImplicitlyDeclared)
+                hasCtor = true;
+        }
+
         foreach (var ctor in namedType.Constructors)
         {
             if (ctor.DeclaredAccessibility != Accessibility.Public)
@@ -179,17 +190,54 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         if (typeArg2 is not INamedTypeSymbol namedType2)
             return ti;
 
-        var ctorParams = PicoSerDe.Gen.GenInfrastructure.DetectConstructor(
-            namedType2,
-            Config.FormatTag,
-            "JsonConstructorAttribute"
-        );
-        if (ctorParams is not { } cp)
-            return ti;
+        // For records: extract primary constructor params without requiring [JsonConstructor]
+        CtorParamInfo[]? ctorParams = null;
+        if (namedType2.IsRecord)
+        {
+            var primary = namedType2
+                .Constructors.Where(c =>
+                    c.DeclaredAccessibility == Accessibility.Public && !c.IsImplicitlyDeclared
+                )
+                .FirstOrDefault();
+            if (primary is not null)
+            {
+                var list = new List<CtorParamInfo>();
+                foreach (var param in primary.Parameters)
+                {
+                    var (typeKind, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(
+                        param.Type,
+                        Config.FormatTag
+                    );
+                    if (typeKind is not null)
+                        list.Add(
+                            new CtorParamInfo(
+                                param.Name,
+                                typeKind,
+                                param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                            )
+                        );
+                }
+                ctorParams = list.ToArray();
+            }
+        }
+
+        if (ctorParams is null)
+        {
+            var cp = PicoSerDe.Gen.GenInfrastructure.DetectConstructor(
+                namedType2,
+                Config.FormatTag,
+                "JsonConstructorAttribute"
+            );
+            if (cp is not { } existing)
+                return ti;
+            ctorParams = new CtorParamInfo[existing.Length];
+            for (int i = 0; i < existing.Length; i++)
+                ctorParams[i] = existing[i];
+        }
 
         return ti with
         {
-            CtorParams = cp,
+            CtorParams = ImmutableArray.Create(ctorParams),
         };
     }
 

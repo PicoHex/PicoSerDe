@@ -960,6 +960,28 @@ internal static class GenInfrastructure
             if (!ti.HasValue)
                 continue;
 
+            // Merge inherited properties from base classes including the poly root.
+            // Without this, poly deserialization loses base class properties.
+            var mergedProps = ti.Value.Properties;
+            var current = dt.BaseType;
+            while (current is not null)
+            {
+                if (current.SpecialType == SpecialType.System_Object)
+                    break;
+                var baseProps = ExtractNestedProperties(current, attrs, config.FormatTag);
+                foreach (var bp in baseProps)
+                {
+                    if (!mergedProps.Any(p => p.Name == bp.Name))
+                        mergedProps = mergedProps.Insert(0, bp);
+                }
+                // Stop after processing the poly root base
+                if (SymbolEqualityComparer.Default.Equals(current, baseType))
+                    break;
+                current = current.BaseType;
+            }
+
+            ti = ti.Value with { Properties = mergedProps };
+
             if (hasCtor)
                 ti = ti.Value with { CtorParams = ctorParams.Value };
 

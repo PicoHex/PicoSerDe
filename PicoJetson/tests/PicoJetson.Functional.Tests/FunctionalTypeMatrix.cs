@@ -31,6 +31,23 @@ public class MatrixCat : MatrixAnimal
     public bool Indoor { get; set; }
 }
 
+// ── Poly types with base properties (regression: inherited props) ──
+
+[PicoSerializable]
+[PicoDerivedType(typeof(Parrot), "parrot")]
+public abstract class AnimalWithName
+{
+    public string Name { get; set; } = "";
+}
+
+public class Parrot : AnimalWithName
+{
+    public string Color { get; set; } = "";
+    public bool CanTalk { get; set; }
+}
+
+public record MatrixRecord(string Name, int Count);
+
 public class MatrixImmutable
 {
     public string Name { get; }
@@ -177,7 +194,40 @@ public class FunctionalTypeMatrix
         await Assert.That(dog.Age).IsEqualTo(1);
     }
 
-    // ═══ [JsonConstructor] immutable type ═══
+    // ═══ Polymorphic with inherited properties ═══
+
+    [Test]
+    public async Task Poly_WithBaseProperties_DeserializesAllFields()
+    {
+        // AnimalWithName has a property on the base class.
+        // The poly deserializer must include inherited properties.
+        var data = """{"$type":"parrot","Name":"Polly","Color":"green","CanTalk":true}"""u8;
+        var result = JsonSerializer.Deserialize<AnimalWithName>(data);
+
+        await Assert.That(result).IsTypeOf<Parrot>();
+        var parrot = (Parrot)result!;
+        await Assert.That(parrot.Name).IsEqualTo("Polly");
+        await Assert.That(parrot.Color).IsEqualTo("green");
+        await Assert.That(parrot.CanTalk).IsTrue();
+    }
+
+    [Test]
+    public async Task Poly_WithBaseProperties_RoundTrip()
+    {
+        AnimalWithName original = new Parrot
+        {
+            Name = "Kiwi",
+            Color = "red",
+            CanTalk = false,
+        };
+        var json = JsonSerializer.SerializeToUtf8Bytes(original);
+        var result = JsonSerializer.Deserialize<AnimalWithName>(json);
+
+        await Assert.That(result).IsTypeOf<Parrot>();
+        var parrot = (Parrot)result!;
+        await Assert.That(parrot.Name).IsEqualTo("Kiwi");
+        await Assert.That(parrot.Color).IsEqualTo("red");
+    }
 
     [Test]
     public async Task JsonConstructor_Serialize_ProducesJson()
@@ -206,6 +256,19 @@ public class FunctionalTypeMatrix
         var result = JsonSerializer.Deserialize<MatrixImmutable>(json);
         await Assert.That(result!.Name).IsEqualTo(original.Name);
         await Assert.That(result.Count).IsEqualTo(original.Count);
+    }
+
+    // ═══ Record with init-only properties ═══
+
+    [Test]
+    public async Task Record_InitOnly_RoundTrip()
+    {
+        var original = new MatrixRecord("init-test", 77);
+        var json = JsonSerializer.SerializeToUtf8Bytes(original);
+        var result = JsonSerializer.Deserialize<MatrixRecord>(json);
+
+        await Assert.That(result!.Name).IsEqualTo("init-test");
+        await Assert.That(result.Count).IsEqualTo(77);
     }
 
     // ═══ Top-level array ═══
