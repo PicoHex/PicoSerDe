@@ -735,6 +735,8 @@ public ref struct JsonReader
             }
 
             _valueSpan = buf.AsSpan(0, di);
+            _tokenValueStart = 0;
+            _tokenValueEnd = di;
 
             SkipWhitespaceSeq();
             if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)':')
@@ -1086,6 +1088,8 @@ public ref struct JsonReader
                 }
             }
             _valueSpan = buf.AsSpan(0, di);
+            _tokenValueStart = 0;
+            _tokenValueEnd = di;
             if (isFloat)
                 _tokenType = TokenType.Float64;
             else if (Utf8Parser.TryParse(_valueSpan, out int _, out _))
