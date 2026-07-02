@@ -145,7 +145,7 @@ var result = JsonSerializer.Deserialize<SessionEntry>(json);
 
 ### DOM Layer (PicoDocument / PicoElement)
 
-Schema-less JSON inspection without `System.Text.Json`. Zero-copy. Since v2026.3.4.
+Schema-less JSON inspection without `System.Text.Json`. Zero-copy.
 
 ```csharp
 var doc = PicoDocument.Parse("""{"name":"Alice","age":30}"""u8.ToArray());
@@ -153,19 +153,25 @@ var doc = PicoDocument.Parse("""{"name":"Alice","age":30}"""u8.ToArray());
 var name = doc.RootElement["name"].GetString();         // "Alice"
 var ok   = doc.RootElement.TryGetProperty("age", out _); // true
 bool valid = PicoDocument.IsValid("{}"u8);               // true
+
+// Numeric access
+long big = doc.RootElement["count"].GetInt64();
+double d = doc.RootElement["score"].GetDouble();
+if (doc.RootElement["age"].TryGetInt32(out int age))
+    Console.WriteLine(age);
 ```
 
 ### C# Records
 
-`record` and `record struct` types are fully supported. Primary constructor auto-detected — no `[JsonConstructor]` needed. `init`-only properties work correctly. Since v2026.3.3.
+`record` and `record struct` types are fully supported. Primary constructor auto-detected — no `[JsonConstructor]` needed. `init`-only properties work correctly.
 
 ### Top-Level Arrays
 
-`Serialize<T[]>(...)` / `Deserialize<T[]>(...)` and streaming `DeserializeFromStreamAsync<T[]>(stream)` work directly. Since v2026.3.2.
+`Serialize<T[]>(...)` / `Deserialize<T[]>(...)` and streaming `DeserializeFromStreamAsync<T[]>(stream)` work directly.
 
 ### Three-Layer Test Structure
 
-PicoJetson tests are split into Unit / Integration / Functional projects with clear boundaries. Since v2026.3.2.
+PicoJetson tests are split into Unit / Integration / Functional projects with clear boundaries.
 
 > **No non-generic `Serialize(Type, object?)` overloads.** PicoSerDe is designed for AOT-first
 > usage where all types are known at compile time. `Cache<T>` static fields are shared
