@@ -1,3 +1,6 @@
+using System.Collections;
+using System.Collections.Generic;
+
 namespace PicoJetson;
 
 /// <summary>Kind of a JSON value.</summary>
@@ -246,12 +249,15 @@ public readonly struct PicoElement
         return false;
     }
 
+    /// <summary>Gets the value as a string, or null if the element is not a string.</summary>
+    public string? GetStringOrNull() => ValueKind == PicoValueKind.String ? GetString() : null;
+
     public ArrayEnumerator EnumerateArray() => new(_doc, _nodeIdx);
 
     public ObjectEnumerator EnumerateObject() => new(_doc, _nodeIdx);
 }
 
-public struct ArrayEnumerator
+public struct ArrayEnumerator : IEnumerator<PicoElement>, IEnumerable<PicoElement>
 {
     private readonly PicoDocument _doc;
     private int _child;
@@ -266,6 +272,7 @@ public struct ArrayEnumerator
     }
 
     public PicoElement Current => new(_doc, _child);
+    object IEnumerator.Current => Current;
 
     public bool MoveNext()
     {
@@ -290,10 +297,18 @@ public struct ArrayEnumerator
         return true;
     }
 
+    public void Reset() => throw new NotSupportedException();
+
+    public void Dispose() { }
+
     public ArrayEnumerator GetEnumerator() => this;
+
+    IEnumerator<PicoElement> IEnumerable<PicoElement>.GetEnumerator() => this;
+
+    IEnumerator IEnumerable.GetEnumerator() => this;
 }
 
-public struct ObjectEnumerator
+public struct ObjectEnumerator : IEnumerator<PicoProperty>, IEnumerable<PicoProperty>
 {
     private readonly PicoDocument _doc;
     private int _child;
@@ -308,6 +323,7 @@ public struct ObjectEnumerator
     }
 
     public PicoProperty Current => new(_doc, _child);
+    object IEnumerator.Current => Current;
 
     public bool MoveNext()
     {
@@ -332,10 +348,18 @@ public struct ObjectEnumerator
         return true;
     }
 
+    public void Reset() => throw new NotSupportedException();
+
+    public void Dispose() { }
+
     public ObjectEnumerator GetEnumerator() => this;
+
+    IEnumerator<PicoProperty> IEnumerable<PicoProperty>.GetEnumerator() => this;
+
+    IEnumerator IEnumerable.GetEnumerator() => this;
 }
 
-public readonly ref struct PicoProperty
+public readonly struct PicoProperty
 {
     private readonly PicoDocument _doc;
     private readonly int _nodeIdx;

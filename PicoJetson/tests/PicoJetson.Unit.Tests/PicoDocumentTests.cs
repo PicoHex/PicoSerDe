@@ -315,12 +315,106 @@ public class PicoDocumentTests
     }
 
     [Test]
+    public async Task GetStringOrNull_StringValue_ReturnsValue()
+    {
+        var doc = PicoDocument.Parse("\"hello\""u8.ToArray());
+        await Assert.That(doc.RootElement.GetStringOrNull()).IsEqualTo("hello");
+    }
+
+    [Test]
+    public async Task GetStringOrNull_NonString_ReturnsNull()
+    {
+        var doc = PicoDocument.Parse("42"u8.ToArray());
+        await Assert.That(doc.RootElement.GetStringOrNull()).IsNull();
+    }
+
+    [Test]
+    public async Task GetStringOrNull_Null_ReturnsNull()
+    {
+        var doc = PicoDocument.Parse("null"u8.ToArray());
+        await Assert.That(doc.RootElement.GetStringOrNull()).IsNull();
+    }
+
+    [Test]
+    public async Task EnumerateArray_ToArray_Works()
+    {
+        var doc = PicoDocument.Parse("[1,2,3]"u8.ToArray());
+        var items = doc.RootElement.EnumerateArray().ToArray();
+        await Assert.That(items).HasCount(3);
+        await Assert.That(items[0].GetInt32()).IsEqualTo(1);
+        await Assert.That(items[2].GetInt32()).IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task EnumerateArray_Select_Works()
+    {
+        var doc = PicoDocument.Parse("[10,20,30]"u8.ToArray());
+        var values = doc.RootElement.EnumerateArray().Select(e => e.GetInt32()).ToArray();
+        await Assert.That(values).IsEquivalentTo(new[] { 10, 20, 30 });
+    }
+
+    [Test]
     public async Task SpecialCharacters_InKey_Works()
     {
         var json = """{"a.b":1,"c-d":2}"""u8;
         var doc = PicoDocument.Parse(json.ToArray());
         await Assert.That(doc.RootElement.HasProperty("a.b"u8)).IsTrue();
         await Assert.That(doc.RootElement["c-d"].GetInt32()).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task ChainedIndex_ObjectThenArray_Works()
+    {
+        var json = """{"messages":["a","b"]}"""u8;
+        var doc = PicoDocument.Parse(json.ToArray());
+        var msg = doc.RootElement["messages"];
+        await Assert.That(msg.ValueKind).IsEqualTo(PicoValueKind.Array);
+        await Assert.That(msg[0].GetString()).IsEqualTo("a");
+        await Assert.That(msg[1].GetString()).IsEqualTo("b");
+    }
+
+    [Test]
+    public async Task ChainedIndex_ObjectThenObject_Works()
+    {
+        var json = """{"user":{"name":"Alice","age":30}}"""u8;
+        var doc = PicoDocument.Parse(json.ToArray());
+        await Assert.That(doc.RootElement["user"]["name"].GetString()).IsEqualTo("Alice");
+        await Assert.That(doc.RootElement["user"]["age"].GetInt32()).IsEqualTo(30);
+    }
+
+    [Test]
+    public async Task ChainedIndex_ArrayOfObjects_Works()
+    {
+        var json = """[{"id":1},{"id":2}]"""u8;
+        var doc = PicoDocument.Parse(json.ToArray());
+        await Assert.That(doc.RootElement[0]["id"].GetInt32()).IsEqualTo(1);
+        await Assert.That(doc.RootElement[1]["id"].GetInt32()).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task NestedJson_StringValue_DoesNotThrow()
+    {
+        // String value containing JSON-like text (no escaped quotes needed)
+        var json = """{"payload":"{\"inner\":1}"}"""u8;
+        var doc = PicoDocument.Parse(json.ToArray());
+        var payload = doc.RootElement["payload"].GetString();
+        // The \" in JSON source is an escaped quote in the JSON string.
+        // JsonReader currently does not unescape — this is a known limitation.
+        // The raw span will contain the literal backslash+quote bytes.
+        await Assert.That(payload.Length).IsGreaterThan(0);
+    }
+
+    [Test]
+    public async Task DeeplyNestedArrayOfObjects_Works()
+    {
+        var json =
+            """{"messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"hi"}]}"""u8;
+        var doc = PicoDocument.Parse(json.ToArray());
+        var messages = doc.RootElement["messages"];
+        await Assert.That(messages.GetArrayLength()).IsEqualTo(2);
+        await Assert.That(messages[0]["role"].GetString()).IsEqualTo("user");
+        await Assert.That(messages[0]["content"].GetString()).IsEqualTo("hello");
+        await Assert.That(messages[1]["role"].GetString()).IsEqualTo("assistant");
     }
 
     [Test]
