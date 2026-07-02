@@ -264,4 +264,73 @@ public class PicoDocumentTests
         await Assert.That(doc.RootElement.GetArrayLength()).IsEqualTo(200);
         await Assert.That(doc.RootElement[199].GetInt32()).IsEqualTo(199);
     }
+
+    // ── Code review round 2 fixes ──
+
+    [Test]
+    public async Task GetRawValue_OnObject_Throws()
+    {
+        var doc = PicoDocument.Parse("{}"u8.ToArray());
+        Assert.Throws<InvalidOperationException>(() => doc.RootElement.GetRawValue());
+    }
+
+    [Test]
+    public async Task GetRawValue_OnArray_Throws()
+    {
+        var doc = PicoDocument.Parse("[]"u8.ToArray());
+        Assert.Throws<InvalidOperationException>(() => doc.RootElement.GetRawValue());
+    }
+
+    [Test]
+    public async Task HasProperty_Exists_ReturnsTrue()
+    {
+        var doc = PicoDocument.Parse("""{"x":1}"""u8.ToArray());
+        await Assert.That(doc.RootElement.HasProperty("x"u8)).IsTrue();
+    }
+
+    [Test]
+    public async Task HasProperty_Missing_ReturnsFalse()
+    {
+        var doc = PicoDocument.Parse("""{"x":1}"""u8.ToArray());
+        await Assert.That(doc.RootElement.HasProperty("y"u8)).IsFalse();
+    }
+
+    [Test]
+    public async Task Property_NameSpan_ReturnsUtf8Bytes()
+    {
+        var doc = PicoDocument.Parse("""{"name":1}"""u8.ToArray());
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            var ns = prop.NameSpan;
+            await Assert.That(Encoding.UTF8.GetString(ns)).IsEqualTo("name");
+        }
+    }
+
+    [Test]
+    public async Task Unicode_InKey_Works()
+    {
+        var json = """{"名字":"张三"}"""u8;
+        var doc = PicoDocument.Parse(json.ToArray());
+        await Assert.That(doc.RootElement["名字"].GetString()).IsEqualTo("张三");
+    }
+
+    [Test]
+    public async Task SpecialCharacters_InKey_Works()
+    {
+        var json = """{"a.b":1,"c-d":2}"""u8;
+        var doc = PicoDocument.Parse(json.ToArray());
+        await Assert.That(doc.RootElement.HasProperty("a.b"u8)).IsTrue();
+        await Assert.That(doc.RootElement["c-d"].GetInt32()).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task MixedArray_Types_ParsesCorrectly()
+    {
+        var doc = PicoDocument.Parse("""[1,"a",true,null]"""u8.ToArray());
+        await Assert.That(doc.RootElement.GetArrayLength()).IsEqualTo(4);
+        await Assert.That(doc.RootElement[0].ValueKind).IsEqualTo(PicoValueKind.Number);
+        await Assert.That(doc.RootElement[1].ValueKind).IsEqualTo(PicoValueKind.String);
+        await Assert.That(doc.RootElement[2].ValueKind).IsEqualTo(PicoValueKind.True);
+        await Assert.That(doc.RootElement[3].ValueKind).IsEqualTo(PicoValueKind.Null);
+    }
 }

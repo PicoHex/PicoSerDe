@@ -138,13 +138,34 @@ public readonly struct PicoElement
         };
     }
 
-    /// <summary>Returns the raw UTF-8 bytes of the value (no copy).</summary>
+    /// <summary>Returns the raw UTF-8 bytes of the value (no copy). Throws on containers.</summary>
     public ReadOnlySpan<byte> GetRawValue()
     {
+        if (ValueKind is PicoValueKind.Object or PicoValueKind.Array or PicoValueKind.Undefined)
+            throw new InvalidOperationException("GetRawValue requires a scalar value.");
         ref readonly var n = ref _doc._nodes[_nodeIdx];
         if (n.ValueEnd <= n.ValueStart)
             return default;
         return _doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart);
+    }
+
+    /// <summary>Returns true if the object has a property with the given UTF-8 key (no value extraction).</summary>
+    public bool HasProperty(ReadOnlySpan<byte> utf8Key)
+    {
+        if (ValueKind != PicoValueKind.Object)
+            return false;
+        int c = _doc._nodes[_nodeIdx].FirstChild;
+        while (c >= 0)
+        {
+            ref readonly var n = ref _doc._nodes[c];
+            if (
+                n.NameEnd > n.NameStart
+                && _doc._json.AsSpan(n.NameStart, n.NameEnd - n.NameStart).SequenceEqual(utf8Key)
+            )
+                return true;
+            c = n.NextSibling;
+        }
+        return false;
     }
 
     public ArrayEnumerator EnumerateArray() => new(_doc, _nodeIdx);
@@ -257,6 +278,19 @@ public readonly ref struct PicoProperty
             return Encoding.UTF8.GetString(_doc._json.AsSpan(n.NameStart, n.NameEnd - n.NameStart));
         }
     }
+
+    /// <summary>Property name as raw UTF-8 bytes (zero allocation).</summary>
+    public ReadOnlySpan<byte> NameSpan
+    {
+        get
+        {
+            ref readonly var n = ref _doc._nodes[_nodeIdx];
+            if (n.NameEnd <= n.NameStart)
+                return default;
+            return _doc._json.AsSpan(n.NameStart, n.NameEnd - n.NameStart);
+        }
+    }
+
     public PicoElement Value => new(_doc, _nodeIdx);
 }
 
@@ -441,6 +475,9 @@ public class PicoDocument
                     }
                 );
                 pendingNameStart = pendingNameEnd = 0;
+                break;
+            default:
+                reader.TrySkip();
                 break;
         }
     }
