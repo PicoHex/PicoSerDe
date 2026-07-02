@@ -109,7 +109,10 @@ public class PicoDocumentTests
     public void Indexer_MissingKey_Throws()
     {
         var doc = PicoDocument.Parse("""{"x":1}"""u8.ToArray());
-        Assert.Throws<KeyNotFoundException>(() => { var _ = doc.RootElement["y"]; });
+        Assert.Throws<KeyNotFoundException>(() =>
+        {
+            var _ = doc.RootElement["y"];
+        });
     }
 
     [Test]
@@ -117,9 +120,7 @@ public class PicoDocumentTests
     {
         var json = """{"user":{"name":"Bob","address":{"city":"NYC"}}}"""u8;
         var doc = PicoDocument.Parse(json.ToArray());
-        await Assert
-            .That(doc.RootElement["user"]["address"]["city"].GetString())
-            .IsEqualTo("NYC");
+        await Assert.That(doc.RootElement["user"]["address"]["city"].GetString()).IsEqualTo("NYC");
     }
 
     [Test]
@@ -199,5 +200,68 @@ public class PicoDocumentTests
     {
         var doc = PicoDocument.Parse("null"u8.ToArray());
         await Assert.That(doc.RootElement.ValueKind).IsEqualTo(PicoValueKind.Null);
+    }
+
+    // ── Edge cases (code review fixes) ──
+
+    [Test]
+    public async Task GetInt32_FloatValue_ReturnsTruncatedInt()
+    {
+        var doc = PicoDocument.Parse("3.14"u8.ToArray());
+        await Assert.That(doc.RootElement.GetInt32()).IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task GetInt32_NegativeFloat_ReturnsTruncatedInt()
+    {
+        var doc = PicoDocument.Parse("-7.9"u8.ToArray());
+        await Assert.That(doc.RootElement.GetInt32()).IsEqualTo(-7);
+    }
+
+    [Test]
+    public async Task TryGetProperty_Utf8Key_Works()
+    {
+        var doc = PicoDocument.Parse("""{"x":1}"""u8.ToArray());
+        var ok = doc.RootElement.TryGetProperty("x"u8, out var val);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(val.GetInt32()).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Parse_DeepNesting_ThrowsAtLimit()
+    {
+        var deep = new string('[', 100) + "1" + new string(']', 100);
+        Assert.Throws<FormatException>(() => PicoDocument.Parse(Encoding.UTF8.GetBytes(deep)));
+    }
+
+    [Test]
+    public async Task Parse_WithinDepthLimit_Succeeds()
+    {
+        var shallow = "[[[[1]]]]"u8;
+        var doc = PicoDocument.Parse(shallow.ToArray());
+        await Assert.That(doc.RootElement[0][0][0][0].GetInt32()).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Enumerator_ManualMoveNext_ReturnsFalseAtEnd()
+    {
+        var doc = PicoDocument.Parse("[1]"u8.ToArray());
+        var e = doc.RootElement.EnumerateArray();
+        await Assert.That(e.MoveNext()).IsTrue(); // first: 1
+        await Assert.That(e.MoveNext()).IsFalse(); // end
+        await Assert.That(e.MoveNext()).IsFalse(); // still false (done flag)
+    }
+
+    [Test]
+    public async Task LargeArray_ParsesCorrectly()
+    {
+        // Regression for O(n²) sibling chain walking — LastChild must work
+        var sb = new StringBuilder("[");
+        for (int i = 0; i < 200; i++)
+            sb.Append(i > 0 ? "," : "").Append(i);
+        sb.Append("]");
+        var doc = PicoDocument.Parse(Encoding.UTF8.GetBytes(sb.ToString()));
+        await Assert.That(doc.RootElement.GetArrayLength()).IsEqualTo(200);
+        await Assert.That(doc.RootElement[199].GetInt32()).IsEqualTo(199);
     }
 }
