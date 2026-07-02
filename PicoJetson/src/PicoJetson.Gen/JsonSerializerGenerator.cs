@@ -529,7 +529,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 switch (rp.TypeKind)
                 {
                     case "string":
-                        sb.Append("null!");
+                        sb.Append("\"\"");
                         break;
                     default:
                         sb.Append("default");
@@ -1420,7 +1420,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 var typeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
                 var defaultVal = cp.TypeKind switch
                 {
-                    "string" => "null!",
+                    "string" => "\"\"",
                     "int32" or "int64" or "float64" => "0",
                     "boolean" => "false",
                     _ => "default!",
@@ -1450,7 +1450,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            sb.Append("null!");
+                            sb.Append("\"\"");
                             break;
                         default:
                             sb.Append("default");
@@ -2614,7 +2614,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 var typeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
                 var defaultVal = cp.TypeKind switch
                 {
-                    "string" => "null!",
+                    "string" => "\"\"",
                     "int32" or "int64" or "float64" => "0",
                     "boolean" => "false",
                     _ => "default!",
@@ -2644,7 +2644,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            sb.Append("null!");
+                            sb.Append("\"\"");
                             break;
                         default:
                             sb.Append("default");
@@ -2939,7 +2939,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
                     var dv = cp.TypeKind switch
                     {
-                        "string" => "null!",
+                        "string" => "\"\"",
                         "int32" or "int64" or "float64" => "0",
                         "boolean" => "false",
                         _ => "default!",
@@ -3107,7 +3107,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
                     var dv = cp.TypeKind switch
                     {
-                        "string" => "null!",
+                        "string" => "\"\"",
                         "int32" or "int64" or "float64" => "0",
                         "boolean" => "false",
                         _ => "default!",
