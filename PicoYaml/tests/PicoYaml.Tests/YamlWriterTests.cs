@@ -92,11 +92,28 @@ public class YamlWriterTests
         var buf = new ArrayBufferWriter<byte>(256);
         var w = new YamlWriter(buf);
         w.WriteSequenceItem(10);
-        w.WriteSequenceItem(20);
+        w.WriteSequenceItem(20L);
+        w.WriteSequenceItem(3.14);
+        w.WriteSequenceItem(1.5f);
         var result = Encoding.UTF8.GetString(buf.WrittenSpan);
         await Assert.That(result).Contains("- 10");
         await Assert.That(result).Contains("- 20");
+        await Assert.That(result).Contains("- 3.14");
+        await Assert.That(result).Contains("- 1.5");
         await Assert.That(result).DoesNotContain("\"10\"");
+    }
+
+    [Test]
+    public async Task WriteString_MultipleDots_NotQuoted()
+    {
+        // "1.2.3" is not a valid YAML number — don't false-positive quote it
+        var buf = new ArrayBufferWriter<byte>(256);
+        var w = new YamlWriter(buf);
+        w.WritePropertyName("ver"u8);
+        w.WriteString("1.2.3"u8);
+        var result = Encoding.UTF8.GetString(buf.WrittenSpan);
+        await Assert.That(result).Contains("ver: 1.2.3");
+        await Assert.That(result).DoesNotContain("\"1.2.3\"");
     }
 
     [Test]

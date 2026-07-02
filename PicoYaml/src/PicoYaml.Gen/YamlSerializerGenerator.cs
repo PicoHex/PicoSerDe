@@ -1809,7 +1809,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "float32":
                 s.Append(ind);
-                s.AppendLine("yw.WriteSequenceItem((double)__item);");
+                s.AppendLine("yw.WriteSequenceItem(__item);");
                 break;
             case "float64":
                 s.Append(ind);

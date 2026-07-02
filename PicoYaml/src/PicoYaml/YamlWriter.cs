@@ -241,6 +241,12 @@ public ref struct YamlWriter
         WriteDouble(value);
     }
 
+    public void WriteSequenceItem(float value)
+    {
+        WriteSequencePrefix();
+        WriteDouble(value);
+    }
+
     private void WriteSequencePrefix()
     {
         if (_afterKey)
@@ -360,22 +366,63 @@ public ref struct YamlWriter
             }
             return u.Length > start + 2;
         }
+        bool hasDot = false;
         for (int i = start; i < u.Length; i++)
         {
             byte b = u[i];
-            if (
-                !(
-                    (b >= (byte)'0' && b <= (byte)'9')
-                    || b == (byte)'.'
-                    || b == (byte)'e'
-                    || b == (byte)'E'
-                    || b == (byte)'+'
-                    || b == (byte)'-'
-                )
-            )
-                return false;
+            if (b >= (byte)'0' && b <= (byte)'9')
+                continue;
+            if (b == (byte)'.')
+            {
+                if (hasDot)
+                    return false; // multiple dots: not a number
+                hasDot = true;
+                continue;
+            }
+            if (b == (byte)'e' || b == (byte)'E')
+            {
+                // 'e' must be followed by optional sign and digits
+                int j = i + 1;
+                if (j < u.Length && (u[j] == (byte)'+' || u[j] == (byte)'-'))
+                    j++;
+                if (j >= u.Length || u[j] < (byte)'0' || u[j] > (byte)'9')
+                    return false;
+                i = j; // loop continues from after sign
+                continue;
+            }
+            if (b == (byte)'+' || b == (byte)'-')
+                return false; // sign only allowed at start or after 'e'
+            return false;
         }
         return true;
+    }
+
+    private static bool IsYamlLiteral(ReadOnlySpan<byte> u)
+    {
+        // All YAML 1.1 literals are 1-5 ASCII bytes
+        return u switch
+        {
+            [(byte)'t', (byte)'r', (byte)'u', (byte)'e'] => true,
+            [(byte)'f', (byte)'a', (byte)'l', (byte)'s', (byte)'e'] => true,
+            [(byte)'n', (byte)'u', (byte)'l', (byte)'l'] => true,
+            [(byte)'~'] => true,
+            [(byte)'y', (byte)'e', (byte)'s'] => true,
+            [(byte)'n', (byte)'o'] => true,
+            [(byte)'o', (byte)'n'] => true,
+            [(byte)'o', (byte)'f', (byte)'f'] => true,
+            [(byte)'T', (byte)'r', (byte)'u', (byte)'e'] => true,
+            [(byte)'F', (byte)'a', (byte)'l', (byte)'s', (byte)'e'] => true,
+            [(byte)'N', (byte)'u', (byte)'l', (byte)'l'] => true,
+            [(byte)'Y', (byte)'e', (byte)'s'] => true,
+            [(byte)'N', (byte)'o'] => true,
+            [(byte)'O', (byte)'n'] => true,
+            [(byte)'O', (byte)'f', (byte)'f'] => true,
+            [(byte)'Y', (byte)'E', (byte)'S'] => true,
+            [(byte)'N', (byte)'O'] => true,
+            [(byte)'O', (byte)'N'] => true,
+            [(byte)'O', (byte)'F', (byte)'F'] => true,
+            _ => false,
+        };
     }
 
     private static bool NeedsQuoting(ReadOnlySpan<byte> u)
@@ -383,36 +430,9 @@ public ref struct YamlWriter
         if (u.IsEmpty)
             return true;
 
-        // YAML literal keywords (true/false/null/yes/no/on/off)
-        if (u.Length <= 5)
-        {
-            Span<char> tmp = stackalloc char[u.Length];
-            int len = Encoding.UTF8.GetChars(u, tmp);
-            var s = tmp[..len].ToString();
-            if (
-                s
-                is "true"
-                    or "false"
-                    or "null"
-                    or "~"
-                    or "yes"
-                    or "no"
-                    or "on"
-                    or "off"
-                    or "True"
-                    or "False"
-                    or "Null"
-                    or "Yes"
-                    or "No"
-                    or "On"
-                    or "Off"
-                    or "YES"
-                    or "NO"
-                    or "ON"
-                    or "OFF"
-            )
-                return true;
-        }
+        // YAML literal keywords (true/false/null/yes/no/on/off) — zero-alloc byte comparison
+        if (u.Length is >= 1 and <= 5 && IsYamlLiteral(u))
+            return true;
 
         // Numeric-looking strings (e.g. "123", "1.5", "0x1f")
         if (LooksLikeNumber(u))
