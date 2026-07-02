@@ -370,7 +370,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            s.Append("null!");
+                            s.Append("\"\"");
                             break;
                         default:
                             s.Append("default");
@@ -474,7 +474,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            s.Append("null!");
+                            s.Append("\"\"");
                             break;
                         default:
                             s.Append("default");
@@ -1608,7 +1608,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.Append(" = ");
                     s.AppendLine(cp.TypeKind switch
                     {
-                        "string" => "null!",
+                        "string" => "\"\"",
                         "int32" or "int64" or "float64" => "0",
                         "boolean" => "false",
                         _ => "default!",

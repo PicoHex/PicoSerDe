@@ -589,7 +589,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            s.Append("null!");
+                            s.Append("\"\"");
                             break;
                         default:
                             s.Append("default");
@@ -773,7 +773,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            s.Append("null!");
+                            s.Append("\"\"");
                             break;
                         default:
                             s.Append("default");

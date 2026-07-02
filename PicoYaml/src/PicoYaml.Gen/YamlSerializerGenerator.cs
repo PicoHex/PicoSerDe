@@ -1154,7 +1154,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            sb.Append("null!");
+                            sb.Append("\"\"");
                             break;
                         default:
                             sb.Append("default");
@@ -1245,7 +1245,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            sb.Append("null!");
+                            sb.Append("\"\"");
                             break;
                         default:
                             sb.Append("default");

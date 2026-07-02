@@ -511,7 +511,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             {
                 var cp = type.CtorParams[ci];
                 var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
-                var def = cp.TypeKind == "string" ? "null!" : "default";
+                var def = cp.TypeKind == "string" ? "\"\"" : "default";
                 s.Append("        ");
                 s.Append(tn);
                 s.Append(" __cp_");
@@ -537,7 +537,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            s.Append("null!");
+                            s.Append("\"\"");
                             break;
                         default:
                             s.Append("default");
@@ -732,7 +732,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     switch (rp.TypeKind)
                     {
                         case "string":
-                            s.Append("null!");
+                            s.Append("\"\"");
                             break;
                         default:
                             s.Append("default");
@@ -1408,7 +1408,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.Append(" = ");
                     s.AppendLine(cp.TypeKind switch
                     {
-                        "string" => "null!",
+                        "string" => "\"\"",
                         "int32" or "int64" or "float64" => "0",
                         "boolean" => "false",
                         _ => "default!",
