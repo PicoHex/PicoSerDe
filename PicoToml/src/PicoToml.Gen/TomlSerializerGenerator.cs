@@ -392,7 +392,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         switch (dp.ElementTypeKind)
         {
             case "string":
-                s.AppendLine("            tw.WriteKeyValue(__kvp.Key, __kvp.Value);");
+                s.AppendLine("            tw.WriteKeyValue(__kvp.Key, __kvp.Value!);");
                 break;
             case "int32":
                 s.AppendLine("            tw.WriteKeyValue(__kvp.Key, __kvp.Value);");
@@ -1012,11 +1012,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     "TomlInner",
                     elemTypeName
                 );
+                var listAccessor = p.IsNullableReference
+                    ? $"{target}.{p.Name}!"
+                    : $"{target}.{p.Name}";
                 s.Append(indent);
                 s.Append("foreach (var __item in ");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                s.Append(listAccessor);
                 s.AppendLine(")");
                 s.Append(indent);
                 s.AppendLine("{");
@@ -1043,6 +1044,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
+                if (p.IsNullableReference)
+                    s.Append("!");
                 s.AppendLine(")");
                 s.Append(indent);
                 s.AppendLine("{");
@@ -1118,7 +1121,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                         default,
                         null
                     ),
-                    "__kvp.Value"
+                    "__kvp.Value!"
                 );
                 s.AppendLine(");");
             }

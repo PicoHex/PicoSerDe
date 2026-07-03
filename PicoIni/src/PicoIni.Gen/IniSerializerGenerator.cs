@@ -598,7 +598,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.Append(" && TextHelpers.Eq(__k, \"");
                     s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
                     s.Append("\"u8)) { ");
-                    EmitRead(s, np, $"obj.{sec[si].Name}", "");
+                    EmitRead(s, np, $"obj.{sec[si].Name}!", "");
                     s.AppendLine(" }");
                 }
             }
