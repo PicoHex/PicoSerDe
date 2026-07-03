@@ -680,8 +680,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         switch (dp.ElementTypeKind)
         {
             case "string":
-                sb.Append(indent);
-                sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value));");
+                if (dp.ElementIsNullableReference)
+                {
+                    sb.Append(indent);
+                    sb.AppendLine("if (__kvp.Value != null)");
+                    sb.Append(indent);
+                    sb.AppendLine("    jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value));");
+                    sb.Append(indent);
+                    sb.AppendLine("else");
+                    sb.Append(indent);
+                    sb.AppendLine("    jw.WriteNull();");
+                }
+                else
+                {
+                    sb.Append(indent);
+                    sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value));");
+                }
                 break;
             case "int32":
             case "int64":
@@ -1292,10 +1306,28 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         switch (prop.ElementTypeKind!)
         {
             case "string":
-                sb.Append(indent);
-                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
-                sb.Append(itemVar);
-                sb.AppendLine("));");
+                if (prop.ElementIsNullableReference)
+                {
+                    sb.Append(indent);
+                    sb.Append("if (");
+                    sb.Append(itemVar);
+                    sb.AppendLine(" != null)");
+                    sb.Append(indent);
+                    sb.Append("    jw.WriteString(Encoding.UTF8.GetBytes(");
+                    sb.Append(itemVar);
+                    sb.AppendLine("));");
+                    sb.Append(indent);
+                    sb.AppendLine("else");
+                    sb.Append(indent);
+                    sb.AppendLine("    jw.WriteNull();");
+                }
+                else
+                {
+                    sb.Append(indent);
+                    sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                    sb.Append(itemVar);
+                    sb.AppendLine("));");
+                }
                 break;
             case "int32":
             case "int64":
@@ -2071,18 +2103,29 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     "JsonInner",
                     prop.TypeFullName!
                 );
-                sb.Append(indent);
-                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
-                sb.Append(indent);
-                sb.Append("    ");
-                sb.Append(target);
-                sb.Append(".");
-                sb.Append(prop.Name);
-                sb.AppendLine(" = null;");
-                sb.Append(indent);
-                sb.AppendLine("else");
-                sb.Append(indent);
-                sb.Append("    ");
+                if (prop.IsNullable)
+                {
+                    sb.Append(indent);
+                    sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    sb.Append(indent);
+                    sb.Append("    ");
+                    sb.Append(target);
+                    sb.Append(".");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(" = null;");
+                    sb.Append(indent);
+                    sb.AppendLine("else");
+                    sb.Append(indent);
+                    sb.Append("    ");
+                }
+                else
+                {
+                    // Non-nullable: skip null tokens, keep default value
+                    sb.Append(indent);
+                    sb.AppendLine("if (reader.TokenType != TokenType.Null)");
+                    sb.Append(indent);
+                    sb.Append("    ");
+                }
                 sb.Append(target);
                 sb.Append(".");
                 sb.Append(prop.Name);
@@ -2144,9 +2187,27 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         switch (prop.ElementTypeKind!)
         {
             case "string":
-                sb.Append(indent);
-                sb.Append(listVar);
-                sb.AppendLine(".Add(Encoding.UTF8.GetString(reader.GetStringRaw()));");
+                if (prop.ElementIsNullableReference)
+                {
+                    sb.Append(indent);
+                    sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    sb.Append(indent);
+                    sb.Append("    ");
+                    sb.Append(listVar);
+                    sb.AppendLine(".Add(null!);");
+                    sb.Append(indent);
+                    sb.AppendLine("else");
+                    sb.Append(indent);
+                    sb.Append("    ");
+                    sb.Append(listVar);
+                    sb.AppendLine(".Add(Encoding.UTF8.GetString(reader.GetStringRaw()));");
+                }
+                else
+                {
+                    sb.Append(indent);
+                    sb.Append(listVar);
+                    sb.AppendLine(".Add(Encoding.UTF8.GetString(reader.GetStringRaw()));");
+                }
                 break;
             case "int32":
                 sb.Append(indent);

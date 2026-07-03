@@ -90,6 +90,14 @@ public class YamlReadOnlyListModel
     public IReadOnlyList<int> Scores { get; set; } = new List<int>();
 }
 
+// ── CS8604 repro: nullable string array with null elements ──
+
+public class YamlNullableStringArrayModel
+{
+    public string Name { get; set; } = "";
+    public string?[] Items { get; set; } = [];
+}
+
 public class YamlSerializerTests
 {
     [Test]
@@ -315,5 +323,40 @@ public class YamlSerializerTests
         await Assert.That(result.Child.Counts.Count).IsEqualTo(2);
         await Assert.That(result.Child.Counts["x"]).IsEqualTo(1);
         await Assert.That(result.Child.Counts["y"]).IsEqualTo(2);
+    }
+
+    // ── CS8604: nullable string array serialization must not throw ──
+
+    [Test]
+    public async Task NullableStringArray_Serialize_HandlesNullElements()
+    {
+        var model = new YamlNullableStringArrayModel
+        {
+            Name = "test",
+            Items = ["hello", null, "world"],
+        };
+
+        // Must not throw ArgumentNullException from Encoding.UTF8.GetBytes(null)
+        var yaml = YamlSerializer.Serialize(model);
+        await Assert.That(yaml).IsNotNull();
+        await Assert.That(yaml).Contains("hello");
+        await Assert.That(yaml).Contains("world");
+    }
+
+    [Test]
+    public async Task NullableStringArray_RoundTrip_SkipsNulls()
+    {
+        // YAML reader/writer don't natively support null in sequences.
+        // Null elements are skipped during serialization.
+        var model = new YamlNullableStringArrayModel { Name = "test", Items = ["a", null, "b"] };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(model);
+        var result = YamlSerializer.Deserialize<YamlNullableStringArrayModel>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("test");
+        await Assert.That(result.Items).IsNotNull();
+        await Assert.That(result.Items.Length).IsEqualTo(2);
+        await Assert.That(result.Items[0]).IsEqualTo("a");
+        await Assert.That(result.Items[1]).IsEqualTo("b");
     }
 }

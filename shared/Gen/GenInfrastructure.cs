@@ -90,7 +90,8 @@ internal readonly record struct PropertyInfo(
     string? NestedElementTypeKind = null,
     byte? ExtensionTag = null,
     bool IsNullableReference = false,
-    bool IsRequired = false
+    bool IsRequired = false,
+    bool ElementIsNullableReference = false
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -496,6 +497,7 @@ internal static class GenInfrastructure
             string? keyTypeKind = null;
             string? keyTypeName = null;
             ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
+            bool elementIsNrt = false;
 
             if (typeKind is "list" or "array")
             {
@@ -512,6 +514,7 @@ internal static class GenInfrastructure
                     continue;
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
+                elementIsNrt = elementType.NullableAnnotation == NullableAnnotation.Annotated;
                 // Recursively describe nested List<List<...<T>>> — any depth
                 if (
                     (ek is "list" or "array")
@@ -540,6 +543,7 @@ internal static class GenInfrastructure
                     keyTypeName = TypeKindResolver.MapTypeName(kk, keyType);
                     elementTypeKind = vk;
                     elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
+                    elementIsNrt = valType.NullableAnnotation == NullableAnnotation.Annotated;
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
                     {
                         nestedProperties = ExtractNestedProperties(vNtsObj, attrs, formatTag);
@@ -586,7 +590,8 @@ internal static class GenInfrastructure
                     Comment: attrs.GetPropertyComment?.Invoke(prop)
                         ?? attrs.GetComment?.Invoke(prop.ContainingType),
                     IsNullableReference: isNrtNullable,
-                    IsRequired: prop.IsRequired
+                    IsRequired: prop.IsRequired,
+                    ElementIsNullableReference: elementIsNrt
                 )
             );
         }

@@ -716,13 +716,25 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(")");
                     s.Append(ind);
                     s.AppendLine("{");
-                    s.Append(ind);
-                    s.Append("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
-                    if (p.ElementTypeKind == "string")
-                        s.Append("__item");
+                    if (p.ElementTypeKind == "string" && p.ElementIsNullableReference)
+                    {
+                        s.Append(ind);
+                        s.AppendLine("    if (__item != null)");
+                        s.Append(ind);
+                        s.AppendLine(
+                            "        yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item));"
+                        );
+                    }
                     else
-                        s.Append("__item.ToString()");
-                    s.AppendLine("));");
+                    {
+                        s.Append(ind);
+                        s.Append("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
+                        if (p.ElementTypeKind == "string")
+                            s.Append("__item");
+                        else
+                            s.Append("__item.ToString()");
+                        s.AppendLine("));");
+                    }
                     s.Append(ind);
                     s.AppendLine("}");
                 }
@@ -1785,8 +1797,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         switch (p.ElementTypeKind)
         {
             case "string":
-                s.Append(ind);
-                s.AppendLine("yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item));");
+                if (p.ElementIsNullableReference)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (__item != null)");
+                    s.Append(ind);
+                    s.AppendLine("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item));");
+                }
+                else
+                {
+                    s.Append(ind);
+                    s.AppendLine("yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item));");
+                }
                 break;
             case "dict":
             {
