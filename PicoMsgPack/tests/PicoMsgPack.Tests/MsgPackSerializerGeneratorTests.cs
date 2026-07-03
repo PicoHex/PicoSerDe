@@ -98,6 +98,23 @@ public class BytesModel
     public byte[] Data { get; set; } = [];
 }
 
+// ── CS8625 repro: non-nullable nested object ──
+
+public class MpNonNullOwner
+{
+    [MsgPackKey(0)]
+    public string Name { get; set; } = "";
+
+    [MsgPackKey(1)]
+    public MpNonNullChild Child { get; set; } = new();
+}
+
+public class MpNonNullChild
+{
+    [MsgPackKey(0)]
+    public string Value { get; set; } = "default";
+}
+
 public class MsgPackSerializerGeneratorTests
 {
     [Test]
@@ -320,5 +337,37 @@ public class MsgPackSerializerGeneratorTests
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Name).IsEqualTo("Alice");
         await Assert.That(result.Age).IsEqualTo(30);
+    }
+
+    // ── CS8625: non-nullable nested object must keep default when MsgPack has nil ──
+
+    [Test]
+    public async Task NonNullNestedObject_NullMsgPack_KeepsDefault()
+    {
+        var model = new MpNonNullOwner { Name = "owner" };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<MpNonNullOwner>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("owner");
+        await Assert.That(result.Child).IsNotNull();
+        await Assert.That(result.Child!.Value).IsEqualTo("default");
+    }
+
+    [Test]
+    public async Task NonNullNestedObject_WithValue_RoundTrip()
+    {
+        var model = new MpNonNullOwner
+        {
+            Name = "owner",
+            Child = new MpNonNullChild { Value = "custom" },
+        };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var result = MsgPackSerializer.Deserialize<MpNonNullOwner>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!.Name).IsEqualTo("owner");
+        await Assert.That(result.Child).IsNotNull();
+        await Assert.That(result.Child!.Value).IsEqualTo("custom");
     }
 }

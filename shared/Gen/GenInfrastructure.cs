@@ -988,7 +988,7 @@ internal static class GenInfrastructure
             ti = ti.Value with { Properties = mergedProps };
 
             if (hasCtor)
-                ti = ti.Value with { CtorParams = ctorParams.Value };
+                ti = ti.Value with { CtorParams = ctorParams!.Value };
 
             builder.Add(ti.Value);
         }

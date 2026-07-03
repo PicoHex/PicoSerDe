@@ -1206,7 +1206,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("    tw.WriteKeyValue(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.Append("\"u8, ");
-            EmitValueAccessor(s, p, $"{target}.{p.Name}");
+            EmitValueAccessor(s, p, $"{target}.{p.Name}!");
             s.AppendLine(");");
             s.Append(indent);
             s.AppendLine("}");
@@ -2075,7 +2075,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("            var obj = new ");
             s.Append(ds);
             s.AppendLine("();");
-            s.AppendLine("            while (reader.Read() && reader.TokenType == TokenType.PropertyName) {");
+            s.AppendLine(
+                "            while (reader.Read() && reader.TokenType == TokenType.PropertyName) {"
+            );
             s.AppendLine("                var __k = reader.KeySpan;");
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
@@ -2101,7 +2103,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("        }");
         }
 
-        s.AppendLine("        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");");
+        s.AppendLine(
+            "        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");"
+        );
         s.AppendLine("    }");
         s.AppendLine("}");
         s.AppendLine();

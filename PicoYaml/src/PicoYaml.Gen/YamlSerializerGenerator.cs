@@ -1625,10 +1625,24 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             switch (p.TypeKind)
             {
                 case "string":
-                    s.Append(ind);
-                    s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
-                    s.Append(valAccessor);
-                    s.AppendLine("));");
+                    if (p.IsNullableReference)
+                    {
+                        s.Append(ind);
+                        s.Append("    if (");
+                        s.Append(valAccessor);
+                        s.AppendLine(" != null)");
+                        s.Append(ind);
+                        s.Append("        yw.WriteString(Encoding.UTF8.GetBytes(");
+                        s.Append(valAccessor);
+                        s.AppendLine("));");
+                    }
+                    else
+                    {
+                        s.Append(ind);
+                        s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
+                        s.Append(valAccessor);
+                        s.AppendLine("));");
+                    }
                     break;
                 case "int32":
                     s.Append(ind);
