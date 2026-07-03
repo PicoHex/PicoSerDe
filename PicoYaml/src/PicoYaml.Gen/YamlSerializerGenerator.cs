@@ -618,10 +618,28 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         switch (p.TypeKind)
         {
             case "string":
-                s.Append(ind);
-                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
-                s.Append(accessor);
-                s.AppendLine("));");
+                if (p.IsNullableReference)
+                {
+                    s.Append(ind);
+                    s.Append("if (");
+                    s.Append(accessor);
+                    s.AppendLine(" != null)");
+                    s.Append(ind);
+                    s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(accessor);
+                    s.AppendLine("));");
+                    s.Append(ind);
+                    s.AppendLine("else");
+                    s.Append(ind);
+                    s.AppendLine("    yw.WriteString(\"null\"u8);");
+                }
+                else
+                {
+                    s.Append(ind);
+                    s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(accessor);
+                    s.AppendLine("));");
+                }
                 break;
             case "int32":
             case "int64":
@@ -1621,7 +1639,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"u8);");
             string valAccessor = p.IsNullableReference
                 ? $"{target}.{p.Name}"
-                : $"{target}.{p.Name}.Value";
+                : $"{target}.{p.Name}!.Value";
             switch (p.TypeKind)
             {
                 case "string":

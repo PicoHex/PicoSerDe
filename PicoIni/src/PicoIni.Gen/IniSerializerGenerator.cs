@@ -1,8 +1,8 @@
 namespace PicoIni.Gen;
 
+using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
-using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
 
 [Generator(LanguageNames.CSharp)]
 public sealed class IniSerializerGenerator : IIncrementalGenerator
@@ -406,7 +406,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("\"u8, ");
                 if (p.IsNullable && !p.IsNullableReference)
                 {
-                    s.Append($"value.{p.Name}.Value");
+                    s.Append($"value.{p.Name}!.Value");
                 }
                 else
                 {
@@ -1406,13 +1406,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.Append(" __cp_");
                     s.Append(ci);
                     s.Append(" = ");
-                    s.AppendLine(cp.TypeKind switch
-                    {
-                        "string" => "\"\"",
-                        "int32" or "int64" or "float64" => "0",
-                        "boolean" => "false",
-                        _ => "default!",
-                    });
+                    s.AppendLine(
+                        cp.TypeKind switch
+                        {
+                            "string" => "\"\"",
+                            "int32" or "int64" or "float64" => "0",
+                            "boolean" => "false",
+                            _ => "default!",
+                        }
+                    );
                 }
             }
             else
@@ -1444,8 +1446,17 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.AppendLine();
                     int matchIdx = -1;
                     for (int ci = 0; ci < dti.CtorParams.Length; ci++)
-                        if (string.Equals(dti.CtorParams[ci].Name, prop.Name, StringComparison.OrdinalIgnoreCase))
-                        { matchIdx = ci; break; }
+                        if (
+                            string.Equals(
+                                dti.CtorParams[ci].Name,
+                                prop.Name,
+                                StringComparison.OrdinalIgnoreCase
+                            )
+                        )
+                        {
+                            matchIdx = ci;
+                            break;
+                        }
                     if (matchIdx >= 0)
                     {
                         var cp = dti.CtorParams[matchIdx];
@@ -1478,7 +1489,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("(");
                 for (int ci = 0; ci < dti.CtorParams.Length; ci++)
                 {
-                    if (ci > 0) s.Append(", ");
+                    if (ci > 0)
+                        s.Append(", ");
                     s.Append("__cp_");
                     s.Append(ci);
                 }
@@ -1490,14 +1502,17 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine("        }");
         }
 
-        s.AppendLine("        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");");
+        s.AppendLine(
+            "        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");"
+        );
         s.AppendLine("    }");
         s.AppendLine("}");
         s.AppendLine();
 
         // ── Registration ──
         var typeRef = string.IsNullOrEmpty(type.Namespace)
-            ? type.Name : $"{type.Namespace}.{type.Name}";
+            ? type.Name
+            : $"{type.Namespace}.{type.Name}";
         s.Append("file static class ");
         s.Append(type.Name);
         s.AppendLine("SerDeRegistration {");
@@ -1551,13 +1566,19 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         else if (prop.TypeKind == "int64")
             s.Append("long.TryParse(__rv, out var __lv) ? __lv : 0");
         else if (prop.TypeKind == "float32" || prop.TypeKind == "float64")
-            s.Append($"double.TryParse(__rv, out var __dv) ? ({GetCSharpType(prop.TypeKind)})__dv : 0");
+            s.Append(
+                $"double.TryParse(__rv, out var __dv) ? ({GetCSharpType(prop.TypeKind)})__dv : 0"
+            );
         else if (prop.TypeKind == "boolean")
             s.Append("bool.TryParse(__rv, out var __bv) ? __bv : false");
         else if (prop.TypeKind == "decimal")
-            s.Append("decimal.TryParse(__rv, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __dec) ? __dec : 0");
+            s.Append(
+                "decimal.TryParse(__rv, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __dec) ? __dec : 0"
+            );
         else if (prop.TypeKind == "datetime")
-            s.Append("DateTime.TryParse(__rv, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt) ? __dt : default");
+            s.Append(
+                "DateTime.TryParse(__rv, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt) ? __dt : default"
+            );
         else if (prop.TypeKind == "guid")
             s.Append("Guid.TryParse(__rv, out var __g) ? __g : default");
         else if (prop.TypeKind == "enum")
@@ -1566,10 +1587,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.Append("Encoding.UTF8.GetString(__rv)");
     }
 
-    private static string GetCSharpType(string typeKind) => typeKind switch
-    {
-        "float32" => "float",
-        "float64" => "double",
-        _ => "object"
-    };
+    private static string GetCSharpType(string typeKind) =>
+        typeKind switch
+        {
+            "float32" => "float",
+            "float64" => "double",
+            _ => "object",
+        };
 }
