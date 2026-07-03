@@ -370,7 +370,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 && !type.ArrayElementNestedProps.IsDefaultOrEmpty
             )
             {
-                var elemFqn = type.ArrayElementName.Replace("global::", "");
+                var elemFqn = type.ArrayElementName!.Replace("global::", "");
                 if (!nestedTypes.ContainsKey(elemFqn))
                     nestedTypes[elemFqn] = type.ArrayElementNestedProps;
             }

@@ -107,7 +107,12 @@ public ref struct MsgPackReader
     {
         _depth = state.Depth;
         _needsMoreData = false;
-        if (_depth > 0 && state.ElementStack is not null)
+        if (
+            _depth > 0
+            && state.ElementStack is not null
+            && state.IsMapStack is not null
+            && state.ExpectKeyStack is not null
+        )
         {
             for (int i = 0; i < _depth; i++)
             {
