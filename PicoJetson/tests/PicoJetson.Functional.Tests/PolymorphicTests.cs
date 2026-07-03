@@ -9,7 +9,7 @@ public abstract class SessionEntry { }
 
 public class MessageEntry : SessionEntry
 {
-    public string Content { get; set; } = "";
+    public string Content { get; set; } = string.Empty;
     public int Sequence { get; set; }
     public string? OptionalNote { get; set; }
 }
@@ -30,14 +30,14 @@ public abstract class AppEvent { }
 
 public class EmailEvent : AppEvent
 {
-    public string To { get; set; } = "";
-    public string Subject { get; set; } = "";
+    public string To { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
 }
 
 public class SmsEvent : AppEvent
 {
-    public string Phone { get; set; } = "";
-    public string Text { get; set; } = "";
+    public string Phone { get; set; } = string.Empty;
+    public string Text { get; set; } = string.Empty;
 }
 
 // ── Test model: derived type with [JsonConstructor] ──

@@ -2,20 +2,20 @@ namespace PicoYaml.Tests;
 
 public class YamlSerModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Age { get; set; }
 }
 
 public class YamlListModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public List<int> Scores { get; set; } = new();
     public List<string> Tags { get; set; } = new();
 }
 
 public class YamlNullableModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int? Age { get; set; }
     public double? Rating { get; set; }
     public bool? Enabled { get; set; }
@@ -33,43 +33,43 @@ public class YamlGuidModel
 
 public class YamlAddress
 {
-    public string Street { get; set; } = "";
-    public string City { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
 }
 
 public class YamlNestedModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public YamlAddress Address { get; set; } = new();
 }
 
 public class YamlDictModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public Dictionary<string, int> Scores { get; set; } = new();
 }
 
 public class YamlNestedWithList
 {
-    public string Street { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
     public List<string> Tags { get; set; } = new();
 }
 
 public class YamlOuterWithNestedList
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public YamlNestedWithList Child { get; set; } = new();
 }
 
 public class YamlNestedWithDict
 {
-    public string Label { get; set; } = "";
+    public string Label { get; set; } = string.Empty;
     public Dictionary<string, int> Counts { get; set; } = new();
 }
 
 public class YamlOuterWithNestedDict
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public YamlNestedWithDict Child { get; set; } = new();
 }
 
@@ -94,7 +94,7 @@ public class YamlReadOnlyListModel
 
 public class YamlNullableStringArrayModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public string?[] Items { get; set; } = [];
 }
 

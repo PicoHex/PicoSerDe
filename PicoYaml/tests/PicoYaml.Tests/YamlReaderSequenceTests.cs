@@ -46,7 +46,7 @@ public class YamlReaderSequenceTests
         var reader = new YamlReader(seq);
 
         string val1 = "",
-            val2 = "";
+            val2 = string.Empty;
         reader.Read(); // name: &myName Alice
         val1 = Encoding.UTF8.GetString(reader.ValueSpan);
         reader.Read(); // greeting: *myName

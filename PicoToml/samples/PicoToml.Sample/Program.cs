@@ -149,8 +149,8 @@ Console.WriteLine("\nAll samples passed.");
 // ═══ Models ═══
 public class TomlConfig
 {
-    public string Name { get; set; } = "";
-    public string Version { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
+    public string Version { get; set; } = string.Empty;
     public int Port { get; set; }
     public double Pi { get; set; }
     public decimal Price { get; set; }
@@ -160,23 +160,23 @@ public class TomlConfig
     public List<string> Tags { get; set; } = [];
 
     [TomlIgnore]
-    public string Secret { get; set; } = "";
+    public string Secret { get; set; } = string.Empty;
 }
 
 [TomlCamelCase]
 public class CamelToml
 {
-    public string ProductName { get; set; } = "";
+    public string ProductName { get; set; } = string.Empty;
     public int StockCount { get; set; }
 }
 
 public class AttrToml
 {
     [TomlKey("app_name")]
-    public string AppName { get; set; } = "";
+    public string AppName { get; set; } = string.Empty;
 
     [TomlIgnore]
-    public string Secret { get; set; } = "";
+    public string Secret { get; set; } = string.Empty;
 
     [TomlKey("listen_port")]
     public int Port { get; set; }
@@ -190,7 +190,7 @@ public class DtToml
 
 public class TomlTag
 {
-    public string Value { get; set; } = "";
+    public string Value { get; set; } = string.Empty;
 }
 
 public class TagCvt : ITomlConverter<TomlTag>

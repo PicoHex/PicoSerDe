@@ -8,18 +8,18 @@ namespace PicoJetson.Tests;
 
 public class NullableRefModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
 }
 
 public class InnerModel
 {
-    public string Value { get; set; } = "";
+    public string Value { get; set; } = string.Empty;
 }
 
 public class NullableNestedModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public InnerModel? Child { get; set; }
 }
 
@@ -27,7 +27,7 @@ public class NullableNestedModel
 
 public class NonNullNestedOwner
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public NonNullNestedChild Child { get; set; } = new();
 }
 

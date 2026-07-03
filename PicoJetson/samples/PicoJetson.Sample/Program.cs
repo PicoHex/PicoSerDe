@@ -247,7 +247,7 @@ class Program
 
 public class Person
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Age { get; set; }
 }
 
@@ -262,15 +262,15 @@ public enum OrderStatus
 
 public class Address
 {
-    public string Street { get; set; } = "";
-    public string City { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
     public string? Zip { get; set; }
-    public string Country { get; set; } = "";
+    public string Country { get; set; } = string.Empty;
 }
 
 public class Customer
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public DateOnly Since { get; set; }
     public List<string> Preferences { get; set; } = new();
     public Address? Address { get; set; }
@@ -278,7 +278,7 @@ public class Customer
 
 public class OrderLine
 {
-    public string Product { get; set; } = "";
+    public string Product { get; set; } = string.Empty;
     public int Quantity { get; set; }
     public decimal UnitPrice { get; set; }
     public TimeOnly? PickedAt { get; set; }
@@ -300,7 +300,7 @@ public class Order
     public List<OrderLine> Lines { get; set; } = new();
 
     [JsonIgnore]
-    public string InternalNote { get; set; } = "";
+    public string InternalNote { get; set; } = string.Empty;
 }
 
 public class ShortDateConverter : IJsonConverter<DateTime>
@@ -322,13 +322,13 @@ public class ShortDateConverter : IJsonConverter<DateTime>
 
 public class FullName
 {
-    public string FirstName { get; set; } = "";
-    public string LastName { get; set; } = "";
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
 }
 
 public class HasNull
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public string? Desc { get; set; }
 }
 
@@ -340,13 +340,13 @@ public class Renamed
     public int UserId { get; set; }
 
     [JsonPropertyName("name")]
-    public string Display { get; set; } = "";
+    public string Display { get; set; } = string.Empty;
 }
 
 [JsonCamelCase]
 public class CamelClass
 {
-    public string ProductName { get; set; } = "";
+    public string ProductName { get; set; } = string.Empty;
     public int StockCount { get; set; }
 }
 

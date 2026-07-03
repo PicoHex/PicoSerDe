@@ -17,7 +17,7 @@ public class CustomDateConverter : IJsonConverter<DateTime>
 
 public class ConverterModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [JsonConverter(typeof(CustomDateConverter))]
     public DateTime Date { get; set; }

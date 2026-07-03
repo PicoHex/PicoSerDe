@@ -7,7 +7,7 @@ public abstract class YamlSessionEntry { }
 
 public class YamlMsgEntry : YamlSessionEntry
 {
-    public string Content { get; set; } = "";
+    public string Content { get; set; } = string.Empty;
     public int Sequence { get; set; }
 }
 

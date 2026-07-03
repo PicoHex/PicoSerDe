@@ -188,7 +188,7 @@ public class IniReaderUnifiedTests
         var data = "Key = Val"u8.ToArray();
         var sequence = new ReadOnlySequence<byte>(data);
         string s1 = "",
-            s2 = "";
+            s2 = string.Empty;
         // Use local function to contain ref struct
         ReadSequence(sequence, out s1, out s2);
         await Assert.That(s1).IsEqualTo("Key");
@@ -197,8 +197,8 @@ public class IniReaderUnifiedTests
 
     private static void ReadSequence(ReadOnlySequence<byte> seq, out string key, out string value)
     {
-        key = "";
-        value = "";
+        key = string.Empty;
+        value = string.Empty;
         using var reader = new IniReader(seq);
         if (reader.Read())
             key = Encoding.UTF8.GetString(reader.GetStringRaw());
@@ -212,7 +212,7 @@ public class IniReaderUnifiedTests
         var data = "Name = \"hello\\nworld\""u8.ToArray();
         var sequence = new ReadOnlySequence<byte>(data);
         string key = "",
-            value = "";
+            value = string.Empty;
         ReadSequence(sequence, out key, out value);
         await Assert.That(key).IsEqualTo("Name");
         await Assert.That(value).IsEqualTo("hello\nworld");
@@ -225,7 +225,7 @@ public class IniReaderUnifiedTests
         var longName = new string('S', 200);
         var data = Encoding.UTF8.GetBytes($"[{longName}]\nKey = Value");
         var sequence = new ReadOnlySequence<byte>(data);
-        string section = "";
+        string section = string.Empty;
         using (var reader = new IniReader(sequence))
         {
             reader.Read();

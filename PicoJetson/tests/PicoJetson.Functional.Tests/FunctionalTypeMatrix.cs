@@ -4,7 +4,7 @@ namespace PicoJetson.Functional.Tests;
 
 public class MatrixRegular
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Value { get; set; }
 }
 
@@ -21,13 +21,13 @@ public abstract class MatrixAnimal { }
 
 public class MatrixDog : MatrixAnimal
 {
-    public string Breed { get; set; } = "";
+    public string Breed { get; set; } = string.Empty;
     public int Age { get; set; }
 }
 
 public class MatrixCat : MatrixAnimal
 {
-    public string Color { get; set; } = "";
+    public string Color { get; set; } = string.Empty;
     public bool Indoor { get; set; }
 }
 
@@ -37,12 +37,12 @@ public class MatrixCat : MatrixAnimal
 [PicoDerivedType(typeof(Parrot), "parrot")]
 public abstract class AnimalWithName
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 }
 
 public class Parrot : AnimalWithName
 {
-    public string Color { get; set; } = "";
+    public string Color { get; set; } = string.Empty;
     public bool CanTalk { get; set; }
 }
 

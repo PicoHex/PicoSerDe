@@ -4,14 +4,14 @@ namespace PicoBench;
 
 public class SimplePoco
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Age { get; set; }
 }
 
 public class ComplexPoco
 {
     public Guid Id { get; set; }
-    public string Title { get; set; } = "";
+    public string Title { get; set; } = string.Empty;
     public decimal Price { get; set; }
     public DateTime CreatedAt { get; set; }
     public DayOfWeek Day { get; set; }
@@ -22,15 +22,15 @@ public class ComplexPoco
 public class NestedPoco
 {
     public int Id { get; set; }
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public NestedAddress? Address { get; set; }
     public List<string> Tags { get; set; } = new();
 }
 
 public class NestedAddress
 {
-    public string Street { get; set; } = "";
-    public string City { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
     public string? Zip { get; set; }
 }
 
@@ -43,16 +43,16 @@ public class CollectionPoco
 /// <summary>Large model with 50 string properties — exercises whitespace-heavy parsing.</summary>
 public class LargeFlatPoco
 {
-    public string F01 { get; set; } = "";
-    public string F02 { get; set; } = "";
-    public string F03 { get; set; } = "";
-    public string F04 { get; set; } = "";
-    public string F05 { get; set; } = "";
-    public string F06 { get; set; } = "";
-    public string F07 { get; set; } = "";
-    public string F08 { get; set; } = "";
-    public string F09 { get; set; } = "";
-    public string F10 { get; set; } = "";
+    public string F01 { get; set; } = string.Empty;
+    public string F02 { get; set; } = string.Empty;
+    public string F03 { get; set; } = string.Empty;
+    public string F04 { get; set; } = string.Empty;
+    public string F05 { get; set; } = string.Empty;
+    public string F06 { get; set; } = string.Empty;
+    public string F07 { get; set; } = string.Empty;
+    public string F08 { get; set; } = string.Empty;
+    public string F09 { get; set; } = string.Empty;
+    public string F10 { get; set; } = string.Empty;
     public int N01 { get; set; }
     public int N02 { get; set; }
     public int N03 { get; set; }
@@ -78,16 +78,16 @@ public class LargeFlatPoco
 /// <summary>Large string content — exercises ContainsBackslash SIMD via escaped strings.</summary>
 public class LargeStringPoco
 {
-    public string Body { get; set; } = "";
+    public string Body { get; set; } = string.Empty;
 }
 
 /// <summary>Medium model with 6 mixed scalar types — exercises key dispatch optimization.</summary>
 public class MediumScalarPoco
 {
-    public string Alpha { get; set; } = "";
+    public string Alpha { get; set; } = string.Empty;
     public int Beta { get; set; }
     public bool Gamma { get; set; }
     public long Delta { get; set; }
     public double Epsilon { get; set; }
-    public string Zeta { get; set; } = "";
+    public string Zeta { get; set; } = string.Empty;
 }

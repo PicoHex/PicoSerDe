@@ -2,7 +2,7 @@ namespace PicoYaml.Tests;
 
 public class YamlSub
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Value { get; set; }
 }
 
@@ -58,7 +58,7 @@ public class YamlModel
     public float Float { get; set; }
     public double Double { get; set; }
     public decimal Decimal { get; set; }
-    public string String { get; set; } = "";
+    public string String { get; set; } = string.Empty;
     public string? NullableString { get; set; }
     public DateTime DateTime { get; set; }
     public TimeSpan TimeSpan { get; set; }

@@ -3,15 +3,15 @@ namespace PicoYaml.Tests;
 [YamlTag("!person")]
 public class YamlTaggedPerson
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Age { get; set; }
 }
 
 [YamlTag("!config")]
 public class YamlTaggedConfig
 {
-    public string Key { get; set; } = "";
-    public string Value { get; set; } = "";
+    public string Key { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
 }
 
 public class YamlTagTests

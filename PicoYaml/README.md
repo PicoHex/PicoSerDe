@@ -23,7 +23,7 @@ using PicoYaml;
 
 public class Config
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Port { get; set; }
     public List<string> Tags { get; set; } = new();
 }

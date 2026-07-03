@@ -147,8 +147,8 @@ Console.WriteLine("\nAll samples passed.");
 // ═══ Models ═══
 public class YamlConfig
 {
-    public string Name { get; set; } = "";
-    public string Version { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
+    public string Version { get; set; } = string.Empty;
     public int Port { get; set; }
     public double Pi { get; set; }
     public decimal Price { get; set; }
@@ -158,23 +158,23 @@ public class YamlConfig
     public List<string> Tags { get; set; } = [];
 
     [YamlIgnore]
-    public string Secret { get; set; } = "";
+    public string Secret { get; set; } = string.Empty;
 }
 
 [YamlCamelCase]
 public class CamelYaml
 {
-    public string ProductName { get; set; } = "";
+    public string ProductName { get; set; } = string.Empty;
     public int StockCount { get; set; }
 }
 
 public class AttrYaml
 {
     [YamlKey("app_name")]
-    public string AppName { get; set; } = "";
+    public string AppName { get; set; } = string.Empty;
 
     [YamlIgnore]
-    public string Secret { get; set; } = "";
+    public string Secret { get; set; } = string.Empty;
 
     [YamlKey("listen_port")]
     public int Port { get; set; }
@@ -188,7 +188,7 @@ public class DtYaml
 
 public class YamlTag
 {
-    public string Value { get; set; } = "";
+    public string Value { get; set; } = string.Empty;
 }
 
 public class TagCvt : IYamlConverter<YamlTag>

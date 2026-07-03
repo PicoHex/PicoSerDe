@@ -18,7 +18,7 @@ using PicoToml;
 
 public class AppConfig
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Count { get; set; }
     public bool Enabled { get; set; }
 }

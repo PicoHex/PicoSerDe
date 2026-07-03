@@ -10,7 +10,7 @@ public ref struct TomlPoint
 
 public class TomlSimple
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Value { get; set; }
 }
 

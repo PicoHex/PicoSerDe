@@ -22,7 +22,7 @@ public class MpModel
     public double Double { get; set; }
 
     [Key(4)]
-    public string String { get; set; } = "";
+    public string String { get; set; } = string.Empty;
 
     [Key(5)]
     public DateTime DateTime { get; set; }
@@ -68,7 +68,7 @@ public class MpModel
 public class MpSub
 {
     [Key(0)]
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [Key(1)]
     public int Value { get; set; }

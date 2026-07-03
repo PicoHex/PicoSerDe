@@ -12,7 +12,7 @@ public ref struct IniPoint
 
 public class IniSimpleModel
 {
-    public string Title { get; set; } = "";
+    public string Title { get; set; } = string.Empty;
     public int Port { get; set; }
 }
 

@@ -2,10 +2,10 @@ namespace PicoJetson.Tests;
 
 public class IgnoreModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [JsonIgnore]
-    public string Secret { get; set; } = "";
+    public string Secret { get; set; } = string.Empty;
 
     public int Age { get; set; }
 }

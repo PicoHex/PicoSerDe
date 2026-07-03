@@ -18,13 +18,13 @@ using PicoIni;
 
 public class AppConfig
 {
-    public string Title { get; set; } = "";
+    public string Title { get; set; } = string.Empty;
     public ServerConfig Server { get; set; } = new();
 }
 
 public class ServerConfig
 {
-    public string Host { get; set; } = "";
+    public string Host { get; set; } = string.Empty;
     public int Port { get; set; }
 }
 

@@ -111,7 +111,7 @@ public class MsgPackWriterTests
 
         var data = buf.WrittenSpan.ToArray();
         var reader = new MsgPackReader(data);
-        string name = "";
+        string name = string.Empty;
         int age = 0;
         reader.Read(); // ObjectStart
         reader.Read(); /* "name" */

@@ -2,20 +2,20 @@ namespace PicoToml.Tests;
 
 public class SimplePoco
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Age { get; set; }
 }
 
 public class ListPoco
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public List<int> Scores { get; set; } = new();
     public List<string> Tags { get; set; } = new();
 }
 
 public class NullablePoco
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int? Age { get; set; }
     public double? Rating { get; set; }
     public bool? Enabled { get; set; }
@@ -23,7 +23,7 @@ public class NullablePoco
 
 public class TemporalPoco
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
 }
 
@@ -41,19 +41,19 @@ public class GuidPoco
 
 public class Address
 {
-    public string Street { get; set; } = "";
-    public string City { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
 }
 
 public class NestedPoco
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public Address Address { get; set; } = new();
 }
 
 public class DictPoco
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public Dictionary<string, int> Scores { get; set; } = new();
 }
 
@@ -84,12 +84,12 @@ public class DecimalPoco
 
 public class ManyScalarTomlPoco
 {
-    public string Alpha { get; set; } = "";
+    public string Alpha { get; set; } = string.Empty;
     public int Beta { get; set; }
     public bool Gamma { get; set; }
     public long Delta { get; set; }
     public double Epsilon { get; set; }
-    public string Zeta { get; set; } = "";
+    public string Zeta { get; set; } = string.Empty;
 }
 
 public class ReadOnlyListPoco

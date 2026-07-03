@@ -124,7 +124,7 @@ public class MsgSimple
 {
     [MsgPackKey(0)]
     [MessagePack.Key(0)]
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [MsgPackKey(1)]
     [MessagePack.Key(1)]
@@ -140,7 +140,7 @@ public class MsgComplex
 
     [MsgPackKey(1)]
     [MessagePack.Key(1)]
-    public string Title { get; set; } = "";
+    public string Title { get; set; } = string.Empty;
 
     [MsgPackKey(2)]
     [MessagePack.Key(2)]
@@ -172,7 +172,7 @@ public class MsgNested
 
     [MsgPackKey(1)]
     [MessagePack.Key(1)]
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [MsgPackKey(2)]
     [MessagePack.Key(2)]
@@ -188,11 +188,11 @@ public class MsgAddress
 {
     [MsgPackKey(0)]
     [MessagePack.Key(0)]
-    public string Street { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
 
     [MsgPackKey(1)]
     [MessagePack.Key(1)]
-    public string City { get; set; } = "";
+    public string City { get; set; } = string.Empty;
 
     [MsgPackKey(2)]
     [MessagePack.Key(2)]

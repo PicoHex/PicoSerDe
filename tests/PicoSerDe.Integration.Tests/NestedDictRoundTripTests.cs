@@ -15,7 +15,7 @@ public class NestedDictModel
 
 public class NestedDictWithObjectModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public Dictionary<string, AllFormatsSub> DictOfObject { get; set; } = [];
 }
 

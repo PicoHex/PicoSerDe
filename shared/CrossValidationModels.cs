@@ -13,7 +13,7 @@ public class ComplexModel
     public decimal Decimal { get; set; }
 
     // ── String ──
-    public string String { get; set; } = "";
+    public string String { get; set; } = string.Empty;
     public string? NullableString { get; set; }
 
     // ── Date/Time (all SGs support DateTime/TimeSpan/DateOnly/TimeOnly/Guid) ──
@@ -42,7 +42,7 @@ public class ComplexModel
 
 public class SubModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Value { get; set; }
 }
 

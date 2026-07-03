@@ -11,7 +11,7 @@ namespace PicoJetson.Integration.Tests;
 // Models for SG consistency testing
 public class SgConsistencyModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Value { get; set; }
 }
 
@@ -21,7 +21,7 @@ public abstract class SgConsistencyBase { }
 
 public class SgConsistencyChild : SgConsistencyBase
 {
-    public string Data { get; set; } = "";
+    public string Data { get; set; } = string.Empty;
 }
 
 public class SgConsistencyImmutable

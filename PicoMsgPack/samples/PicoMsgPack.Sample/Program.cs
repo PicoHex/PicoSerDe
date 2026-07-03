@@ -131,7 +131,7 @@ Console.WriteLine("\nDone.");
 
 public class User // keys auto-assigned: Name=0, Age=1, Active=2
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Age { get; set; }
     public bool Active { get; set; }
 }
@@ -139,7 +139,7 @@ public class User // keys auto-assigned: Name=0, Age=1, Active=2
 public class ProductEx
 {
     [MsgPackKey(0)]
-    public string Title { get; set; } = "";
+    public string Title { get; set; } = string.Empty;
 
     [MsgPackKey(1)]
     public double Price { get; set; }
@@ -156,23 +156,23 @@ public class Order // auto-numbered: Id=0, Customer=1
 
 public class Customer // auto-numbered: Name=0
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 }
 
 public class WithIgnore
 {
     [MsgPackKey(0)]
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [MsgPackIgnore]
-    public string Secret { get; set; } = "";
+    public string Secret { get; set; } = string.Empty;
 }
 
 public class Encoded
 {
     [MsgPackKey(0)]
     [MsgPackConverter(typeof(TagEncoder))]
-    public string Tag { get; set; } = "";
+    public string Tag { get; set; } = string.Empty;
 }
 
 public class TagEncoder : IMsgPackConverter<string>

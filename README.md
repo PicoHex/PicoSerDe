@@ -127,7 +127,7 @@ Base types declare derived types at compile time. Zero reflection, AOT-safe. Sin
 [PicoDerivedType(typeof(CompactionEntry), "compaction")]
 abstract class SessionEntry { }
 
-class MessageEntry : SessionEntry { public string Content { get; set; } = ""; }
+class MessageEntry : SessionEntry { public string Content { get; set; } = string.Empty; }
 class CompactionEntry : SessionEntry { public int From { get; set; } }
 
 var json = """{"$type":"message","Content":"hello"}"""u8;

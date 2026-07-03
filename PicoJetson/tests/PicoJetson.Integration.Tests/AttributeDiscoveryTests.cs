@@ -6,7 +6,7 @@ namespace PicoJetson.Tests;
 [PicoSerializable]
 public class AllFormatsDto
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Value { get; set; }
 }
 
@@ -14,7 +14,7 @@ public class AllFormatsDto
 [PicoJsonSerializable]
 public class JsonOnlyDto
 {
-    public string Label { get; set; } = "";
+    public string Label { get; set; } = string.Empty;
 }
 
 /// <summary>Indirect discovery via [PicoJsonSerializable(typeof(T))].</summary>
@@ -23,7 +23,7 @@ public class JsonConfig { }
 
 public class JsonIndirectDto
 {
-    public string Data { get; set; } = "";
+    public string Data { get; set; } = string.Empty;
 }
 
 /// <summary>Type discovered via [GenerateSerializer(typeof(T))].</summary>
@@ -32,7 +32,7 @@ class GenSerializerConfig { }
 
 public class GenSerializerRefDto
 {
-    public string Token { get; set; } = "";
+    public string Token { get; set; } = string.Empty;
 }
 
 /// <summary>Tests for attribute-driven source generation.</summary>
@@ -126,7 +126,7 @@ public class IncludeFieldsDto
 {
     public string Name = "default"; // field
     public int Count; // field
-    public string Label { get; set; } = ""; // property (still works)
+    public string Label { get; set; } = string.Empty; // property (still works)
 }
 
 public class IncludeFieldsTests2

@@ -3,7 +3,7 @@ namespace PicoJetson.Tests;
 [JsonCamelCase]
 public class CamelModel
 {
-    public string FullName { get; set; } = "";
+    public string FullName { get; set; } = string.Empty;
     public int UserAge { get; set; }
 }
 

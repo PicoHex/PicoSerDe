@@ -7,7 +7,7 @@ public abstract class MpSessionEntry { }
 
 public class MpMsgEntry : MpSessionEntry
 {
-    public string Content { get; set; } = "";
+    public string Content { get; set; } = string.Empty;
     public int Sequence { get; set; }
 }
 

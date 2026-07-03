@@ -4,7 +4,7 @@ public class OptionsPropagationTests
 {
     private class TestDto
     {
-        public string Name { get; set; } = "";
+        public string Name { get; set; } = string.Empty;
     }
 
     private readonly struct OptionsAwareSerializer : ISerializer<TestDto>

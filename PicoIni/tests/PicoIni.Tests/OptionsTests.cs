@@ -65,7 +65,7 @@ public class OptionsSGTests
 
 public class NullableIniDto
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public string? Title { get; set; }
 }
 

@@ -97,13 +97,13 @@ Console.WriteLine("\nAll samples passed.");
 
 public class ServerCfg
 {
-    public string Host { get; set; } = "";
+    public string Host { get; set; } = string.Empty;
     public int Port { get; set; }
 }
 
 public class AppConfig
 {
-    public string Title { get; set; } = "";
+    public string Title { get; set; } = string.Empty;
     public int Version { get; set; }
     public DateTime CreatedAt { get; set; }
     public TimeSpan Timeout { get; set; }
@@ -111,13 +111,13 @@ public class AppConfig
     public ServerCfg Server { get; set; } = new();
 
     [IniIgnore]
-    public string Secret { get; set; } = "";
+    public string Secret { get; set; } = string.Empty;
 }
 
 [IniCamelCase]
 public class CamelCfg
 {
-    public string ProductName { get; set; } = "";
+    public string ProductName { get; set; } = string.Empty;
     public int StockCount { get; set; }
 }
 
@@ -125,10 +125,10 @@ public class CamelCfg
 public class AttrCfg
 {
     [IniKey("app_name")]
-    public string AppName { get; set; } = "";
+    public string AppName { get; set; } = string.Empty;
 
     [IniIgnore]
-    public string Secret { get; set; } = "";
+    public string Secret { get; set; } = string.Empty;
 
     [IniKey("listen_port")]
     public int Port { get; set; }
@@ -144,7 +144,7 @@ public class DtCfg
 public class CommentedCfg
 {
     [IniComment("Friendly display name")]
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [IniComment("TCP listen port (1-65535)")]
     public int Port { get; set; }
@@ -153,7 +153,7 @@ public class CommentedCfg
 public class ConvEx
 {
     [IniConverter(typeof(TagWriter))]
-    public string Tag { get; set; } = "";
+    public string Tag { get; set; } = string.Empty;
 }
 
 public class TagWriter : IIniConverter<string>

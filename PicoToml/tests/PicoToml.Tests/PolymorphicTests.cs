@@ -7,7 +7,7 @@ public abstract class TomlSessionEntry { }
 
 public class TomlMsgEntry : TomlSessionEntry
 {
-    public string Content { get; set; } = "";
+    public string Content { get; set; } = string.Empty;
     public int Sequence { get; set; }
 }
 

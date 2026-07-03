@@ -3,7 +3,7 @@ namespace PicoIni.Tests;
 [PicoIniSerializable]
 public class IniOnlyDto
 {
-    public string Key { get; set; } = "";
+    public string Key { get; set; } = string.Empty;
     public int Value { get; set; }
 }
 

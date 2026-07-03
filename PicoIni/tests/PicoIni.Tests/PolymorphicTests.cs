@@ -9,7 +9,7 @@ public abstract class IniSessionEntry { }
 
 public class IniMsgEntry : IniSessionEntry
 {
-    public string Content { get; set; } = "";
+    public string Content { get; set; } = string.Empty;
     public int Sequence { get; set; }
 }
 
@@ -29,14 +29,14 @@ public abstract class IniAppEvent { }
 
 public class IniEmailEvent : IniAppEvent
 {
-    public string To { get; set; } = "";
-    public string Subject { get; set; } = "";
+    public string To { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
 }
 
 public class IniSmsEvent : IniAppEvent
 {
-    public string Phone { get; set; } = "";
-    public string Text { get; set; } = "";
+    public string Phone { get; set; } = string.Empty;
+    public string Text { get; set; } = string.Empty;
 }
 
 public class IniPolymorphicTests

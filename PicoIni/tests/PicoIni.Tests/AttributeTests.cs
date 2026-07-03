@@ -12,13 +12,13 @@ public class SectionAttributedProps
 
 public class ServerSettings
 {
-    public string Host { get; set; } = "";
+    public string Host { get; set; } = string.Empty;
 }
 
 public class KeyAttributedModel
 {
     [IniKey("host_name")]
-    public string Host { get; set; } = "";
+    public string Host { get; set; } = string.Empty;
 
     [IniKey("port_number")]
     public int Port { get; set; }
@@ -26,23 +26,23 @@ public class KeyAttributedModel
 
 public class IgnoreAttributedModel
 {
-    public string Visible { get; set; } = "";
+    public string Visible { get; set; } = string.Empty;
 
     [IniIgnore]
-    public string Hidden { get; set; } = "";
+    public string Hidden { get; set; } = string.Empty;
 }
 
 [IniComment("Top-level config")]
 public class CommentAttributedClass
 {
     [IniComment("Server hostname")]
-    public string Host { get; set; } = "";
+    public string Host { get; set; } = string.Empty;
 }
 
 public class ConverterAttributedModel
 {
     [IniConverter(typeof(TestConverter))]
-    public string Value { get; set; } = "";
+    public string Value { get; set; } = string.Empty;
 }
 
 public class TestConverter : IIniConverter<string>
@@ -153,7 +153,7 @@ public class AttributeTests
 [IniCamelCase]
 public class CamelCaseIniPoco
 {
-    public string FullName { get; set; } = "";
+    public string FullName { get; set; } = string.Empty;
     public int UserAge { get; set; }
 }
 
@@ -187,14 +187,14 @@ public class IniCamelCaseTests
 [IniCamelCase]
 public class CamelCaseNested
 {
-    public string StreetName { get; set; } = "";
+    public string StreetName { get; set; } = string.Empty;
     public int ZipCode { get; set; }
 }
 
 [IniCamelCase]
 public class CamelCaseParent
 {
-    public string FullName { get; set; } = "";
+    public string FullName { get; set; } = string.Empty;
     public CamelCaseNested Address { get; set; } = new();
 }
 
@@ -340,7 +340,7 @@ public class IniListRoundTripTests
 
 public class IniDictPoco
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public Dictionary<string, int> Scores { get; set; } = new();
 }
 
@@ -386,7 +386,7 @@ public class IniDictRoundTripTests
 public class IniCommentPoco
 {
     [IniComment("The server hostname")]
-    public string Host { get; set; } = "";
+    public string Host { get; set; } = string.Empty;
     public int Port { get; set; }
 }
 
@@ -413,13 +413,13 @@ public class IniCommentEmitTests
 
 public class IniDeepSection
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Port { get; set; }
 }
 
 public class IniParentWithNestedSection
 {
-    public string AppName { get; set; } = "";
+    public string AppName { get; set; } = string.Empty;
     public IniDeepSection Server { get; set; } = new();
 }
 

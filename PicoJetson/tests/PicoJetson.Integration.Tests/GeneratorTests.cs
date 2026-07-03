@@ -2,7 +2,7 @@ namespace PicoJetson.Tests;
 
 public class PersonWithDate
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
 }
 
@@ -39,13 +39,13 @@ public class TemporalModel
 
 public class NestedAddress
 {
-    public string Street { get; set; } = "";
-    public string City { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
 }
 
 public class NestedCustomer
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public NestedAddress? Address { get; set; }
 }
 
@@ -58,33 +58,33 @@ public class NestedOrder
 
 public class CaseModel
 {
-    public string Title { get; set; } = "";
+    public string Title { get; set; } = string.Empty;
     public double Price { get; set; }
 }
 
 // Shared nested type — used by multiple parent types (tests M×N dedup)
 public class SharedAddress
 {
-    public string Street { get; set; } = "";
-    public string City { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
 }
 
 public class CompanyA
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public SharedAddress? Headquarters { get; set; }
 }
 
 public class CompanyB
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public SharedAddress? Branch { get; set; }
 }
 
 // Cross-namespace collision test (see CollisionNs1.cs / CollisionNs2.cs)
 public class CollisionModel
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public CollisionNs1.CollisionAddress? Home { get; set; }
     public CollisionNs2.CollisionAddress? Work { get; set; }
 }
@@ -93,7 +93,7 @@ public class GeneratorTests
 {
     public class Product
     {
-        public string Title { get; set; } = "";
+        public string Title { get; set; } = string.Empty;
         public double Price { get; set; }
     }
 
@@ -153,7 +153,7 @@ public class GeneratorTests
     // DateTime model classes
     public class DateTimeModel
     {
-        public string Name { get; set; } = "";
+        public string Name { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
     }
 

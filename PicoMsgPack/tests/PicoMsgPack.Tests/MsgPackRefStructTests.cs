@@ -10,7 +10,7 @@ public ref struct MpPoint
 
 public class MpSimple
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Value { get; set; }
 }
 

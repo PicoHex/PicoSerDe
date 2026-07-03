@@ -4,19 +4,19 @@ public class IniSerializerUnifiedTests
 {
     public class SimpleConfig
     {
-        public string Title { get; set; } = "";
+        public string Title { get; set; } = string.Empty;
         public int Port { get; set; }
     }
 
     public class ServerSection
     {
-        public string Host { get; set; } = "";
+        public string Host { get; set; } = string.Empty;
         public int Port { get; set; }
     }
 
     public class AppConfig
     {
-        public string Title { get; set; } = "";
+        public string Title { get; set; } = string.Empty;
         public ServerSection Server { get; set; } = new();
     }
 
@@ -195,10 +195,10 @@ public class IniSerializerUnifiedTests
 
 public class ManyScalarConfig
 {
-    public string Alpha { get; set; } = "";
+    public string Alpha { get; set; } = string.Empty;
     public int Beta { get; set; }
     public bool Gamma { get; set; }
     public long Delta { get; set; }
     public double Epsilon { get; set; }
-    public string Zeta { get; set; } = "";
+    public string Zeta { get; set; } = string.Empty;
 }

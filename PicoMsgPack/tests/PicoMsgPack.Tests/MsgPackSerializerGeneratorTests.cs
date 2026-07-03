@@ -4,7 +4,7 @@ namespace PicoMsgPack.Tests;
 public class PersonMsgPack
 {
     [MsgPackKey(0)]
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [MsgPackKey(1)]
     public int Age { get; set; }
@@ -13,7 +13,7 @@ public class PersonMsgPack
 public class BookMsgPack
 {
     [MsgPackKey(0)]
-    public string Title { get; set; } = "";
+    public string Title { get; set; } = string.Empty;
 
     [MsgPackKey(1)]
     public int Pages { get; set; }
@@ -26,16 +26,16 @@ public class BookMsgPack
 public class Address
 {
     [MsgPackKey(0)]
-    public string Street { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
 
     [MsgPackKey(1)]
-    public string City { get; set; } = "";
+    public string City { get; set; } = string.Empty;
 }
 
 public class PersonWithAddress
 {
     [MsgPackKey(0)]
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [MsgPackKey(1)]
     public Address? Home { get; set; }

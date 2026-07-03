@@ -18,7 +18,7 @@ using PicoMsgPack;
 
 public class User
 {
-    [MsgPackKey(0)] public string Name { get; set; } = "";
+    [MsgPackKey(0)] public string Name { get; set; } = string.Empty;
     [MsgPackKey(1)] public int Age { get; set; }
 }
 

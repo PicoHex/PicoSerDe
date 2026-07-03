@@ -9,7 +9,7 @@ namespace PicoJetson.Tests;
 // Simple model shared between ref struct compat tests (avoids cross-project dependency)
 public class RefStructPerson
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Age { get; set; }
 }
 

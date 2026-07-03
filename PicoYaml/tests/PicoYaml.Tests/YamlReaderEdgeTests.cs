@@ -93,7 +93,7 @@ public class YamlReaderEdgeTests
     {
         var yaml = "? complex key\n: value"u8.ToArray();
         string key = "",
-            val = "";
+            val = string.Empty;
         using (var reader = new YamlReader(yaml))
         {
             while (reader.Read())
@@ -115,7 +115,7 @@ public class YamlReaderEdgeTests
     public async Task TagValue_ExclamationMark_StripsTag()
     {
         var yaml = "name: !str Alice"u8.ToArray();
-        string val = "";
+        string val = string.Empty;
         using (var reader = new YamlReader(yaml))
         {
             while (reader.Read())
@@ -150,7 +150,7 @@ public class YamlReaderEdgeTests
         var data = "? ck\n: val"u8.ToArray();
         var seq = new ReadOnlySequence<byte>(data);
         string key = "",
-            val = "";
+            val = string.Empty;
         ReadSeqCaptureProps(seq, out key, out val);
         await Assert.That(key).IsEqualTo("ck");
         await Assert.That(val).IsEqualTo("val");
@@ -162,7 +162,7 @@ public class YamlReaderEdgeTests
         var data = "name: Alice"u8.ToArray();
         var seq = new ReadOnlySequence<byte>(data);
         string key = "",
-            val = "";
+            val = string.Empty;
         ReadSeqCaptureProps(seq, out key, out val);
         await Assert.That(key).IsEqualTo("name");
         await Assert.That(val).IsEqualTo("Alice");
@@ -173,7 +173,7 @@ public class YamlReaderEdgeTests
     {
         var data = "name: !str Alice"u8.ToArray();
         var seq = new ReadOnlySequence<byte>(data);
-        string val = "";
+        string val = string.Empty;
         ReadSeqCaptureProps(seq, out _, out val);
         await Assert.That(val).IsEqualTo("Alice");
     }
@@ -199,8 +199,8 @@ public class YamlReaderEdgeTests
         out string val
     )
     {
-        key = "";
-        val = "";
+        key = string.Empty;
+        val = string.Empty;
         using var reader = new YamlReader(seq);
         while (reader.Read())
         {

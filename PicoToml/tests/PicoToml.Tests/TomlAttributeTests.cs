@@ -3,7 +3,7 @@ namespace PicoToml.Tests;
 public class KeyMappedPoco
 {
     [TomlKey("custom_name")]
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [TomlKey("the_age")]
     public int Age { get; set; }
@@ -11,17 +11,17 @@ public class KeyMappedPoco
 
 public class IgnoredPoco
 {
-    public string Title { get; set; } = "";
+    public string Title { get; set; } = string.Empty;
 
     [TomlIgnore]
-    public string Secret { get; set; } = "";
+    public string Secret { get; set; } = string.Empty;
 
     public int Count { get; set; }
 }
 
 public class TagWrapper
 {
-    public string Value { get; set; } = "";
+    public string Value { get; set; } = string.Empty;
 }
 
 public class TagWrapperConverter : ITomlConverter<TagWrapper>
@@ -42,7 +42,7 @@ public class TagWrapperConverter : ITomlConverter<TagWrapper>
 
 public class ConverterPoco
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [TomlConverter(typeof(TagWrapperConverter))]
     public TagWrapper Tag { get; set; } = new();
@@ -51,7 +51,7 @@ public class ConverterPoco
 [TomlCamelCase]
 public class CamelCasePoco
 {
-    public string FirstName { get; set; } = "";
+    public string FirstName { get; set; } = string.Empty;
     public int UserAge { get; set; }
 }
 
@@ -181,15 +181,15 @@ public class TomlAttributeTests
 public class NestedKeyAddress
 {
     [TomlKey("street_address")]
-    public string Street { get; set; } = "";
+    public string Street { get; set; } = string.Empty;
 
     [TomlKey("city_name")]
-    public string City { get; set; } = "";
+    public string City { get; set; } = string.Empty;
 }
 
 public class NestedKeyParent
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public NestedKeyAddress Address { get; set; } = new();
 }
 
@@ -201,7 +201,7 @@ public class NestedConverterAddr
 
 public class NestedConverterParent
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public NestedConverterAddr Address { get; set; } = new();
 }
 
@@ -245,14 +245,14 @@ public class TomlNestedKeyTests
 [TomlCamelCase]
 public class CamelCaseNestedAddr
 {
-    public string StreetName { get; set; } = "";
+    public string StreetName { get; set; } = string.Empty;
     public int ZipCode { get; set; }
 }
 
 [TomlCamelCase]
 public class CamelCaseNestedParent
 {
-    public string FullName { get; set; } = "";
+    public string FullName { get; set; } = string.Empty;
     public CamelCaseNestedAddr Address { get; set; } = new();
 }
 

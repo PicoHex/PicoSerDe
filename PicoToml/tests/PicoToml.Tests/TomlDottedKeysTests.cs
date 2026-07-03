@@ -8,7 +8,7 @@ public class TomlDottedServerConfig
 
 public class TomlDottedServerInfo
 {
-    public string Host { get; set; } = "";
+    public string Host { get; set; } = string.Empty;
     public int Port { get; set; }
 }
 

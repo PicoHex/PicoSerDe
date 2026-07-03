@@ -17,7 +17,7 @@ public class AllFormatsModel
     public float Float { get; set; }
     public double Double { get; set; }
     public decimal Decimal { get; set; }
-    public string String { get; set; } = "";
+    public string String { get; set; } = string.Empty;
     public string? NullableString { get; set; }
     public int? NullableInt { get; set; }
 
@@ -43,7 +43,7 @@ public class AllFormatsModel
 [PicoSerializable]
 public class AllFormatsSub
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
     public int Value { get; set; }
 }
 

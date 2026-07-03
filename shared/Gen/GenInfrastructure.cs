@@ -218,7 +218,7 @@ internal static class GenInfrastructure
     {
         var ns = namedType.ContainingNamespace?.ToDisplayString() ?? "";
         if (ns == "<global namespace>")
-            ns = "";
+            ns = string.Empty;
 
         var useCamelCase = attrs.HasCamelCase(namedType);
         var properties = ExtractProperties(

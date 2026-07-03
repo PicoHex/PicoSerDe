@@ -85,11 +85,11 @@ public class IntToStringConverter : IMsgPackConverter<int>
 public class ConverterModel
 {
     [MsgPackKey(0)]
-    public string Name { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
 
     [MsgPackKey(1)]
     [MsgPackConverter(typeof(TestConverter))]
-    public string Tag { get; set; } = "";
+    public string Tag { get; set; } = string.Empty;
 
     [MsgPackKey(2)]
     [MsgPackConverter(typeof(IntToStringConverter))]
