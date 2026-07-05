@@ -490,6 +490,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(".Serialize(yw, __kvp.Value);");
                 break;
             }
+            case "any":
+                sb.AppendLine("            if (__kvp.Value == null) yw.WriteString(\"null\"u8);");
+                sb.AppendLine(
+                    "            else yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()!));"
+                );
+                break;
             case "dict":
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -569,6 +575,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(".Deserialize(ref reader);");
                 break;
             }
+            case "any":
+                sb.AppendLine(
+                    "                obj[__dk] = Encoding.UTF8.GetString(reader.ValueSpan);"
+                );
+                break;
             case "dict":
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -811,6 +822,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         s.AppendLine(".Serialize(yw, __kvp.Value);");
                         break;
                     }
+                    case "any":
+                        s.Append(ind);
+                        s.AppendLine("    if (__kvp.Value == null) yw.WriteString(\"null\"u8);");
+                        s.Append(ind);
+                        s.AppendLine(
+                            "    else yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()!));"
+                        );
+                        break;
                     default:
                         s.Append(ind);
                         s.AppendLine(
@@ -1603,6 +1622,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(".Serialize(yw, __kvp.Value);");
                     break;
                 }
+                case "any":
+                    s.Append(ind);
+                    s.AppendLine("    if (__kvp.Value == null) yw.WriteString(\"null\"u8);");
+                    s.Append(ind);
+                    s.AppendLine(
+                        "    else yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()!));"
+                    );
+                    break;
                 default:
                     s.Append(ind);
                     s.AppendLine("    yw.WriteString(__kvp.Value.ToString());");

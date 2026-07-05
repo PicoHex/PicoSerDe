@@ -609,6 +609,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 // Fallback: skip complex object values in nested dict serialization.
                 s.AppendLine("            // object values not supported in MsgPack dict nesting");
                 break;
+            case "any":
+                EmitMsgPackAnySerialize(s, "__dikvp.Value", "            ");
+                break;
             case "dict":
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -670,6 +673,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             case "boolean":
                 s.AppendLine("                reader.TryGetBool(out var __dv); obj[__dk] = __dv;");
                 break;
+            case "any":
+                EmitMsgPackAnyDeserialize(s, "obj[__dk]", "                ");
+                break;
             case "dict":
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -693,6 +699,106 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    }");
         s.AppendLine("}");
         return s.ToString();
+    }
+
+    // ── Any-value helpers for Dictionary<string, object?> ──
+
+    static void EmitMsgPackAnySerialize(StringBuilder s, string valueExpr, string indent)
+    {
+        s.Append(indent);
+        s.Append("if (");
+        s.Append(valueExpr);
+        s.AppendLine(" == null) mw.WriteNull();");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is string __s) mw.WriteString(Encoding.UTF8.GetBytes(__s));");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is long __l) mw.WriteInt64(__l);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is int __i) mw.WriteInt32(__i);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is uint __ui) mw.WriteInt64((long)__ui);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is double __d) mw.WriteFloat64(__d);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is float __f) mw.WriteFloat64((double)__f);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is bool __b) mw.WriteBoolean(__b);");
+        s.Append(indent);
+        s.Append("else mw.WriteString(Encoding.UTF8.GetBytes(");
+        s.Append(valueExpr);
+        s.AppendLine(".ToString()!));");
+    }
+
+    static void EmitMsgPackAnyDeserialize(StringBuilder s, string assignTarget, string indent)
+    {
+        s.Append(indent);
+        s.AppendLine("if (reader.TokenType == TokenType.Null) {");
+        s.Append(indent);
+        s.Append("    ");
+        s.Append(assignTarget);
+        s.AppendLine(" = null;");
+        s.Append(indent);
+        s.AppendLine("} else if (reader.TokenType == TokenType.String) {");
+        s.Append(indent);
+        s.Append("    ");
+        s.Append(assignTarget);
+        s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
+        s.Append(indent);
+        s.AppendLine("} else if (reader.TokenType == TokenType.Int32) {");
+        s.Append(indent);
+        s.AppendLine("    reader.TryGetInt32(out var __i);");
+        s.Append(indent);
+        s.Append("    ");
+        s.Append(assignTarget);
+        s.AppendLine(" = (long)__i;");
+        s.Append(indent);
+        s.AppendLine("} else if (reader.TokenType == TokenType.Int64) {");
+        s.Append(indent);
+        s.AppendLine("    reader.TryGetInt64(out var __l);");
+        s.Append(indent);
+        s.Append("    ");
+        s.Append(assignTarget);
+        s.AppendLine(" = __l;");
+        s.Append(indent);
+        s.AppendLine(
+            "} else if (reader.TokenType == TokenType.Float64 || reader.TokenType == TokenType.Float32) {"
+        );
+        s.Append(indent);
+        s.AppendLine("    reader.TryGetFloat64(out var __d);");
+        s.Append(indent);
+        s.Append("    ");
+        s.Append(assignTarget);
+        s.AppendLine(" = __d;");
+        s.Append(indent);
+        s.AppendLine("} else if (reader.TokenType == TokenType.Bool) {");
+        s.Append(indent);
+        s.AppendLine("    reader.TryGetBool(out var __b);");
+        s.Append(indent);
+        s.Append("    ");
+        s.Append(assignTarget);
+        s.AppendLine(" = __b;");
+        s.Append(indent);
+        s.AppendLine("} else {");
+        s.Append(indent);
+        s.Append("    ");
+        s.Append(assignTarget);
+        s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
+        s.Append(indent);
+        s.AppendLine("}");
     }
 
     /// <summary>Ref struct serializer — static class + delegate registration.</summary>
@@ -992,6 +1098,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append("mw.WriteBoolean(");
                 s.Append(a);
                 s.AppendLine(");");
+                break;
+            case "any":
+                EmitMsgPackAnySerialize(s, a, ind);
                 break;
             case "dict":
             {
@@ -1439,6 +1548,17 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     "(decimal.Parse(__decRaw, System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
+            case "any":
+            {
+                s.Append(ind);
+                s.AppendLine("object? __av = null;");
+                EmitMsgPackAnyDeserialize(s, "__av", ind);
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.AppendLine("(__av!);");
+                break;
+            }
             case "dict":
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(

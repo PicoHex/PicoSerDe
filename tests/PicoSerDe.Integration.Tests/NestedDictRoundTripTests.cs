@@ -211,3 +211,274 @@ public class NestedDictRoundTripTests
         await Assert.That(tokenCount).IsLessThan(200, "Should not loop infinitely");
     }
 }
+
+// ── Dictionary<string, object?> support (reproduces ContentBlock.Arguments bug) ──
+
+public class ObjectValueDictModel
+{
+    public Dictionary<string, object?> Props { get; set; } = [];
+}
+
+public class ContentBlockLikeModel
+{
+    public string Type { get; set; } = "text";
+    public string? Id { get; set; }
+    public string? Name { get; set; }
+    public Dictionary<string, object?> Arguments { get; set; } = [];
+}
+
+public static class ObjectValueDictFactory
+{
+    public static ObjectValueDictModel CreateSimple() =>
+        new()
+        {
+            Props = new Dictionary<string, object?>
+            {
+                ["path"] = "/data/SKILL.md",
+                ["count"] = 42L,
+                ["enabled"] = true,
+                ["score"] = 3.14,
+                ["nothing"] = null,
+            },
+        };
+
+    public static ContentBlockLikeModel CreateToolCall() =>
+        new()
+        {
+            Type = "tool_call",
+            Id = "call_00_xxx",
+            Name = "read",
+            Arguments = new Dictionary<string, object?> { ["path"] = "data/skills/pdf/SKILL.md" },
+        };
+}
+
+public class ObjectValueDictRoundTripTests
+{
+    // ── Serialize-only: verify JSON output contains dict values (the bug symptom) ──
+
+    [Test]
+    public async Task PicoJetson_ObjectValueDict_SerializesAllValues()
+    {
+        var model = ObjectValueDictFactory.CreateSimple();
+        var json = JsonSerializer.Serialize(model);
+
+        // Bug symptom: if Args property is silently skipped, none of these appear
+        await Assert.That(json).Contains("\"path\"");
+        await Assert.That(json).Contains("/data/SKILL.md");
+        await Assert.That(json).Contains("\"count\"");
+        await Assert.That(json).Contains("42");
+        await Assert.That(json).Contains("\"enabled\"");
+        await Assert.That(json).Contains("true");
+        await Assert.That(json).Contains("\"score\"");
+        await Assert.That(json).Contains("3.14");
+        await Assert.That(json).Contains("\"nothing\"");
+        await Assert.That(json).Contains("null");
+    }
+
+    [Test]
+    public async Task PicoJetson_ObjectValueDict_ProducesValidJson()
+    {
+        var model = ObjectValueDictFactory.CreateSimple();
+        var json = JsonSerializer.Serialize(model);
+
+        // Must produce valid JSON, not ToString() junk
+        await Assert.That(json).DoesNotContain("Dictionary`2");
+        await Assert.That(json).DoesNotContain("System.Object");
+    }
+
+    [Test]
+    public async Task PicoJetson_ContentBlockLike_SerializesArguments()
+    {
+        var model = ObjectValueDictFactory.CreateToolCall();
+        var json = JsonSerializer.Serialize(model);
+
+        // Exact reproduction of the bug: Arguments must appear in output
+        await Assert.That(json).Contains("\"Type\"");
+        await Assert.That(json).Contains("tool_call");
+        await Assert.That(json).Contains("\"Id\"");
+        await Assert.That(json).Contains("call_00_xxx");
+        await Assert.That(json).Contains("\"Name\"");
+        await Assert.That(json).Contains("read");
+        // These are the fields that currently go missing:
+        await Assert.That(json).Contains("\"Arguments\"");
+        await Assert.That(json).Contains("\"path\"");
+        await Assert.That(json).Contains("data/skills/pdf/SKILL.md");
+    }
+
+    // ── Round-trip: serialize then deserialize ──
+
+    [Test]
+    public async Task PicoJetson_ObjectValueDict_RoundTripSimple()
+    {
+        var model = ObjectValueDictFactory.CreateSimple();
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var back = JsonSerializer.Deserialize<ObjectValueDictModel>(bytes);
+
+        await Assert.That(back).IsNotNull();
+        await Assert.That(back!.Props["path"]).IsEqualTo("/data/SKILL.md");
+        await Assert.That(back.Props["count"]).IsEqualTo(42L);
+        await Assert.That((bool)back.Props["enabled"]!).IsTrue();
+        await Assert.That(back.Props["score"]).IsEqualTo(3.14);
+        await Assert.That(back.Props["nothing"]).IsNull();
+    }
+
+    [Test]
+    public async Task PicoJetson_ObjectValueDict_RoundTripToolCall()
+    {
+        var model = ObjectValueDictFactory.CreateToolCall();
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var back = JsonSerializer.Deserialize<ContentBlockLikeModel>(bytes);
+
+        await Assert.That(back).IsNotNull();
+        await Assert.That(back!.Type).IsEqualTo("tool_call");
+        await Assert.That(back.Id).IsEqualTo("call_00_xxx");
+        await Assert.That(back.Name).IsEqualTo("read");
+        await Assert.That(back.Arguments["path"]).IsEqualTo("data/skills/pdf/SKILL.md");
+    }
+
+    // ── Nested Dictionary<string, object?> values ──
+
+    [Test]
+    public async Task PicoJetson_ObjectValueDict_NestedDict_RoundTrip()
+    {
+        var model = new ObjectValueDictModel
+        {
+            Props = new Dictionary<string, object?>
+            {
+                ["nested"] = new Dictionary<string, object?>
+                {
+                    ["inner_key"] = "inner_value",
+                    ["inner_num"] = 99L,
+                },
+            },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var back = JsonSerializer.Deserialize<ObjectValueDictModel>(bytes);
+
+        await Assert.That(back).IsNotNull();
+        var nested = back!.Props["nested"] as Dictionary<string, object?>;
+        await Assert.That(nested).IsNotNull();
+        await Assert.That(nested!["inner_key"]).IsEqualTo("inner_value");
+        await Assert.That(nested["inner_num"]).IsEqualTo(99L);
+    }
+
+    [Test]
+    public async Task PicoJetson_ObjectValueDict_NestedList_RoundTrip()
+    {
+        var model = new ObjectValueDictModel
+        {
+            Props = new Dictionary<string, object?>
+            {
+                ["items"] = new List<object?> { "a", 1L, true, null },
+            },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var back = JsonSerializer.Deserialize<ObjectValueDictModel>(bytes);
+
+        await Assert.That(back).IsNotNull();
+        var items = back!.Props["items"] as List<object?>;
+        await Assert.That(items).IsNotNull();
+        await Assert.That(items!.Count).IsEqualTo(4);
+        await Assert.That(items[0]).IsEqualTo("a");
+        await Assert.That(items[1]).IsEqualTo(1L);
+        await Assert.That((bool)items[2]!).IsTrue();
+        await Assert.That(items[3]).IsNull();
+    }
+
+    // ── Edge-case numeric types: short, byte, decimal ──
+
+    [Test]
+    public async Task PicoJetson_ObjectValueDict_ShortValue_RoundTrip()
+    {
+        var model = new ObjectValueDictModel
+        {
+            Props = new Dictionary<string, object?> { ["v"] = (short)42 },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var back = JsonSerializer.Deserialize<ObjectValueDictModel>(bytes);
+
+        await Assert.That(back).IsNotNull();
+        // short serializes as JSON number, deserializes as long
+        await Assert.That(back!.Props["v"]).IsEqualTo(42L);
+    }
+
+    [Test]
+    public async Task PicoJetson_ObjectValueDict_ByteValue_RoundTrip()
+    {
+        var model = new ObjectValueDictModel
+        {
+            Props = new Dictionary<string, object?> { ["v"] = (byte)255 },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var back = JsonSerializer.Deserialize<ObjectValueDictModel>(bytes);
+
+        await Assert.That(back).IsNotNull();
+        await Assert.That(back!.Props["v"]).IsEqualTo(255L);
+    }
+
+    [Test]
+    public async Task PicoJetson_ObjectValueDict_DecimalValue_RoundTrip()
+    {
+        var model = new ObjectValueDictModel
+        {
+            Props = new Dictionary<string, object?> { ["v"] = 3.14m },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var back = JsonSerializer.Deserialize<ObjectValueDictModel>(bytes);
+
+        await Assert.That(back).IsNotNull();
+        // decimal serializes as JSON number, deserializes as double (JSON limitation)
+        await Assert.That(back!.Props["v"]).IsEqualTo(3.14);
+    }
+
+    // ── MsgPack: Dictionary<string, object?> round-trip ──
+
+    [Test]
+    public async Task PicoMsgPack_ObjectValueDict_RoundTrip()
+    {
+        var model = ObjectValueDictFactory.CreateSimple();
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
+        var back = MsgPackSerializer.Deserialize<ObjectValueDictModel>(bytes);
+
+        await Assert.That(back).IsNotNull();
+        await Assert.That(back!.Props["path"]).IsEqualTo("/data/SKILL.md");
+        await Assert.That(back.Props["count"]).IsEqualTo(42L);
+        await Assert.That((bool)back.Props["enabled"]!).IsTrue();
+        await Assert.That(back.Props["score"]).IsEqualTo(3.14);
+        await Assert.That(back.Props["nothing"]).IsNull();
+    }
+
+    // ── TOML: Dictionary<string, object?> serialization (serialize-only — TOML values lose type info) ──
+
+    [Test]
+    public async Task PicoToml_ObjectValueDict_Serializes()
+    {
+        var model = ObjectValueDictFactory.CreateSimple();
+        var toml = TomlSerializer.Serialize(model);
+
+        // Verify the dict property is NOT silently skipped
+        // Note: null values are skipped in TOML (TOML has no null type)
+        await Assert.That(toml).Contains("path");
+        await Assert.That(toml).Contains("/data/SKILL.md");
+        await Assert.That(toml).Contains("count");
+        await Assert.That(toml).Contains("enabled");
+        await Assert.That(toml).Contains("score");
+    }
+
+    // ── YAML: Dictionary<string, object?> serialization (serialize-only — YAML values lose type info) ──
+
+    [Test]
+    public async Task PicoYaml_ObjectValueDict_Serializes()
+    {
+        var model = ObjectValueDictFactory.CreateSimple();
+        var yaml = YamlSerializer.Serialize(model);
+
+        // Verify the dict property is NOT silently skipped
+        // Note: all values serialize as YAML strings in "any" mode
+        await Assert.That(yaml).Contains("path");
+        await Assert.That(yaml).Contains("/data/SKILL.md");
+        await Assert.That(yaml).Contains("count");
+        await Assert.That(yaml).Contains("enabled");
+        await Assert.That(yaml).Contains("score");
+    }
+}

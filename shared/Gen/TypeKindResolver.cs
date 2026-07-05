@@ -79,6 +79,7 @@ internal static class TypeKindResolver
         // Built-in special types
         string? kind = type.SpecialType switch
         {
+            SpecialType.System_Object => "any",
             SpecialType.System_String => "string",
             SpecialType.System_Int32 => "int32",
             SpecialType.System_Int64 => "int64",
@@ -152,6 +153,7 @@ internal static class TypeKindResolver
     public static string MapTypeName(string kind, ITypeSymbol type) =>
         kind switch
         {
+            "any" => "object",
             "string" => "string",
             "int32" => "int",
             "int64" => "long",

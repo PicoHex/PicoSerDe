@@ -407,6 +407,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "boolean":
                 s.AppendLine("            tw.WriteKeyValue(__kvp.Key, __kvp.Value);");
                 break;
+            case "any":
+                s.AppendLine(
+                    "            if (__kvp.Value != null) tw.WriteKeyValue(__kvp.Key, __kvp.Value.ToString()!);"
+                );
+                break;
             default:
                 s.AppendLine("            tw.WriteKeyValue(__kvp.Key, __kvp.Value.ToString());");
                 break;
@@ -1494,6 +1499,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "enum":
                 s.Append(accessor);
                 s.Append(".ToString()");
+                break;
+            case "any":
+                s.Append(accessor);
+                s.Append("?.ToString() ?? \"\"");
                 break;
             default:
                 s.Append(accessor);
