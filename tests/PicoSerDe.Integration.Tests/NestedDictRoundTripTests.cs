@@ -482,3 +482,41 @@ public class ObjectValueDictRoundTripTests
         await Assert.That(yaml).Contains("score");
     }
 }
+
+// ── Reproduction of PicoNode scenario: dict property on nested type (not top-level) ──
+// ContentBlock.Arguments is on a nested type, discovered via Message.ContentBlocks traversal.
+// The __PicoAnyDictHelper must be emitted even when the "any"-valued dict is in nestedTypes.
+
+public class ParentWithNestedAnyDict
+{
+    public string Name { get; set; } = "";
+    public ChildWithAnyDict Child { get; set; } = new();
+}
+
+public class ChildWithAnyDict
+{
+    public Dictionary<string, object?> Props { get; set; } = [];
+}
+
+public class NestedAnyDictRoundTripTests
+{
+    [Test]
+    public async Task PicoJetson_NestedTypeWithAnyDict_RoundTrip()
+    {
+        var model = new ParentWithNestedAnyDict
+        {
+            Name = "parent",
+            Child = new ChildWithAnyDict
+            {
+                Props = new Dictionary<string, object?> { ["key"] = "value", ["num"] = 42L },
+            },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var back = JsonSerializer.Deserialize<ParentWithNestedAnyDict>(bytes);
+
+        await Assert.That(back).IsNotNull();
+        await Assert.That(back!.Name).IsEqualTo("parent");
+        await Assert.That(back.Child.Props["key"]).IsEqualTo("value");
+        await Assert.That(back.Child.Props["num"]).IsEqualTo(42L);
+    }
+}

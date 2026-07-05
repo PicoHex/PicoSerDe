@@ -405,7 +405,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
         // Emit a shared helper for Dictionary<string, object?> ("any"-valued dicts)
         // when any type in this compilation uses that pattern.
-        if (types.Any(t => t.Properties.Any(p => p.ElementTypeKind == "any")))
+        // Must check types, nestedTypes (inner helpers), and nestedDictTypes —
+        // a property like ContentBlock.Arguments is only discovered via nested type traversal.
+        bool hasAnyValue =
+            types.Any(t => t.Properties.Any(p => p.ElementTypeKind == "any"))
+            || nestedTypes.Values.Any(props => props.Any(p => p.ElementTypeKind == "any"))
+            || nestedDictTypes.Values.Any(dp => dp.ElementTypeKind == "any");
+        if (hasAnyValue)
         {
             var helperHint = "__PicoAnyDictHelper.g.cs";
             if (hintNames.Add(helperHint))
