@@ -515,6 +515,8 @@ internal static class GenInfrastructure
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
                 elementIsNrt = elementType.NullableAnnotation == NullableAnnotation.Annotated;
+                if (elementIsNrt && ek is "any")
+                    elementTypeName += "?";
                 // Recursively describe nested List<List<...<T>>> — any depth
                 if (
                     (ek is "list" or "array")
@@ -544,6 +546,8 @@ internal static class GenInfrastructure
                     elementTypeKind = vk;
                     elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
                     elementIsNrt = valType.NullableAnnotation == NullableAnnotation.Annotated;
+                    if (elementIsNrt && vk is "any")
+                        elementTypeName += "?";
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
                     {
                         nestedProperties = ExtractNestedProperties(vNtsObj, attrs, formatTag);

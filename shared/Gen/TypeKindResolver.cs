@@ -153,7 +153,7 @@ internal static class TypeKindResolver
     public static string MapTypeName(string kind, ITypeSymbol type) =>
         kind switch
         {
-            "any" => "object?",
+            "any" => "object",
             "string" => "string",
             "int32" => "int",
             "int64" => "long",
