@@ -105,8 +105,8 @@ public class IniPolymorphicTests
     {
         var ini = "$type=unknown\nx=1\n"u8.ToArray();
 
-        var ex = Assert.Throws<FormatException>(
-            () => IniSerializer.Deserialize<IniSessionEntry>(ini)
+        var ex = Assert.Throws<FormatException>(() =>
+            IniSerializer.Deserialize<IniSessionEntry>(ini)
         );
         await Assert.That(ex).IsNotNull();
     }
