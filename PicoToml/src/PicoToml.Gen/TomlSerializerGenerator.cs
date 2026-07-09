@@ -891,7 +891,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("SerDeRegistration {");
         s.AppendLine("    [ModuleInitializer]");
         s.AppendLine("    internal static void Register() {");
-        s.Append("        TomlSerializer.Register<");
+        s.Append("        global::PicoToml.TomlSerializer.Register<");
         s.Append(typeRef);
         s.AppendLine(">(");
         s.Append("            ");
@@ -2130,7 +2130,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("SerDeRegistration {");
         s.AppendLine("    [ModuleInitializer]");
         s.AppendLine("    internal static void Register() {");
-        s.Append("        TomlSerializer.Register<");
+        s.Append("        global::PicoToml.TomlSerializer.Register<");
         s.Append(typeRef);
         s.AppendLine(">(");
         s.Append("            new ");
