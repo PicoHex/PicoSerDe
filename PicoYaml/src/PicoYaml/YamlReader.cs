@@ -526,14 +526,34 @@ public ref struct YamlReader
         )
         {
             _position += 2;
-            int vs = _position;
-            while (
-                _position < _data.Length
-                && _data[_position] != (byte)'\n'
-                && _data[_position] != (byte)'\r'
-            )
+            if (_position < _data.Length && _data[_position] == (byte)'"')
+            {
                 _position++;
-            _valueSpan = Trim(_data[vs.._position]);
+                _valueSpan = ReadDoubleQuotedStringSpan();
+                // consume any trailing content on the line (comment/whitespace)
+                while (
+                    _position < _data.Length
+                    && _data[_position] != (byte)'\n'
+                    && _data[_position] != (byte)'\r'
+                )
+                    _position++;
+            }
+            else if (_position < _data.Length && _data[_position] == (byte)'\'')
+            {
+                _position++;
+                _valueSpan = ReadSingleQuotedStringSpan();
+            }
+            else
+            {
+                int vs = _position;
+                while (
+                    _position < _data.Length
+                    && _data[_position] != (byte)'\n'
+                    && _data[_position] != (byte)'\r'
+                )
+                    _position++;
+                _valueSpan = Trim(_data[vs.._position]);
+            }
             SkipNewlineSpan();
             _tokenType = TokenType.String;
             return true;
@@ -767,11 +787,10 @@ public ref struct YamlReader
         {
             var q = _data[_position];
             _position++;
-            int vs2 = _position;
-            while (_position < _data.Length && _data[_position] != q)
-                _position++;
-            _valueSpan = _data[vs2.._position];
-            _position++;
+            if (q == (byte)'"')
+                _valueSpan = ReadDoubleQuotedStringSpan();
+            else
+                _valueSpan = ReadSingleQuotedStringSpan();
             SkipNewlineSpan();
         }
         else
@@ -879,11 +898,10 @@ public ref struct YamlReader
         {
             var q = _data[_position];
             _position++;
-            int vs = _position;
-            while (_position < _data.Length && _data[_position] != q)
-                _position++;
-            _valueSpan = _data[vs.._position];
-            _position++;
+            if (q == (byte)'"')
+                _valueSpan = ReadDoubleQuotedStringSpan();
+            else
+                _valueSpan = ReadSingleQuotedStringSpan();
         }
         else
         {
@@ -918,6 +936,230 @@ public ref struct YamlReader
             _position++;
         if (_position < _data.Length && _data[_position] == (byte)'\n')
             _position++;
+    }
+
+    // ── Double-quoted string scan + unescape (YAML spec: \" \\ \n \r \t \0 \b \f \a \v \e \/ \xXX \uXXXX \UXXXXXXXX) ──
+
+    /// <summary>
+    /// Scans a YAML double-quoted scalar starting just after the opening quote.
+    /// Honours backslash escapes so \" does not terminate the value, then
+    /// unescapes the content. Single-quoted scalars use a separate (''-doubled)
+    /// path and are not handled here.
+    /// </summary>
+    private ReadOnlySpan<byte> ReadDoubleQuotedStringSpan()
+    {
+        int start = _position;
+        bool hasEscape = false;
+        while (_position < _data.Length)
+        {
+            byte b = _data[_position];
+            if (b == (byte)'"')
+                break;
+            if (b == (byte)'\\')
+            {
+                hasEscape = true;
+                _position++;
+                if (_position < _data.Length)
+                    _position++;
+                continue;
+            }
+            _position++;
+        }
+        var content = _data[start.._position];
+        if (_position < _data.Length)
+            _position++; // consume closing quote
+        if (!hasEscape)
+            return content;
+        return UnescapeDoubleQuoted(content);
+    }
+
+    private ReadOnlySpan<byte> UnescapeDoubleQuoted(ReadOnlySpan<byte> src)
+    {
+        // Every escape sequence is at least as many bytes as its UTF-8 output, so a
+        // buffer of src.Length is always large enough (\uXXXX 6→4, \UXXXXXXXX 10→4).
+        var buf = RentBuf(src.Length);
+        int di = 0;
+        int si = 0;
+        while (si < src.Length)
+        {
+            if (src[si] == (byte)'\\' && si + 1 < src.Length)
+            {
+                si++;
+                byte esc = src[si];
+                si++;
+                switch (esc)
+                {
+                    case (byte)'"':
+                        buf[di++] = (byte)'"';
+                        break;
+                    case (byte)'\\':
+                        buf[di++] = (byte)'\\';
+                        break;
+                    case (byte)'n':
+                        buf[di++] = (byte)'\n';
+                        break;
+                    case (byte)'r':
+                        buf[di++] = (byte)'\r';
+                        break;
+                    case (byte)'t':
+                        buf[di++] = (byte)'\t';
+                        break;
+                    case (byte)'0':
+                        buf[di++] = 0;
+                        break;
+                    case (byte)'b':
+                        buf[di++] = (byte)'\b';
+                        break;
+                    case (byte)'f':
+                        buf[di++] = (byte)'\f';
+                        break;
+                    case (byte)'a':
+                        buf[di++] = 0x07;
+                        break; // \a BEL
+                    case (byte)'v':
+                        buf[di++] = 0x0B;
+                        break; // \v VT
+                    case (byte)'e':
+                        buf[di++] = 0x1B;
+                        break; // \e ESC
+                    case (byte)'/':
+                        buf[di++] = (byte)'/';
+                        break;
+                    case (byte)' ':
+                        buf[di++] = (byte)' ';
+                        break;
+                    case (byte)'x':
+                        di = TextHelpers.AppendCodepoint(
+                            buf,
+                            di,
+                            TextHelpers.ReadHexEscape(src, ref si, 2)
+                        );
+                        break;
+                    case (byte)'u':
+                        di = TextHelpers.AppendCodepoint(
+                            buf,
+                            di,
+                            TextHelpers.ReadHexEscape(src, ref si, 4)
+                        );
+                        break;
+                    case (byte)'U':
+                        di = TextHelpers.AppendCodepoint(
+                            buf,
+                            di,
+                            TextHelpers.ReadHexEscape(src, ref si, 8)
+                        );
+                        break;
+                    default:
+                        buf[di++] = esc;
+                        break; // passthrough unknown escape
+                }
+            }
+            else
+            {
+                buf[di++] = src[si++];
+            }
+        }
+        return buf.AsSpan(0, di);
+    }
+
+    private ReadOnlySpan<byte> ReadSingleQuotedStringSpan()
+    {
+        // opening ' already consumed, _position at first content byte.
+        // YAML '' inside a single-quoted string represents a literal '.
+        int start = _position;
+        bool hasDoubleQuote = false;
+        while (_position < _data.Length)
+        {
+            if (_data[_position] == (byte)'\'')
+            {
+                if (_position + 1 < _data.Length && _data[_position + 1] == (byte)'\'')
+                {
+                    hasDoubleQuote = true;
+                    _position += 2;
+                    continue;
+                }
+                break; // closing single quote
+            }
+            _position++;
+        }
+        var content = _data[start.._position];
+        if (_position < _data.Length)
+            _position++; // consume closing quote
+        if (!hasDoubleQuote)
+            return content;
+        // Compact '' → '
+        var buf = RentBuf(content.Length);
+        int di = 0;
+        int si = 0;
+        while (si < content.Length)
+        {
+            if (
+                content[si] == (byte)'\''
+                && si + 1 < content.Length
+                && content[si + 1] == (byte)'\''
+            )
+            {
+                buf[di++] = (byte)'\'';
+                si += 2;
+            }
+            else
+            {
+                buf[di++] = content[si++];
+            }
+        }
+        return buf.AsSpan(0, di);
+    }
+
+    // ── Sequence-mode double-quoted string scan + unescape ──
+
+    /// <summary>
+    /// Sequence-mode counterpart of <see cref="ReadDoubleQuotedStringSpan"/>.
+    /// Reads a YAML double-quoted scalar (opening quote already consumed) from
+    /// the sequence into a rented buffer, honouring \" so it does not terminate
+    /// the value, then unescapes when any backslash was seen.
+    /// </summary>
+    private ReadOnlySpan<byte> ReadDoubleQuotedStringSeq()
+    {
+        var buf = RentBuf(256);
+        int di = 0;
+        bool hasEscape = false;
+        while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"')
+        {
+            byte b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+            if (b == (byte)'\\')
+            {
+                hasEscape = true;
+                if (di + 2 > buf.Length)
+                    buf = GrowYamlSeqBuf(buf, di);
+                buf[di++] = b;
+                _seqReader.Advance(1);
+                if (!_seqReader.End)
+                {
+                    buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                    _seqReader.Advance(1);
+                }
+                continue;
+            }
+            if (di >= buf.Length)
+                buf = GrowYamlSeqBuf(buf, di);
+            buf[di++] = b;
+            _seqReader.Advance(1);
+        }
+        if (!_seqReader.End)
+            _seqReader.Advance(1); // consume closing quote
+        var content = buf.AsSpan(0, di);
+        if (!hasEscape)
+            return content;
+        return UnescapeDoubleQuoted(content);
+    }
+
+    private byte[] GrowYamlSeqBuf(byte[] buf, int di)
+    {
+        if (buf.Length > 131072)
+            throw new FormatException("YAML double-quoted string exceeds maximum length");
+        var nb = RentBuf(buf.Length * 2);
+        buf.AsSpan(0, di).CopyTo(nb);
+        return nb;
     }
 
     // ── Sequence-mode Read ──
@@ -1219,20 +1461,28 @@ public ref struct YamlReader
                 return true;
             }
 
+            // Handle double-quoted value with escape support
+            if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
+            {
+                _seqReader.Advance(1);
+                _valueSpan = ReadDoubleQuotedStringSeq();
+                SkipNewlineSeq();
+                StoreAnchorIfNeeded();
+                AccumulateMappingPair();
+                _tokenType = TokenType.PropertyName;
+                return true;
+            }
+
             var valBuf = RentBuf(256);
             int vd = 0;
             if (
                 !_seqReader.End
-                && (
-                    _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"'
-                    || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\''
-                )
+                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\''
             )
             {
                 _seqReader.Advance(1);
                 while (
                     !_seqReader.End
-                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'
                     && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\''
                 )
                 {

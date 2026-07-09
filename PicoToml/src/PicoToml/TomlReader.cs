@@ -618,15 +618,11 @@ public ref struct TomlReader
 
     private bool ReadKeyValueSpan()
     {
-        int keyStart = _position;
+        int keyStart = _position; // offset in _data; used by else branch and TrySplitDottedKey
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
             _position++;
-            keyStart = _position;
-            while (_position < _data.Length && _data[_position] != (byte)'"')
-                _position++;
-            _keySpan = _data[keyStart.._position];
-            _position++;
+            _keySpan = ReadBasicStringSpan();
         }
         else
         {
@@ -706,11 +702,7 @@ public ref struct TomlReader
             }
             else
             {
-                int vs = _position;
-                while (_position < _data.Length && _data[_position] != (byte)'"')
-                    _position++;
-                _valueSpan = _data[vs.._position];
-                _position++;
+                _valueSpan = ReadBasicStringSpan();
             }
         }
         else if (_position < _data.Length && _data[_position] == (byte)'\'')
@@ -812,11 +804,7 @@ public ref struct TomlReader
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
             _position++;
-            int vs = _position;
-            while (_position < _data.Length && _data[_position] != (byte)'"')
-                _position++;
-            _valueSpan = _data[vs.._position];
-            _position++;
+            _valueSpan = ReadBasicStringSpan();
         }
         else
         {
@@ -893,11 +881,7 @@ public ref struct TomlReader
         if (_data[_position] == (byte)'"')
         {
             _position++;
-            int vs = _position;
-            while (_position < _data.Length && _data[_position] != (byte)'"')
-                _position++;
-            _valueSpan = _data[vs.._position];
-            _position++;
+            _valueSpan = ReadBasicStringSpan();
         }
         else if (_data[_position] == (byte)'\'')
         {
@@ -937,6 +921,158 @@ public ref struct TomlReader
             _position++;
         if (_position < _data.Length && _data[_position] == (byte)'\n')
             _position++;
+    }
+
+    // ── Basic-string scan + unescape (TOML spec: \" \\ \b \t \n \f \r \uXXXX \UXXXXXXXX) ──
+
+    /// <summary>
+    /// Scans a TOML basic string starting just after the opening quote has been
+    /// consumed. Honours backslash escapes so an escaped quote (\") does not
+    /// terminate the value, then unescapes the content. When the content has no
+    /// backslash the original buffer slice is returned (zero allocation); when it
+    /// does, a pooled buffer is rented, tracked for disposal, and returned.
+    /// </summary>
+    private ReadOnlySpan<byte> ReadBasicStringSpan()
+    {
+        int start = _position;
+        bool hasEscape = false;
+        while (_position < _data.Length)
+        {
+            byte b = _data[_position];
+            if (b == (byte)'"')
+                break;
+            if (b == (byte)'\\')
+            {
+                hasEscape = true;
+                _position++;
+                if (_position < _data.Length)
+                    _position++;
+                continue;
+            }
+            _position++;
+        }
+        var content = _data[start.._position];
+        if (_position < _data.Length)
+            _position++; // consume closing quote
+        if (!hasEscape)
+            return content;
+        return UnescapeBasicString(content);
+    }
+
+    private ReadOnlySpan<byte> UnescapeBasicString(ReadOnlySpan<byte> src)
+    {
+        // Every escape sequence is at least as many bytes as its UTF-8 output, so a
+        // buffer of src.Length is always large enough (\uXXXX 6→4, \UXXXXXXXX 10→4).
+        var buf = ArrayPool<byte>.Shared.Rent(src.Length);
+        RentTrack(buf);
+        int di = 0;
+        int si = 0;
+        while (si < src.Length)
+        {
+            if (src[si] == (byte)'\\' && si + 1 < src.Length)
+            {
+                si++;
+                byte esc = src[si];
+                si++;
+                switch (esc)
+                {
+                    case (byte)'"':
+                        buf[di++] = (byte)'"';
+                        break;
+                    case (byte)'\\':
+                        buf[di++] = (byte)'\\';
+                        break;
+                    case (byte)'b':
+                        buf[di++] = (byte)'\b';
+                        break;
+                    case (byte)'t':
+                        buf[di++] = (byte)'\t';
+                        break;
+                    case (byte)'n':
+                        buf[di++] = (byte)'\n';
+                        break;
+                    case (byte)'f':
+                        buf[di++] = (byte)'\f';
+                        break;
+                    case (byte)'r':
+                        buf[di++] = (byte)'\r';
+                        break;
+                    case (byte)'u':
+                        di = TextHelpers.AppendCodepoint(
+                            buf,
+                            di,
+                            TextHelpers.ReadHexEscape(src, ref si, 4)
+                        );
+                        break;
+                    case (byte)'U':
+                        di = TextHelpers.AppendCodepoint(
+                            buf,
+                            di,
+                            TextHelpers.ReadHexEscape(src, ref si, 8)
+                        );
+                        break;
+                    default:
+                        buf[di++] = esc;
+                        break;
+                }
+            }
+            else
+            {
+                buf[di++] = src[si++];
+            }
+        }
+        return buf.AsSpan(0, di);
+    }
+
+    // ── Sequence-mode basic string scan + unescape ──
+
+    /// <summary>
+    /// Sequence-mode counterpart of <see cref="ReadBasicStringSpan"/>. Reads a basic
+    /// string (opening quote already consumed) from the sequence into a rented,
+    /// tracked buffer, honouring backslash escapes so \" does not terminate the
+    /// value, then unescapes when any backslash was seen.
+    /// </summary>
+    private ReadOnlySpan<byte> ReadBasicStringSeq()
+    {
+        var buf = RentBuf(256);
+        int di = 0;
+        bool hasEscape = false;
+        while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"')
+        {
+            byte b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+            if (b == (byte)'\\')
+            {
+                hasEscape = true;
+                if (di + 2 > buf.Length)
+                    buf = GrowSeqBuf(buf, di);
+                buf[di++] = b;
+                _seqReader.Advance(1);
+                if (!_seqReader.End)
+                {
+                    buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                    _seqReader.Advance(1);
+                }
+                continue;
+            }
+            if (di >= buf.Length)
+                buf = GrowSeqBuf(buf, di);
+            buf[di++] = b;
+            _seqReader.Advance(1);
+        }
+        if (!_seqReader.End)
+            _seqReader.Advance(1); // consume closing quote
+        var content = buf.AsSpan(0, di);
+        if (!hasEscape)
+            return content;
+        return UnescapeBasicString(content);
+    }
+
+    private byte[] GrowSeqBuf(byte[] buf, int di)
+    {
+        var nb = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
+        buf.AsSpan(0, di).CopyTo(nb);
+        RentTrack(nb);
+        return nb;
     }
 
     // ── Sequence-mode Read ──
@@ -1015,15 +1151,7 @@ public ref struct TomlReader
         if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
         {
             _seqReader.Advance(1);
-            while (
-                !_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'
-            )
-            {
-                buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-                _seqReader.Advance(1);
-            }
-            _keySpan = buf.AsSpan(0, di);
-            _seqReader.Advance(1);
+            _keySpan = ReadBasicStringSeq();
         }
         else
         {
@@ -1115,18 +1243,7 @@ public ref struct TomlReader
             }
             else
             {
-                var buf = RentBuf(256);
-                int di = 0;
-                while (
-                    !_seqReader.End
-                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'
-                )
-                {
-                    buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-                    _seqReader.Advance(1);
-                }
-                _valueSpan = buf.AsSpan(0, di);
-                _seqReader.Advance(1);
+                _valueSpan = ReadBasicStringSeq();
             }
         }
         else
@@ -1203,32 +1320,23 @@ public ref struct TomlReader
         if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
         {
             _seqReader.Advance(1);
-            di = 0;
-            while (
-                !_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'
-            )
-            {
-                buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-                _seqReader.Advance(1);
-            }
-            _valueSpan = buf.AsSpan(0, di);
+            _valueSpan = ReadBasicStringSeq();
+            _tokenType = TokenType.PropertyName;
+            return true;
+        }
+
+        di = 0;
+        while (
+            !_seqReader.End
+            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)','
+            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'}'
+            && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
+        )
+        {
+            buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
         }
-        else
-        {
-            di = 0;
-            while (
-                !_seqReader.End
-                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)','
-                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'}'
-                && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\n'
-            )
-            {
-                buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-                _seqReader.Advance(1);
-            }
-            _valueSpan = Trim(buf.AsSpan(0, di));
-        }
+        _valueSpan = Trim(buf.AsSpan(0, di));
         _tokenType = TokenType.PropertyName;
         return true;
     }
@@ -1295,14 +1403,9 @@ public ref struct TomlReader
         if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
         {
             _seqReader.Advance(1);
-            while (
-                !_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'
-            )
-            {
-                buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-                _seqReader.Advance(1);
-            }
-            _seqReader.Advance(1);
+            _valueSpan = ReadBasicStringSeq();
+            _tokenType = TokenType.String;
+            return true;
         }
         else if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\'')
         {

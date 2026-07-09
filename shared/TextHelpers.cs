@@ -41,4 +41,63 @@ public static class TextHelpers
         }
         return true;
     }
+
+    // ── Escape-sequence helpers (shared by all format readers) ──
+
+    /// <summary>
+    /// Reads <paramref name="count"/> hex digits from <paramref name="src"/>
+    /// starting at <paramref name="si"/>, advancing <paramref name="si"/> past
+    /// the consumed digits, and returns the decoded integer code-point.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int ReadHexEscape(ReadOnlySpan<byte> src, ref int si, int count)
+    {
+        int cp = 0;
+        for (int j = 0; j < count; j++)
+        {
+            if (si >= src.Length)
+                throw new FormatException("Incomplete escape sequence");
+            byte h = src[si++];
+            cp <<= 4;
+            if (h >= (byte)'0' && h <= (byte)'9')
+                cp |= h - (byte)'0';
+            else if (h >= (byte)'A' && h <= (byte)'F')
+                cp |= h - (byte)'A' + 10;
+            else if (h >= (byte)'a' && h <= (byte)'f')
+                cp |= h - (byte)'a' + 10;
+            else
+                throw new FormatException($"Invalid escape char '{(char)h}'");
+        }
+        return cp;
+    }
+
+    /// <summary>
+    /// Encodes a Unicode code-point into UTF-8 bytes at <c>buf[di]</c> and
+    /// returns the advanced index after the encoded bytes.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int AppendCodepoint(byte[] buf, int di, int cp)
+    {
+        if (cp < 0x80)
+            buf[di++] = (byte)cp;
+        else if (cp < 0x800)
+        {
+            buf[di++] = (byte)(0xC0 | (cp >> 6));
+            buf[di++] = (byte)(0x80 | (cp & 0x3F));
+        }
+        else if (cp < 0x10000)
+        {
+            buf[di++] = (byte)(0xE0 | (cp >> 12));
+            buf[di++] = (byte)(0x80 | ((cp >> 6) & 0x3F));
+            buf[di++] = (byte)(0x80 | (cp & 0x3F));
+        }
+        else
+        {
+            buf[di++] = (byte)(0xF0 | (cp >> 18));
+            buf[di++] = (byte)(0x80 | ((cp >> 12) & 0x3F));
+            buf[di++] = (byte)(0x80 | ((cp >> 6) & 0x3F));
+            buf[di++] = (byte)(0x80 | (cp & 0x3F));
+        }
+        return di;
+    }
 }

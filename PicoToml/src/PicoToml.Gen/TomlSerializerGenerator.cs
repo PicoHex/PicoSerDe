@@ -800,9 +800,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             );
             s.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
             s.AppendLine("            var __sk = r.KeySpan;");
-            s.AppendLine(
-                "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
-            );
             var simpleProps = t
                 .Properties.Where(p => p.TypeKind is not "object" and not "dict")
                 .ToImmutableArray();
@@ -815,6 +812,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("                r.Skip();");
                 s.AppendLine("            }");
             }
+            s.AppendLine(
+                "            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
+            );
             s.AppendLine("        }");
             s.AppendLine("        result = o;");
             s.AppendLine("        return ReadStatus.Success;");

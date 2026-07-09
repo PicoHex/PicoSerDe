@@ -215,7 +215,7 @@ public ref struct YamlWriter
         if (NeedsQuoting(utf8Value))
         {
             WriteByte((byte)'"');
-            WriteRaw(utf8Value);
+            WriteEscaped(utf8Value);
             WriteByte((byte)'"');
         }
         else

@@ -62,22 +62,8 @@ public ref struct TomlWriter
     public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, string value)
     {
         WriteKey(utf8Key);
-        WriteRaw(" = \""u8);
-        int max = Encoding.UTF8.GetMaxByteCount(value.Length);
-        if (max <= 256)
-        {
-            Span<byte> buf = stackalloc byte[max];
-            int w = Encoding.UTF8.GetBytes(value.AsSpan(), buf);
-            _buffer.Write(buf[..w]);
-            _bytesWritten += w;
-        }
-        else
-        {
-            var bytes = Encoding.UTF8.GetBytes(value);
-            _buffer.Write(bytes);
-            _bytesWritten += bytes.Length;
-        }
-        WriteByte((byte)'"');
+        WriteRaw(" = "u8);
+        WriteBasicString(value.AsSpan());
         WriteNewLine();
     }
 
@@ -89,22 +75,8 @@ public ref struct TomlWriter
     public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, scoped ReadOnlySpan<char> value)
     {
         WriteKey(utf8Key);
-        WriteRaw(" = \""u8);
-        int max = Encoding.UTF8.GetMaxByteCount(value.Length);
-        if (max <= 256)
-        {
-            Span<byte> buf = stackalloc byte[max];
-            int w = Encoding.UTF8.GetBytes(value, buf);
-            _buffer.Write(buf[..w]);
-            _bytesWritten += w;
-        }
-        else
-        {
-            var bytes = Encoding.UTF8.GetBytes(value.ToArray());
-            _buffer.Write(bytes);
-            _bytesWritten += bytes.Length;
-        }
-        WriteByte((byte)'"');
+        WriteRaw(" = "u8);
+        WriteBasicString(value);
         WriteNewLine();
     }
 
@@ -253,9 +225,7 @@ public ref struct TomlWriter
     public void WriteArrayValue(string value)
     {
         ArrayBeforeValue();
-        WriteByte((byte)'"');
-        WriteRaw(Encoding.UTF8.GetBytes(value));
-        WriteByte((byte)'"');
+        WriteBasicString(value.AsSpan());
     }
 
     public void WriteArrayValue(bool value)
@@ -285,6 +255,91 @@ public ref struct TomlWriter
         _arrayCommaMask |= (1L << (_arrayDepth - 1));
     }
 
+    // ── Basic-string escaping (TOML spec: ", \\, \b, \t, \n, \f, \r, \uXXXX) ──
+
+    private void WriteBasicString(scoped ReadOnlySpan<char> value)
+    {
+        int max = Encoding.UTF8.GetMaxByteCount(value.Length);
+        if (max <= 256)
+        {
+            Span<byte> buf = stackalloc byte[max];
+            int w = Encoding.UTF8.GetBytes(value, buf);
+            WriteBasicStringUtf8(buf[..w]);
+        }
+        else
+        {
+            var bytes = Encoding.UTF8.GetBytes(value.ToArray());
+            WriteBasicStringUtf8(bytes);
+        }
+    }
+
+    private void WriteBasicStringUtf8(scoped ReadOnlySpan<byte> utf8)
+    {
+        WriteByte((byte)'"');
+        bool needsEscape = false;
+        foreach (var b in utf8)
+        {
+            if (b == (byte)'"' || b == (byte)'\\' || b < 0x20)
+            {
+                needsEscape = true;
+                break;
+            }
+        }
+        if (!needsEscape)
+        {
+            _buffer.Write(utf8);
+            _bytesWritten += utf8.Length;
+        }
+        else
+        {
+            foreach (var b in utf8)
+            {
+                switch (b)
+                {
+                    case (byte)'"':
+                        WriteRaw("\\\""u8);
+                        break;
+                    case (byte)'\\':
+                        WriteRaw("\\\\"u8);
+                        break;
+                    case (byte)'\b':
+                        WriteRaw("\\b"u8);
+                        break;
+                    case (byte)'\t':
+                        WriteRaw("\\t"u8);
+                        break;
+                    case (byte)'\n':
+                        WriteRaw("\\n"u8);
+                        break;
+                    case (byte)'\f':
+                        WriteRaw("\\f"u8);
+                        break;
+                    case (byte)'\r':
+                        WriteRaw("\\r"u8);
+                        break;
+                    default:
+                        if (b < 0x20)
+                        {
+                            WriteByte((byte)'\\');
+                            WriteByte((byte)'u');
+                            WriteByte((byte)'0');
+                            WriteByte((byte)'0');
+                            WriteByte(ToHexLower(b >> 4));
+                            WriteByte(ToHexLower(b & 0xF));
+                        }
+                        else
+                        {
+                            WriteByte(b);
+                        }
+                        break;
+                }
+            }
+        }
+        WriteByte((byte)'"');
+    }
+
+    private static byte ToHexLower(int n) => (byte)(n < 10 ? '0' + n : 'a' + n - 10);
+
     // ── Private helpers ──
 
     private void WriteKey(ReadOnlySpan<byte> utf8)
@@ -292,11 +347,7 @@ public ref struct TomlWriter
         if (_inlineDepth > 0)
             InlineBeforeValue();
         if (NeedsKeyQuoting(utf8))
-        {
-            WriteByte((byte)'"');
-            WriteRaw(utf8);
-            WriteByte((byte)'"');
-        }
+            WriteBasicStringUtf8(utf8);
         else
             WriteRaw(utf8);
     }

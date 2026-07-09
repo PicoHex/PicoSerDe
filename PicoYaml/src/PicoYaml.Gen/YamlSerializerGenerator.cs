@@ -1316,9 +1316,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             );
             sb.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
             sb.AppendLine("            var __k = r.KeySpan;");
-            sb.AppendLine(
-                "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
-            );
             int yi = 0;
             foreach (var p in t.Properties.Where(p => p.TypeKind is not "object" and not "dict"))
             {
@@ -1331,9 +1328,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 EmitDeserialize(sb, p, "o", "                ");
                 sb.AppendLine("            }");
             }
-            sb.AppendLine(
-                "            else { if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput; }"
-            );
+            if (yi > 0)
+            {
+                sb.AppendLine(
+                    "            else { if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; } }"
+                );
+            }
             sb.AppendLine("        }");
             sb.AppendLine("        result = o;");
             sb.AppendLine("        return ReadStatus.Success;");
