@@ -963,7 +963,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("using System.Collections.Generic; using PicoSerDe.Core; using PicoToml;");
         s.AppendLine();
 
-        // ── Serializer (reuses EmitSerializeListElement) ──
+        // ── Serializer ──
         s.Append("file sealed class ");
         s.Append(t.Name);
         s.Append("_TomlSer : ISerializer<");
@@ -973,11 +973,23 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(listFqn);
         s.AppendLine(" v) {");
         s.AppendLine("        var tw = new TomlWriter(w);");
-        s.AppendLine("        tw.WriteStartArray(\"data\"u8);");
-        s.AppendLine("        foreach (var __item in v) {");
-        EmitSerializeListElement(s, elemP, "            ");
-        s.AppendLine("        }");
-        s.AppendLine("        tw.WriteEndArray();");
+        if (ek == "object" && elemP.NestedProperties.Length > 0)
+        {
+            // Array of tables: [[data]] per element
+            s.AppendLine("        foreach (var __item in v) {");
+            s.AppendLine("            tw.WriteArrayTable(\"data\"u8);");
+            EmitSerializeListElement(s, elemP, "            ");
+            s.AppendLine("        }");
+        }
+        else
+        {
+            // Inline array: data = [1, 2, 3]
+            s.AppendLine("        tw.WriteStartArray(\"data\"u8);");
+            s.AppendLine("        foreach (var __item in v) {");
+            EmitSerializeListElement(s, elemP, "            ");
+            s.AppendLine("        }");
+            s.AppendLine("        tw.WriteEndArray();");
+        }
         s.AppendLine("    } }");
         s.AppendLine();
 
@@ -990,17 +1002,65 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("    public ");
         s.Append(listFqn);
         s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
-        s.AppendLine("        var r = new TomlReader(data);");
+        s.Append("        var r = new TomlReader(data);");
         s.AppendLine("        r.Read();");
         s.Append("        var __tmpList = new List<");
         s.Append(et);
         s.AppendLine(">(16);");
-        s.AppendLine("        if (r.TokenType == TokenType.PropertyName) r.Read(); // skip key");
-        s.AppendLine("        if (r.TokenType == TokenType.ArrayStart) {");
-        s.AppendLine("            while (r.Read() && r.TokenType != TokenType.ArrayEnd) {");
-        EmitDeserializeListElementTemp(s, elemP, "                ");
-        s.AppendLine("            }");
-        s.AppendLine("        }");
+        if (ek == "object" && elemP.NestedProperties.Length > 0)
+        {
+            // Array of tables: [[data]] → ArrayStart per item
+            // After r.Read(), r is at ArrayStart (first [[data]])
+            s.AppendLine("        // Read first object");
+            s.Append("        var __item = new ");
+            s.Append(et);
+            s.AppendLine("();");
+            s.AppendLine("        while (r.Read() && r.TokenType == TokenType.PropertyName)");
+            s.AppendLine("        {");
+            s.AppendLine("            var __k = r.KeySpan;");
+            EmitPropertyDispatch(
+                s,
+                elemP.NestedProperties,
+                "__k",
+                "__item",
+                "            ",
+                "                "
+            );
+            s.AppendLine("        }");
+            s.AppendLine("        __tmpList.Add(__item);");
+            s.AppendLine("        // Read subsequent objects (delimited by ArrayStart)");
+            s.AppendLine("        while (r.TokenType == TokenType.ArrayStart)");
+            s.AppendLine("        {");
+            s.Append("            __item = new ");
+            s.Append(et);
+            s.AppendLine("();");
+            s.AppendLine("            while (r.Read() && r.TokenType == TokenType.PropertyName)");
+            s.AppendLine("            {");
+            s.AppendLine("                var __k = r.KeySpan;");
+            EmitPropertyDispatch(
+                s,
+                elemP.NestedProperties,
+                "__k",
+                "__item",
+                "                ",
+                "                    "
+            );
+            s.AppendLine("            }");
+            s.AppendLine("            __tmpList.Add(__item);");
+            s.AppendLine("        }");
+        }
+        else
+        {
+            // Inline array: data = [1, 2, 3]
+            s.AppendLine(
+                "        if (r.TokenType == TokenType.PropertyName) r.Read(); // skip key"
+            );
+            s.AppendLine("        if (r.TokenType == TokenType.ArrayStart) {");
+            s.AppendLine("            while (r.Read() && r.TokenType != TokenType.ArrayEnd) {");
+            EmitDeserializeListElementTemp(s, elemP, "                ");
+            s.AppendLine("            }");
+            s.AppendLine("        }");
+        }
         s.AppendLine("        return __tmpList;");
         s.AppendLine("    } }");
         s.AppendLine();
@@ -1666,6 +1726,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(indent);
                 s.Append(sn);
                 s.AppendLine(".SerializeContent(tw, __item);");
+                break;
+            }
+            case "object":
+            {
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "TomlInner",
+                    p.ElementTypeName!
+                );
+                s.Append(indent);
+                s.Append(sn);
+                s.AppendLine(".Serialize(tw, __item);");
                 break;
             }
             default:

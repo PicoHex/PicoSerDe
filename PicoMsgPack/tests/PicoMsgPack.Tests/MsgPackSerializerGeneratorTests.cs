@@ -398,4 +398,23 @@ public class MsgPackSerializerGeneratorTests
         await Assert.That(result[0]).IsEqualTo("hello");
         await Assert.That(result[1]).IsEqualTo("world");
     }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_ObjectElement_Roundtrips()
+    {
+        var list = new List<Address>
+        {
+            new() { Street = "123 Main", City = "NYC" },
+            new() { Street = "456 Oak", City = "LA" },
+        };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(list);
+        var result = MsgPackSerializer.Deserialize<List<Address>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result[0].Street).IsEqualTo("123 Main");
+        await Assert.That(result[0].City).IsEqualTo("NYC");
+        await Assert.That(result[1].Street).IsEqualTo("456 Oak");
+        await Assert.That(result[1].City).IsEqualTo("LA");
+    }
 }

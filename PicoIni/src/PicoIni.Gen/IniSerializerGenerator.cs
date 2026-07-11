@@ -872,7 +872,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
-    /// <summary>Generates serializer/deserializer for a top-level List&lt;T&gt; using existing helpers.</summary>
+    /// <summary>Generates serializer/deserializer for a top-level List&lt;T&gt;. Primitives use comma-separated; objects use sections [0]/[1]/...</summary>
     private static string GenList(TypeInfo type)
     {
         var s = new StringBuilder();
@@ -904,7 +904,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("using PicoSerDe.Core; using PicoIni;");
         s.AppendLine();
 
-        // ── Serializer (reuses WriteValue) ──
+        var isObj = elemKind == "object" && elemP.NestedProperties.Length > 0;
+
+        // ── Serializer ──
         s.Append("file readonly struct ");
         s.Append(type.Name);
         s.Append("IniSerializer : ISerializer<");
@@ -913,19 +915,38 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
         s.Append(listFqn);
         s.AppendLine(" value) {");
-        s.AppendLine("        var sb = new StringBuilder();");
-        s.AppendLine("        for (int i = 0; i < value.Count; i++) {");
-        s.AppendLine("            if (i > 0) sb.Append(',');");
-        s.Append("            var __elem = value[i]; sb.Append(");
-        WriteValue(s, elemP, "__elem");
-        s.AppendLine(");");
-        s.AppendLine("        }");
-        s.AppendLine("        var bytes = Encoding.UTF8.GetBytes(sb.ToString());");
-        s.AppendLine("        writer.Write(bytes);");
+        if (isObj)
+        {
+            s.AppendLine("        var iw = new IniWriter(writer);");
+            s.AppendLine("        for (int i = 0; i < value.Count; i++) {");
+            s.AppendLine("            if (i > 0) iw.WriteBlankLine();");
+            s.AppendLine("            iw.WriteSection(i.ToString());");
+            foreach (var np in elemP.NestedProperties)
+            {
+                s.Append("            iw.WriteKeyValue(\"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
+                s.Append("\", ");
+                WriteValue(s, np, $"value[i].{np.Name}");
+                s.AppendLine(");");
+            }
+            s.AppendLine("        }");
+        }
+        else
+        {
+            s.AppendLine("        var sb = new StringBuilder();");
+            s.AppendLine("        for (int i = 0; i < value.Count; i++) {");
+            s.AppendLine("            if (i > 0) sb.Append(',');");
+            s.Append("            var __elem = value[i]; sb.Append(");
+            WriteValue(s, elemP, "__elem");
+            s.AppendLine(");");
+            s.AppendLine("        }");
+            s.AppendLine("        var bytes = Encoding.UTF8.GetBytes(sb.ToString());");
+            s.AppendLine("        writer.Write(bytes);");
+        }
         s.AppendLine("    } }");
         s.AppendLine();
 
-        // ── Deserializer (reuses EmitReadValue via ReadOnlySpan<byte> __rv) ──
+        // ── Deserializer ──
         s.Append("file readonly struct ");
         s.Append(type.Name);
         s.Append("IniDeserializer : IDeserializer<");
@@ -938,30 +959,108 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append(elemTypeName);
         s.AppendLine(">(16);");
         s.AppendLine("        var __str = Encoding.UTF8.GetString(data);");
-        s.AppendLine("        int __p = 0, __seg = 0;");
-        s.AppendLine("        while (__p < __str.Length) {");
-        s.AppendLine("            if (__str[__p] == '\\\\' && __p + 1 < __str.Length) __p += 2;");
-        s.AppendLine("            else if (__str[__p] == ',') {");
-        s.AppendLine(
-            "                var __raw = __str.Substring(__seg, __p - __seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\");"
-        );
-        s.AppendLine("                var __rv = Encoding.UTF8.GetBytes(__raw).AsSpan();");
-        s.Append("                __list.Add(");
-        EmitReadValue(s, elemP);
-        s.AppendLine(");");
-        s.AppendLine("                __seg = ++__p;");
-        s.AppendLine("            }");
-        s.AppendLine("            else __p++;");
-        s.AppendLine("        }");
-        s.AppendLine("        if (__seg < __str.Length) {");
-        s.AppendLine(
-            "            var __raw = __str.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\");"
-        );
-        s.AppendLine("            var __rv = Encoding.UTF8.GetBytes(__raw).AsSpan();");
-        s.Append("            __list.Add(");
-        EmitReadValue(s, elemP);
-        s.AppendLine(");");
-        s.AppendLine("        }");
+        if (isObj)
+        {
+            s.AppendLine("        int __p = 0;");
+            s.Append(elemTypeName);
+            s.AppendLine("? __cur = null;");
+            s.AppendLine("        while (__p < __str.Length)");
+            s.AppendLine("        {");
+            s.AppendLine(
+                "            while (__p < __str.Length && (__str[__p] == '\\r' || __str[__p] == '\\n')) __p++;"
+            );
+            s.AppendLine("            if (__p >= __str.Length) break;");
+            s.AppendLine("            if (__str[__p] == '[')");
+            s.AppendLine("            {");
+            s.AppendLine("                if (__cur != null) __list.Add(__cur);");
+            s.Append("                __cur = new ");
+            s.Append(elemTypeName);
+            s.AppendLine("();");
+            s.AppendLine(
+                "                while (__p < __str.Length && __str[__p] != '\\n') __p++;"
+            );
+            s.AppendLine("                __p++;");
+            s.AppendLine("            }");
+            s.AppendLine("            else if (__cur != null)");
+            s.AppendLine("            {");
+            s.AppendLine("                int __eq = __p;");
+            s.AppendLine(
+                "                while (__eq < __str.Length && __str[__eq] != '\\n' && __str[__eq] != '=') __eq++;"
+            );
+            s.AppendLine("                if (__eq < __str.Length && __str[__eq] == '=')");
+            s.AppendLine("                {");
+            s.AppendLine(
+                "                    var __k = __str.Substring(__p, __eq - __p).TrimEnd();"
+            );
+            s.AppendLine("                    __eq++;");
+            s.AppendLine("                    int __ve = __eq;");
+            s.AppendLine(
+                "                    while (__ve < __str.Length && __str[__ve] != '\\n' && __str[__ve] != '\\r') __ve++;"
+            );
+            s.AppendLine(
+                "                    var __v = __str.Substring(__eq, __ve - __eq).TrimStart().Trim('\"');"
+            );
+            s.AppendLine("                    var __rv = Encoding.UTF8.GetBytes(__v).AsSpan();");
+            for (int i = 0; i < elemP.NestedProperties.Length; i++)
+            {
+                var np = elemP.NestedProperties[i];
+                s.Append(i == 0 ? "                    if" : "                    else if");
+                s.Append(" (string.Equals(__k, \"");
+                s.Append(np.JsonName);
+                s.AppendLine("\", StringComparison.OrdinalIgnoreCase))");
+                s.AppendLine("                    {");
+                s.Append("                        __cur.");
+                s.Append(np.Name);
+                s.Append(" = ");
+                EmitReadValue(s, np);
+                s.AppendLine(";");
+                s.AppendLine("                    }");
+            }
+            s.AppendLine("                }");
+            s.AppendLine(
+                "                while (__p < __str.Length && __str[__p] != '\\n') __p++;"
+            );
+            s.AppendLine("                __p++;");
+            s.AppendLine("            }");
+            s.AppendLine("            else");
+            s.AppendLine("            {");
+            s.AppendLine(
+                "                while (__p < __str.Length && __str[__p] != '\\n') __p++;"
+            );
+            s.AppendLine("                __p++;");
+            s.AppendLine("            }");
+            s.AppendLine("        }");
+            s.AppendLine("        if (__cur != null) __list.Add(__cur);");
+        }
+        else
+        {
+            s.AppendLine("        int __p = 0, __seg = 0;");
+            s.AppendLine("        while (__p < __str.Length) {");
+            s.AppendLine(
+                "            if (__str[__p] == '\\\\' && __p + 1 < __str.Length) __p += 2;"
+            );
+            s.AppendLine("            else if (__str[__p] == ',') {");
+            s.AppendLine(
+                "                var __raw = __str.Substring(__seg, __p - __seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\");"
+            );
+            s.AppendLine("                var __rv = Encoding.UTF8.GetBytes(__raw).AsSpan();");
+            s.Append("                __list.Add(");
+            EmitReadValue(s, elemP);
+            s.AppendLine(");");
+            s.AppendLine("                __seg = ++__p;");
+            s.AppendLine("            }");
+            s.AppendLine("            else __p++;");
+            s.AppendLine("        }");
+            s.AppendLine("        if (__seg < __str.Length) {");
+            s.AppendLine(
+                "            var __raw = __str.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\");"
+            );
+            s.AppendLine("            var __rv = Encoding.UTF8.GetBytes(__raw).AsSpan();");
+            s.Append("            __list.Add(");
+            EmitReadValue(s, elemP);
+            s.AppendLine(");");
+            s.AppendLine("        }");
+        }
         s.AppendLine("        return __list;");
         s.AppendLine("    } }");
         s.AppendLine();
@@ -1697,19 +1796,23 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 $"double.TryParse(__rv, out var __dv) ? ({GetCSharpType(prop.TypeKind)})__dv : 0"
             );
         else if (prop.TypeKind == "boolean")
-            s.Append("bool.TryParse(__rv, out var __bv) ? __bv : false");
+            s.Append("__rv.SequenceEqual(\"true\"u8)");
         else if (prop.TypeKind == "decimal")
             s.Append(
-                "decimal.TryParse(__rv, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __dec) ? __dec : 0"
+                "decimal.TryParse(Encoding.UTF8.GetString(__rv), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __dec) ? __dec : 0"
             );
         else if (prop.TypeKind == "datetime")
             s.Append(
-                "DateTime.TryParse(__rv, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt) ? __dt : default"
+                "System.DateTime.TryParse(Encoding.UTF8.GetString(__rv), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt) ? __dt : default"
             );
         else if (prop.TypeKind == "guid")
-            s.Append("Guid.TryParse(__rv, out var __g) ? __g : default");
+            s.Append(
+                "System.Guid.TryParse(Encoding.UTF8.GetString(__rv), out var __g) ? __g : default"
+            );
         else if (prop.TypeKind == "enum")
-            s.Append($"Enum.TryParse<{prop.TypeFullName}>(__rv, out var __ev) ? __ev : default");
+            s.Append(
+                $"System.Enum.TryParse<{prop.TypeFullName}>(Encoding.UTF8.GetString(__rv), out var __ev) ? __ev : default"
+            );
         else
             s.Append("Encoding.UTF8.GetString(__rv)");
     }

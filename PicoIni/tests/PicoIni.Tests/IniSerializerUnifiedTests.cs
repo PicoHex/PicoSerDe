@@ -203,6 +203,30 @@ public class ManyScalarConfig
     public string Zeta { get; set; } = string.Empty;
 }
 
+public class IniPoco
+{
+    public string Name { get; set; } = string.Empty;
+    public int Age { get; set; }
+}
+
+public class IniRichPoco
+{
+    public string Label { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public long Big { get; set; }
+    public double Score { get; set; }
+    public bool Flag { get; set; }
+}
+
+public class IniFullPoco
+{
+    public string Label { get; set; } = string.Empty;
+    public DateTime Created { get; set; }
+    public Guid Id { get; set; }
+    public DayOfWeek Day { get; set; }
+    public decimal Price { get; set; }
+}
+
 // ── Top-level List<T> serialization (regression: CS0305 with generic type args) ──
 
 public class IniSerializerTopLevelListTests
@@ -218,5 +242,87 @@ public class IniSerializerTopLevelListTests
         await Assert.That(result!).HasCount().EqualTo(3);
         await Assert.That(result[0]).IsEqualTo(1);
         await Assert.That(result[2]).IsEqualTo(-7);
+    }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_ObjectElement_Roundtrips()
+    {
+        var list = new List<IniPoco>
+        {
+            new() { Name = "Alice", Age = 30 },
+            new() { Name = "Bob", Age = 25 },
+        };
+        var bytes = IniSerializer.SerializeToUtf8Bytes(list);
+        var result = IniSerializer.Deserialize<List<IniPoco>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result[0].Name).IsEqualTo("Alice");
+        await Assert.That(result[0].Age).IsEqualTo(30);
+        await Assert.That(result[1].Name).IsEqualTo("Bob");
+        await Assert.That(result[1].Age).IsEqualTo(25);
+    }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_MultiTypeElement_Roundtrips()
+    {
+        var list = new List<IniRichPoco>
+        {
+            new()
+            {
+                Label = "A",
+                Count = 1,
+                Big = 100L,
+                Score = 3.14,
+                Flag = true,
+            },
+            new()
+            {
+                Label = "B",
+                Count = 2,
+                Big = 200L,
+                Score = 2.71,
+                Flag = false,
+            },
+        };
+        var bytes = IniSerializer.SerializeToUtf8Bytes(list);
+        var result = IniSerializer.Deserialize<List<IniRichPoco>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result[0].Label).IsEqualTo("A");
+        await Assert.That(result[0].Count).IsEqualTo(1);
+        await Assert.That(result[0].Big).IsEqualTo(100L);
+        await Assert.That(result[0].Score).IsEqualTo(3.14);
+        await Assert.That(result[0].Flag).IsEqualTo(true);
+        await Assert.That(result[1].Flag).IsEqualTo(false);
+    }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_FullTypeElement_Roundtrips()
+    {
+        var dt = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc);
+        var g = Guid.NewGuid();
+        var list = new List<IniFullPoco>
+        {
+            new()
+            {
+                Label = "X",
+                Created = dt,
+                Id = g,
+                Day = DayOfWeek.Friday,
+                Price = 99.99m,
+            },
+        };
+        var bytes = IniSerializer.SerializeToUtf8Bytes(list);
+        var result = IniSerializer.Deserialize<List<IniFullPoco>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(1);
+        await Assert.That(result[0].Label).IsEqualTo("X");
+        await Assert.That(result[0].Created.Year).IsEqualTo(2024);
+        await Assert.That(result[0].Id).IsEqualTo(g);
+        await Assert.That(result[0].Day).IsEqualTo(DayOfWeek.Friday);
+        await Assert.That(result[0].Price).IsEqualTo(99.99m);
     }
 }

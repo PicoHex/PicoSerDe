@@ -279,6 +279,21 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         foreach (var t in ts)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(t, nestedTypes);
 
+        // Also collect element types from top-level arrays/lists (e.g. YamlAddress for List<YamlAddress>)
+        foreach (var t in ts)
+        {
+            if (
+                t.ArrayElementKind is "object"
+                && !string.IsNullOrEmpty(t.ArrayElementName)
+                && !t.ArrayElementNestedProps.IsDefaultOrEmpty
+            )
+            {
+                var elemFqn = t.ArrayElementName!.Replace("global::", "");
+                if (!nestedTypes.ContainsKey(elemFqn))
+                    nestedTypes[elemFqn] = t.ArrayElementNestedProps;
+            }
+        }
+
         // Collect nested Dictionary types
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
         foreach (var t in ts)
@@ -1986,6 +2001,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".Serialize(yw, __item);");
                 break;
             }
+            case "object":
+            {
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "YamlInner",
+                    p.ElementTypeName!
+                );
+                s.Append(ind);
+                s.AppendLine("yw.WriteStartSequenceBlock();");
+                s.Append(ind);
+                s.Append("    ");
+                s.Append(sn);
+                s.AppendLine(".SerializeBlock(yw, __item);");
+                s.Append(ind);
+                s.AppendLine("yw.WriteEndSequenceBlock();");
+                break;
+            }
             case "int32":
                 s.Append(ind);
                 s.AppendLine("yw.WriteSequenceItem(__item);");
@@ -2305,6 +2336,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                     "YamlDictInner",
+                    p.ElementTypeName!
+                );
+                s.Append(pad);
+                s.Append("__tmpList.Add(");
+                s.Append(sn);
+                s.AppendLine(".Deserialize(ref r));");
+                break;
+            }
+            case "object":
+            {
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "YamlInner",
                     p.ElementTypeName!
                 );
                 s.Append(pad);
