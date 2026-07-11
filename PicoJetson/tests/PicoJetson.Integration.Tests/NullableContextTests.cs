@@ -154,7 +154,7 @@ public class NullableContextTests
 
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Items).IsNotNull();
-        await Assert.That(result.Items).HasCount().EqualTo(3);
+        await Assert.That(result.Items).Count().IsEqualTo(3);
         await Assert.That(result.Items[0]).IsEqualTo("a");
         await Assert.That(result.Items[1]).IsNull();
         await Assert.That(result.Items[2]).IsEqualTo("b");

@@ -134,7 +134,7 @@ public class PicoDocumentTests
         }
         await Assert.That(keys).Contains("a");
         await Assert.That(keys).Contains("b");
-        await Assert.That(keys).HasCount(2);
+        await Assert.That(keys).Count().IsEqualTo(2);
     }
 
     // ── Array access ──
@@ -340,7 +340,7 @@ public class PicoDocumentTests
     {
         var doc = PicoDocument.Parse("[1,2,3]"u8.ToArray());
         var items = doc.RootElement.EnumerateArray().ToArray();
-        await Assert.That(items).HasCount(3);
+        await Assert.That(items).Count().IsEqualTo(3);
         await Assert.That(items[0].GetInt32()).IsEqualTo(1);
         await Assert.That(items[2].GetInt32()).IsEqualTo(3);
     }

@@ -158,30 +158,30 @@ public class MultiFormatRoundTripTests
         // PicoJetson
         var jBytes = JsonSerializer.SerializeToUtf8Bytes(model);
         var jBack = JsonSerializer.Deserialize<AllFormatsModel>(jBytes);
-        await Assert.That(jBack.NullableString).IsNull();
-        await Assert.That(jBack.NullableInt).IsNull();
-        await Assert.That(jBack.Nested).IsNull();
+        await Assert.That(jBack!.NullableString).IsNull();
+        await Assert.That(jBack!.NullableInt).IsNull();
+        await Assert.That(jBack!.Nested).IsNull();
 
         // PicoIni
         var iBytes = IniSerializer.SerializeToUtf8Bytes(model);
         var iBack = IniSerializer.Deserialize<AllFormatsModel>(iBytes);
-        await Assert.That(iBack.NullableString).IsNull();
-        await Assert.That(iBack.NullableInt).IsNull();
-        await Assert.That(iBack.Nested).IsNull();
+        await Assert.That(iBack!.NullableString).IsNull();
+        await Assert.That(iBack!.NullableInt).IsNull();
+        await Assert.That(iBack!.Nested).IsNull();
 
         // PicoToml
         var tBytes = TomlSerializer.SerializeToUtf8Bytes(model);
         var tBack = TomlSerializer.Deserialize<AllFormatsModel>(tBytes);
-        await Assert.That(tBack.NullableString).IsNull();
-        await Assert.That(tBack.NullableInt).IsNull();
-        await Assert.That(tBack.Nested).IsNull();
+        await Assert.That(tBack!.NullableString).IsNull();
+        await Assert.That(tBack!.NullableInt).IsNull();
+        await Assert.That(tBack!.Nested).IsNull();
 
         // PicoMsgPack
         var mBytes = MsgPackSerializer.SerializeToUtf8Bytes(model);
         var mBack = MsgPackSerializer.Deserialize<AllFormatsModel>(mBytes);
-        await Assert.That(mBack.NullableString).IsNull();
-        await Assert.That(mBack.NullableInt).IsNull();
-        await Assert.That(mBack.Nested).IsNull();
+        await Assert.That(mBack!.NullableString).IsNull();
+        await Assert.That(mBack!.NullableInt).IsNull();
+        await Assert.That(mBack!.Nested).IsNull();
 
         // PicoYaml
         var yBytes = YamlSerializer.SerializeToUtf8Bytes(model);
@@ -194,12 +194,12 @@ public class MultiFormatRoundTripTests
             if (yr > 500)
                 break;
         }
-        await Assert.That(yr).IsLessThan(100, "Raw YAML reader should not loop");
+        await Assert.That(yr).IsLessThan(100);
         // Step 2: verify full deserialization works
         var yBack = YamlSerializer.Deserialize<AllFormatsModel>(yBytes);
-        await Assert.That(yBack.NullableString).IsNull();
-        await Assert.That(yBack.NullableInt).IsNull();
-        await Assert.That(yBack.Nested).IsNull();
+        await Assert.That(yBack!.NullableString).IsNull();
+        await Assert.That(yBack!.NullableInt).IsNull();
+        await Assert.That(yBack!.Nested).IsNull();
     }
 
     private static async Task AssertEqual(AllFormatsModel expected, AllFormatsModel actual)

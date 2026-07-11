@@ -208,7 +208,7 @@ public class NestedDictRoundTripTests
                 break;
         }
         await Assert.That(tokenCount).IsGreaterThan(0);
-        await Assert.That(tokenCount).IsLessThan(200, "Should not loop infinitely");
+        await Assert.That(tokenCount).IsLessThan(200);
     }
 }
 

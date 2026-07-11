@@ -80,41 +80,43 @@ public class TomlCrossValidationTests
         var table = Tomlyn.TomlSerializer.Deserialize<Tomlyn.Model.TomlTable>(tomlText);
 
         // Primitives that Tomlyn preserves as native types
-        await Assert.That((bool)table["Bool"]).IsTrue();
-        await Assert.That((long)table["Int"]).IsEqualTo(42L);
-        await Assert.That((long)table["Long"]).IsEqualTo(9_876_543_210L);
-        await Assert.That((double)table["Float"]).IsGreaterThan(3.13);
-        await Assert.That((double)table["Double"]).IsEqualTo(2.71828);
-        await Assert.That((long)table["NullableInt"]).IsEqualTo(77L);
+        await Assert.That((bool)table!["Bool"]!).IsTrue();
+        await Assert.That((long)table!["Int"]!).IsEqualTo(42L);
+        await Assert.That((long)table!["Long"]!).IsEqualTo(9_876_543_210L);
+        await Assert.That((double)table!["Float"]!).IsGreaterThan(3.13);
+        await Assert.That((double)table!["Double"]!).IsEqualTo(2.71828);
+        await Assert.That((long)table!["NullableInt"]!).IsEqualTo(77L);
 
         // Types PicoToml serializes as quoted strings
-        await Assert.That((string)table["Decimal"]).IsEqualTo("123.45");
-        await Assert.That((string)table["String"]).IsEqualTo("Hello, TOML!");
-        await Assert.That((string)table["DateTime"]).IsEqualTo("2026-06-04T12:30:00.0000000Z");
-        await Assert.That((string)table["TimeSpan"]).IsEqualTo("10:30:00");
-        await Assert.That((string)table["DateOnly"]).IsEqualTo("2026-06-04");
-        await Assert.That((string)table["TimeOnly"]).IsEqualTo("15:45:30.0000000");
-        await Assert.That((string)table["Guid"]).IsEqualTo("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
-        await Assert.That((string)table["Enum"]).IsEqualTo("Wednesday");
+        await Assert.That((string)table!["Decimal"]!).IsEqualTo("123.45");
+        await Assert.That((string)table!["String"]!).IsEqualTo("Hello, TOML!");
+        await Assert.That((string)table!["DateTime"]!).IsEqualTo("2026-06-04T12:30:00.0000000Z");
+        await Assert.That((string)table!["TimeSpan"]!).IsEqualTo("10:30:00");
+        await Assert.That((string)table!["DateOnly"]!).IsEqualTo("2026-06-04");
+        await Assert.That((string)table!["TimeOnly"]!).IsEqualTo("15:45:30.0000000");
+        await Assert
+            .That((string)table!["Guid"]!)
+            .IsEqualTo("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+        await Assert.That((string)table!["Enum"]!).IsEqualTo("Wednesday");
 
         await Assert.That(table.ContainsKey("NullableString")).IsFalse();
 
         // Collections
-        var intList = (TomlArray)table["IntList"];
+        var intList = (TomlArray)table!["IntList"];
         await Assert.That(intList.Count).IsEqualTo(3);
-        await Assert.That((long)intList[0]).IsEqualTo(10L);
-        await Assert.That((long)intList[1]).IsEqualTo(20L);
-        await Assert.That((long)intList[2]).IsEqualTo(30L);
+        await Assert.That((long)intList[0]!).IsEqualTo(10L);
+        await Assert.That((long)intList[1]!).IsEqualTo(20L);
+        await Assert.That((long)intList[2]!).IsEqualTo(30L);
 
-        var strList = (TomlArray)table["StringList"];
+        var strList = (TomlArray)table!["StringList"];
         await Assert.That(strList.Count).IsEqualTo(2);
-        await Assert.That((string)strList[0]).IsEqualTo("foo");
-        await Assert.That((string)strList[1]).IsEqualTo("bar");
+        await Assert.That((string)strList[0]!).IsEqualTo("foo");
+        await Assert.That((string)strList[1]!).IsEqualTo("bar");
 
-        var intArr = (TomlArray)table["IntArray"];
+        var intArr = (TomlArray)table!["IntArray"];
         await Assert.That(intArr.Count).IsEqualTo(2);
-        await Assert.That((long)intArr[0]).IsEqualTo(100L);
-        await Assert.That((long)intArr[1]).IsEqualTo(200L);
+        await Assert.That((long)intArr[0]!).IsEqualTo(100L);
+        await Assert.That((long)intArr[1]!).IsEqualTo(200L);
 
         var dict = (TomlTable)table["StringDict"];
         await Assert.That(dict.Count).IsEqualTo(1);

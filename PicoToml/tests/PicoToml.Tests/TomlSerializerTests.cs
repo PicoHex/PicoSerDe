@@ -364,7 +364,7 @@ public class TomlSerializerTopLevelListTests
         var result = TomlSerializer.Deserialize<List<int>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result!).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo(1);
         await Assert.That(result[2]).IsEqualTo(-7);
     }
@@ -381,7 +381,7 @@ public class TomlSerializerTopLevelListTests
         var result = TomlSerializer.Deserialize<List<SimplePoco>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result!).Count().IsEqualTo(2);
         await Assert.That(result[0].Name).IsEqualTo("Alice");
         await Assert.That(result[0].Age).IsEqualTo(30);
         await Assert.That(result[1].Name).IsEqualTo("Bob");

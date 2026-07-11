@@ -94,7 +94,7 @@ public class SgOutputConsistencyTests
         var json = "[\"a\",\"b\"]"u8;
         using var stream = new MemoryStream(json.ToArray());
         var result = await JsonSerializer.DeserializeFromStreamAsync<string[]>(stream);
-        await Assert.That(result).HasCount().EqualTo(2);
+        await Assert.That(result).Count().IsEqualTo(2);
         await Assert.That(result[0]).IsEqualTo("a");
     }
 
@@ -130,7 +130,7 @@ public class SgOutputConsistencyTests
             var arr = new[] { "x", "y" };
             var json = JsonSerializer.SerializeToUtf8Bytes(arr);
             var result = JsonSerializer.Deserialize<string[]>(json);
-            await Assert.That(result!).HasCount().EqualTo(2);
+            await Assert.That(result!).Count().IsEqualTo(2);
         }
     }
 }

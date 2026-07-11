@@ -280,9 +280,9 @@ public class FunctionalTypeMatrix
         var bytes = JsonSerializer.SerializeToUtf8Bytes(arr);
         var result = JsonSerializer.Deserialize<string[]>(bytes);
 
-        await Assert.That(result!).HasCount().EqualTo(3);
-        await Assert.That(result[0]).IsEqualTo("a");
-        await Assert.That(result[2]).IsEqualTo("c");
+        await Assert.That(result!).Count().IsEqualTo(3);
+        await Assert.That(result![0]).IsEqualTo("a");
+        await Assert.That(result![2]).IsEqualTo("c");
     }
 
     [Test]
@@ -292,9 +292,9 @@ public class FunctionalTypeMatrix
         var bytes = JsonSerializer.SerializeToUtf8Bytes(arr);
         var result = JsonSerializer.Deserialize<int[]>(bytes);
 
-        await Assert.That(result!).HasCount().EqualTo(3);
-        await Assert.That(result[0]).IsEqualTo(10);
-        await Assert.That(result[2]).IsEqualTo(0);
+        await Assert.That(result!).Count().IsEqualTo(3);
+        await Assert.That(result![0]).IsEqualTo(10);
+        await Assert.That(result![2]).IsEqualTo(0);
     }
 
     [Test]
@@ -308,9 +308,9 @@ public class FunctionalTypeMatrix
         var bytes = JsonSerializer.SerializeToUtf8Bytes(arr);
         var result = JsonSerializer.Deserialize<MatrixRegular[]>(bytes);
 
-        await Assert.That(result!).HasCount().EqualTo(2);
-        await Assert.That(result[0].Name).IsEqualTo("x");
-        await Assert.That(result[1].Value).IsEqualTo(2);
+        await Assert.That(result!).Count().IsEqualTo(2);
+        await Assert.That(result![0].Name).IsEqualTo("x");
+        await Assert.That(result![1].Value).IsEqualTo(2);
     }
 
     [Test]
@@ -327,7 +327,7 @@ public class FunctionalTypeMatrix
         using var stream = new MemoryStream(json.ToArray());
         var result = await JsonSerializer.DeserializeFromStreamAsync<int[]>(stream);
 
-        await Assert.That(result).HasCount().EqualTo(3);
+        await Assert.That(result).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo(1);
         await Assert.That(result[2]).IsEqualTo(3);
     }

@@ -76,10 +76,11 @@ public class YamlReaderLoopTests
             if (rawReads > 500)
                 break;
         }
-        await Assert.That(rawReads).IsLessThan(100, "Raw reader should not loop");
+        await Assert.That(rawReads).IsLessThan(100);
 
         // Step 2: full deserialization via SG-generated code
-        var back = YamlSerializer.Deserialize<ExactModel>(yBytes);
+        var back = YamlSerializer.Deserialize<ExactModel>(yBytes)!;
+        await Assert.That(back).IsNotNull();
         await Assert.That(back.NullableString).IsNull();
         await Assert.That(back.NullableInt).IsNull();
         await Assert.That(back.Nested).IsNull();

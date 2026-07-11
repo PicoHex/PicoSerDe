@@ -73,7 +73,8 @@ public class JsonCrossValidationTests
             StringDict = [],
         };
         var stjBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(model, StjPascalCase);
-        var pico = JsonSerializer.Deserialize<ComplexModel>(stjBytes);
+        var pico = JsonSerializer.Deserialize<ComplexModel>(stjBytes)!;
+        await Assert.That(pico).IsNotNull();
         await Assert.That(pico.String).IsEqualTo(model.String);
         await Assert.That(pico.IntList).IsEquivalentTo(model.IntList);
     }

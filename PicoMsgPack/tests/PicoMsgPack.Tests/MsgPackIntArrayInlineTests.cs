@@ -15,7 +15,7 @@ public class MsgPackIntArrayInlineTests
         var result = MsgPackSerializer.Deserialize<IntArrayBenchModel>(bytes);
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Scores).IsNotNull();
-        await Assert.That(result.Scores).HasCount(6);
+        await Assert.That(result.Scores).Count().IsEqualTo(6);
         await Assert.That(result.Scores[0]).IsEqualTo(1);
         await Assert.That(result.Scores[1]).IsEqualTo(-5);
         await Assert.That(result.Scores[2]).IsEqualTo(int.MaxValue);
@@ -32,7 +32,7 @@ public class MsgPackIntArrayInlineTests
         var result = MsgPackSerializer.Deserialize<IntArrayBenchModel>(bytes);
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Scores).IsNotNull();
-        await Assert.That(result.Scores).HasCount(0);
+        await Assert.That(result.Scores).Count().IsEqualTo(0);
     }
 
     [Test]
@@ -46,7 +46,7 @@ public class MsgPackIntArrayInlineTests
         var result = MsgPackSerializer.Deserialize<IntArrayBenchModel>(bytes);
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Scores).IsNotNull();
-        await Assert.That(result.Scores).HasCount(1000);
+        await Assert.That(result.Scores).Count().IsEqualTo(1000);
         for (int i = 0; i < 1000; i++)
             await Assert.That(result.Scores[i]).IsEqualTo(data[i]);
     }

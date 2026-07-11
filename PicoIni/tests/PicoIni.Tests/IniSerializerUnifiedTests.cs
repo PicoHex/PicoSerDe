@@ -239,7 +239,7 @@ public class IniSerializerTopLevelListTests
         var result = IniSerializer.Deserialize<List<int>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result!).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo(1);
         await Assert.That(result[2]).IsEqualTo(-7);
     }
@@ -256,7 +256,7 @@ public class IniSerializerTopLevelListTests
         var result = IniSerializer.Deserialize<List<IniPoco>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result!).Count().IsEqualTo(2);
         await Assert.That(result[0].Name).IsEqualTo("Alice");
         await Assert.That(result[0].Age).IsEqualTo(30);
         await Assert.That(result[1].Name).IsEqualTo("Bob");
@@ -289,13 +289,13 @@ public class IniSerializerTopLevelListTests
         var result = IniSerializer.Deserialize<List<IniRichPoco>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result!).Count().IsEqualTo(2);
         await Assert.That(result[0].Label).IsEqualTo("A");
         await Assert.That(result[0].Count).IsEqualTo(1);
         await Assert.That(result[0].Big).IsEqualTo(100L);
         await Assert.That(result[0].Score).IsEqualTo(3.14);
-        await Assert.That(result[0].Flag).IsEqualTo(true);
-        await Assert.That(result[1].Flag).IsEqualTo(false);
+        await Assert.That(result[0].Flag).IsTrue();
+        await Assert.That(result[1].Flag).IsFalse();
     }
 
     [Test]
@@ -318,7 +318,7 @@ public class IniSerializerTopLevelListTests
         var result = IniSerializer.Deserialize<List<IniFullPoco>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(1);
+        await Assert.That(result!).Count().IsEqualTo(1);
         await Assert.That(result[0].Label).IsEqualTo("X");
         await Assert.That(result[0].Created.Year).IsEqualTo(2024);
         await Assert.That(result[0].Id).IsEqualTo(g);

@@ -18,7 +18,7 @@ public class TomlReaderFastPathTests
         var n = reader.TryReadInt32ArrayFast(buf);
         for (int i = 0; i < n; i++)
             list.Add(buf[i]);
-        await Assert.That(list).HasCount(4);
+        await Assert.That(list).Count().IsEqualTo(4);
         await Assert.That(list[0]).IsEqualTo(1);
         await Assert.That(list[1]).IsEqualTo(42);
         await Assert.That(list[2]).IsEqualTo(-7);
@@ -37,7 +37,7 @@ public class TomlReaderFastPathTests
         var n = reader.TryReadInt64ArrayFast(buf);
         for (int i = 0; i < n; i++)
             list.Add(buf[i]);
-        await Assert.That(list).HasCount(3);
+        await Assert.That(list).Count().IsEqualTo(3);
         await Assert.That(list[0]).IsEqualTo(1);
         await Assert.That(list[1]).IsEqualTo(-5);
         await Assert.That(list[2]).IsEqualTo(9223372036854775807);
@@ -55,7 +55,7 @@ public class TomlReaderFastPathTests
         var n = reader.TryReadBoolArrayFast(buf);
         for (int i = 0; i < n; i++)
             list.Add(buf[i]);
-        await Assert.That(list).HasCount(3);
+        await Assert.That(list).Count().IsEqualTo(3);
         await Assert.That(list[0]).IsTrue();
         await Assert.That(list[1]).IsFalse();
         await Assert.That(list[2]).IsTrue();

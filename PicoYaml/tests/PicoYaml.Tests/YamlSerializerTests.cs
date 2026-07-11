@@ -373,7 +373,7 @@ public class YamlSerializerTopLevelListTests
         var result = YamlSerializer.Deserialize<List<int>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result!).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo(1);
         await Assert.That(result[2]).IsEqualTo(-7);
     }
@@ -390,7 +390,7 @@ public class YamlSerializerTopLevelListTests
         var result = YamlSerializer.Deserialize<List<YamlAddress>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result!).Count().IsEqualTo(2);
         await Assert.That(result[0].Street).IsEqualTo("123 Main");
         await Assert.That(result[0].City).IsEqualTo("NYC");
         await Assert.That(result[1].Street).IsEqualTo("456 Oak");

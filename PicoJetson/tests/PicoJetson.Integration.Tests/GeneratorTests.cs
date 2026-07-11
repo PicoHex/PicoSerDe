@@ -973,7 +973,7 @@ public class GeneratorTests
         var result = JsonSerializer.Deserialize<string[]>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result!).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo("hello");
         await Assert.That(result[1]).IsEqualTo("world");
         await Assert.That(result[2]).IsEqualTo("foo");
@@ -987,7 +987,7 @@ public class GeneratorTests
         var result = JsonSerializer.Deserialize<int[]>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result!).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo(1);
         await Assert.That(result[1]).IsEqualTo(42);
         await Assert.That(result[2]).IsEqualTo(-7);
@@ -1005,7 +1005,7 @@ public class GeneratorTests
         var result = JsonSerializer.Deserialize<PersonWithDate[]>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result!).Count().IsEqualTo(2);
         await Assert.That(result[0].Name).IsEqualTo("Alice");
         await Assert.That(result[1].Name).IsEqualTo("Bob");
         await Assert.That(result[1].CreatedAt.Year).IsEqualTo(2024);
@@ -1035,7 +1035,7 @@ public class GeneratorTests
         var result = await JsonSerializer.DeserializeFromStreamAsync<string[]>(stream);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result).HasCount().EqualTo(3);
+        await Assert.That(result).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo("hello");
         await Assert.That(result[2]).IsEqualTo("foo");
     }
@@ -1048,7 +1048,7 @@ public class GeneratorTests
         var result = await JsonSerializer.DeserializeFromStreamAsync<int[]>(stream);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result).HasCount().EqualTo(3);
+        await Assert.That(result).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo(1);
         await Assert.That(result[2]).IsEqualTo(-7);
     }
@@ -1063,7 +1063,7 @@ public class GeneratorTests
         var result = JsonSerializer.Deserialize<List<int>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result!).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo(1);
         await Assert.That(result[1]).IsEqualTo(42);
         await Assert.That(result[2]).IsEqualTo(-7);
@@ -1077,7 +1077,7 @@ public class GeneratorTests
         var result = JsonSerializer.Deserialize<List<string>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result!).Count().IsEqualTo(2);
         await Assert.That(result[0]).IsEqualTo("hello");
         await Assert.That(result[1]).IsEqualTo("world");
     }
@@ -1094,7 +1094,7 @@ public class GeneratorTests
         var result = JsonSerializer.Deserialize<List<DomainProviderTemplate>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result!).Count().IsEqualTo(2);
         await Assert.That(result[0].Name).IsEqualTo("Template1");
         await Assert.That(result[0].Version).IsEqualTo(1);
         await Assert.That(result[1].Name).IsEqualTo("Template2");
@@ -1113,7 +1113,7 @@ public class GeneratorTests
         var result = JsonSerializer.Deserialize<List<PersonWithDate>>(bytes);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result!).Count().IsEqualTo(2);
         await Assert.That(result[0].Name).IsEqualTo("Alice");
         await Assert.That(result[1].Name).IsEqualTo("Bob");
     }
@@ -1133,7 +1133,7 @@ public class GeneratorTests
         var result = await JsonSerializer.DeserializeFromStreamAsync<List<int>>(stream);
 
         await Assert.That(result).IsNotNull();
-        await Assert.That(result).HasCount().EqualTo(3);
+        await Assert.That(result).Count().IsEqualTo(3);
         await Assert.That(result[0]).IsEqualTo(1);
         await Assert.That(result[2]).IsEqualTo(-7);
     }

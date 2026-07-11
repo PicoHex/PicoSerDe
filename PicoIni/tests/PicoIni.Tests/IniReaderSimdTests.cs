@@ -67,7 +67,7 @@ public class IniReaderSimdTests
             }
         }
 
-        await Assert.That(sections).HasCount(2);
+        await Assert.That(sections).Count().IsEqualTo(2);
         await Assert.That(sections[0]).IsEqualTo("section1");
         await Assert.That(sections[1]).IsEqualTo("section2");
     }
