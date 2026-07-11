@@ -360,3 +360,21 @@ public class YamlSerializerTests
         await Assert.That(result.Items[1]).IsEqualTo("b");
     }
 }
+
+// ── Top-level List<T> serialization (regression: CS0305 with generic type args) ──
+
+public class YamlSerializerTopLevelListTests
+{
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_Int_Roundtrips()
+    {
+        var list = new List<int> { 1, 42, -7 };
+        var bytes = YamlSerializer.SerializeToUtf8Bytes(list);
+        var result = YamlSerializer.Deserialize<List<int>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result[0]).IsEqualTo(1);
+        await Assert.That(result[2]).IsEqualTo(-7);
+    }
+}

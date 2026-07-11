@@ -82,6 +82,13 @@ public class CompanyB
 }
 
 // Cross-namespace collision test (see CollisionNs1.cs / CollisionNs2.cs)
+// Type with a long dotted name mimicking PicoNode.Agent.Domain.ProviderTemplate (regression test for CS0305 with namespaced generic type args)
+public class DomainProviderTemplate
+{
+    public string Name { get; set; } = string.Empty;
+    public int Version { get; set; }
+}
+
 public class CollisionModel
 {
     public string Name { get; set; } = string.Empty;
@@ -1039,6 +1046,91 @@ public class GeneratorTests
         var json = "[1,42,-7]"u8;
         using var stream = new MemoryStream(json.ToArray());
         var result = await JsonSerializer.DeserializeFromStreamAsync<int[]>(stream);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result).HasCount().EqualTo(3);
+        await Assert.That(result[0]).IsEqualTo(1);
+        await Assert.That(result[2]).IsEqualTo(-7);
+    }
+
+    // ── Top-level List<T> serialization (regression: CS0305 with namespaced element types) ──
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_SimpleElement_Roundtrips()
+    {
+        var list = new List<int> { 1, 42, -7 };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(list);
+        var result = JsonSerializer.Deserialize<List<int>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result[0]).IsEqualTo(1);
+        await Assert.That(result[1]).IsEqualTo(42);
+        await Assert.That(result[2]).IsEqualTo(-7);
+    }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_StringElement_Roundtrips()
+    {
+        var list = new List<string> { "hello", "world" };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(list);
+        var result = JsonSerializer.Deserialize<List<string>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result[0]).IsEqualTo("hello");
+        await Assert.That(result[1]).IsEqualTo("world");
+    }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_ComplexElement_Roundtrips()
+    {
+        var list = new List<DomainProviderTemplate>
+        {
+            new() { Name = "Template1", Version = 1 },
+            new() { Name = "Template2", Version = 2 },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(list);
+        var result = JsonSerializer.Deserialize<List<DomainProviderTemplate>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result[0].Name).IsEqualTo("Template1");
+        await Assert.That(result[0].Version).IsEqualTo(1);
+        await Assert.That(result[1].Name).IsEqualTo("Template2");
+        await Assert.That(result[1].Version).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_NestedObjectElement_Roundtrips()
+    {
+        var list = new List<PersonWithDate>
+        {
+            new() { Name = "Alice", CreatedAt = new DateTime(2024, 1, 1) },
+            new() { Name = "Bob", CreatedAt = new DateTime(2024, 6, 15) },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(list);
+        var result = JsonSerializer.Deserialize<List<PersonWithDate>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result[0].Name).IsEqualTo("Alice");
+        await Assert.That(result[1].Name).IsEqualTo("Bob");
+    }
+
+    [Test]
+    public async Task HasStreamingDelegate_TopLevelListInt_ReturnsTrue()
+    {
+        var hasDelegate = JsonSerializer.HasStreamingDelegate<List<int>>();
+        await Assert.That(hasDelegate).IsTrue();
+    }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_TopLevelListInt_Roundtrips()
+    {
+        var json = "[1,42,-7]"u8;
+        using var stream = new MemoryStream(json.ToArray());
+        var result = await JsonSerializer.DeserializeFromStreamAsync<List<int>>(stream);
 
         await Assert.That(result).IsNotNull();
         await Assert.That(result).HasCount().EqualTo(3);

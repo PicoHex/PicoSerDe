@@ -124,6 +124,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         if (typeArg is IArrayTypeSymbol arrType)
             return TransformArray(arrType);
 
+        // ── Top-level List<T> (e.g. List<int>, List<ProviderTemplate>) ──
+        if (
+            typeArg is INamedTypeSymbol ntsCheck
+            && PicoSerDe.Gen.GenInfrastructure.IsGenericList(ntsCheck)
+        )
+            return PicoSerDe.Gen.GenInfrastructure.TransformTopLevelList(ntsCheck, Config, Attrs);
+
         // ── Named type (class/struct) ──
         if (typeArg is not INamedTypeSymbol namedType)
             return null;
@@ -1120,9 +1127,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine();
             EmitRefStructRegistration(sb, type);
         }
-        else if (type.ArrayElementKind is not null)
+        else if (type.IsTopLevelList || type.ArrayElementKind is not null)
         {
-            // Top-level array type (e.g. string[], DiscoveredModel[])
+            // Top-level array (T[]) or list (List<T>) type
             EmitArraySerializer(sb, type);
             sb.AppendLine();
             EmitArrayDeserializer(sb, type);
@@ -3659,6 +3666,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var elemKind = type.ArrayElementKind!;
         var elemTypeName = type.ArrayElementName!;
         var elemCsType = ElementCSharpTypeName(elemKind, elemTypeName);
+        var isList = type.IsTopLevelList;
 
         sb.Append("    file readonly struct ");
         sb.Append(type.Name);
@@ -3681,16 +3689,30 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "                if (!reader.Read() || reader.TokenType != TokenType.ArrayStart)"
         );
-        sb.Append("                    return Array.Empty<");
-        sb.Append(elemCsType);
-        sb.AppendLine(">();");
+        if (isList)
+        {
+            sb.AppendLine("                    return __list;");
+        }
+        else
+        {
+            sb.Append("                    return Array.Empty<");
+            sb.Append(elemCsType);
+            sb.AppendLine(">();");
+        }
         sb.AppendLine(
             "                while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
         );
         sb.AppendLine("                {");
         EmitArrayElementDeserialize(sb, elemKind, elemTypeName, "                    ");
         sb.AppendLine("                }");
-        sb.AppendLine("                return __list.ToArray();");
+        if (isList)
+        {
+            sb.AppendLine("                return __list;");
+        }
+        else
+        {
+            sb.AppendLine("                return __list.ToArray();");
+        }
         sb.AppendLine("            }");
         sb.AppendLine("            finally");
         sb.AppendLine("            {");
@@ -3839,6 +3861,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var elemKind = type.ArrayElementKind!;
         var elemTypeName = type.ArrayElementName!;
         var elemCsType = ElementCSharpTypeName(elemKind, elemTypeName);
+        var isList = type.IsTopLevelList;
 
         sb.Append("file static class ");
         sb.Append(type.Name);
@@ -3867,7 +3890,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            if (reader.TokenType == TokenType.ArrayEnd) break;");
         EmitArrayElementDeserialize(sb, elemKind, elemTypeName, "            ");
         sb.AppendLine("        }");
-        sb.AppendLine("        result = __list.ToArray();");
+        if (isList)
+        {
+            sb.AppendLine("        result = __list;");
+        }
+        else
+        {
+            sb.AppendLine("        result = __list.ToArray();");
+        }
         sb.AppendLine("        return ReadStatus.Success;");
         sb.AppendLine("    }");
         sb.AppendLine("}");

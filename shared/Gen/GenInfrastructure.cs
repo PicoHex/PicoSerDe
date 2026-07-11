@@ -22,11 +22,14 @@ internal readonly record struct TypeInfo(
     bool IsRefLikeType = false,
     string? DiscriminatorPropertyName = null,
     ImmutableArray<DerivedTypeInfo> DerivedTypes = default,
-    // Non-null when this TypeInfo represents a top-level array type (e.g. string[]).
-    // The element kind drives code gen (EmitArraySerializer / EmitArrayDeserializer).
+    // Non-null when this TypeInfo represents a top-level array or list type (e.g. string[], List<int>).
+    // The element kind drives code gen (EmitArraySerializer / EmitArrayDeserializer / EmitListSerializer / EmitListDeserializer).
     string? ArrayElementKind = null,
     string? ArrayElementName = null,
-    ImmutableArray<PropertyInfo> ArrayElementNestedProps = default
+    ImmutableArray<PropertyInfo> ArrayElementNestedProps = default,
+    // True when this TypeInfo represents a top-level List<T> (not T[]).
+    // Deserialization returns List<T> directly instead of calling .ToArray().
+    bool IsTopLevelList = false
 )
 {
     public bool Equals(TypeInfo other) =>
@@ -37,6 +40,7 @@ internal readonly record struct TypeInfo(
         && CtorParams.SequenceEqual(other.CtorParams)
         && TypeTag == other.TypeTag
         && IsRefLikeType == other.IsRefLikeType
+        && IsTopLevelList == other.IsTopLevelList
         && DiscriminatorPropertyName == other.DiscriminatorPropertyName
         && DerivedTypes.SequenceEqual(other.DerivedTypes);
 
@@ -49,6 +53,7 @@ internal readonly record struct TypeInfo(
             hash = (hash * 397) ^ p.GetHashCode();
         foreach (var cp in CtorParams)
             hash = (hash * 397) ^ cp.GetHashCode();
+        hash = (hash * 397) ^ IsTopLevelList.GetHashCode();
         hash = (hash * 397) ^ (DiscriminatorPropertyName?.GetHashCode() ?? 0);
         foreach (var dt in DerivedTypes)
             hash = (hash * 397) ^ dt.GetHashCode();
@@ -998,5 +1003,55 @@ internal static class GenInfrastructure
         }
 
         return builder.ToImmutable();
+    }
+
+    // ── Top-level List<T> detection and transformation (shared across all format generators) ──
+
+    /// <summary>
+    /// Detect if a type is a List&lt;T&gt; from System.Collections.Generic.
+    /// Use this in each format SG's Transform method to route List&lt;T&gt; to the
+    /// collection code path instead of treating it as a regular object.
+    /// </summary>
+    public static bool IsGenericList(ITypeSymbol type) =>
+        type is INamedTypeSymbol nts
+        && nts.TypeArguments.Length == 1
+        && nts.Name == "List"
+        && nts.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic";
+
+    /// <summary>
+    /// Creates a synthetic TypeInfo for a top-level List&lt;T&gt; (e.g. List&lt;int&gt;, List&lt;SomeDto&gt;).
+    /// This unifies the code path with top-level arrays — both produce collection-style output.
+    /// Each format SG routes the resulting TypeInfo to its collection-specific code gen methods.
+    /// </summary>
+    public static TypeInfo TransformTopLevelList(
+        INamedTypeSymbol listType,
+        FormatConfig config,
+        AttributeHelpers attrs
+    )
+    {
+        var elementType = listType.TypeArguments[0];
+        var (ek, _, _) = TypeKindResolver.Resolve(elementType, config.FormatTag);
+        if (ek is null)
+            return default;
+
+        var listFqn = listType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var elemFqn = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        ImmutableArray<PropertyInfo> elemNested = default;
+
+        if (ek is "object" && elementType is INamedTypeSymbol eNts)
+        {
+            elemNested = ExtractNestedProperties(eNts, attrs, config.FormatTag);
+        }
+
+        return new TypeInfo(
+            FullyQualifiedName: listFqn,
+            Namespace: "",
+            Name: $"List_{SafeName(listFqn)}",
+            Properties: ImmutableArray<PropertyInfo>.Empty,
+            ArrayElementKind: ek,
+            ArrayElementName: elemFqn,
+            ArrayElementNestedProps: elemNested,
+            IsTopLevelList: true
+        );
     }
 }

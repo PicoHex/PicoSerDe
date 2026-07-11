@@ -202,3 +202,21 @@ public class ManyScalarConfig
     public double Epsilon { get; set; }
     public string Zeta { get; set; } = string.Empty;
 }
+
+// ── Top-level List<T> serialization (regression: CS0305 with generic type args) ──
+
+public class IniSerializerTopLevelListTests
+{
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_Int_Roundtrips()
+    {
+        var list = new List<int> { 1, 42, -7 };
+        var bytes = IniSerializer.SerializeToUtf8Bytes(list);
+        var result = IniSerializer.Deserialize<List<int>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result[0]).IsEqualTo(1);
+        await Assert.That(result[2]).IsEqualTo(-7);
+    }
+}

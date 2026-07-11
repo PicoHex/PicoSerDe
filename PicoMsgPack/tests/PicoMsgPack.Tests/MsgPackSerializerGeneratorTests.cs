@@ -370,4 +370,32 @@ public class MsgPackSerializerGeneratorTests
         await Assert.That(result.Child).IsNotNull();
         await Assert.That(result.Child!.Value).IsEqualTo("custom");
     }
+
+    // ── Top-level List<T> serialization (regression: CS0305 with generic type args) ──
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_Int_Roundtrips()
+    {
+        var list = new List<int> { 1, 42, -7 };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(list);
+        var result = MsgPackSerializer.Deserialize<List<int>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(3);
+        await Assert.That(result[0]).IsEqualTo(1);
+        await Assert.That(result[2]).IsEqualTo(-7);
+    }
+
+    [Test]
+    public async Task SerializeDeserialize_TopLevelList_String_Roundtrips()
+    {
+        var list = new List<string> { "hello", "world" };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(list);
+        var result = MsgPackSerializer.Deserialize<List<string>>(bytes);
+
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result!).HasCount().EqualTo(2);
+        await Assert.That(result[0]).IsEqualTo("hello");
+        await Assert.That(result[1]).IsEqualTo("world");
+    }
 }
