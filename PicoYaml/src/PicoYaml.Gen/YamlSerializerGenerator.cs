@@ -1167,7 +1167,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine();
 
-        sb.Append("file sealed class ");
+        sb.Append("file readonly struct ");
         sb.Append(t.Name);
         sb.Append("_YS : ISerializer<");
         sb.Append(t.Name);
@@ -1186,7 +1186,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             EmitSerialize(sb, p, "v", "        ");
         sb.AppendLine("    } }");
 
-        sb.Append("file sealed class ");
+        sb.Append("file readonly struct ");
         sb.Append(t.Name);
         sb.Append("_YD : IDeserializer<");
         sb.Append(t.Name);
@@ -1484,7 +1484,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine();
 
         // ── Serializer (reuses EmitSerializeListElement — YamlWriter handles top-level sequences) ──
-        s.Append("file sealed class ");
+        s.Append("file readonly struct ");
         s.Append(t.Name);
         s.Append("_YamlSer : ISerializer<");
         s.Append(listFqn);
@@ -1500,7 +1500,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine();
 
         // ── Deserializer (YamlReader reads top-level sequences as String tokens) ──
-        s.Append("file sealed class ");
+        s.Append("file readonly struct ");
         s.Append(t.Name);
         s.Append("_YamlDes : IDeserializer<");
         s.Append(listFqn);

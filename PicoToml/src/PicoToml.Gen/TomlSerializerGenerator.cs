@@ -565,7 +565,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
         s.AppendLine();
 
-        s.Append("file sealed class ");
+        s.Append("file readonly struct ");
         s.Append(t.Name);
         s.Append("_TomlSer : ISerializer<");
         s.Append(t.Name);
@@ -578,7 +578,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             EmitSerializeProp(s, p, "v", "        ");
         s.AppendLine("    } }");
 
-        s.Append("file sealed class ");
+        s.Append("file readonly struct ");
         s.Append(t.Name);
         s.Append("_TomlDes : IDeserializer<");
         s.Append(t.Name);
@@ -964,7 +964,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine();
 
         // ── Serializer ──
-        s.Append("file sealed class ");
+        s.Append("file readonly struct ");
         s.Append(t.Name);
         s.Append("_TomlSer : ISerializer<");
         s.Append(listFqn);
@@ -994,7 +994,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine();
 
         // ── Deserializer (reuses EmitDeserializeListElementTemp) ──
-        s.Append("file sealed class ");
+        s.Append("file readonly struct ");
         s.Append(t.Name);
         s.Append("_TomlDes : IDeserializer<");
         s.Append(listFqn);
