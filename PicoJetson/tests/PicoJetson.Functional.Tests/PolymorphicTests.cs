@@ -164,6 +164,27 @@ public sealed record SimpleFailed(string Reason) : DomainEventRec;
 
 public sealed record AddNestedRec(NestedPayload Item) : DomainEventRec;
 
+// ── Test model: record with collection ctor params (list/array/dict) ──
+
+[PicoSerializable]
+public sealed class CollectionItem
+{
+    public string Key { get; set; } = "";
+    public int Value { get; set; }
+}
+
+[PicoSerializable]
+[PicoDerivedType(typeof(WithList), "with_list")]
+[PicoDerivedType(typeof(WithArray), "with_array")]
+[PicoDerivedType(typeof(WithDict), "with_dict")]
+public abstract record CollectionRecordBase;
+
+public sealed record WithList(List<CollectionItem> Items) : CollectionRecordBase;
+
+public sealed record WithArray(CollectionItem[] Items) : CollectionRecordBase;
+
+public sealed record WithDict(Dictionary<string, CollectionItem> Map) : CollectionRecordBase;
+
 public class PolymorphicTests
 {
     // ── Serialization ──
@@ -604,5 +625,49 @@ public class PolymorphicTests
         await Assert.That(ev.Item.Name).IsEqualTo("rt");
         await Assert.That(ev.Item.Count).IsEqualTo(42);
         await Assert.That(ev.Item.Enabled).IsTrue();
+    }
+
+    // ── Collection ctor params (list/array/dict) in record poly ──
+
+    [Test]
+    public async Task Deserialize_PolyRecord_ListCtorParam_Works()
+    {
+        var json =
+            """{"$type":"with_list","Items":[{"Key":"a","Value":1},{"Key":"b","Value":2}]}"""u8;
+        var result = JsonSerializer.Deserialize<CollectionRecordBase>(json);
+
+        await Assert.That(result).IsTypeOf<WithList>();
+        var ev = (WithList)result!;
+        await Assert.That(ev.Items).IsNotNull();
+        await Assert.That(ev.Items.Count).IsEqualTo(2);
+        await Assert.That(ev.Items[0].Key).IsEqualTo("a");
+        await Assert.That(ev.Items[0].Value).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Deserialize_PolyRecord_ArrayCtorParam_Works()
+    {
+        var json = """{"$type":"with_array","Items":[{"Key":"x","Value":9}]}"""u8;
+        var result = JsonSerializer.Deserialize<CollectionRecordBase>(json);
+
+        await Assert.That(result).IsTypeOf<WithArray>();
+        var ev = (WithArray)result!;
+        await Assert.That(ev.Items).IsNotNull();
+        await Assert.That(ev.Items.Length).IsEqualTo(1);
+        await Assert.That(ev.Items[0].Key).IsEqualTo("x");
+    }
+
+    [Test]
+    public async Task Deserialize_PolyRecord_DictCtorParam_Works()
+    {
+        var json = """{"$type":"with_dict","Map":{"k1":{"Key":"v1","Value":10}}}"""u8;
+        var result = JsonSerializer.Deserialize<CollectionRecordBase>(json);
+
+        await Assert.That(result).IsTypeOf<WithDict>();
+        var ev = (WithDict)result!;
+        await Assert.That(ev.Map).IsNotNull();
+        await Assert.That(ev.Map.Count).IsEqualTo(1);
+        await Assert.That(ev.Map["k1"].Key).IsEqualTo("v1");
+        await Assert.That(ev.Map["k1"].Value).IsEqualTo(10);
     }
 }

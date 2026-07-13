@@ -1945,6 +1945,104 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(".Deserialize(ref reader);");
                 break;
             }
+            case "list":
+            case "array":
+            {
+                var elemType = prop.ElementTypeName ?? "object";
+                var listVar = $"__list_{cp.Name}";
+                sb.Append(indent);
+                sb.Append("var ");
+                sb.Append(listVar);
+                sb.Append(" = new System.Collections.Generic.List<");
+                sb.Append(elemType);
+                sb.AppendLine(">();");
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    {");
+                EmitDeserializeElementAdd(sb, prop, listVar, indent + "        ", 0);
+                sb.Append(indent);
+                sb.AppendLine("    }");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(" = ");
+                if (cp.TypeKind == "array")
+                {
+                    sb.Append(listVar);
+                    sb.AppendLine(".ToArray();");
+                }
+                else
+                {
+                    sb.Append(listVar);
+                    sb.AppendLine(";");
+                }
+                break;
+            }
+            case "dict":
+            {
+                var keyType = prop.KeyTypeName ?? "string";
+                var valType = prop.ElementTypeName ?? "object";
+                var dictVar = $"__dict_{cp.Name}";
+                sb.Append(indent);
+                sb.Append("var ");
+                sb.Append(dictVar);
+                sb.Append(" = new System.Collections.Generic.Dictionary<");
+                sb.Append(keyType);
+                sb.Append(", ");
+                sb.Append(valType);
+                sb.AppendLine(">();");
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.ObjectStart)");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    {");
+                EmitDeserializeDictKey(sb, prop, dictVar, indent + "        ");
+                sb.Append(indent);
+                sb.AppendLine("        reader.Read();");
+                sb.Append(indent);
+                sb.AppendLine("        if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.Append("            ");
+                sb.Append(dictVar);
+                sb.AppendLine("[__dictKey] = default!;");
+                sb.Append(indent);
+                sb.AppendLine("        else");
+                sb.Append(indent);
+                sb.AppendLine("        {");
+                EmitDeserializeElementAssign(
+                    sb,
+                    prop,
+                    dictVar,
+                    "__dictKey",
+                    indent + "            ",
+                    0
+                );
+                sb.Append(indent);
+                sb.AppendLine("        }");
+                sb.Append(indent);
+                sb.AppendLine("    }");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(" = ");
+                sb.Append(dictVar);
+                sb.AppendLine(";");
+                break;
+            }
             default:
                 sb.Append(indent);
                 sb.Append(target);
