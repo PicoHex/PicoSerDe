@@ -59,6 +59,30 @@ public class ImmutableMessage : PolyEntry
     }
 }
 
+// ── Test model: polymorphic hierarchy with record derived types ──
+// Reproduces: CS7036 (no parameterless ctor) + CS8852 (init-only property assignment)
+// when [PicoDerivedType] dispatches to a record type.
+
+[PicoSerializable]
+[PicoDerivedType(typeof(RecordMessage), "rec_msg")]
+[PicoDerivedType(typeof(RecordCompaction), "rec_comp")]
+public abstract record PolyRecordBase;
+
+public record RecordMessage(string Content, int Sequence) : PolyRecordBase;
+
+public record RecordCompaction(int From, int To) : PolyRecordBase;
+
+// ── Test model: abstract record base with record derived types ──
+
+[PicoSerializable]
+[PicoDerivedType(typeof(NameUpdated), "name_updated")]
+[PicoDerivedType(typeof(AgeUpdated), "age_updated")]
+public abstract record DomainEvent(string EventType);
+
+public record NameUpdated(string Name) : DomainEvent("name_updated");
+
+public record AgeUpdated(int Age) : DomainEvent("age_updated");
+
 public class PolymorphicTests
 {
     // ── Serialization ──
@@ -274,5 +298,70 @@ public class PolymorphicTests
         var sms = (SmsEvent)result;
         await Assert.That(sms.Phone).IsEqualTo("555-1234");
         await Assert.That(sms.Text).IsEqualTo("Hi");
+    }
+
+    // ── Record derived types (bug regression) ──
+
+    [Test]
+    public async Task Deserialize_PolyRecordDerivedType_ReturnsCorrectType()
+    {
+        // This exercises the code path where [PicoDerivedType] dispatches to a
+        // record type. Before the fix, the SG generated new() + property assignment
+        // which fails for records (CS7036 + CS8852).
+        var json = """{"$type":"rec_msg","Content":"hello","Sequence":42}"""u8;
+        var result = JsonSerializer.Deserialize<PolyRecordBase>(json);
+
+        await Assert.That(result).IsTypeOf<RecordMessage>();
+        var msg = (RecordMessage)result!;
+        await Assert.That(msg.Content).IsEqualTo("hello");
+        await Assert.That(msg.Sequence).IsEqualTo(42);
+    }
+
+    [Test]
+    public async Task Deserialize_PolyRecordDerivedType_AlternateType()
+    {
+        var json = """{"$type":"rec_comp","From":10,"To":20}"""u8;
+        var result = JsonSerializer.Deserialize<PolyRecordBase>(json);
+
+        await Assert.That(result).IsTypeOf<RecordCompaction>();
+        var ce = (RecordCompaction)result!;
+        await Assert.That(ce.From).IsEqualTo(10);
+        await Assert.That(ce.To).IsEqualTo(20);
+    }
+
+    [Test]
+    public async Task Deserialize_PolyRecordDerivedType_WithAbstractRecordBase()
+    {
+        // abstract record base + record derived — the most complex scenario.
+        var json = """{"$type":"name_updated","Name":"Alice"}"""u8;
+        var result = JsonSerializer.Deserialize<DomainEvent>(json);
+
+        await Assert.That(result).IsTypeOf<NameUpdated>();
+        var ev = (NameUpdated)result!;
+        await Assert.That(ev.Name).IsEqualTo("Alice");
+    }
+
+    [Test]
+    public async Task Deserialize_PolyRecordDerivedType_WithAbstractRecordBase_IntProperty()
+    {
+        var json = """{"$type":"age_updated","Age":35}"""u8;
+        var result = JsonSerializer.Deserialize<DomainEvent>(json);
+
+        await Assert.That(result).IsTypeOf<AgeUpdated>();
+        var ev = (AgeUpdated)result!;
+        await Assert.That(ev.Age).IsEqualTo(35);
+    }
+
+    [Test]
+    public async Task RoundTrip_PolyRecordDerivedType()
+    {
+        PolyRecordBase original = new RecordMessage("world", 99);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(original);
+        var result = JsonSerializer.Deserialize<PolyRecordBase>(bytes);
+
+        await Assert.That(result).IsTypeOf<RecordMessage>();
+        var msg = (RecordMessage)result!;
+        await Assert.That(msg.Content).IsEqualTo("world");
+        await Assert.That(msg.Sequence).IsEqualTo(99);
     }
 }

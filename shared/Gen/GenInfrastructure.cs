@@ -968,6 +968,44 @@ internal static class GenInfrastructure
                 config.FormatTag,
                 config.ConstructorAttributeName
             );
+
+            // Record primary constructor auto-detection for polymorphic derived types.
+            // Records use positional construction (no parameterless ctor) and init-only
+            // properties, so the poly deserializer must use the same ctor-driven path
+            // as the normal deserializer instead of new() + property assignment.
+            if (!ctorParams.HasValue && dt.IsRecord)
+            {
+                var primary = dt
+                    .Constructors.Where(c =>
+                        c.DeclaredAccessibility == Accessibility.Public && !c.IsImplicitlyDeclared
+                    )
+                    .FirstOrDefault();
+                if (primary is not null)
+                {
+                    var ctorList = ImmutableArray.CreateBuilder<CtorParamInfo>();
+                    foreach (var param in primary.Parameters)
+                    {
+                        var (typeKind, _, _) = TypeKindResolver.Resolve(
+                            param.Type,
+                            config.FormatTag
+                        );
+                        if (typeKind is not null)
+                        {
+                            ctorList.Add(
+                                new CtorParamInfo(
+                                    param.Name,
+                                    typeKind,
+                                    param.Type.ToDisplayString(
+                                        SymbolDisplayFormat.FullyQualifiedFormat
+                                    )
+                                )
+                            );
+                        }
+                    }
+                    ctorParams = ctorList.ToImmutable();
+                }
+            }
+
             var hasCtor = ctorParams.HasValue;
 
             var ti = TransformTypeSymbol(dt, config, attrs, includeReadOnlyProperties: hasCtor);
