@@ -142,6 +142,28 @@ public abstract record NullableRecordBase;
 public record NullableRecordMsg(string Content, string? OptionalNote, int Sequence)
     : NullableRecordBase;
 
+// ── Test model: record derived with complex nested type (NRE regression) ──
+
+[PicoSerializable]
+public sealed class NestedPayload
+{
+    public string Name { get; set; } = "";
+    public int Count { get; set; }
+    public bool Enabled { get; set; }
+}
+
+[PicoSerializable]
+[PicoDerivedType(typeof(SimpleStarted), "SimpleStarted")]
+[PicoDerivedType(typeof(SimpleFailed), "SimpleFailed")]
+[PicoDerivedType(typeof(AddNestedRec), "AddNested")]
+public abstract record DomainEventRec;
+
+public sealed record SimpleStarted : DomainEventRec;
+
+public sealed record SimpleFailed(string Reason) : DomainEventRec;
+
+public sealed record AddNestedRec(NestedPayload Item) : DomainEventRec;
+
 public class PolymorphicTests
 {
     // ── Serialization ──
@@ -525,5 +547,62 @@ public class PolymorphicTests
         await Assert.That(msg.Content).IsEqualTo("data");
         await Assert.That(msg.OptionalNote).IsEqualTo("extra");
         await Assert.That(msg.Sequence).IsEqualTo(1);
+    }
+
+    // ── Complex nested type in record ctor param (NRE regression) ──
+
+    [Test]
+    public async Task Deserialize_PolyRecord_WithComplexNestedCtorParam_Works()
+    {
+        var json = """{"$type":"AddNested","Item":{"Name":"payload","Count":5,"Enabled":true}}"""u8;
+        var result = JsonSerializer.Deserialize<DomainEventRec>(json);
+
+        await Assert.That(result).IsTypeOf<AddNestedRec>();
+        var ev = (AddNestedRec)result!;
+        await Assert.That(ev.Item).IsNotNull();
+        await Assert.That(ev.Item.Name).IsEqualTo("payload");
+        await Assert.That(ev.Item.Count).IsEqualTo(5);
+        await Assert.That(ev.Item.Enabled).IsTrue();
+    }
+
+    [Test]
+    public async Task Deserialize_PolyRecord_SimpleStarted_NoParams_Works()
+    {
+        var json = """{"$type":"SimpleStarted"}"""u8;
+        var result = JsonSerializer.Deserialize<DomainEventRec>(json);
+
+        await Assert.That(result).IsTypeOf<SimpleStarted>();
+    }
+
+    [Test]
+    public async Task Deserialize_PolyRecord_SimpleFailed_StringParam_Works()
+    {
+        var json = """{"$type":"SimpleFailed","Reason":"oops"}"""u8;
+        var result = JsonSerializer.Deserialize<DomainEventRec>(json);
+
+        await Assert.That(result).IsTypeOf<SimpleFailed>();
+        var ev = (SimpleFailed)result!;
+        await Assert.That(ev.Reason).IsEqualTo("oops");
+    }
+
+    [Test]
+    public async Task RoundTrip_PolyRecord_WithComplexNested_Works()
+    {
+        DomainEventRec original = new AddNestedRec(
+            new NestedPayload
+            {
+                Name = "rt",
+                Count = 42,
+                Enabled = true,
+            }
+        );
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(original);
+        var result = JsonSerializer.Deserialize<DomainEventRec>(bytes);
+
+        await Assert.That(result).IsTypeOf<AddNestedRec>();
+        var ev = (AddNestedRec)result!;
+        await Assert.That(ev.Item.Name).IsEqualTo("rt");
+        await Assert.That(ev.Item.Count).IsEqualTo(42);
+        await Assert.That(ev.Item.Enabled).IsTrue();
     }
 }

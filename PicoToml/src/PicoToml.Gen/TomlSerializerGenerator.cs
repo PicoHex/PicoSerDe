@@ -600,7 +600,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             for (int ci = 0; ci < t.CtorParams.Length; ci++)
             {
                 var cp = t.CtorParams[ci];
-                var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                var tn = cp.TypeFullName;
                 s.Append("        ");
                 s.Append(tn);
                 s.Append(" __cp_");

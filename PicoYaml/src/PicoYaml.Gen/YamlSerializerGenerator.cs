@@ -1208,7 +1208,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             for (int yci = 0; yci < t.CtorParams.Length; yci++)
             {
                 var cp = t.CtorParams[yci];
-                var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                var tn = cp.TypeFullName;
                 sb.Append("        ");
                 sb.Append(tn);
                 sb.Append(" __cp_");

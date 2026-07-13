@@ -1628,7 +1628,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             for (int ci = 0; ci < type.CtorParams.Length; ci++)
             {
                 var cp = type.CtorParams[ci];
-                var typeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                // Use TypeFullName directly — MapTypeName with null type NREs
+                // for complex kinds (object, enum, list, dict).
+                var typeName = cp.TypeFullName;
                 var defaultVal = cp.TypeKind switch
                 {
                     "string" => "\"\"",
@@ -1921,6 +1923,28 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(target);
                 sb.AppendLine(" = __tsv;");
                 break;
+            case "object":
+            {
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "JsonInner",
+                    cp.TypeFullName
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.Append("    ");
+                sb.Append(target);
+                sb.AppendLine(" = default!;");
+                sb.Append(indent);
+                sb.AppendLine("else");
+                sb.Append(indent);
+                sb.Append("    ");
+                sb.Append(target);
+                sb.Append(" = ");
+                sb.Append(sn);
+                sb.AppendLine(".Deserialize(ref reader);");
+                break;
+            }
             default:
                 sb.Append(indent);
                 sb.Append(target);
@@ -2854,7 +2878,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             for (int ci = 0; ci < type.CtorParams.Length; ci++)
             {
                 var cp = type.CtorParams[ci];
-                var typeName = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                // Use TypeFullName directly — MapTypeName with null type NREs
+                // for complex kinds (object, enum, list, dict).
+                var typeName = cp.TypeFullName;
                 var defaultVal = cp.TypeKind switch
                 {
                     "string" => "\"\"",
@@ -3177,7 +3203,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 for (int ci = 0; ci < dti.CtorParams.Length; ci++)
                 {
                     var cp = dti.CtorParams[ci];
-                    var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                    // Use TypeFullName directly — MapTypeName with null type NREs
+                    // for complex kinds (object, enum, list, dict).
+                    var tn = cp.TypeFullName;
                     var dv = cp.TypeKind switch
                     {
                         "string" => "\"\"",
@@ -3345,7 +3373,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 for (int ci = 0; ci < dti.CtorParams.Length; ci++)
                 {
                     var cp = dti.CtorParams[ci];
-                    var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                    // Use TypeFullName directly — MapTypeName with null type NREs
+                    // for complex kinds (object, enum, list, dict).
+                    var tn = cp.TypeFullName;
                     var dv = cp.TypeKind switch
                     {
                         "string" => "\"\"",

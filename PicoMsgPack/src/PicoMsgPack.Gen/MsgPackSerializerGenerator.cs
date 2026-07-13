@@ -439,7 +439,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             for (int ci = 0; ci < type.CtorParams.Length; ci++)
             {
                 var cp = type.CtorParams[ci];
-                var tn = PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!);
+                var tn = cp.TypeFullName;
                 s.Append("        ");
                 s.Append(tn);
                 s.Append(" __cp_");
@@ -1986,7 +1986,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 {
                     var cp = dti.CtorParams[ci];
                     s.Append("            ");
-                    s.Append(PicoSerDe.Gen.TypeKindResolver.MapTypeName(cp.TypeKind, null!));
+                    s.Append(cp.TypeFullName);
                     s.Append(" __cp_");
                     s.Append(ci);
                     s.Append(" = ");
