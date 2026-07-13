@@ -83,6 +83,65 @@ public record NameUpdated(string Name) : DomainEvent("name_updated");
 
 public record AgeUpdated(int Age) : DomainEvent("age_updated");
 
+// ── Test model: record derived with explicit [JsonConstructor] on class base (Gap 4) ──
+
+[PicoSerializable]
+[PicoDerivedType(typeof(RecordWithCtor), "rec_ctor")]
+public abstract record ExplicitCtorPolyBase;
+
+public record RecordWithCtor : ExplicitCtorPolyBase
+{
+    public string Name { get; }
+    public int Value { get; }
+
+    [JsonConstructor]
+    public RecordWithCtor(string name, int value)
+    {
+        Name = name;
+        Value = value;
+    }
+}
+
+// ── Test model: record with explicit [JsonConstructor] on record base (Gap 6) ──
+
+[PicoSerializable]
+[PicoDerivedType(typeof(RecordWithCtor2), "rec_ctor2")]
+public abstract record ExplicitCtorRecordBase;
+
+public record RecordWithCtor2 : ExplicitCtorRecordBase
+{
+    public string Label { get; }
+    public bool Flag { get; }
+
+    [JsonConstructor]
+    public RecordWithCtor2(string label, bool flag)
+    {
+        Label = label;
+        Flag = flag;
+    }
+}
+
+// ── Test model: custom discriminator + record poly (Gap — "kind" field) ──
+
+[PicoSerializable]
+[PicoPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[PicoDerivedType(typeof(RecordEmailEvent), "rec_email")]
+[PicoDerivedType(typeof(RecordSmsEvent), "rec_sms")]
+public abstract record RecordAppEvent;
+
+public record RecordEmailEvent(string To, string Subject) : RecordAppEvent;
+
+public record RecordSmsEvent(string Phone, string Text) : RecordAppEvent;
+
+// ── Test model: record with nullable reference type (Gap — NRT on ctor param) ──
+
+[PicoSerializable]
+[PicoDerivedType(typeof(NullableRecordMsg), "nrt_msg")]
+public abstract record NullableRecordBase;
+
+public record NullableRecordMsg(string Content, string? OptionalNote, int Sequence)
+    : NullableRecordBase;
+
 public class PolymorphicTests
 {
     // ── Serialization ──
@@ -363,5 +422,108 @@ public class PolymorphicTests
         var msg = (RecordMessage)result!;
         await Assert.That(msg.Content).IsEqualTo("world");
         await Assert.That(msg.Sequence).IsEqualTo(99);
+    }
+
+    // ── Gaps 4+6: record with explicit [JsonConstructor] in poly ──
+
+    [Test]
+    public async Task Deserialize_RecordPoly_RecordWithExplicitCtor_Works()
+    {
+        var json = """{"$type":"rec_ctor","name":"Alice","value":55}"""u8;
+        var result = JsonSerializer.Deserialize<ExplicitCtorPolyBase>(json);
+
+        await Assert.That(result).IsTypeOf<RecordWithCtor>();
+        var r = (RecordWithCtor)result!;
+        await Assert.That(r.Name).IsEqualTo("Alice");
+        await Assert.That(r.Value).IsEqualTo(55);
+    }
+
+    [Test]
+    public async Task Deserialize_RecordPoly_RecordWithExplicitCtor_AlternateBase_Works()
+    {
+        var json = """{"$type":"rec_ctor2","label":"beta","flag":true}"""u8;
+        var result = JsonSerializer.Deserialize<ExplicitCtorRecordBase>(json);
+
+        await Assert.That(result).IsTypeOf<RecordWithCtor2>();
+        var r = (RecordWithCtor2)result!;
+        await Assert.That(r.Label).IsEqualTo("beta");
+        await Assert.That(r.Flag).IsTrue();
+    }
+
+    // ── Custom discriminator + record poly ──
+
+    [Test]
+    public async Task Deserialize_RecordPoly_CustomDiscriminator_Works()
+    {
+        var json = """{"kind":"rec_sms","Phone":"555-42","Text":"record sms"}"""u8;
+        var result = JsonSerializer.Deserialize<RecordAppEvent>(json);
+
+        await Assert.That(result).IsTypeOf<RecordSmsEvent>();
+        var sms = (RecordSmsEvent)result!;
+        await Assert.That(sms.Phone).IsEqualTo("555-42");
+        await Assert.That(sms.Text).IsEqualTo("record sms");
+    }
+
+    [Test]
+    public async Task Serialize_RecordPoly_CustomDiscriminator_WritesCorrectly()
+    {
+        RecordAppEvent ev = new RecordEmailEvent("x@y.com", "Hello");
+        var json = JsonSerializer.Serialize(ev);
+
+        await Assert.That(json).Contains("\"kind\"");
+        await Assert.That(json).Contains("\"rec_email\"");
+        await Assert.That(json).Contains("\"x@y.com\"");
+    }
+
+    [Test]
+    public async Task HasStreamingDelegate_RecordPolyBase_ReturnsTrue()
+    {
+        _ = JsonSerializer.SerializeToUtf8Bytes(new RecordMessage("x", 1));
+        var hasDelegate = JsonSerializer.HasStreamingDelegate<PolyRecordBase>();
+        await Assert.That(hasDelegate).IsTrue();
+    }
+
+    [Test]
+    public async Task DeserializeFromStreamAsync_RecordPolyBase_Works()
+    {
+        var json = "{\"$type\":\"rec_msg\",\"Content\":\"stream\",\"Sequence\":88}"u8;
+        using var stream = new MemoryStream(json.ToArray());
+        var result = await JsonSerializer.DeserializeFromStreamAsync<PolyRecordBase>(stream);
+
+        await Assert.That(result).IsTypeOf<RecordMessage>();
+        var msg = (RecordMessage)result;
+        await Assert.That(msg.Content).IsEqualTo("stream");
+        await Assert.That(msg.Sequence).IsEqualTo(88);
+    }
+
+    // ── DefaultIgnoreCondition + record poly ──
+
+    [Test]
+    public async Task Serialize_RecordPoly_WhenWritingNull_SkipsNullProperties()
+    {
+        NullableRecordBase ev = new NullableRecordMsg("hi", null, 42);
+        var json = JsonSerializer.Serialize(
+            ev,
+            new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }
+        );
+
+        await Assert.That(json).Contains("\"Content\"");
+        await Assert.That(json).Contains("\"Sequence\"");
+        await Assert.That(json).DoesNotContain("OptionalNote");
+    }
+
+    // ── Nullable reference type on record derived ──
+
+    [Test]
+    public async Task Deserialize_RecordPoly_NullableProperty_Present()
+    {
+        var json = """{"$type":"nrt_msg","Content":"data","OptionalNote":"extra","Sequence":1}"""u8;
+        var result = JsonSerializer.Deserialize<NullableRecordBase>(json);
+
+        await Assert.That(result).IsTypeOf<NullableRecordMsg>();
+        var msg = (NullableRecordMsg)result!;
+        await Assert.That(msg.Content).IsEqualTo("data");
+        await Assert.That(msg.OptionalNote).IsEqualTo("extra");
+        await Assert.That(msg.Sequence).IsEqualTo(1);
     }
 }
