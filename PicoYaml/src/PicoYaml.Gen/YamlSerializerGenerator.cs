@@ -2514,9 +2514,27 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(" (MemoryExtensions.SequenceEqual(__discVal, \"");
             s.Append(desc);
             s.AppendLine("\"u8)) {");
-            s.Append("            var obj = new ");
-            s.Append(ds);
-            s.AppendLine("();");
+
+            var hasCtor = !dti.CtorParams.IsDefaultOrEmpty && dti.CtorParams.Length > 0;
+            if (hasCtor)
+            {
+                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                {
+                    var cp = dti.CtorParams[ci];
+                    s.Append("            ");
+                    s.Append(cp.TypeFullName);
+                    s.Append(" __cp_");
+                    s.Append(ci);
+                    s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
+                }
+            }
+            else
+            {
+                s.Append("            var obj = new ");
+                s.Append(ds);
+                s.AppendLine("();");
+            }
+
             s.AppendLine(
                 "            while (reader.Read() && reader.TokenType == TokenType.PropertyName) {"
             );
@@ -2534,15 +2552,59 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(" (MemoryExtensions.SequenceEqual(__k, \"");
                 s.Append(pn);
                 s.AppendLine("\"u8)) {");
-                s.Append("                    obj.");
-                s.Append(prop.Name);
-                s.Append(" = ");
-                ReadYamlValue(s, prop);
-                s.AppendLine(";");
+                if (hasCtor)
+                {
+                    int matchIdx = -1;
+                    for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                        if (
+                            string.Equals(
+                                dti.CtorParams[ci].Name,
+                                prop.Name,
+                                StringComparison.OrdinalIgnoreCase
+                            )
+                        )
+                        {
+                            matchIdx = ci;
+                            break;
+                        }
+                    if (matchIdx >= 0)
+                    {
+                        s.Append("                    __cp_");
+                        s.Append(matchIdx);
+                        s.Append(" = ");
+                        ReadYamlValue(s, prop);
+                        s.AppendLine(";");
+                    }
+                }
+                else
+                {
+                    s.Append("                    obj.");
+                    s.Append(prop.Name);
+                    s.Append(" = ");
+                    ReadYamlValue(s, prop);
+                    s.AppendLine(";");
+                }
                 s.AppendLine("                }");
             }
             s.AppendLine("            }");
-            s.AppendLine("            return obj;");
+            if (hasCtor)
+            {
+                s.Append("            return new ");
+                s.Append(ds);
+                s.Append("(");
+                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                {
+                    if (ci > 0)
+                        s.Append(", ");
+                    s.Append("__cp_");
+                    s.Append(ci);
+                }
+                s.AppendLine(");");
+            }
+            else
+            {
+                s.AppendLine("            return obj;");
+            }
             s.AppendLine("        }");
         }
 

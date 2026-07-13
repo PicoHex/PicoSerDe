@@ -43,3 +43,43 @@ public class TomlPolymorphicTests
         await Assert.That(result).IsTypeOf<TomlCompactionEntry>();
     }
 }
+
+// ── Record-based polymorphic hierarchy ──
+
+[PicoSerializable]
+[PicoDerivedType(typeof(TomlRecMsg), "rec_msg")]
+[PicoDerivedType(typeof(TomlRecComp), "rec_comp")]
+public abstract record TomlPolyRecordBase;
+
+public record TomlRecMsg(string Content, int Sequence) : TomlPolyRecordBase;
+
+public record TomlRecComp(int From, int To) : TomlPolyRecordBase;
+
+public class TomlRecordPolymorphicTests
+{
+    [Test]
+    public async Task Deserialize_PolyRecord_ReturnsCorrectType()
+    {
+        var toml = Encoding.UTF8.GetBytes(
+            "$type = \"rec_msg\"\nContent = \"hello\"\nSequence = 42\n"
+        );
+        var result = TomlSerializer.Deserialize<TomlPolyRecordBase>(toml);
+
+        await Assert.That(result).IsTypeOf<TomlRecMsg>();
+        var msg = (TomlRecMsg)result!;
+        await Assert.That(msg.Content).IsEqualTo("hello");
+        await Assert.That(msg.Sequence).IsEqualTo(42);
+    }
+
+    [Test]
+    public async Task Deserialize_PolyRecord_AlternateType()
+    {
+        var toml = Encoding.UTF8.GetBytes("$type = \"rec_comp\"\nFrom = 10\nTo = 20\n");
+        var result = TomlSerializer.Deserialize<TomlPolyRecordBase>(toml);
+
+        await Assert.That(result).IsTypeOf<TomlRecComp>();
+        var c = (TomlRecComp)result!;
+        await Assert.That(c.From).IsEqualTo(10);
+        await Assert.That(c.To).IsEqualTo(20);
+    }
+}

@@ -37,3 +37,43 @@ public class YamlPolymorphicTests
         await Assert.That(result).IsTypeOf<YamlCompactionEntry>();
     }
 }
+
+// ── Record-based polymorphic hierarchy ──
+
+[PicoSerializable]
+[PicoDerivedType(typeof(YamlRecMsg), "rec_msg")]
+[PicoDerivedType(typeof(YamlRecComp), "rec_comp")]
+public abstract record YamlPolyRecordBase;
+
+public record YamlRecMsg(string Content, int Sequence) : YamlPolyRecordBase;
+
+public record YamlRecComp(int From, int To) : YamlPolyRecordBase;
+
+public class YamlRecordPolymorphicTests
+{
+    [Test]
+    public async Task Deserialize_PolyRecord_ReturnsCorrectType()
+    {
+        YamlPolyRecordBase entry = new YamlRecMsg("hello", 42);
+        var yaml = YamlSerializer.SerializeToUtf8Bytes(entry);
+        var result = YamlSerializer.Deserialize<YamlPolyRecordBase>(yaml);
+
+        await Assert.That(result).IsTypeOf<YamlRecMsg>();
+        var msg = (YamlRecMsg)result!;
+        await Assert.That(msg.Content).IsEqualTo("hello");
+        await Assert.That(msg.Sequence).IsEqualTo(42);
+    }
+
+    [Test]
+    public async Task Deserialize_PolyRecord_AlternateType()
+    {
+        YamlPolyRecordBase entry = new YamlRecComp(10, 20);
+        var yaml = YamlSerializer.SerializeToUtf8Bytes(entry);
+        var result = YamlSerializer.Deserialize<YamlPolyRecordBase>(yaml);
+
+        await Assert.That(result).IsTypeOf<YamlRecComp>();
+        var c = (YamlRecComp)result!;
+        await Assert.That(c.From).IsEqualTo(10);
+        await Assert.That(c.To).IsEqualTo(20);
+    }
+}
