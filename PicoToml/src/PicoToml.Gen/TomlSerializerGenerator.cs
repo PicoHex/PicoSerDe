@@ -1193,18 +1193,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             // TOML has no null literal — a null collection can only be omitted,
             // regardless of DefaultIgnoreCondition.
-            bool collGuard = p.IsNullable || p.IsNullableReference;
-            if (collGuard)
-            {
-                s.Append(indent);
-                s.Append("if (");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(" != null)");
-                s.Append(indent);
-                s.AppendLine("{");
-            }
+            bool collGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                s,
+                p,
+                $"{target}.{p.Name}",
+                indent
+            );
             // Array of tables ([[key]]) for List<ComplexObject>
             if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
             {
@@ -1265,18 +1259,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         else if (p.TypeKind is "dict")
         {
             // TOML has no null literal — a null dictionary can only be omitted.
-            bool dictGuard = p.IsNullable || p.IsNullableReference;
-            if (dictGuard)
-            {
-                s.Append(indent);
-                s.Append("if (");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(" != null)");
-                s.Append(indent);
-                s.AppendLine("{");
-            }
+            bool dictGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                s,
+                p,
+                $"{target}.{p.Name}",
+                indent
+            );
             s.Append(indent);
             s.Append("tw.WriteTable(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -1356,18 +1344,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             if (p.NestedProperties.Length > 0)
             {
-                bool nullGuard = p.IsNullable || p.IsNullableReference;
-                if (nullGuard)
-                {
-                    s.Append(indent);
-                    s.Append("if (");
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                    s.AppendLine(" != null)");
-                    s.Append(indent);
-                    s.AppendLine("{");
-                }
+                bool nullGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                    s,
+                    p,
+                    $"{target}.{p.Name}",
+                    indent
+                );
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                     "TomlInner",
                     p.TypeFullName!
@@ -1398,14 +1380,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             // TOML has no null literal — null scalars are always omitted,
             // regardless of DefaultIgnoreCondition.
-            s.Append(indent);
-            s.Append("if (");
-            s.Append(target);
-            s.Append('.');
-            s.Append(p.Name);
-            s.AppendLine(".HasValue)");
-            s.Append(indent);
-            s.AppendLine("{");
+            PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(s, p, $"{target}.{p.Name}", indent);
             s.Append(indent);
             s.Append("    tw.WriteKeyValue(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -1418,14 +1393,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         else if (p.IsNullable && p.IsNullableReference)
         {
             // TOML has no null literal — null scalars are always omitted.
-            s.Append(indent);
-            s.Append("if (");
-            s.Append(target);
-            s.Append('.');
-            s.Append(p.Name);
-            s.AppendLine(" != null)");
-            s.Append(indent);
-            s.AppendLine("{");
+            PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(s, p, $"{target}.{p.Name}", indent);
             s.Append(indent);
             s.Append("    tw.WriteKeyValue(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -2261,19 +2229,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(" __v:");
             foreach (var prop in dti.Properties)
             {
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
+                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 // TOML has no null literal — null poly values are always omitted.
-                bool guard = prop.IsNullable || prop.IsNullableReference;
                 var acc = $"__v.{prop.Name}";
-                if (guard)
-                {
-                    s.Append("                if (");
-                    s.Append(acc);
-                    s.AppendLine(" != null)");
-                    s.AppendLine("                {");
-                }
+                bool guard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                    s,
+                    prop,
+                    acc,
+                    "                "
+                );
                 s.Append("                tw.WriteKeyValue(\"");
                 s.Append(pn);
                 s.Append("\", ");
@@ -2355,7 +2321,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
+                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
                 var kw2 = pi == 0 ? "if" : "else if";
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);

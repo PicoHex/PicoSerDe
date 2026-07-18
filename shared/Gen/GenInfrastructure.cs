@@ -198,6 +198,46 @@ internal static class GenInfrastructure
         return $"{typeFullName.Substring(0, lastDot)}.{safeName}{suffix}";
     }
 
+    /// <summary>
+    /// Single source of truth for DefaultIgnoreCondition guard eligibility:
+    /// a member participates in null-based omission when it is a nullable
+    /// value type or an annotated nullable reference (including collections).
+    /// </summary>
+    public static bool IsConditionallyOmittable(PropertyInfo p) =>
+        p.IsNullable || p.IsNullableReference;
+
+    /// <summary>
+    /// Emits the always-omit null guard (used by formats without a runtime
+    /// null representation on the wire path: TOML, INI, YAML). Returns true
+    /// when a guard block was opened; the caller must emit the matching
+    /// closing brace. The lifted '!= null' comparison is valid for both
+    /// Nullable&lt;T&gt; and reference types.
+    /// </summary>
+    public static bool EmitNullGuardOpen(
+        StringBuilder sb,
+        PropertyInfo p,
+        string accessor,
+        string indent
+    )
+    {
+        if (!IsConditionallyOmittable(p))
+            return false;
+        sb.Append(indent);
+        sb.Append("if (");
+        sb.Append(accessor);
+        sb.AppendLine(" != null)");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        return true;
+    }
+
+    /// <summary>
+    /// True for members whose TypeKind is handled by dedicated emit paths
+    /// (nested objects and dictionaries) and therefore skipped in flat
+    /// member loops such as poly dispatch.
+    /// </summary>
+    public static bool IsComplexMember(PropertyInfo p) => p.TypeKind is "object" or "dict";
+
     public static string ShortName(string fullName)
     {
         var name = fullName.Replace("global::", "");

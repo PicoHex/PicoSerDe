@@ -380,22 +380,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         );
         foreach (var p in sorted)
         {
-            var bodyInd = "        ";
-            string? sv = null;
-            if (topSkips is not null && topSkips.TryGetValue(p.Name, out sv))
-            {
-                s.Append("        if (!");
-                s.Append(sv);
-                s.AppendLine(") {");
-                bodyInd = "            ";
-            }
+            var bodyInd = EmitSkipGuardOpen(s, topSkips, p, "        ", out var sv);
             s.Append(bodyInd);
             s.Append("mw.WriteInt32(");
             s.Append(p.IntKey ?? 0);
             s.AppendLine(");");
             WriteSer(s, p, $"value.{p.Name}", bodyInd, ref c);
-            if (sv is not null)
-                s.AppendLine("        }");
+            EmitSkipGuardClose(s, sv, "        ");
         }
         s.AppendLine("        mw.WriteEndObject(); } }");
         s.AppendLine();
@@ -805,22 +796,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         );
         foreach (var p in sorted)
         {
-            var bodyInd = "        ";
-            string? sv = null;
-            if (innerSkips is not null && innerSkips.TryGetValue(p.Name, out sv))
-            {
-                s.Append("        if (!");
-                s.Append(sv);
-                s.AppendLine(") {");
-                bodyInd = "            ";
-            }
+            var bodyInd = EmitSkipGuardOpen(s, innerSkips, p, "        ", out var sv);
             s.Append(bodyInd);
             s.Append("mw.WriteInt32(");
             s.Append(p.IntKey ?? 0);
             s.AppendLine(");");
             WriteSer(s, p, $"v.{p.Name}", bodyInd, ref c);
-            if (sv is not null)
-                s.AppendLine("        }");
+            EmitSkipGuardClose(s, sv, "        ");
         }
         s.AppendLine("        mw.WriteEndObject();");
         s.AppendLine("    }");
@@ -1125,6 +1107,39 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     /// Returns a map from property name to its skip-flag local, or null when
     /// no property is nullable (constant count, zero overhead).
     /// </summary>
+    /// <summary>
+    /// Opens the per-member skip guard when the member has a skip flag from
+    /// EmitObjectHeaderWithSkips; returns the body indent (increased inside
+    /// the guard). The caller must call EmitSkipGuardClose with the same base
+    /// indent.
+    /// </summary>
+    static string EmitSkipGuardOpen(
+        StringBuilder s,
+        Dictionary<string, string>? skips,
+        PropertyInfo prop,
+        string ind,
+        out string? skipVar
+    )
+    {
+        skipVar = null;
+        if (skips is null || !skips.TryGetValue(prop.Name, out skipVar))
+            return ind;
+        s.Append(ind);
+        s.Append("if (!");
+        s.Append(skipVar);
+        s.AppendLine(") {");
+        return ind + "    ";
+    }
+
+    static void EmitSkipGuardClose(StringBuilder s, string? skipVar, string ind)
+    {
+        if (skipVar is not null)
+        {
+            s.Append(ind);
+            s.AppendLine("}");
+        }
+    }
+
     static Dictionary<string, string>? EmitObjectHeaderWithSkips(
         StringBuilder s,
         ImmutableArray<PropertyInfo> props,
@@ -1134,7 +1149,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         int extraCount = 0
     )
     {
-        var nullable = props.Where(p => p.IsNullable || p.IsNullableReference).ToArray();
+        var nullable = props
+            .Where(p => PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(p))
+            .ToArray();
         if (nullable.Length == 0)
         {
             s.Append(ind);
@@ -1992,7 +2009,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             // Map count covers only this runtime type's members (+1 discriminator);
             // nullable members skipped under WhenWritingNull decrement it.
             var dtProps = dti
-                .Properties.Where(p => p.TypeKind != "object" && p.TypeKind != "dict")
+                .Properties.Where(p => !PicoSerDe.Gen.GenInfrastructure.IsComplexMember(p))
                 .ToImmutableArray();
             var skips = EmitObjectHeaderWithSkips(
                 s,
@@ -2010,23 +2027,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"));");
             foreach (var prop in dtProps)
             {
-                var bodyInd = "                ";
-                string? sv = null;
-                if (skips is not null && skips.TryGetValue(prop.Name, out sv))
-                {
-                    s.Append(bodyInd);
-                    s.Append("if (!");
-                    s.Append(sv);
-                    s.AppendLine(") {");
-                    bodyInd += "    ";
-                }
+                var bodyInd = EmitSkipGuardOpen(s, skips, prop, "                ", out var sv);
                 s.Append(bodyInd);
                 s.Append("mw.WriteString(Encoding.UTF8.GetBytes(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
                 s.AppendLine("\"));");
                 WriteSer(s, prop, $"__v.{prop.Name}", bodyInd, ref c);
-                if (sv is not null)
-                    s.AppendLine("                }");
+                EmitSkipGuardClose(s, sv, "                ");
             }
             s.AppendLine("                break;");
             s.AppendLine("            }");
@@ -2108,7 +2115,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
+                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
                 var kw2 = pi == 0 ? "if" : "else if";
                 s.Append("                ");
@@ -2206,7 +2213,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     {
         // Parity with the main deserialization path: nil values (written for
         // nulls under the Never condition) must map back to null/default.
-        bool nullable = prop.IsNullable || prop.IsNullableReference;
+        bool nullable = PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(prop);
         switch (prop.TypeKind)
         {
             case "string":

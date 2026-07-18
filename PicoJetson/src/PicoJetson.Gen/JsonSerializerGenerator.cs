@@ -1283,7 +1283,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string indent
     )
     {
-        if (!(prop.IsNullable || prop.IsNullableReference))
+        if (!(PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(prop)))
             return false;
         sb.Append(indent);
         sb.AppendLine(
@@ -1495,7 +1495,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     prop.TypeFullName!
                 );
                 sb.Append(indent);
-                if (prop.IsNullable || prop.IsNullableReference)
+                if (PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(prop))
                 {
                     sb.Append("if (");
                     sb.Append(effectiveAccessor);

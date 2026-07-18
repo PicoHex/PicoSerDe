@@ -634,14 +634,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     {
         foreach (var prop in props)
         {
-            bool guard = prop.IsNullable || prop.IsNullableReference;
-            if (guard)
-            {
-                sb.Append("        if (value.");
-                sb.Append(prop.Name);
-                sb.AppendLine(" != null)");
-                sb.AppendLine("        {");
-            }
+            bool guard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                sb,
+                prop,
+                "value." + prop.Name,
+                "        "
+            );
             sb.Append("        yw.WritePropertyName(\"");
             sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
             sb.AppendLine("\"u8);");
@@ -788,7 +786,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(ind);
                     s.Append("foreach (var __item in ");
                     s.Append(accessor);
-                    if (p.IsNullable || p.IsNullableReference)
+                    if (PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(p))
                         s.Append(" ?? []");
                     s.AppendLine(")");
                     s.Append(ind);
@@ -822,7 +820,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append("foreach (var __kvp in ");
                 s.Append(accessor);
-                if (p.IsNullable || p.IsNullableReference)
+                if (PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(p))
                     s.Append(" ?? []");
                 s.AppendLine(")");
                 s.Append(ind);
@@ -1587,18 +1585,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
         if (p.TypeKind is "list" or "array")
         {
-            bool collGuard = p.IsNullable || p.IsNullableReference;
-            if (collGuard)
-            {
-                s.Append(ind);
-                s.Append("if (");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(" != null)");
-                s.Append(ind);
-                s.AppendLine("{");
-            }
+            bool collGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                s,
+                p,
+                $"{target}.{p.Name}",
+                ind
+            );
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -1666,7 +1658,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
         else if (p.TypeKind is "object")
         {
-            bool nullGuard = p.IsNullable || p.IsNullableReference;
+            bool nullGuard = PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(p);
             if (nullGuard)
             {
                 s.Append(ind);
@@ -1715,18 +1707,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
         else if (p.TypeKind is "dict")
         {
-            bool dictGuard = p.IsNullable || p.IsNullableReference;
-            if (dictGuard)
-            {
-                s.Append(ind);
-                s.Append("if (");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(" != null)");
-                s.Append(ind);
-                s.AppendLine("{");
-            }
+            bool dictGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                s,
+                p,
+                $"{target}.{p.Name}",
+                ind
+            );
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -1821,21 +1807,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             // YAML reader has no null-literal support yet — writing 'key:' reads
             // back as default, breaking round-trip fidelity. Null values are
             // therefore always omitted (same group as TOML/INI).
-            s.Append(ind);
-            s.Append("if (");
-            s.Append(target);
-            s.Append('.');
-            s.Append(p.Name);
-            if (p.IsNullableReference)
-            {
-                s.AppendLine(" != null)");
-            }
-            else
-            {
-                s.AppendLine(".HasValue)");
-            }
-            s.Append(ind);
-            s.AppendLine("{");
+            PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(s, p, $"{target}.{p.Name}", ind);
             s.Append(ind);
             s.Append("    yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -2519,19 +2491,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"u8);");
             foreach (var prop in dti.Properties)
             {
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
+                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 // DefaultIgnoreCondition: same guard as the other YAML emit paths
-                bool guard = prop.IsNullable || prop.IsNullableReference;
                 var acc = $"__v.{prop.Name}";
-                if (guard)
-                {
-                    s.Append("                if (");
-                    s.Append(acc);
-                    s.AppendLine(" != null)");
-                    s.AppendLine("                {");
-                }
+                bool guard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                    s,
+                    prop,
+                    acc,
+                    "                "
+                );
                 s.Append("                yw.WritePropertyName(\"");
                 s.Append(pn);
                 s.AppendLine("\"u8);");
@@ -2628,7 +2598,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
+                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
                 var kw2 = pi == 0 ? "if" : "else if";
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);

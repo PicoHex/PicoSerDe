@@ -402,15 +402,16 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(p.Comment);
                 s.AppendLine("\");");
             }
-            bool checkNull = p.IsNullable || p.IsNullableReference;
+            bool checkNull = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                s,
+                p,
+                "value." + p.Name,
+                "        "
+            );
             if (checkNull)
             {
                 // INI has no null literal — null values are always omitted,
                 // regardless of DefaultIgnoreCondition.
-                s.Append("        if (value.");
-                s.Append(p.Name);
-                s.Append(" != null)\n");
-                s.Append("        {\n");
                 s.Append("            iw.WriteKeyValue(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
                 s.Append("\"u8, ");
@@ -463,13 +464,12 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         {
             if (p.TypeKind != "object")
                 continue;
-            bool nullGuard = p.IsNullable || p.IsNullableReference;
-            if (nullGuard)
-            {
-                s.Append("        if (value.");
-                s.Append(p.Name);
-                s.AppendLine(" != null) {");
-            }
+            bool nullGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                s,
+                p,
+                "value." + p.Name,
+                "        "
+            );
             if (!first)
                 s.AppendLine("        iw.WriteBlankLine();");
             var sn = p.SectionName ?? p.JsonName;
@@ -480,12 +480,12 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             {
                 // DefaultIgnoreCondition: INI has no null literal — null
                 // section values are always omitted.
-                bool npCheck = np.IsNullable || np.IsNullableReference;
-                if (npCheck)
-                {
-                    s.Append($"        if (value.{p.Name}.{np.Name} != null)\n");
-                    s.Append("        {\n");
-                }
+                bool npCheck = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                    s,
+                    np,
+                    $"value.{p.Name}.{np.Name}",
+                    "        "
+                );
                 s.Append("        iw.WriteKeyValue(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
                 s.Append("\"u8, ");
@@ -506,7 +506,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
 
         var top = new List<PropertyInfo>();
         foreach (var p in type.Properties)
-            if (p.TypeKind != "object" && p.TypeKind != "dict")
+            if (!PicoSerDe.Gen.GenInfrastructure.IsComplexMember(p))
                 top.Add(p);
         var sec = new List<PropertyInfo>();
         foreach (var p in type.Properties)
@@ -846,7 +846,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        var iw = new IniWriter(writer);");
 
         var top = type
-            .Properties.Where(p => p.TypeKind != "object" && p.TypeKind != "dict")
+            .Properties.Where(p => !PicoSerDe.Gen.GenInfrastructure.IsComplexMember(p))
             .ToList();
         foreach (var p in top)
         {
@@ -1578,17 +1578,17 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine(" __v:");
             foreach (var prop in dti.Properties)
             {
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
+                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 // DefaultIgnoreCondition: INI has no null literal — null
                 // values are always omitted.
-                bool pCheck = prop.IsNullable || prop.IsNullableReference;
-                if (pCheck)
-                {
-                    s.Append($"                if (__v.{prop.Name} != null)\n");
-                    s.Append("                {\n");
-                }
+                bool pCheck = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                    s,
+                    prop,
+                    $"__v.{prop.Name}",
+                    "                "
+                );
                 s.Append("                iw.WriteKeyValue(\"");
                 s.Append(pn);
                 s.Append("\"u8, ");
@@ -1678,7 +1678,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
+                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
                 var kw2 = pi == 0 ? "if" : "else if";
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
