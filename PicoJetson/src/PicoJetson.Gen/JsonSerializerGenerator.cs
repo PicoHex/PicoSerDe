@@ -1303,15 +1303,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.Append("if (");
                 sb.Append(accessor);
-                if (
-                    prop.TypeKind
-                    is "int32"
-                        or "int64"
-                        or "float32"
-                        or "float64"
-                        or "boolean"
-                        or "decimal"
-                )
+                if (PicoSerDe.Gen.GenInfrastructure.IsValueDefaultKind(prop.TypeKind))
                     sb.AppendLine(" != default)");
                 else
                     sb.AppendLine(" != null)");
@@ -1332,7 +1324,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "    : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
         );
         sb.Append(indent);
-        if (prop.TypeKind is "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal")
+        if (PicoSerDe.Gen.GenInfrastructure.IsValueDefaultKind(prop.TypeKind))
             sb.AppendLine("    ? " + accessor + " != default");
         else
             sb.AppendLine("    ? " + accessor + " != null");

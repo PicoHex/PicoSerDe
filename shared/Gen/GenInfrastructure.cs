@@ -263,6 +263,13 @@ internal static class GenInfrastructure
     }
 
     /// <summary>
+    /// True for TypeKinds whose WhenWritingDefault guard compares with
+    /// '!= default' instead of '!= null' (numeric-like value kinds).
+    /// </summary>
+    public static bool IsValueDefaultKind(string kind) =>
+        kind is "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal";
+
+    /// <summary>
     /// True for members whose TypeKind is handled by dedicated emit paths
     /// (nested objects and dictionaries) and therefore skipped in flat
     /// member loops such as poly dispatch.

@@ -1,30 +1,15 @@
 namespace PicoMsgPack;
 
+/// <summary>Format marker isolating SerRegistry/DesRegistry entries for MessagePack.</summary>
+public readonly struct MsgPackFormat { }
+
 public static partial class MsgPackSerializer
 {
     /// <summary>HTTP Content-Type header value for MsgPack.</summary>
     public const string ContentType = "application/msgpack";
 
-    // Serialization cache — allows ref struct via delegate
-    private static class SerCache<T>
-        where T : allows ref struct
-    {
-        internal static SerDelegate<T>? Handler;
-    }
-
-    // Deserialization cache — unchanged (no ref struct support)
-    private static class Cache<T>
-    {
-        internal static IDeserializer<T>? Deserializer;
-    }
-
-    // User-registered custom serializers that also override SG-generated
-    // serialization for nested occurrences of T (see RegisterCustom).
-    private static class CustomSerCache<T>
-        where T : allows ref struct
-    {
-        internal static SerDelegate<T>? Handler;
-    }
+    // Serialization/deserialization registries live in PicoSerDe.Core
+    // (SerRegistry/DesRegistry), isolated per format via MsgPackFormat.
 
     /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
     public delegate ReadStatus StreamingFunc<T>(ref MsgPackReader reader, out T? result);
@@ -46,7 +31,7 @@ public static partial class MsgPackSerializer
     public static void Register<T>(SerDelegate<T> handler)
         where T : allows ref struct
     {
-        SerCache<T>.Handler = handler;
+        SerRegistry<MsgPackFormat, T>.Handler = handler;
     }
 
     /// <summary>
@@ -54,8 +39,9 @@ public static partial class MsgPackSerializer
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        SerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
-        Cache<T>.Deserializer = deserializer;
+        SerRegistry<MsgPackFormat, T>.Handler = (writer, value) =>
+            serializer.Serialize(writer, value);
+        DesRegistry<MsgPackFormat, T>.Deserializer = deserializer;
     }
 
     /// <summary>
@@ -66,18 +52,19 @@ public static partial class MsgPackSerializer
     public static void RegisterCustom<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
         Register(serializer, deserializer);
-        CustomSerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
+        SerRegistry<MsgPackFormat, T>.CustomHandler = (writer, value) =>
+            serializer.Serialize(writer, value);
     }
 
     /// <summary>True when a custom serializer overriding nested occurrences of T is registered.</summary>
     public static bool HasCustomSerializer<T>()
-        where T : allows ref struct => CustomSerCache<T>.Handler is not null;
+        where T : allows ref struct => SerRegistry<MsgPackFormat, T>.CustomHandler is not null;
 
     /// <summary>Invokes the custom serializer registered via <see cref="RegisterCustom{T}"/>. Called by SG-generated nested emit paths.</summary>
     public static void SerializeCustom<T>(IBufferWriter<byte> writer, T value)
         where T : allows ref struct
     {
-        if (CustomSerCache<T>.Handler is { } h)
+        if (SerRegistry<MsgPackFormat, T>.CustomHandler is { } h)
             h(writer, value);
         else
             SerializerExtensions.ThrowNoSerializer<T>("RegisterCustom");
@@ -86,13 +73,13 @@ public static partial class MsgPackSerializer
     /// <summary>Register a deserializer only.</summary>
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
     {
-        Cache<T>.Deserializer = deserializer;
+        DesRegistry<MsgPackFormat, T>.Deserializer = deserializer;
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<MsgPackFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
             h(writer, value);
@@ -105,7 +92,7 @@ public static partial class MsgPackSerializer
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<MsgPackFormat, T>.Handler is { } h)
             h(writer, value);
         else
             SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
@@ -113,7 +100,7 @@ public static partial class MsgPackSerializer
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
-        if (Cache<T>.Deserializer is { } d)
+        if (DesRegistry<MsgPackFormat, T>.Deserializer is { } d)
             return d.Deserialize(data);
         SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
         return default;

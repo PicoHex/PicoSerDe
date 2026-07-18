@@ -123,4 +123,20 @@ public sealed class GenInfrastructureGuardTests
         await Assert.That(GenInfrastructure.IsComplexMember(Prop())).IsFalse();
         await Assert.That(GenInfrastructure.IsComplexMember(Prop(kind: "list"))).IsFalse();
     }
+
+    // ── IsValueDefaultKind: kinds compared with '!= default' in WhenWritingDefault guards ──
+
+    [Test]
+    public async Task ValueDefaultKind_NumericBoolDecimal_True()
+    {
+        foreach (var k in new[] { "int32", "int64", "float32", "float64", "boolean", "decimal" })
+            await Assert.That(GenInfrastructure.IsValueDefaultKind(k)).IsTrue();
+    }
+
+    [Test]
+    public async Task ValueDefaultKind_Others_False()
+    {
+        foreach (var k in new[] { "string", "object", "list", "dict", "datetime", "guid" })
+            await Assert.That(GenInfrastructure.IsValueDefaultKind(k)).IsFalse();
+    }
 }

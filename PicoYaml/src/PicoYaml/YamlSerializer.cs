@@ -1,22 +1,15 @@
 namespace PicoYaml;
 
+/// <summary>Format marker isolating SerRegistry/DesRegistry entries for YAML.</summary>
+public readonly struct YamlFormat { }
+
 public static partial class YamlSerializer
 {
     /// <summary>HTTP Content-Type header value for YAML.</summary>
     public const string ContentType = "application/yaml";
 
-    // Serialization cache — allows ref struct via delegate
-    private static class SerCache<T>
-        where T : allows ref struct
-    {
-        internal static SerDelegate<T>? Handler;
-    }
-
-    // Deserialization cache — unchanged (no ref struct support)
-    private static class Cache<T>
-    {
-        internal static IDeserializer<T>? Deserializer;
-    }
+    // Serialization/deserialization registries live in PicoSerDe.Core
+    // (SerRegistry/DesRegistry), isolated per format via YamlFormat.
 
     public delegate ReadStatus StreamingFunc<T>(ref YamlReader reader, out T? result);
 
@@ -37,7 +30,7 @@ public static partial class YamlSerializer
     public static void Register<T>(SerDelegate<T> handler)
         where T : allows ref struct
     {
-        SerCache<T>.Handler = handler;
+        SerRegistry<YamlFormat, T>.Handler = handler;
     }
 
     /// <summary>
@@ -45,20 +38,20 @@ public static partial class YamlSerializer
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        SerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
-        Cache<T>.Deserializer = deserializer;
+        SerRegistry<YamlFormat, T>.Handler = (writer, value) => serializer.Serialize(writer, value);
+        DesRegistry<YamlFormat, T>.Deserializer = deserializer;
     }
 
     /// <summary>Register a deserializer only.</summary>
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
     {
-        Cache<T>.Deserializer = deserializer;
+        DesRegistry<YamlFormat, T>.Deserializer = deserializer;
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<YamlFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
             h(writer, value);
@@ -71,7 +64,7 @@ public static partial class YamlSerializer
     public static string Serialize<T>(T value)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<YamlFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
             h(writer, value);
@@ -84,7 +77,7 @@ public static partial class YamlSerializer
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<YamlFormat, T>.Handler is { } h)
             h(writer, value);
         else
             SerializerExtensions.ThrowNoSerializer<T>("PicoYaml.Gen");
@@ -92,7 +85,7 @@ public static partial class YamlSerializer
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
-        if (Cache<T>.Deserializer is { } d)
+        if (DesRegistry<YamlFormat, T>.Deserializer is { } d)
             return d.Deserialize(data);
         SerializerExtensions.ThrowNoSerializer<T>("PicoYaml.Gen");
         return default;

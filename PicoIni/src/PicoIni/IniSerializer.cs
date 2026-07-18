@@ -1,22 +1,15 @@
 namespace PicoIni;
 
+/// <summary>Format marker isolating SerRegistry/DesRegistry entries for INI.</summary>
+public readonly struct IniFormat { }
+
 public static partial class IniSerializer
 {
     /// <summary>HTTP Content-Type header value for INI.</summary>
     public const string ContentType = "text/plain";
 
-    // Serialization cache — allows ref struct via delegate
-    private static class SerCache<T>
-        where T : allows ref struct
-    {
-        internal static SerDelegate<T>? Handler;
-    }
-
-    // Deserialization cache — unchanged (no ref struct support)
-    private static class Cache<T>
-    {
-        internal static IDeserializer<T>? Deserializer;
-    }
+    // Serialization/deserialization registries live in PicoSerDe.Core
+    // (SerRegistry/DesRegistry), isolated per format via IniFormat.
 
     /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
     public delegate ReadStatus StreamingFunc<T>(ref IniReader reader, out T? result);
@@ -38,7 +31,7 @@ public static partial class IniSerializer
     public static void Register<T>(SerDelegate<T> handler)
         where T : allows ref struct
     {
-        SerCache<T>.Handler = handler;
+        SerRegistry<IniFormat, T>.Handler = handler;
     }
 
     /// <summary>
@@ -46,20 +39,20 @@ public static partial class IniSerializer
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        SerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
-        Cache<T>.Deserializer = deserializer;
+        SerRegistry<IniFormat, T>.Handler = (writer, value) => serializer.Serialize(writer, value);
+        DesRegistry<IniFormat, T>.Deserializer = deserializer;
     }
 
     /// <summary>Register a deserializer only.</summary>
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
     {
-        Cache<T>.Deserializer = deserializer;
+        DesRegistry<IniFormat, T>.Deserializer = deserializer;
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<IniFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
             h(writer, value);
@@ -72,7 +65,7 @@ public static partial class IniSerializer
     public static string Serialize<T>(T value)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<IniFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
             h(writer, value);
@@ -85,7 +78,7 @@ public static partial class IniSerializer
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<IniFormat, T>.Handler is { } h)
             h(writer, value);
         else
             SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
@@ -93,7 +86,7 @@ public static partial class IniSerializer
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
-        if (Cache<T>.Deserializer is { } d)
+        if (DesRegistry<IniFormat, T>.Deserializer is { } d)
             return d.Deserialize(data);
         SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
         return default;

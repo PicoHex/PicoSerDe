@@ -1,30 +1,15 @@
 namespace PicoJetson;
 
+/// <summary>Format marker isolating SerRegistry/DesRegistry entries for JSON.</summary>
+public readonly struct JsonFormat { }
+
 public static partial class JsonSerializer
 {
     /// <summary>HTTP Content-Type header value for JSON.</summary>
     public const string ContentType = "application/json";
 
-    // Serialization cache — allows ref struct via delegate
-    private static class SerCache<T>
-        where T : allows ref struct
-    {
-        internal static SerDelegate<T>? Handler;
-    }
-
-    // Deserialization cache — unchanged (no ref struct support)
-    private static class Cache<T>
-    {
-        internal static IDeserializer<T>? Deserializer;
-    }
-
-    // User-registered custom serializers that also override SG-generated
-    // serialization for nested occurrences of T (see RegisterCustom).
-    private static class CustomSerCache<T>
-        where T : allows ref struct
-    {
-        internal static SerDelegate<T>? Handler;
-    }
+    // Serialization/deserialization registries live in PicoSerDe.Core
+    // (SerRegistry/DesRegistry), isolated per format via JsonFormat.
 
     /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
     public delegate ReadStatus StreamingFunc<T>(ref JsonReader reader, out T? result);
@@ -47,7 +32,7 @@ public static partial class JsonSerializer
     public static void Register<T>(SerDelegate<T> handler)
         where T : allows ref struct
     {
-        SerCache<T>.Handler = handler;
+        SerRegistry<JsonFormat, T>.Handler = handler;
     }
 
     /// <summary>
@@ -56,8 +41,8 @@ public static partial class JsonSerializer
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        SerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
-        Cache<T>.Deserializer = deserializer;
+        SerRegistry<JsonFormat, T>.Handler = (writer, value) => serializer.Serialize(writer, value);
+        DesRegistry<JsonFormat, T>.Deserializer = deserializer;
     }
 
     /// <summary>
@@ -69,18 +54,19 @@ public static partial class JsonSerializer
     public static void RegisterCustom<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
         Register(serializer, deserializer);
-        CustomSerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
+        SerRegistry<JsonFormat, T>.CustomHandler = (writer, value) =>
+            serializer.Serialize(writer, value);
     }
 
     /// <summary>True when a custom serializer overriding nested occurrences of T is registered.</summary>
     public static bool HasCustomSerializer<T>()
-        where T : allows ref struct => CustomSerCache<T>.Handler is not null;
+        where T : allows ref struct => SerRegistry<JsonFormat, T>.CustomHandler is not null;
 
     /// <summary>Invokes the custom serializer registered via <see cref="RegisterCustom{T}"/>. Called by SG-generated nested emit paths.</summary>
     public static void SerializeCustom<T>(IBufferWriter<byte> writer, T value)
         where T : allows ref struct
     {
-        if (CustomSerCache<T>.Handler is { } h)
+        if (SerRegistry<JsonFormat, T>.CustomHandler is { } h)
             h(writer, value);
         else
             SerializerExtensions.ThrowNoSerializer<T>("RegisterCustom");
@@ -89,13 +75,13 @@ public static partial class JsonSerializer
     /// <summary>Register a deserializer only.</summary>
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
     {
-        Cache<T>.Deserializer = deserializer;
+        DesRegistry<JsonFormat, T>.Deserializer = deserializer;
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value, JsonOptions? options = null)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<JsonFormat, T>.Handler is { } h)
         {
             var prev = JsonOptions.Current;
             JsonOptions.Current = options;
@@ -117,7 +103,7 @@ public static partial class JsonSerializer
     public static string Serialize<T>(T value, JsonOptions? options = null)
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<JsonFormat, T>.Handler is { } h)
         {
             var prev = JsonOptions.Current;
             JsonOptions.Current = options;
@@ -143,7 +129,7 @@ public static partial class JsonSerializer
     )
         where T : allows ref struct
     {
-        if (SerCache<T>.Handler is { } h)
+        if (SerRegistry<JsonFormat, T>.Handler is { } h)
         {
             var prev = JsonOptions.Current;
             JsonOptions.Current = options;
@@ -162,7 +148,7 @@ public static partial class JsonSerializer
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data, JsonOptions? options = null)
     {
-        if (Cache<T>.Deserializer is { } d)
+        if (DesRegistry<JsonFormat, T>.Deserializer is { } d)
         {
             var prev = JsonOptions.Current;
             JsonOptions.Current = options;
@@ -250,7 +236,7 @@ public static partial class JsonSerializer
             var buf = new ArrayBufferWriter<byte>(1024);
             foreach (var v in values)
             {
-                if (SerCache<T>.Handler is { } h)
+                if (SerRegistry<JsonFormat, T>.Handler is { } h)
                 {
                     h(buf, v);
                     buf.Write("\n"u8);
@@ -302,7 +288,7 @@ public static partial class JsonSerializer
                 if (line.IsEmpty)
                     continue;
 
-                if (Cache<T>.Deserializer is { } d)
+                if (DesRegistry<JsonFormat, T>.Deserializer is { } d)
                 {
                     results.Add(d.Deserialize(line));
                 }
@@ -345,7 +331,7 @@ public static partial class JsonSerializer
     )
     {
         // Verify deserializer is registered before entering the loop
-        if (Cache<T>.Deserializer is not { } deserializer)
+        if (DesRegistry<JsonFormat, T>.Deserializer is not { } deserializer)
         {
             SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
             yield break;

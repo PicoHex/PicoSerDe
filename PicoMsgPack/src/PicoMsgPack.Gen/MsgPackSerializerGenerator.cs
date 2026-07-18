@@ -1191,15 +1191,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 case "WhenWritingDefault":
                     s.Append(" = ");
                     s.Append(accessor(p));
-                    if (
-                        p.TypeKind
-                        is "int32"
-                            or "int64"
-                            or "float32"
-                            or "float64"
-                            or "boolean"
-                            or "decimal"
-                    )
+                    if (PicoSerDe.Gen.GenInfrastructure.IsValueDefaultKind(p.TypeKind))
                         s.AppendLine(" == default;");
                     else
                         s.AppendLine(" == null;");
