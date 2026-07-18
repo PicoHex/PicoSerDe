@@ -144,6 +144,7 @@ var result = JsonSerializer.Deserialize<SessionEntry>(json);
 | Record derived types | ✅ v2026.3.23 |
 | Complex/collection ctor params | ✅ v2026.3.24 |
 | TOML / YAML poly support | ✅ v2026.3.24 |
+| INI / MsgPack poly support | ✅ (unreleased) |
 
 ### DOM Layer (PicoDocument / PicoElement)
 
@@ -205,7 +206,7 @@ PicoJetson tests are split into Unit / Integration / Functional projects with cl
 - **`file struct`** generated implementations — devirtualization without sealed class overhead
 - **Ref struct serialization** — `ref struct` types are supported as serializable types across all 5 formats. Source-generator-generated static methods + delegate dispatch bypass the `ISerializer<T>` interface constraint.
 - **`JsonOptions`** — runtime configuration (indentation, naming policy, ignore conditions, etc.) flowing through ThreadStatic to SG-generated code
-- **Polymorphic deserialization** — type discriminator dispatch via `[PicoDerivedType]`; serialization + deserialization + streaming (v2026.3.0); record types (v2026.3.23); TOML/YAML poly (v2026.3.24)
+- **Polymorphic deserialization** — type discriminator dispatch via `[PicoDerivedType]`; serialization + deserialization + streaming (v2026.3.0); record types (v2026.3.23); TOML/YAML poly (v2026.3.24); INI/MsgPack poly (unreleased)
 - **`PicoDocument` / `PicoElement`** — zero-copy JSON DOM for schema-less inspection (v2026.3.4)
 - **C# records** — primary constructor auto-detection, `init`-only support (v2026.3.3); poly+record (v2026.3.23); complex/collection ctor params (v2026.3.24)
 - **Top-level arrays** — `Serialize<T[]>()` / `Deserialize<T[]>()` with streaming (v2026.3.2)
@@ -246,6 +247,19 @@ Available options:
 | `AllowTrailingCommas` | `false` | Accept trailing commas in objects/arrays |
 | `ReadCommentHandling` | `Disallow` | Skip `//` and `/* */` comments |
 | `UnmappedMemberHandling` | `Skip` | Throw on unknown properties: `Disallow` |
+
+#### Null handling across formats
+
+Every format's options class (`JsonOptions`, `YamlOptions`, `TomlOptions`, `IniOptions`, `MsgPackOptions`) exposes `DefaultIgnoreCondition`, but what "writing a null" means depends on the wire format:
+
+| Format | Default (`Never`) | `WhenWritingNull` |
+|--------|-------------------|-------------------|
+| JSON | `"key":null` written | omitted |
+| MsgPack | `nil` written (map count adjusts automatically) | omitted |
+| TOML / INI | omitted — these formats have no null literal | omitted |
+| YAML | omitted — the reader has no null-literal support yet; writing `key:` would read back as a default value and break round-trip fidelity | omitted |
+
+The matrix applies to every emit path — top-level members, nested objects, collection elements, nullable collections, and polymorphic dispatch — and is locked by cross-format regression tests (`IgnoreConditionMatrixTests`).
 
 ---
 
