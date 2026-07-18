@@ -96,7 +96,8 @@ internal readonly record struct PropertyInfo(
     byte? ExtensionTag = null,
     bool IsNullableReference = false,
     bool IsRequired = false,
-    bool ElementIsNullableReference = false
+    bool ElementIsNullableReference = false,
+    string? IgnoreCondition = null
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -196,6 +197,36 @@ internal static class GenInfrastructure
         if (lastDot <= 0)
             return $"{safeName}{suffix}";
         return $"{typeFullName.Substring(0, lastDot)}.{safeName}{suffix}";
+    }
+
+    /// <summary>
+    /// Reads the cross-format [PicoIgnore] condition from a property symbol.
+    /// Returns "Always", "Never", "WhenWritingNull", "WhenWritingDefault",
+    /// or null when the attribute is absent.
+    /// </summary>
+    private static string? GetPicoIgnoreCondition(IPropertySymbol prop)
+    {
+        foreach (var attr in prop.GetAttributes())
+        {
+            if (
+                attr.AttributeClass?.Name != "PicoIgnoreAttribute"
+                || attr.AttributeClass.ContainingNamespace?.ToDisplayString() != "PicoSerDe.Core"
+            )
+                continue;
+            foreach (var na in attr.NamedArguments)
+            {
+                if (na.Key == "Condition" && na.Value.Value is int v)
+                    return v switch
+                    {
+                        1 => "Never",
+                        2 => "WhenWritingNull",
+                        3 => "WhenWritingDefault",
+                        _ => "Always",
+                    };
+            }
+            return "Always";
+        }
+        return null;
     }
 
     /// <summary>
@@ -519,6 +550,11 @@ internal static class GenInfrastructure
                 continue;
             if (prop.GetMethod is null)
                 continue;
+            // Cross-format [PicoIgnore]: Always strips the property entirely;
+            // other conditions keep it and are honored by the emit paths.
+            var ignoreCondition = GetPicoIgnoreCondition(prop);
+            if (ignoreCondition == "Always")
+                continue;
             if (attrs.HasIgnore(prop))
                 continue;
 
@@ -652,7 +688,8 @@ internal static class GenInfrastructure
                         ?? attrs.GetComment?.Invoke(prop.ContainingType),
                     IsNullableReference: isNrtNullable,
                     IsRequired: prop.IsRequired,
-                    ElementIsNullableReference: elementIsNrt
+                    ElementIsNullableReference: elementIsNrt,
+                    IgnoreCondition: ignoreCondition
                 )
             );
         }

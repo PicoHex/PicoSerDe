@@ -261,6 +261,21 @@ Every format's options class (`JsonOptions`, `YamlOptions`, `TomlOptions`, `IniO
 
 The matrix applies to every emit path — top-level members, nested objects, collection elements, nullable collections, and polymorphic dispatch — and is locked by cross-format regression tests (`IgnoreConditionMatrixTests`).
 
+Per-property control is available via the cross-format `[PicoIgnore]` attribute (PicoSerDe.Core):
+
+```csharp
+[PicoIgnore]                                                  // stripped everywhere (write + read)
+public string Internal { get; set; } = "";
+
+[PicoIgnore(Condition = PicoIgnoreCondition.WhenWritingNull)] // omitted only when null, regardless of global options
+public string? Note { get; set; }
+
+[PicoIgnore(Condition = PicoIgnoreCondition.Never)]           // exempt from the global DefaultIgnoreCondition
+public string? Pinned { get; set; }
+```
+
+Conditions affect serialization only — deserialization still maps conditional properties. Format-specific markers (`[JsonIgnore]`, `[YamlIgnore]`, …) remain single-format unconditional ignores.
+
 ---
 
 ## Packages

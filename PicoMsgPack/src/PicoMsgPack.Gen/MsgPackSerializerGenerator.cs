@@ -1150,7 +1150,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     )
     {
         var nullable = props
-            .Where(p => PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(p))
+            .Where(p =>
+                PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(p)
+                // Per-property Never exempts the member from skipping entirely
+                && p.IgnoreCondition != "Never"
+            )
             .ToArray();
         if (nullable.Length == 0)
         {
@@ -1175,11 +1179,39 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.Append(ind);
             s.Append("bool ");
             s.Append(sv);
-            s.Append(
-                " = PicoMsgPack.MsgPackOptions.Current?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && "
-            );
-            s.Append(accessor(p));
-            s.AppendLine(" == null;");
+            // Per-property conditions skip unconditionally; otherwise the
+            // global MsgPackOptions condition applies.
+            switch (p.IgnoreCondition)
+            {
+                case "WhenWritingNull":
+                    s.Append(" = ");
+                    s.Append(accessor(p));
+                    s.AppendLine(" == null;");
+                    break;
+                case "WhenWritingDefault":
+                    s.Append(" = ");
+                    s.Append(accessor(p));
+                    if (
+                        p.TypeKind
+                        is "int32"
+                            or "int64"
+                            or "float32"
+                            or "float64"
+                            or "boolean"
+                            or "decimal"
+                    )
+                        s.AppendLine(" == default;");
+                    else
+                        s.AppendLine(" == null;");
+                    break;
+                default:
+                    s.Append(
+                        " = PicoMsgPack.MsgPackOptions.Current?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && "
+                    );
+                    s.Append(accessor(p));
+                    s.AppendLine(" == null;");
+                    break;
+            }
             s.Append(ind);
             s.Append("if (");
             s.Append(sv);

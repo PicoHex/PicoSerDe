@@ -1283,6 +1283,42 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string indent
     )
     {
+        // Per-property [PicoIgnore] condition overrides the global option
+        // (STJ semantics): Never exempts entirely; WhenWritingNull/Default
+        // emit an unconditional value check.
+        switch (prop.IgnoreCondition)
+        {
+            case "Never":
+                return false;
+            case "WhenWritingNull":
+                return PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                    sb,
+                    prop,
+                    accessor,
+                    indent
+                );
+            case "WhenWritingDefault":
+                if (!PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(prop))
+                    return false;
+                sb.Append(indent);
+                sb.Append("if (");
+                sb.Append(accessor);
+                if (
+                    prop.TypeKind
+                    is "int32"
+                        or "int64"
+                        or "float32"
+                        or "float64"
+                        or "boolean"
+                        or "decimal"
+                )
+                    sb.AppendLine(" != default)");
+                else
+                    sb.AppendLine(" != null)");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                return true;
+        }
         if (!(PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(prop)))
             return false;
         sb.Append(indent);
