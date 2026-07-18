@@ -177,7 +177,7 @@ if (doc.RootElement["age"].TryGetInt32(out int age))
 PicoJetson tests are split into Unit / Integration / Functional projects with clear boundaries.
 
 > **No non-generic `Serialize(Type, object?)` overloads.** PicoSerDe is designed for AOT-first
-> usage where all types are known at compile time. `Cache<T>` static fields are shared
+> usage where all types are known at compile time. `SerRegistry<TFormat, T>` static fields (PicoSerDe.Core) are shared
 > across assemblies and provide faster lookup than a `ConcurrentDictionary<Type, ...>`.
 > Framework wrappers should call the generic API internally — the type's serializer is
 > guaranteed to be registered via `ModuleInitializer` as long as the type was discovered
@@ -187,10 +187,11 @@ PicoJetson tests are split into Unit / Integration / Functional projects with cl
 ┌──────────────────────────────────────────────┐
 │                 User Code                     │
 └──────────────────┬───────────────────────────┘
-                   │  Static Cache<T>
+                   │  Static SerRegistry<TFormat, T>
 ┌──────────────────▼───────────────────────────┐
 │           PicoSerDe.Core                      │
 │  ISerializer<T>  │  IDeserializer<T>         │
+│  SerRegistry     │  DesRegistry              │
 │  TokenType       │  SimdHelpers (Vector128)  │
 │  TextHelpers     │  SerializerExtensions     │
 └────┬────────┬─────────┬─────────┬─────────┬──┘
@@ -202,7 +203,7 @@ PicoJetson tests are split into Unit / Integration / Functional projects with cl
 
 - **Dual-package**: each format → runtime library (net10.0) + source generator (netstandard2.0)
 - **`ref struct`** readers/writers — stack-allocated, zero heap allocation on hot path
-- **Static `Cache<T>`** — JIT/AOT inlineable, no dictionary lookups
+- **Static `SerRegistry<TFormat, T>`** — per-format registries in PicoSerDe.Core; JIT/AOT inlineable, no dictionary lookups
 - **`file struct`** generated implementations — devirtualization without sealed class overhead
 - **Ref struct serialization** — `ref struct` types are supported as serializable types across all 5 formats. Source-generator-generated static methods + delegate dispatch bypass the `ISerializer<T>` interface constraint.
 - **`JsonOptions`** — runtime configuration (indentation, naming policy, ignore conditions, etc.) flowing through ThreadStatic to SG-generated code
