@@ -1191,6 +1191,20 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
         if (p.TypeKind is "list" or "array")
         {
+            // TOML has no null literal — a null collection can only be omitted,
+            // regardless of DefaultIgnoreCondition.
+            bool collGuard = p.IsNullable || p.IsNullableReference;
+            if (collGuard)
+            {
+                s.Append(indent);
+                s.Append("if (");
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" != null)");
+                s.Append(indent);
+                s.AppendLine("{");
+            }
             // Array of tables ([[key]]) for List<ComplexObject>
             if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
             {
@@ -1242,9 +1256,27 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(indent);
                 s.AppendLine("tw.WriteEndArray();");
             }
+            if (collGuard)
+            {
+                s.Append(indent);
+                s.AppendLine("}");
+            }
         }
         else if (p.TypeKind is "dict")
         {
+            // TOML has no null literal — a null dictionary can only be omitted.
+            bool dictGuard = p.IsNullable || p.IsNullableReference;
+            if (dictGuard)
+            {
+                s.Append(indent);
+                s.Append("if (");
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" != null)");
+                s.Append(indent);
+                s.AppendLine("{");
+            }
             s.Append(indent);
             s.Append("tw.WriteTable(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -1314,6 +1346,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             }
             s.Append(indent);
             s.AppendLine("}");
+            if (dictGuard)
+            {
+                s.Append(indent);
+                s.AppendLine("}");
+            }
         }
         else if (p.TypeKind is "object")
         {

@@ -395,13 +395,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(" value)");
         sb.AppendLine("    {");
         sb.AppendLine("        yw.WriteStartMapping();");
-        foreach (var prop in props)
-        {
-            sb.Append("        yw.WritePropertyName(\"");
-            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
-            sb.AppendLine("\"u8);");
-            EmitSerializeInline(sb, prop, "value." + prop.Name, "        ");
-        }
+        EmitInnerSerializeProps(sb, props);
         sb.AppendLine("        yw.WriteEndMapping();");
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -410,13 +404,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append(fullName);
         sb.AppendLine(" value)");
         sb.AppendLine("    {");
-        foreach (var prop in props)
-        {
-            sb.Append("        yw.WritePropertyName(\"");
-            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
-            sb.AppendLine("\"u8);");
-            EmitSerializeInline(sb, prop, "value." + prop.Name, "        ");
-        }
+        EmitInnerSerializeProps(sb, props);
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -634,6 +622,37 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Emits the property loop shared by YamlInner Serialize/SerializeBlock.
+    /// Nullable properties (including nullable collections) are wrapped in a
+    /// DefaultIgnoreCondition guard for parity with the top-level emit path.
+    /// </summary>
+    private static void EmitInnerSerializeProps(
+        StringBuilder sb,
+        ImmutableArray<PropertyInfo> props
+    )
+    {
+        foreach (var prop in props)
+        {
+            bool guard = prop.IsNullable || prop.IsNullableReference;
+            if (guard)
+            {
+                sb.Append(
+                    "        if (PicoYaml.YamlOptions.Current?.DefaultIgnoreCondition == PicoYaml.YamlIgnoreCondition.Never || value."
+                );
+                sb.Append(prop.Name);
+                sb.AppendLine(" != null)");
+                sb.AppendLine("        {");
+            }
+            sb.Append("        yw.WritePropertyName(\"");
+            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
+            sb.AppendLine("\"u8);");
+            EmitSerializeInline(sb, prop, "value." + prop.Name, "        ");
+            if (guard)
+                sb.AppendLine("        }");
+        }
+    }
+
     private static void EmitSerializeInline(
         StringBuilder s,
         PropertyInfo p,
@@ -771,6 +790,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(ind);
                     s.Append("foreach (var __item in ");
                     s.Append(accessor);
+                    if (p.IsNullable || p.IsNullableReference)
+                        s.Append(" ?? []");
                     s.AppendLine(")");
                     s.Append(ind);
                     s.AppendLine("{");
@@ -803,6 +824,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append("foreach (var __kvp in ");
                 s.Append(accessor);
+                if (p.IsNullable || p.IsNullableReference)
+                    s.Append(" ?? []");
                 s.AppendLine(")");
                 s.Append(ind);
                 s.AppendLine("{");
@@ -1566,6 +1589,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
         if (p.TypeKind is "list" or "array")
         {
+            bool collGuard = p.IsNullable || p.IsNullableReference;
+            if (collGuard)
+            {
+                s.Append(ind);
+                s.Append(
+                    "if (PicoYaml.YamlOptions.Current?.DefaultIgnoreCondition == PicoYaml.YamlIgnoreCondition.Never || "
+                );
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" != null)");
+                s.Append(ind);
+                s.AppendLine("{");
+            }
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -1625,6 +1662,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.AppendLine("}");
             }
+            if (collGuard)
+            {
+                s.Append(ind);
+                s.AppendLine("}");
+            }
         }
         else if (p.TypeKind is "object")
         {
@@ -1677,6 +1719,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
         else if (p.TypeKind is "dict")
         {
+            bool dictGuard = p.IsNullable || p.IsNullableReference;
+            if (dictGuard)
+            {
+                s.Append(ind);
+                s.Append(
+                    "if (PicoYaml.YamlOptions.Current?.DefaultIgnoreCondition == PicoYaml.YamlIgnoreCondition.Never || "
+                );
+                s.Append(target);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" != null)");
+                s.Append(ind);
+                s.AppendLine("{");
+            }
             s.Append(ind);
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -1760,6 +1816,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("}");
             s.Append(ind);
             s.AppendLine("yw.WriteEndMapping();");
+            if (dictGuard)
+            {
+                s.Append(ind);
+                s.AppendLine("}");
+            }
         }
         else if (p.IsNullable)
         {

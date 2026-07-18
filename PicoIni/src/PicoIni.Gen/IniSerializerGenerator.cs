@@ -483,11 +483,24 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"u8);");
             foreach (var np in p.NestedProperties)
             {
+                // DefaultIgnoreCondition: same guard as the top-level key loop
+                bool npCheck = np.IsNullable || np.IsNullableReference;
+                if (npCheck)
+                {
+                    s.Append(
+                        "        if (PicoIni.IniOptions.Current?.DefaultIgnoreCondition != PicoIni.IniIgnoreCondition.Never\n"
+                    );
+                    s.Append($"            ? value.{p.Name}.{np.Name} != null\n");
+                    s.Append("            : true)\n");
+                    s.Append("        {\n");
+                }
                 s.Append("        iw.WriteKeyValue(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
                 s.Append("\"u8, ");
                 WriteValue(s, np, $"value.{p.Name}.{np.Name}");
                 s.AppendLine(");");
+                if (npCheck)
+                    s.AppendLine("        }");
             }
             if (nullGuard)
                 s.AppendLine("        }");
