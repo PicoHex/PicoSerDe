@@ -144,7 +144,7 @@ var result = JsonSerializer.Deserialize<SessionEntry>(json);
 | Record derived types | ✅ v2026.3.23 |
 | Complex/collection ctor params | ✅ v2026.3.24 |
 | TOML / YAML poly support | ✅ v2026.3.24 |
-| INI / MsgPack poly support | ✅ (unreleased) |
+| INI / MsgPack poly support | ✅ v2026.4.0 |
 
 ### DOM Layer (PicoDocument / PicoElement)
 
@@ -207,7 +207,7 @@ PicoJetson tests are split into Unit / Integration / Functional projects with cl
 - **`file struct`** generated implementations — devirtualization without sealed class overhead
 - **Ref struct serialization** — `ref struct` types are supported as serializable types across all 5 formats. Source-generator-generated static methods + delegate dispatch bypass the `ISerializer<T>` interface constraint.
 - **`JsonOptions`** — runtime configuration (indentation, naming policy, ignore conditions, etc.) flowing through ThreadStatic to SG-generated code
-- **Polymorphic deserialization** — type discriminator dispatch via `[PicoDerivedType]`; serialization + deserialization + streaming (v2026.3.0); record types (v2026.3.23); TOML/YAML poly (v2026.3.24); INI/MsgPack poly (unreleased)
+- **Polymorphic deserialization** — type discriminator dispatch via `[PicoDerivedType]`; serialization + deserialization + streaming (v2026.3.0); record types (v2026.3.23); TOML/YAML poly (v2026.3.24); INI/MsgPack poly (v2026.4.0)
 - **`PicoDocument` / `PicoElement`** — zero-copy JSON DOM for schema-less inspection (v2026.3.4)
 - **C# records** — primary constructor auto-detection, `init`-only support (v2026.3.3); poly+record (v2026.3.23); complex/collection ctor params (v2026.3.24)
 - **Top-level arrays** — `Serialize<T[]>()` / `Deserialize<T[]>()` with streaming (v2026.3.2)
