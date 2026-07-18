@@ -554,10 +554,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        jw.WriteStartObject();");
         foreach (var prop in props)
         {
+            // DefaultIgnoreCondition: same guard as the top-level emit path
+            bool checkNull = EmitIgnoreConditionOpen(sb, prop, "value." + prop.Name, "        ");
             sb.Append("        jw.WritePropertyName(\"");
             sb.Append(EscapeCSharpString(prop.JsonName));
             sb.AppendLine("\"u8);");
             EmitSerializeProperty(sb, prop, "value." + prop.Name, "        ");
+            if (checkNull)
+                sb.AppendLine("        }");
         }
         sb.AppendLine("        jw.WriteEndObject();");
         sb.AppendLine("    }");
@@ -1242,33 +1246,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         foreach (var prop in type.Properties)
         {
             // DefaultIgnoreCondition: wrap property in conditional check
-            bool checkNull = prop.IsNullable || prop.IsNullableReference;
-            if (prop.TypeKind == "list" || prop.TypeKind == "array" || prop.TypeKind == "dict")
-                checkNull = false; // collections are never null with our defaults
-            if (checkNull)
-            {
-                sb.AppendLine(
-                    "            if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
-                );
-                sb.AppendLine("                ? value." + prop.Name + " != null");
-                sb.AppendLine(
-                    "                : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
-                );
-                if (
-                    prop.TypeKind
-                    is "int32"
-                        or "int64"
-                        or "float32"
-                        or "float64"
-                        or "boolean"
-                        or "decimal"
-                )
-                    sb.AppendLine("                ? value." + prop.Name + " != default");
-                else
-                    sb.AppendLine("                ? value." + prop.Name + " != null");
-                sb.AppendLine("                : true)");
-                sb.AppendLine("            {");
-            }
+            bool checkNull = EmitIgnoreConditionOpen(
+                sb,
+                prop,
+                "value." + prop.Name,
+                "            "
+            );
             sb.Append("            var __name_");
             sb.Append(prop.Name);
             sb.Append(" = PicoJetson.JsonOptions.Current?.PropertyNamingPolicy?.ConvertName(\"");
@@ -1285,6 +1268,43 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            jw.WriteEndObject();");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// Emits the DefaultIgnoreCondition guard for a property when it is nullable
+    /// (including explicitly nullable collections such as <c>T[]?</c>).
+    /// Returns true when a guard block was opened; the caller must emit the
+    /// matching closing brace.
+    /// </summary>
+    private static bool EmitIgnoreConditionOpen(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string accessor,
+        string indent
+    )
+    {
+        if (!(prop.IsNullable || prop.IsNullableReference))
+            return false;
+        sb.Append(indent);
+        sb.AppendLine(
+            "if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
+        );
+        sb.Append(indent);
+        sb.AppendLine("    ? " + accessor + " != null");
+        sb.Append(indent);
+        sb.AppendLine(
+            "    : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+        );
+        sb.Append(indent);
+        if (prop.TypeKind is "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal")
+            sb.AppendLine("    ? " + accessor + " != default");
+        else
+            sb.AppendLine("    ? " + accessor + " != null");
+        sb.Append(indent);
+        sb.AppendLine("    : true)");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        return true;
     }
 
     private static void EmitSerializeProperty(
@@ -3253,33 +3273,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("\"));");
             foreach (var prop in dtProps)
             {
-                bool checkNull = prop.IsNullable || prop.IsNullableReference;
-                if (prop.TypeKind == "list" || prop.TypeKind == "array" || prop.TypeKind == "dict")
-                    checkNull = false;
-                if (checkNull)
-                {
-                    sb.AppendLine(
-                        "                    if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
-                    );
-                    sb.AppendLine("                        ? __v." + prop.Name + " != null");
-                    sb.AppendLine(
-                        "                        : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
-                    );
-                    if (
-                        prop.TypeKind
-                        is "int32"
-                            or "int64"
-                            or "float32"
-                            or "float64"
-                            or "boolean"
-                            or "decimal"
-                    )
-                        sb.AppendLine("                        ? __v." + prop.Name + " != default");
-                    else
-                        sb.AppendLine("                        ? __v." + prop.Name + " != null");
-                    sb.AppendLine("                        : true)");
-                    sb.AppendLine("                    {");
-                }
+                bool checkNull = EmitIgnoreConditionOpen(
+                    sb,
+                    prop,
+                    "__v." + prop.Name,
+                    "                    "
+                );
                 sb.Append("                    jw.WritePropertyName(\"");
                 sb.Append(EscapeCSharpString(prop.JsonName));
                 sb.AppendLine("\"u8);");
