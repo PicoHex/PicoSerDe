@@ -1656,10 +1656,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     // ── Any-value helpers (runtime type dispatch for Dictionary<string, object?>) ──
 
+    /// <summary>
+    /// Namespace-qualified name of the generated any-dict helper. Must match the
+    /// namespace emitted for the __PicoAnyDictHelper source file, so call sites
+    /// resolve regardless of which namespace the calling file lives in.
+    /// </summary>
+    private static string AnyDictHelperName() =>
+        (PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix ?? "__PicoSerDe") + ".__PicoAnyDictHelper";
+
     private static void EmitAnyValueSerialize(StringBuilder sb, string valueExpr, string indent)
     {
         sb.Append(indent);
-        sb.Append("__PicoAnyDictHelper.SerializeValue(ref jw, ");
+        sb.Append(AnyDictHelperName());
+        sb.Append(".SerializeValue(ref jw, ");
         sb.Append(valueExpr);
         sb.AppendLine(");");
     }
@@ -1672,7 +1681,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     {
         sb.Append(indent);
         sb.Append(assignTarget);
-        sb.AppendLine(" = __PicoAnyDictHelper.DeserializeValue(ref reader);");
+        sb.Append(" = ");
+        sb.Append(AnyDictHelperName());
+        sb.AppendLine(".DeserializeValue(ref reader);");
     }
 
     // ── Deserializer emission ──

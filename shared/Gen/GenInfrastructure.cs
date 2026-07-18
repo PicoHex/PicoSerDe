@@ -186,10 +186,16 @@ internal static class GenInfrastructure
             return $"global::{SafeName(typeFullName)}{suffix}";
 
         var safeName = SafeName(typeFullName);
-        // Inner class goes directly under assembly prefix namespace (flat).
-        return AssemblyPrefix is not null
-            ? $"{AssemblyPrefix}.{safeName}{suffix}"
-            : $"{safeName}{suffix}";
+        // With an assembly prefix, the inner class lives directly under the
+        // prefix namespace (flat). Without one, it lives in the type's own
+        // namespace — the legacy layout still emitted by the non-JSON
+        // generators, whose helper files declare the type's namespace.
+        if (AssemblyPrefix is not null)
+            return $"{AssemblyPrefix}.{safeName}{suffix}";
+        var lastDot = typeFullName.LastIndexOf('.');
+        if (lastDot <= 0)
+            return $"{safeName}{suffix}";
+        return $"{typeFullName.Substring(0, lastDot)}.{safeName}{suffix}";
     }
 
     public static string ShortName(string fullName)
