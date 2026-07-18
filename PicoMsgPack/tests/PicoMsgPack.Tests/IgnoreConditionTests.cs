@@ -21,6 +21,24 @@ public class MIgnOuter
     public List<string> Tags { get; set; } = [];
 }
 
+[PicoSerializable]
+[PicoDerivedType(typeof(MIgnPolyA), "a")]
+[PicoDerivedType(typeof(MIgnPolyB), "b")]
+public abstract class MIgnPolyBase { }
+
+public class MIgnPolyA : MIgnPolyBase
+{
+    public string Content { get; set; } = string.Empty;
+    public string? Note { get; set; }
+}
+
+public class MIgnPolyB : MIgnPolyBase
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Z { get; set; }
+}
+
 // ── Tests ──
 
 [NotInParallel("MsgPackOptions.Current")]
@@ -112,5 +130,60 @@ public class IgnoreConditionTests
         await Assert.That(back.Note).IsNull();
         await Assert.That(back.Nested).IsNotNull();
         await Assert.That(back.Nested!.Note).IsNull();
+    }
+
+    // ── Poly path ──
+
+    // Wire format compliance: the poly map header must count only the pairs
+    // actually written for the runtime type (not all derived types' members).
+    // Verified with the official MessagePack reader, which trusts the header.
+    [Test]
+    public async Task Poly_MapHeaderCount_MatchesWrittenPairs()
+    {
+        MIgnPolyBase value = new MIgnPolyA { Content = "c", Note = "n" };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(value);
+        var map = MessagePackSerializer.Deserialize<Dictionary<string, object?>>(bytes);
+        // $type + Content + Note
+        await Assert.That(map.Count).IsEqualTo(3);
+    }
+
+    // Never (default): a null poly member must not crash the serializer
+    [Test]
+    public async Task Never_PolyNullMember_DoesNotThrow()
+    {
+        MIgnPolyBase value = new MIgnPolyA { Content = "c", Note = null };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(value);
+        var back = MsgPackSerializer.Deserialize<MIgnPolyBase>(bytes);
+        await Assert.That(back).IsNotNull();
+        var a = (MIgnPolyA)back!;
+        await Assert.That(a.Content).IsEqualTo("c");
+        await Assert.That(a.Note).IsNull();
+    }
+
+    // WhenWritingNull: null poly members are skipped and the payload stays readable
+    [Test]
+    public async Task WhenWritingNull_PolyNullMember_SkippedAndRoundTrips()
+    {
+        MIgnPolyBase value = new MIgnPolyA { Content = "c", Note = null };
+        var full = MsgPackSerializer.SerializeToUtf8Bytes(value);
+        MsgPackOptions.Current = new MsgPackOptions
+        {
+            DefaultIgnoreCondition = MsgPackIgnoreCondition.WhenWritingNull,
+        };
+        byte[] skipped;
+        try
+        {
+            skipped = MsgPackSerializer.SerializeToUtf8Bytes(value);
+        }
+        finally
+        {
+            MsgPackOptions.Current = null;
+        }
+        await Assert.That(skipped.Length).IsLessThan(full.Length);
+        var back = MsgPackSerializer.Deserialize<MIgnPolyBase>(skipped);
+        await Assert.That(back).IsNotNull();
+        var a = (MIgnPolyA)back!;
+        await Assert.That(a.Content).IsEqualTo("c");
+        await Assert.That(a.Note).IsNull();
     }
 }

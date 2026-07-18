@@ -1130,7 +1130,8 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         ImmutableArray<PropertyInfo> props,
         Func<PropertyInfo, string> accessor,
         string ind,
-        ref int c
+        ref int c,
+        int extraCount = 0
     )
     {
         var nullable = props.Where(p => p.IsNullable || p.IsNullableReference).ToArray();
@@ -1138,7 +1139,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         {
             s.Append(ind);
             s.Append("mw.WriteStartObject(");
-            s.Append(props.Length);
+            s.Append(props.Length + extraCount);
             s.AppendLine(");");
             return null;
         }
@@ -1147,7 +1148,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append("int ");
         s.Append(cnt);
         s.Append(" = ");
-        s.Append(props.Length);
+        s.Append(props.Length + extraCount);
         s.AppendLine(";");
         var skips = new Dictionary<string, string>();
         foreach (var p in nullable)
@@ -1976,23 +1977,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append(type.Name);
         s.AppendLine(" value) {");
         s.AppendLine("        var mw = new MsgPackWriter(writer);");
-        s.AppendLine("        int __fc = 0;");
-        s.AppendLine("        __fc++; // discriminator");
-        foreach (var dt in type.DerivedTypes)
-        {
-            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti))
-                continue;
-            foreach (var prop in dti.Properties)
-            {
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
-                    continue;
-                s.AppendLine("        __fc++; // " + prop.Name);
-            }
-        }
-        s.AppendLine("        mw.WriteStartObject(__fc);");
-        s.Append("        mw.WriteString(Encoding.UTF8.GetBytes(\"");
-        s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dpn));
-        s.AppendLine("\"));");
+        int c = 0;
         s.AppendLine("        switch (value)");
         s.AppendLine("        {");
         foreach (var dt in type.DerivedTypes)
@@ -2003,51 +1988,48 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.Append("            case ");
             s.Append(dtShort);
             s.AppendLine(" __v:");
+            s.AppendLine("            {");
+            // Map count covers only this runtime type's members (+1 discriminator);
+            // nullable members skipped under WhenWritingNull decrement it.
+            var dtProps = dti
+                .Properties.Where(p => p.TypeKind != "object" && p.TypeKind != "dict")
+                .ToImmutableArray();
+            var skips = EmitObjectHeaderWithSkips(
+                s,
+                dtProps,
+                p => $"__v.{p.Name}",
+                "                ",
+                ref c,
+                extraCount: 1
+            );
+            s.Append("                mw.WriteString(Encoding.UTF8.GetBytes(\"");
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dpn));
+            s.AppendLine("\"));");
             s.Append("                mw.WriteString(Encoding.UTF8.GetBytes(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dt.TypeDiscriminator));
             s.AppendLine("\"));");
-            foreach (var prop in dti.Properties)
+            foreach (var prop in dtProps)
             {
-                if (prop.TypeKind == "object" || prop.TypeKind == "dict")
-                    continue;
-                s.Append("                mw.WriteString(Encoding.UTF8.GetBytes(\"");
+                var bodyInd = "                ";
+                string? sv = null;
+                if (skips is not null && skips.TryGetValue(prop.Name, out sv))
+                {
+                    s.Append(bodyInd);
+                    s.Append("if (!");
+                    s.Append(sv);
+                    s.AppendLine(") {");
+                    bodyInd += "    ";
+                }
+                s.Append(bodyInd);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
                 s.AppendLine("\"));");
-                switch (prop.TypeKind)
-                {
-                    case "string":
-                        s.Append("                mw.WriteString(Encoding.UTF8.GetBytes(__v.");
-                        s.Append(prop.Name);
-                        s.AppendLine("));");
-                        break;
-                    case "int32":
-                        s.Append("                mw.WriteInt32(__v.");
-                        s.Append(prop.Name);
-                        s.AppendLine(");");
-                        break;
-                    case "int64":
-                        s.Append("                mw.WriteInt64(__v.");
-                        s.Append(prop.Name);
-                        s.AppendLine(");");
-                        break;
-                    case "float64":
-                        s.Append("                mw.WriteFloat64(__v.");
-                        s.Append(prop.Name);
-                        s.AppendLine(");");
-                        break;
-                    case "boolean":
-                        s.Append("                mw.WriteBoolean(__v.");
-                        s.Append(prop.Name);
-                        s.AppendLine(");");
-                        break;
-                    default:
-                        s.Append("                mw.WriteString(Encoding.UTF8.GetBytes(__v.");
-                        s.Append(prop.Name);
-                        s.AppendLine(".ToString()));");
-                        break;
-                }
+                WriteSer(s, prop, $"__v.{prop.Name}", bodyInd, ref c);
+                if (sv is not null)
+                    s.AppendLine("                }");
             }
             s.AppendLine("                break;");
+            s.AppendLine("            }");
         }
         s.AppendLine("        }");
         s.AppendLine("    }");
@@ -2222,23 +2204,51 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
     static void EmitMpReadValue(StringBuilder s, PropertyInfo prop)
     {
+        // Parity with the main deserialization path: nil values (written for
+        // nulls under the Never condition) must map back to null/default.
+        bool nullable = prop.IsNullable || prop.IsNullableReference;
         switch (prop.TypeKind)
         {
             case "string":
-                s.Append("Encoding.UTF8.GetString(reader.GetStringRaw())");
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? null : Encoding.UTF8.GetString(reader.GetStringRaw())"
+                    );
+                else
+                    s.Append("Encoding.UTF8.GetString(reader.GetStringRaw())");
                 break;
             case "int32":
-                s.Append("reader.TryGetInt32(out var __iv) ? __iv : 0");
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(int?) : (reader.TryGetInt32(out var __iv) ? __iv : 0)"
+                    );
+                else
+                    s.Append("reader.TryGetInt32(out var __iv) ? __iv : 0");
                 break;
             case "int64":
-                s.Append("reader.TryGetInt64(out var __lv) ? __lv : 0");
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(long?) : (reader.TryGetInt64(out var __lv) ? __lv : 0)"
+                    );
+                else
+                    s.Append("reader.TryGetInt64(out var __lv) ? __lv : 0");
                 break;
             case "float64":
             case "float32":
-                s.Append("reader.TryGetFloat64(out var __dv) ? __dv : 0");
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(double?) : (reader.TryGetFloat64(out var __dv) ? __dv : 0)"
+                    );
+                else
+                    s.Append("reader.TryGetFloat64(out var __dv) ? __dv : 0");
                 break;
             case "boolean":
-                s.Append("reader.TryGetBool(out var __bv) ? __bv : false");
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(bool?) : (reader.TryGetBool(out var __bv) ? __bv : false)"
+                    );
+                else
+                    s.Append("reader.TryGetBool(out var __bv) ? __bv : false");
                 break;
             default:
                 s.Append("default");

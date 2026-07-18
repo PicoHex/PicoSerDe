@@ -2264,11 +2264,27 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 if (prop.TypeKind == "object" || prop.TypeKind == "dict")
                     continue;
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
+                // TOML has no null literal — null poly values are always omitted.
+                bool guard = prop.IsNullable || prop.IsNullableReference;
+                var acc = $"__v.{prop.Name}";
+                if (guard)
+                {
+                    s.Append("                if (");
+                    s.Append(acc);
+                    s.AppendLine(" != null)");
+                    s.AppendLine("                {");
+                }
                 s.Append("                tw.WriteKeyValue(\"");
                 s.Append(pn);
                 s.Append("\", ");
-                WriteTomlValue(s, prop, $"__v.{prop.Name}");
+                WriteTomlValue(
+                    s,
+                    prop,
+                    guard && prop.IsNullable && !prop.IsNullableReference ? acc + "!.Value" : acc
+                );
                 s.AppendLine(");");
+                if (guard)
+                    s.AppendLine("                }");
             }
             s.AppendLine("                break;");
         }

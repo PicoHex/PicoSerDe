@@ -637,9 +637,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             bool guard = prop.IsNullable || prop.IsNullableReference;
             if (guard)
             {
-                sb.Append(
-                    "        if (PicoYaml.YamlOptions.Current?.DefaultIgnoreCondition == PicoYaml.YamlIgnoreCondition.Never || value."
-                );
+                sb.Append("        if (value.");
                 sb.Append(prop.Name);
                 sb.AppendLine(" != null)");
                 sb.AppendLine("        {");
@@ -1593,9 +1591,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             if (collGuard)
             {
                 s.Append(ind);
-                s.Append(
-                    "if (PicoYaml.YamlOptions.Current?.DefaultIgnoreCondition == PicoYaml.YamlIgnoreCondition.Never || "
-                );
+                s.Append("if (");
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
@@ -1723,9 +1719,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             if (dictGuard)
             {
                 s.Append(ind);
-                s.Append(
-                    "if (PicoYaml.YamlOptions.Current?.DefaultIgnoreCondition == PicoYaml.YamlIgnoreCondition.Never || "
-                );
+                s.Append("if (");
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
@@ -1824,11 +1818,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
         else if (p.IsNullable)
         {
+            // YAML reader has no null-literal support yet — writing 'key:' reads
+            // back as default, breaking round-trip fidelity. Null values are
+            // therefore always omitted (same group as TOML/INI).
             s.Append(ind);
-            s.Append(
-                "if (PicoYaml.YamlOptions.Current?.DefaultIgnoreCondition == PicoYaml.YamlIgnoreCondition.Never"
-            );
-            s.Append(" || ");
+            s.Append("if (");
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);
@@ -2528,10 +2522,40 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 if (prop.TypeKind == "object" || prop.TypeKind == "dict")
                     continue;
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
+                // DefaultIgnoreCondition: same guard as the other YAML emit paths
+                bool guard = prop.IsNullable || prop.IsNullableReference;
+                var acc = $"__v.{prop.Name}";
+                if (guard)
+                {
+                    s.Append("                if (");
+                    s.Append(acc);
+                    s.AppendLine(" != null)");
+                    s.AppendLine("                {");
+                }
                 s.Append("                yw.WritePropertyName(\"");
                 s.Append(pn);
                 s.AppendLine("\"u8);");
-                WriteYamlValue(s, prop, $"__v.{prop.Name}");
+                if (guard)
+                {
+                    // Never + null → property name only ('key:' == YAML null)
+                    s.Append("                if (");
+                    s.Append(acc);
+                    s.AppendLine(" != null)");
+                    s.Append("                    ");
+                    WriteYamlValue(
+                        s,
+                        prop,
+                        prop.IsNullable && !prop.IsNullableReference ? acc + "!.Value" : acc
+                    );
+                    s.AppendLine();
+                    s.AppendLine("                }");
+                }
+                else
+                {
+                    s.Append("                ");
+                    WriteYamlValue(s, prop, acc);
+                    s.AppendLine();
+                }
             }
             s.AppendLine("                break;");
         }
