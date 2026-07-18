@@ -1398,7 +1398,21 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append("if (");
                 s.Append(a);
-                s.AppendLine(" == null) mw.WriteNull(); else {");
+                s.AppendLine(" == null) mw.WriteNull();");
+                // RegisterCustom<T> overrides the SG inline expansion for nested values
+                var __ct = (p.TypeFullName ?? "").TrimEnd('?');
+                s.Append(ind);
+                s.Append("else if (global::PicoMsgPack.MsgPackSerializer.HasCustomSerializer<");
+                s.Append(__ct);
+                s.AppendLine(">())");
+                s.Append(ind);
+                s.Append("    global::PicoMsgPack.MsgPackSerializer.SerializeCustom<");
+                s.Append(__ct);
+                s.Append(">(mw.Buffer, ");
+                s.Append(a);
+                s.AppendLine(");");
+                s.Append(ind);
+                s.AppendLine("else {");
                 var ns = p.NestedProperties.OrderBy(n => n.IntKey ?? 0).ToImmutableArray();
                 var nSkips = EmitObjectHeaderWithSkips(
                     s,
@@ -1510,7 +1524,21 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     "MsgPackInner",
                     p.ElementTypeName!
                 );
+                var elemCt = p.ElementTypeName!.TrimEnd('?');
                 s.Append(ind);
+                s.Append("if (global::PicoMsgPack.MsgPackSerializer.HasCustomSerializer<");
+                s.Append(elemCt);
+                s.AppendLine(">())");
+                s.Append(ind);
+                s.Append("    global::PicoMsgPack.MsgPackSerializer.SerializeCustom<");
+                s.Append(elemCt);
+                s.Append(">(mw.Buffer, ");
+                s.Append(a);
+                s.AppendLine(");");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.Append("    ");
                 s.Append(sn);
                 s.Append(".Serialize(ref mw, ");
                 s.Append(a);

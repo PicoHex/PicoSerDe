@@ -18,6 +18,14 @@ public static partial class JsonSerializer
         internal static IDeserializer<T>? Deserializer;
     }
 
+    // User-registered custom serializers that also override SG-generated
+    // serialization for nested occurrences of T (see RegisterCustom).
+    private static class CustomSerCache<T>
+        where T : allows ref struct
+    {
+        internal static SerDelegate<T>? Handler;
+    }
+
     /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
     public delegate ReadStatus StreamingFunc<T>(ref JsonReader reader, out T? result);
 
@@ -50,6 +58,32 @@ public static partial class JsonSerializer
     {
         SerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
         Cache<T>.Deserializer = deserializer;
+    }
+
+    /// <summary>
+    /// Register a user serializer pair that ALSO overrides SG-generated
+    /// serialization wherever T appears as a nested value (object property,
+    /// list element, dictionary value). Deserialization override applies at
+    /// the top level only — nested reads still use the SG deserializer.
+    /// </summary>
+    public static void RegisterCustom<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
+    {
+        Register(serializer, deserializer);
+        CustomSerCache<T>.Handler = (writer, value) => serializer.Serialize(writer, value);
+    }
+
+    /// <summary>True when a custom serializer overriding nested occurrences of T is registered.</summary>
+    public static bool HasCustomSerializer<T>()
+        where T : allows ref struct => CustomSerCache<T>.Handler is not null;
+
+    /// <summary>Invokes the custom serializer registered via <see cref="RegisterCustom{T}"/>. Called by SG-generated nested emit paths.</summary>
+    public static void SerializeCustom<T>(IBufferWriter<byte> writer, T value)
+        where T : allows ref struct
+    {
+        if (CustomSerCache<T>.Handler is { } h)
+            h(writer, value);
+        else
+            SerializerExtensions.ThrowNoSerializer<T>("RegisterCustom");
     }
 
     /// <summary>Register a deserializer only.</summary>

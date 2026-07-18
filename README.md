@@ -276,6 +276,16 @@ public string? Pinned { get; set; }
 
 Conditions affect serialization only — deserialization still maps conditional properties. Format-specific markers (`[JsonIgnore]`, `[YamlIgnore]`, …) remain single-format unconditional ignores.
 
+#### Custom serializers for nested types
+
+`Register` applies at the top level only. To also override `T` wherever it appears as a **nested** value (object property, list element, dictionary value), use `RegisterCustom` — available on JSON and MessagePack:
+
+```csharp
+JsonSerializer.RegisterCustom(new MySerializer(), new MyDeserializer());
+// Outer { Foo Inner } now serializes Inner with MySerializer too.
+// Deserialization override applies at the top level only.
+```
+
 ---
 
 ## Packages

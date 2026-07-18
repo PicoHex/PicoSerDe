@@ -7,6 +7,9 @@ public ref struct MsgPackWriter
 
     public long BytesWritten => _bytesWritten;
 
+    /// <summary>Underlying buffer — used by SG-generated code to hand off to custom serializers.</summary>
+    public IBufferWriter<byte> Buffer => _buffer;
+
     public MsgPackWriter(IBufferWriter<byte> buffer)
     {
         _buffer = buffer;

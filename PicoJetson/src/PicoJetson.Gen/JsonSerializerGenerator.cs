@@ -1530,6 +1530,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     "JsonInner",
                     prop.TypeFullName!
                 );
+                var ct = prop.TypeFullName!.TrimEnd('?');
                 sb.Append(indent);
                 if (PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(prop))
                 {
@@ -1537,10 +1538,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(effectiveAccessor);
                     sb.AppendLine(" == null) jw.WriteNull();");
                     sb.Append(indent);
-                    sb.AppendLine("else");
-                    sb.Append(indent);
-                    sb.Append("    ");
+                    sb.Append("else ");
                 }
+                // RegisterCustom<T> overrides the SG inner helper for nested values
+                sb.Append("if (global::PicoJetson.JsonSerializer.HasCustomSerializer<");
+                sb.Append(ct);
+                sb.AppendLine(">())");
+                sb.Append(indent);
+                sb.Append("    global::PicoJetson.JsonSerializer.SerializeCustom<");
+                sb.Append(ct);
+                sb.Append(">(jw.Buffer, ");
+                sb.Append(effectiveAccessor);
+                sb.AppendLine(");");
+                sb.Append(indent);
+                sb.AppendLine("else");
+                sb.Append(indent);
+                sb.Append("    ");
                 sb.Append(sn);
                 sb.Append(".Serialize(ref jw, ");
                 sb.Append(effectiveAccessor);
@@ -1674,7 +1687,21 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     "JsonInner",
                     prop.ElementTypeName!
                 );
+                var ct = prop.ElementTypeName!.TrimEnd('?');
                 sb.Append(indent);
+                sb.Append("if (global::PicoJetson.JsonSerializer.HasCustomSerializer<");
+                sb.Append(ct);
+                sb.AppendLine(">())");
+                sb.Append(indent);
+                sb.Append("    global::PicoJetson.JsonSerializer.SerializeCustom<");
+                sb.Append(ct);
+                sb.Append(">(jw.Buffer, ");
+                sb.Append(itemVar);
+                sb.AppendLine(");");
+                sb.Append(indent);
+                sb.AppendLine("else");
+                sb.Append(indent);
+                sb.Append("    ");
                 sb.Append(sn);
                 sb.Append(".Serialize(ref jw, ");
                 sb.Append(itemVar);
