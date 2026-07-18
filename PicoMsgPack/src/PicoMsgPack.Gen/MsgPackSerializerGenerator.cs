@@ -370,15 +370,32 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
         s.Append(type.Name);
         s.AppendLine(" value) {");
-        s.Append("        var mw = new MsgPackWriter(writer); mw.WriteStartObject(");
-        s.Append(sorted.Length);
-        s.AppendLine(");");
+        s.AppendLine("        var mw = new MsgPackWriter(writer);");
+        var topSkips = EmitObjectHeaderWithSkips(
+            s,
+            sorted,
+            p => $"value.{p.Name}",
+            "        ",
+            ref c
+        );
         foreach (var p in sorted)
         {
-            s.Append("        mw.WriteInt32(");
+            var bodyInd = "        ";
+            string? sv = null;
+            if (topSkips is not null && topSkips.TryGetValue(p.Name, out sv))
+            {
+                s.Append("        if (!");
+                s.Append(sv);
+                s.AppendLine(") {");
+                bodyInd = "            ";
+            }
+            s.Append(bodyInd);
+            s.Append("mw.WriteInt32(");
             s.Append(p.IntKey ?? 0);
             s.AppendLine(");");
-            WriteSer(s, p, $"value.{p.Name}", "        ", ref c);
+            WriteSer(s, p, $"value.{p.Name}", bodyInd, ref c);
+            if (sv is not null)
+                s.AppendLine("        }");
         }
         s.AppendLine("        mw.WriteEndObject(); } }");
         s.AppendLine();
@@ -779,15 +796,31 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append(clean);
         s.AppendLine(" v)");
         s.AppendLine("    {");
-        s.Append("        mw.WriteStartObject(");
-        s.Append(sorted.Length);
-        s.AppendLine(");");
+        var innerSkips = EmitObjectHeaderWithSkips(
+            s,
+            sorted,
+            p => $"v.{p.Name}",
+            "        ",
+            ref c
+        );
         foreach (var p in sorted)
         {
-            s.Append("        mw.WriteInt32(");
+            var bodyInd = "        ";
+            string? sv = null;
+            if (innerSkips is not null && innerSkips.TryGetValue(p.Name, out sv))
+            {
+                s.Append("        if (!");
+                s.Append(sv);
+                s.AppendLine(") {");
+                bodyInd = "            ";
+            }
+            s.Append(bodyInd);
+            s.Append("mw.WriteInt32(");
             s.Append(p.IntKey ?? 0);
             s.AppendLine(");");
-            WriteSer(s, p, $"v.{p.Name}", "        ", ref c);
+            WriteSer(s, p, $"v.{p.Name}", bodyInd, ref c);
+            if (sv is not null)
+                s.AppendLine("        }");
         }
         s.AppendLine("        mw.WriteEndObject();");
         s.AppendLine("    }");
@@ -1084,6 +1117,65 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
+    /// <summary>
+    /// Emits the map header for an object. When any property is nullable and
+    /// MsgPackIgnoreCondition.WhenWritingNull is active at runtime, null members
+    /// are skipped entirely, so the map count is computed dynamically to keep
+    /// the header consistent with the number of written key/value pairs.
+    /// Returns a map from property name to its skip-flag local, or null when
+    /// no property is nullable (constant count, zero overhead).
+    /// </summary>
+    static Dictionary<string, string>? EmitObjectHeaderWithSkips(
+        StringBuilder s,
+        ImmutableArray<PropertyInfo> props,
+        Func<PropertyInfo, string> accessor,
+        string ind,
+        ref int c
+    )
+    {
+        var nullable = props.Where(p => p.IsNullable || p.IsNullableReference).ToArray();
+        if (nullable.Length == 0)
+        {
+            s.Append(ind);
+            s.Append("mw.WriteStartObject(");
+            s.Append(props.Length);
+            s.AppendLine(");");
+            return null;
+        }
+        var cnt = $"__n{c++}";
+        s.Append(ind);
+        s.Append("int ");
+        s.Append(cnt);
+        s.Append(" = ");
+        s.Append(props.Length);
+        s.AppendLine(";");
+        var skips = new Dictionary<string, string>();
+        foreach (var p in nullable)
+        {
+            var sv = $"__sk{c++}";
+            skips[p.Name] = sv;
+            s.Append(ind);
+            s.Append("bool ");
+            s.Append(sv);
+            s.Append(
+                " = PicoMsgPack.MsgPackOptions.Current?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && "
+            );
+            s.Append(accessor(p));
+            s.AppendLine(" == null;");
+            s.Append(ind);
+            s.Append("if (");
+            s.Append(sv);
+            s.Append(") ");
+            s.Append(cnt);
+            s.AppendLine("--;");
+        }
+        s.Append(ind);
+        s.Append("mw.WriteStartObject(");
+        s.Append(cnt);
+        s.AppendLine(");");
+        return skips;
+    }
+
     static void WriteSer(StringBuilder s, PropertyInfo p, string a, string ind, ref int c)
     {
         if (p.ConverterTypeFullName is not null)
@@ -1258,17 +1350,35 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(a);
                 s.AppendLine(" == null) mw.WriteNull(); else {");
                 var ns = p.NestedProperties.OrderBy(n => n.IntKey ?? 0).ToImmutableArray();
-                s.Append(ind);
-                s.Append("    mw.WriteStartObject(");
-                s.Append(ns.Length);
-                s.AppendLine(");");
+                var nSkips = EmitObjectHeaderWithSkips(
+                    s,
+                    ns,
+                    n => $"{a}.{n.Name}",
+                    ind + "    ",
+                    ref c
+                );
                 foreach (var n in ns)
                 {
-                    s.Append(ind);
-                    s.Append("    mw.WriteInt32(");
+                    var bodyInd = ind + "    ";
+                    string? nsv = null;
+                    if (nSkips is not null && nSkips.TryGetValue(n.Name, out nsv))
+                    {
+                        s.Append(bodyInd);
+                        s.Append("if (!");
+                        s.Append(nsv);
+                        s.AppendLine(") {");
+                        bodyInd += "    ";
+                    }
+                    s.Append(bodyInd);
+                    s.Append("mw.WriteInt32(");
                     s.Append(n.IntKey ?? 0);
                     s.AppendLine(");");
-                    WriteSer(s, n, $"{a}.{n.Name}", ind + "    ", ref c);
+                    WriteSer(s, n, $"{a}.{n.Name}", bodyInd, ref c);
+                    if (nsv is not null)
+                    {
+                        s.Append(ind);
+                        s.AppendLine("    }");
+                    }
                 }
                 s.Append(ind);
                 s.AppendLine("    mw.WriteEndObject(); }");

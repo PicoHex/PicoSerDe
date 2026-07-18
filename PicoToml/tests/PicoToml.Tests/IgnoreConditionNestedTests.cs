@@ -10,11 +10,13 @@ public class TIgnNested
 {
     public string Name { get; set; } = string.Empty;
     public string? Note { get; set; }
+    public int? Rank { get; set; }
 }
 
 public class TIgnOuter
 {
     public string Name { get; set; } = string.Empty;
+    public int? Count { get; set; }
     public string[]? NullableArray { get; set; }
     public List<int>? NullableList { get; set; }
     public Dictionary<string, string>? NullableDict { get; set; }
@@ -71,6 +73,77 @@ public class IgnoreConditionNestedTests
         };
         var toml = TomlSerializer.Serialize(model);
         await Assert.That(toml).Contains("outer");
+    }
+
+    // TOML cannot express null: even with an explicit Never condition, null
+    // scalars (string?/int?) must not crash — omission is the only valid
+    // representation. Note: explicitly setting TomlOptions.Current (e.g. just
+    // for Indented) activates the 'Never || HasValue' branch which used to
+    // dereference null via 'x!.Value'.
+    [Test]
+    public async Task Never_Explicit_NullScalars_DoesNotThrow()
+    {
+        var model = new TIgnOuter
+        {
+            Name = "outer",
+            Count = null,
+            Nested = new TIgnNested
+            {
+                Name = "inner",
+                Note = null,
+                Rank = null,
+            },
+        };
+        var toml = SerializeWith(TomlIgnoreCondition.Never, model);
+        await Assert.That(toml).Contains("outer");
+        await Assert.That(toml).Contains("inner");
+        await Assert.That(toml).DoesNotContain("Count");
+        await Assert.That(toml).DoesNotContain("Note");
+        await Assert.That(toml).DoesNotContain("Rank");
+    }
+
+    // Default (no options set): same omission behavior, no crash
+    [Test]
+    public async Task Never_NullScalars_DoesNotThrow()
+    {
+        var model = new TIgnOuter
+        {
+            Name = "outer",
+            Count = null,
+            Nested = new TIgnNested
+            {
+                Name = "inner",
+                Note = null,
+                Rank = null,
+            },
+        };
+        var toml = TomlSerializer.Serialize(model);
+        await Assert.That(toml).Contains("outer");
+        await Assert.That(toml).Contains("inner");
+        await Assert.That(toml).DoesNotContain("Count");
+        await Assert.That(toml).DoesNotContain("Note");
+        await Assert.That(toml).DoesNotContain("Rank");
+    }
+
+    // Non-null scalars must be written under Never
+    [Test]
+    public async Task Never_NonNullScalars_Written()
+    {
+        var model = new TIgnOuter
+        {
+            Name = "outer",
+            Count = 5,
+            Nested = new TIgnNested
+            {
+                Name = "inner",
+                Note = "n1",
+                Rank = 3,
+            },
+        };
+        var toml = TomlSerializer.Serialize(model);
+        await Assert.That(toml).Contains("Count");
+        await Assert.That(toml).Contains("Note");
+        await Assert.That(toml).Contains("Rank");
     }
 
     // Behavior lock: nested objects share the top-level emit path — a null

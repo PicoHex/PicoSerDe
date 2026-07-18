@@ -405,16 +405,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             bool checkNull = p.IsNullable || p.IsNullableReference;
             if (checkNull)
             {
-                s.Append(
-                    "        if (PicoIni.IniOptions.Current?.DefaultIgnoreCondition != PicoIni.IniIgnoreCondition.Never\n"
-                );
-                s.Append("            ? value.");
+                // INI has no null literal — null values are always omitted,
+                // regardless of DefaultIgnoreCondition.
+                s.Append("        if (value.");
                 s.Append(p.Name);
-                if (p.IsNullable && !p.IsNullableReference)
-                    s.Append(" != null\n");
-                else
-                    s.Append(" != null\n");
-                s.Append("            : true)\n");
+                s.Append(" != null)\n");
                 s.Append("        {\n");
                 s.Append("            iw.WriteKeyValue(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -483,21 +478,21 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"u8);");
             foreach (var np in p.NestedProperties)
             {
-                // DefaultIgnoreCondition: same guard as the top-level key loop
+                // DefaultIgnoreCondition: INI has no null literal — null
+                // section values are always omitted.
                 bool npCheck = np.IsNullable || np.IsNullableReference;
                 if (npCheck)
                 {
-                    s.Append(
-                        "        if (PicoIni.IniOptions.Current?.DefaultIgnoreCondition != PicoIni.IniIgnoreCondition.Never\n"
-                    );
-                    s.Append($"            ? value.{p.Name}.{np.Name} != null\n");
-                    s.Append("            : true)\n");
+                    s.Append($"        if (value.{p.Name}.{np.Name} != null)\n");
                     s.Append("        {\n");
                 }
                 s.Append("        iw.WriteKeyValue(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
                 s.Append("\"u8, ");
-                WriteValue(s, np, $"value.{p.Name}.{np.Name}");
+                if (np.IsNullable && !np.IsNullableReference)
+                    s.Append($"value.{p.Name}.{np.Name}!.Value");
+                else
+                    WriteValue(s, np, $"value.{p.Name}.{np.Name}");
                 s.AppendLine(");");
                 if (npCheck)
                     s.AppendLine("        }");
@@ -1586,11 +1581,24 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 if (prop.TypeKind == "object" || prop.TypeKind == "dict")
                     continue;
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
+                // DefaultIgnoreCondition: INI has no null literal — null
+                // values are always omitted.
+                bool pCheck = prop.IsNullable || prop.IsNullableReference;
+                if (pCheck)
+                {
+                    s.Append($"                if (__v.{prop.Name} != null)\n");
+                    s.Append("                {\n");
+                }
                 s.Append("                iw.WriteKeyValue(\"");
                 s.Append(pn);
                 s.Append("\"u8, ");
-                WriteValue(s, prop, $"__v.{prop.Name}");
+                if (prop.IsNullable && !prop.IsNullableReference)
+                    s.Append($"__v.{prop.Name}!.Value");
+                else
+                    WriteValue(s, prop, $"__v.{prop.Name}");
                 s.AppendLine(");");
+                if (pCheck)
+                    s.AppendLine("                }");
             }
             s.AppendLine("                break;");
         }

@@ -1396,11 +1396,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
         else if (p.IsNullable && !p.IsNullableReference)
         {
+            // TOML has no null literal — null scalars are always omitted,
+            // regardless of DefaultIgnoreCondition.
             s.Append(indent);
-            s.Append(
-                "if (PicoToml.TomlOptions.Current?.DefaultIgnoreCondition == PicoToml.TomlIgnoreCondition.Never"
-            );
-            s.Append(" || ");
+            s.Append("if (");
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);
@@ -1418,11 +1417,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
         else if (p.IsNullable && p.IsNullableReference)
         {
+            // TOML has no null literal — null scalars are always omitted.
             s.Append(indent);
-            s.Append(
-                "if (PicoToml.TomlOptions.Current?.DefaultIgnoreCondition == PicoToml.TomlIgnoreCondition.Never"
-            );
-            s.Append(" || ");
+            s.Append("if (");
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);

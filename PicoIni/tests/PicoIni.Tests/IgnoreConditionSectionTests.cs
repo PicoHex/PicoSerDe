@@ -9,12 +9,14 @@ public class IIgnSection
 {
     public string Name { get; set; } = string.Empty;
     public string? Note { get; set; }
+    public int? Rank { get; set; }
 }
 
 public class IIgnOuter
 {
     public string Title { get; set; } = string.Empty;
     public string? TopNote { get; set; }
+    public int? TopCount { get; set; }
     public IIgnSection Config { get; set; } = new();
 }
 
@@ -81,6 +83,32 @@ public class IgnoreConditionSectionTests
             Config = new IIgnSection { Name = "inner", Note = null },
         };
         var ini = IniSerializer.Serialize(model);
+        await Assert.That(ini).Contains("inner");
+    }
+
+    // No options set means Never (the enum default), but INI has no null
+    // literal — null values (string? and int?) are always omitted and must
+    // not throw. int? covers the former 'value.X!.Value' crash path.
+    [Test]
+    public async Task Default_NoOptions_NullValues_OmittedAndDoesNotThrow()
+    {
+        var model = new IIgnOuter
+        {
+            Title = "outer",
+            TopNote = null,
+            TopCount = null,
+            Config = new IIgnSection
+            {
+                Name = "inner",
+                Note = null,
+                Rank = null,
+            },
+        };
+        var ini = IniSerializer.Serialize(model);
+        await Assert.That(ini).DoesNotContain("TopNote");
+        await Assert.That(ini).DoesNotContain("TopCount");
+        await Assert.That(ini).DoesNotContain("Note");
+        await Assert.That(ini).DoesNotContain("Rank");
         await Assert.That(ini).Contains("inner");
     }
 }
