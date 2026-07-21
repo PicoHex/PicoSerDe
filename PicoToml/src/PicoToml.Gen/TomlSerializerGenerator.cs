@@ -111,6 +111,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
             if (method.TypeArguments[0] is not INamedTypeSymbol namedType)
                 return null;
+            if (namedType.IsAnonymousType)
+                return null; // handled by anonDriven pipeline
 
             // Ref struct: handle with includes, skip constructor detection
             if (namedType.IsRefLikeType)

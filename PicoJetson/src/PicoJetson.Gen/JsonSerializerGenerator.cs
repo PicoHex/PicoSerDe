@@ -148,6 +148,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         // ── Named type (class/struct) ──
         if (typeArg is not INamedTypeSymbol namedType)
             return null;
+        if (namedType.IsAnonymousType)
+            return null; // handled by anonDriven pipeline
 
         // Detect [JsonConstructor] first to know if we should include read-only props
         bool hasCtor = false;

@@ -112,6 +112,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
             if (m.TypeArguments[0] is not INamedTypeSymbol nt)
                 return null;
+            if (nt.IsAnonymousType)
+                return null; // handled by anonDriven pipeline
             namedType = nt;
             // Ref struct: handle with includes, skip constructor detection
             if (namedType.IsRefLikeType)
