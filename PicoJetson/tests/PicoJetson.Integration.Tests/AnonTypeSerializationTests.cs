@@ -28,6 +28,21 @@ public class AnonTypeSerializationTests
     }
 
     [Test]
+    public async Task OptionsPropagation_Indented()
+    {
+        var json = JsonSerializer.Serialize(new { Name = "test", Value = 42 }, new JsonOptions { Indented = true });
+        await Assert.That(json).Contains("\"Name\": \"test\"");
+        await Assert.That(json).Contains("\n");
+    }
+
+    [Test]
+    public async Task OptionsPropagation_Compact()
+    {
+        var json = JsonSerializer.Serialize(new { Name = "test", Value = 42 });
+        await Assert.That(json).DoesNotContain("\n");
+    }
+
+    [Test]
     public async Task FieldReordering()
     {
         var json = JsonSerializer.Serialize(new { Text = "t", Count = 1, Ratio = 2.5 });

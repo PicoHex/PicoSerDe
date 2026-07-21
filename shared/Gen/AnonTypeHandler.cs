@@ -163,6 +163,13 @@ internal static class AnonTypeHandler
         sb.AppendLine($"    internal static {ret} {mn}<T>({ep}T value{optionsParam})");
         sb.AppendLine("    {");
         sb.AppendLine("        object obj = (object)value!;");
+        if (hasOptions)
+        {
+            sb.AppendLine("        var prev = JsonOptions.Current;");
+            sb.AppendLine("        JsonOptions.Current = options;");
+            sb.AppendLine("        try");
+            sb.AppendLine("        {");
+        }
 
         // Format-specific writer construction
         if (info.SerializeMethodName == "Writer")
@@ -230,6 +237,14 @@ internal static class AnonTypeHandler
         else if (info.SerializeMethodName != "Writer")
             sb.AppendLine("            return Encoding.UTF8.GetString(__buf.WrittenSpan);");
 
+        if (hasOptions)
+        {
+            sb.AppendLine("        }");
+            sb.AppendLine("        finally");
+            sb.AppendLine("        {");
+            sb.AppendLine("            JsonOptions.Current = prev;");
+            sb.AppendLine("        }");
+        }
         sb.AppendLine("    }");
         sb.AppendLine("}");
 
@@ -244,10 +259,6 @@ internal static class AnonTypeHandler
             sb.AppendLine($"{indent}{wv}.WriteString(Encoding.UTF8.GetBytes(\"{Esc(name)}\"));");
         else if (wt == "YamlWriter")
             sb.AppendLine($"{indent}{wv}.WritePropertyName(\"{Esc(name)}\"u8);");
-        else if (wt is "IniWriter" or "TomlWriter")
-        {
-            // For INI/TOML, key is emitted as part of the value callback (WriteKeyValue)
-        }
         else
             sb.AppendLine($"{indent}{wv}.WritePropertyName(\"{Esc(name)}\"u8);");
     }
