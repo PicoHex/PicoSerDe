@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using System.Collections.Immutable;
 using System.Text;
 
 internal readonly record struct AnonFieldInfo(
@@ -12,16 +13,54 @@ internal readonly record struct AnonFieldInfo(
     AnonTypeInfo? NestedAnonType,
     string? ElementTypeKind, string? ElementTypeName);
 
-internal sealed class AnonTypeInfo(
-    string UniqueId, AnonFieldInfo[] Fields,
-    string FilePath, int Line, int Column, string SerializeMethodName)
+internal sealed class AnonTypeInfo : IEquatable<AnonTypeInfo>
 {
-    public string UniqueId { get; } = UniqueId;
-    public AnonFieldInfo[] Fields { get; } = Fields;
-    public string FilePath { get; } = FilePath;
-    public int Line { get; } = Line;
-    public int Column { get; } = Column;
-    public string SerializeMethodName { get; } = SerializeMethodName;
+    public string UniqueId { get; }
+    public ImmutableArray<AnonFieldInfo> Fields { get; }
+    public string FilePath { get; }
+    public int Line { get; }
+    public int Column { get; }
+    public string SerializeMethodName { get; }
+
+    public AnonTypeInfo(
+        string uniqueId, ImmutableArray<AnonFieldInfo> fields,
+        string filePath, int line, int column, string serializeMethodName)
+    {
+        UniqueId = uniqueId;
+        Fields = fields;
+        FilePath = filePath;
+        Line = line;
+        Column = column;
+        SerializeMethodName = serializeMethodName;
+    }
+
+    public bool Equals(AnonTypeInfo? other)
+    {
+        if (other is null) return false;
+        return UniqueId == other.UniqueId
+            && Line == other.Line
+            && Column == other.Column
+            && FilePath == other.FilePath
+            && SerializeMethodName == other.SerializeMethodName
+            && Fields.SequenceEqual(other.Fields);
+    }
+
+    public override bool Equals(object? obj) => obj is AnonTypeInfo other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        unchecked
+        {
+            int h = UniqueId?.GetHashCode() ?? 0;
+            h = (h * 397) ^ Line;
+            h = (h * 397) ^ Column;
+            h = (h * 397) ^ (FilePath?.GetHashCode() ?? 0);
+            h = (h * 397) ^ (SerializeMethodName?.GetHashCode() ?? 0);
+            foreach (var f in Fields)
+                h = (h * 397) ^ f.GetHashCode();
+            return h;
+        }
+    }
 }
 
 internal static class AnonTypeHandler
@@ -34,10 +73,10 @@ internal static class AnonTypeHandler
         ["timeonly"]=(8,8,false), ["timespan"]=(8,8,false), ["guid"]=(16,4,false),
         ["enum"]=(4,4,false),
         ["object"]=(8,8,true), ["dict"]=(8,8,true), ["list"]=(8,8,true),
-        ["array"]=(8,8,true), ["any"]=(8,8,true),
+        ["array"]=(8,8,true), ["any"]=(8,8,true), ["bytes"]=(8,8,true),
     };
 
-    internal static AnonFieldInfo[] ComputeFieldLayout(
+    internal static ImmutableArray<AnonFieldInfo> ComputeFieldLayout(
         List<AnonFieldInfo> fields)
     {
         var refFields = fields.Where(f => f.IsReferenceType).ToList();
@@ -47,16 +86,15 @@ internal static class AnonTypeHandler
             .ToList();
         var ordered = new List<AnonFieldInfo>(refFields); ordered.AddRange(valFields);
         int offset = 0;
-        var result = new AnonFieldInfo[ordered.Count];
-        for (int i = 0; i < ordered.Count; i++)
+        var result = ImmutableArray.CreateBuilder<AnonFieldInfo>(ordered.Count);
+        foreach (var f in ordered)
         {
-            var f = ordered[i];
             var (size, align, _) = TypeLayout[f.TypeKind];
             offset += (align - (offset % align)) % align;
-            result[i] = f with { RuntimeOffset = offset };
+            result.Add(f with { RuntimeOffset = offset });
             offset += size;
         }
-        return result;
+        return result.MoveToImmutable();
     }
 
     internal static AnonTypeInfo? BuildAnonTypeInfo(
@@ -90,9 +128,7 @@ internal static class AnonTypeHandler
         var methodName = ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is IMethodSymbol m
             ? m.Name switch { "SerializeToUtf8Bytes" => "Utf8", "Serialize" when m.Parameters.Length >= 3 => "Writer", _ => "Ser" }
             : "Ser";
-        var hb = new StringBuilder();
-        foreach (var f in ordered) { hb.Append(f.Name); hb.Append('|'); hb.Append(f.TypeKind); hb.Append(';'); }
-        var uid = "A" + Math.Abs(hb.ToString().GetHashCode()).ToString("X8");
+        var uid = ComputeUid(ordered);
         return new AnonTypeInfo(uid, ordered, ls.Path, ls.StartLinePosition.Line+1, ls.StartLinePosition.Character+1, methodName);
     }
 
@@ -249,6 +285,22 @@ internal static class AnonTypeHandler
         sb.AppendLine("}");
 
         spc.AddSource($"__AnonInterceptor_{fmtTag}_{info.UniqueId}_{csid}.g.cs", SourceText.From(sb.ToString(), Encoding.UTF8));
+    }
+
+    private static string ComputeUid(ImmutableArray<AnonFieldInfo> fields)
+    {
+        unchecked
+        {
+            uint hash = 2166136261;
+            foreach (var f in fields)
+            {
+                foreach (char c in f.Name) { hash ^= c; hash *= 16777619; }
+                hash ^= 0x7C;
+                foreach (char c in f.TypeKind) { hash ^= c; hash *= 16777619; }
+                hash ^= 0x3B;
+            }
+            return "A" + (hash & 0x7FFFFFFF).ToString("X8");
+        }
     }
 
     private static string Esc(string s) => s.Replace("\\","\\\\").Replace("\"","\\\"");
