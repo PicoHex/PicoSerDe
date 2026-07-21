@@ -10,6 +10,9 @@
     <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Features>Interceptors</Features>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);__PicoSerDe_$(AssemblyName.Replace('.','_').Replace('-','_').Replace(' ','_'))</InterceptorsNamespaces>
   </PropertyGroup>
 
   <ItemGroup>

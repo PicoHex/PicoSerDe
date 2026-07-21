@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);__PicoSerDe_$(AssemblyName.Replace('.','_').Replace('-','_').Replace(' ','_'))</InterceptorsNamespaces>
+    <Features>$(Features);Interceptors</Features>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>

@@ -1,6 +1,8 @@
 namespace PicoJetson.Gen;
 
+using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
+using Microsoft.CodeAnalysis.CSharp;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -22,6 +24,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true
     );
+
+    private static readonly DiagnosticDescriptor AnonRequiresCSharp12 = new(
+        id: "PICOJETSON003", title: "Anonymous types require C# 12+",
+        messageFormat: "Anonymous type serialization requires C# 12 or later.",
+        category: "PicoJetson.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor AnonRequiresUnsafe = new(
+        id: "PICOJETSON004", title: "Requires AllowUnsafeBlocks",
+        messageFormat: "Anonymous type serialization requires <AllowUnsafeBlocks>true</AllowUnsafeBlocks>.",
+        category: "PicoJetson.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
 
     private static readonly DiagnosticDescriptor EmptyTypeName = new(
         id: "PICOJETSON002",
@@ -96,6 +108,43 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             static (c, _) =>
                 (c.AssemblyName ?? "unknown").Replace('.', '_').Replace('-', '_').Replace(' ', '_')
         );
+
+        // Pipeline-Anon: anonymous type serialization via interceptors
+        var anonDriven = context.SyntaxProvider.CreateSyntaxProvider(
+            predicate: (n, _) => IsCandidate(n),
+            transform: (ctx, _) =>
+            {
+                var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
+                if (comp.LanguageVersion < LanguageVersion.CSharp12) return null;
+                if (!comp.Options.AllowUnsafe) return null;
+                if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m) return null;
+                if (m.TypeArguments.Length != 1) return null;
+                if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType) return null;
+                if (m.ContainingType.Name != Config.SerializerClassName || m.ContainingType.ContainingNamespace?.ToDisplayString() != Config.Namespace) return null;
+                return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
+            }
+        ).Where(a => a is not null);
+
+        var anonOut = anonDriven.Collect().Combine(asmName);
+        context.RegisterSourceOutput(anonOut, (spc, pair) =>
+        {
+            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
+            foreach (var ai in pair.Left)
+            {
+                if (ai is not { } info) continue;
+                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config,
+                    (f, vv, wv) => EmitJsonValue(f, vv, wv));
+            }
+        });
+
+        context.RegisterSourceOutput(context.CompilationProvider, (spc, comp) =>
+        {
+            var csComp = (CSharpCompilation)comp;
+            if (csComp.LanguageVersion < LanguageVersion.CSharp12)
+                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
+            else if (!csComp.Options.AllowUnsafe)
+                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
+        });
 
         // Merge all pipelines into one output
         var all = usageDriven
@@ -4152,6 +4201,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
         sb.AppendLine("}");
     }
+
+    private static string EmitJsonValue(AnonFieldInfo f, string vv, string wv)
+        => f.TypeKind switch
+        {
+            "string"   => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}));",
+            "int32" or "int64" or "float32" or "float64" or "decimal" => $"{wv}.WriteNumber({vv});",
+            "boolean"  => $"{wv}.WriteBoolean({vv});",
+            "datetime" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString(\"O\")));",
+            "dateonly" or "timeonly" or "timespan" or "guid" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString()));",
+            _          => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}?.ToString() ?? \"\"));",
+        };
 
     /// <summary>
     /// Escapes \\ and \" for safe embedding in generated C# string literals.

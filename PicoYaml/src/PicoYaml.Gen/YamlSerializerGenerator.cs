@@ -1,5 +1,7 @@
 namespace PicoYaml.Gen;
 
+using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
+using Microsoft.CodeAnalysis.CSharp;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -12,6 +14,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         "yaml",
         "YamlConstructorAttribute"
     );
+
+    private static readonly DiagnosticDescriptor AnonRequiresCSharp12 = new(
+        id: "PICOYAML003", title: "Anonymous types require C# 12+",
+        messageFormat: "Anonymous type serialization requires C# 12 or later.",
+        category: "PicoYaml.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor AnonRequiresUnsafe = new(
+        id: "PICOYAML004", title: "Requires AllowUnsafeBlocks",
+        messageFormat: "Anonymous type serialization requires <AllowUnsafeBlocks>true</AllowUnsafeBlocks>.",
+        category: "PicoYaml.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
         HasYamlCamelCase,
@@ -73,6 +85,49 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             )
             .SelectMany(static (types, _) => types);
 
+        // Pipeline F: assembly name for namespace isolation of generated helpers
+        var asmName = ctx.CompilationProvider.Select(
+            static (c, _) =>
+                (c.AssemblyName ?? "unknown").Replace('.', '_').Replace('-', '_').Replace(' ', '_')
+        );
+
+        // Pipeline-Anon: anonymous type serialization via interceptors
+        var anonDriven = ctx.SyntaxProvider.CreateSyntaxProvider(
+            predicate: (n, _) => IsC(n),
+            transform: (cx, _) =>
+            {
+                var comp = (CSharpCompilation)cx.SemanticModel.Compilation;
+                if (comp.LanguageVersion < LanguageVersion.CSharp12) return null;
+                if (!comp.Options.AllowUnsafe) return null;
+                if (cx.SemanticModel.GetSymbolInfo(cx.Node).Symbol is not IMethodSymbol m) return null;
+                if (m.TypeArguments.Length != 1) return null;
+                if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType) return null;
+                if (m.ContainingType.Name != Config.SerializerClassName || m.ContainingType.ContainingNamespace?.ToDisplayString() != Config.Namespace) return null;
+                return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, cx, Config, Attrs);
+            }
+        ).Where(a => a is not null);
+
+        var anonOut = anonDriven.Collect().Combine(asmName);
+        ctx.RegisterSourceOutput(anonOut, (spc, pair) =>
+        {
+            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
+            foreach (var ai in pair.Left)
+            {
+                if (ai is not { } info) continue;
+                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config,
+                    (f, vv, wv) => EmitYamlValue(f, vv, wv));
+            }
+        });
+
+        ctx.RegisterSourceOutput(ctx.CompilationProvider, (spc, comp) =>
+        {
+            var csComp = (CSharpCompilation)comp;
+            if (csComp.LanguageVersion < LanguageVersion.CSharp12)
+                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
+            else if (!csComp.Options.AllowUnsafe)
+                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
+        });
+
         // Merge all pipelines into one output
         var all = usageD
             .Collect()
@@ -85,7 +140,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             .Combine(polyD.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
 
-        ctx.RegisterSourceOutput(all, GenerateAll);
+        ctx.RegisterSourceOutput(all, static (spc, types) =>
+        {
+            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
+            GenerateAll(spc, types);
+        });
     }
 
     private static bool IsC(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
@@ -2694,6 +2753,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
         return s.ToString();
     }
+
+    private static string EmitYamlValue(AnonFieldInfo f, string vv, string wv)
+        => f.TypeKind switch
+        {
+            "string"   => $"{wv}.WriteString({vv});",
+            "int32" or "int64" => $"{wv}.WriteNumber({vv});",
+            "float32" or "float64" => $"{wv}.WriteNumber({vv});",
+            "boolean"  => $"{wv}.WriteBoolean({vv});",
+            _          => $"{wv}.WriteString({vv}.ToString());",
+        };
 
     static void WriteYamlValue(StringBuilder s, PropertyInfo p, string acc)
     {

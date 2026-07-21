@@ -1,5 +1,7 @@
 namespace PicoToml.Gen;
 
+using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
+using Microsoft.CodeAnalysis.CSharp;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -12,6 +14,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         "toml",
         "TomlConstructorAttribute"
     );
+
+    private static readonly DiagnosticDescriptor AnonRequiresCSharp12 = new(
+        id: "PICOTOML003", title: "Anonymous types require C# 12+",
+        messageFormat: "Anonymous type serialization requires C# 12 or later.",
+        category: "PicoToml.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor AnonRequiresUnsafe = new(
+        id: "PICOTOML004", title: "Requires AllowUnsafeBlocks",
+        messageFormat: "Anonymous type serialization requires <AllowUnsafeBlocks>true</AllowUnsafeBlocks>.",
+        category: "PicoToml.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
         HasTomlCamelCase,
@@ -73,6 +85,49 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             )
             .SelectMany(static (types, _) => types);
 
+        // Pipeline F: assembly name for namespace isolation of generated helpers
+        var asmName = context.CompilationProvider.Select(
+            static (c, _) =>
+                (c.AssemblyName ?? "unknown").Replace('.', '_').Replace('-', '_').Replace(' ', '_')
+        );
+
+        // Pipeline-Anon: anonymous type serialization via interceptors
+        var anonDriven = context.SyntaxProvider.CreateSyntaxProvider(
+            predicate: (n, _) => IsCandidate(n),
+            transform: (ctx, _) =>
+            {
+                var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
+                if (comp.LanguageVersion < LanguageVersion.CSharp12) return null;
+                if (!comp.Options.AllowUnsafe) return null;
+                if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m) return null;
+                if (m.TypeArguments.Length != 1) return null;
+                if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType) return null;
+                if (m.ContainingType.Name != Config.SerializerClassName || m.ContainingType.ContainingNamespace?.ToDisplayString() != Config.Namespace) return null;
+                return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
+            }
+        ).Where(a => a is not null);
+
+        var anonOut = anonDriven.Collect().Combine(asmName);
+        context.RegisterSourceOutput(anonOut, (spc, pair) =>
+        {
+            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
+            foreach (var ai in pair.Left)
+            {
+                if (ai is not { } info) continue;
+                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config,
+                    (f, vv, wv) => EmitTomlValue(f, vv, wv));
+            }
+        });
+
+        context.RegisterSourceOutput(context.CompilationProvider, (spc, comp) =>
+        {
+            var csComp = (CSharpCompilation)comp;
+            if (csComp.LanguageVersion < LanguageVersion.CSharp12)
+                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
+            else if (!csComp.Options.AllowUnsafe)
+                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
+        });
+
         // Merge all pipelines into one output
         var all = usageDriven
             .Collect()
@@ -85,7 +140,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             .Combine(polyPipeline.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
 
-        context.RegisterSourceOutput(all, static (spc, types) => GenerateAll(spc, types));
+        context.RegisterSourceOutput(all, static (spc, types) =>
+        {
+            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
+            GenerateAll(spc, types);
+        });
     }
 
     private static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
@@ -2416,6 +2475,19 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("}");
 
         return s.ToString();
+    }
+
+    private static string EmitTomlValue(AnonFieldInfo f, string vv, string wv)
+    {
+        var kn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(f.JsonName);
+        return f.TypeKind switch
+        {
+            "string"   => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
+            "int32" or "int64" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
+            "float32" or "float64" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
+            "boolean"  => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
+            _          => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv}.ToString());",
+        };
     }
 
     static void WriteTomlValue(StringBuilder s, PropertyInfo p, string acc)
