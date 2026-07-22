@@ -182,7 +182,6 @@ internal static class AnonTypeHandler
         string wt = config.FormatTag switch { "json"=>"JsonWriter","msgpack"=>"MsgPackWriter","ini"=>"IniWriter","toml"=>"TomlWriter","yaml"=>"YamlWriter", _=>"JsonWriter" };
         string ot = config.FormatTag switch { "json"=>"JsonOptions","msgpack"=>"MsgPackOptions","ini"=>"IniOptions","toml"=>"TomlOptions","yaml"=>"YamlOptions", _=>"JsonOptions" };
         string wv = wt == "JsonWriter" ? "jw" : "__w";
-        bool hasOptions = ot is "JsonOptions";
         bool separateKey = wt is not "IniWriter" and not "TomlWriter";
 
         var csid = $"CS{info.Line}_{info.Column}";
@@ -193,19 +192,15 @@ internal static class AnonTypeHandler
         string ret = info.SerializeMethodName switch { "Utf8" => "byte[]", "Writer" => "void", _ => "string" };
         string mn = info.SerializeMethodName switch { "Utf8" => $"__Intercept_Utf8_{csid}", "Writer" => $"__Intercept_Writer_{csid}", _ => $"__Intercept_Ser_{csid}" };
         string ep = info.SerializeMethodName == "Writer" ? "IBufferWriter<byte> writer, " : "";
-        string optionsParam = hasOptions ? $", {ot}? options = null" : "";
+        string optionsParam = $", {ot}? options = null";
 
         sb.AppendLine($"    {attr}");
         sb.AppendLine($"    internal static {ret} {mn}<T>({ep}T value{optionsParam})");
         sb.AppendLine("    {");
         sb.AppendLine("        object obj = (object)value!;");
-        if (hasOptions)
-        {
-            sb.AppendLine("        var prev = JsonOptions.Current;");
-            sb.AppendLine("        JsonOptions.Current = options;");
-            sb.AppendLine("        try");
-            sb.AppendLine("        {");
-        }
+        sb.AppendLine($"        var prev = {ot}.Current;");
+        sb.AppendLine($"        {ot}.Current = options;");
+        sb.AppendLine("        try {");
 
         // Format-specific writer construction
         if (info.SerializeMethodName == "Writer")
@@ -273,14 +268,11 @@ internal static class AnonTypeHandler
         else if (info.SerializeMethodName != "Writer")
             sb.AppendLine("            return Encoding.UTF8.GetString(__buf.WrittenSpan);");
 
-        if (hasOptions)
-        {
-            sb.AppendLine("        }");
-            sb.AppendLine("        finally");
-            sb.AppendLine("        {");
-            sb.AppendLine("            JsonOptions.Current = prev;");
-            sb.AppendLine("        }");
-        }
+        sb.AppendLine("        }");
+        sb.AppendLine("        finally");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            {ot}.Current = prev;");
+        sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine("}");
 
