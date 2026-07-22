@@ -14,6 +14,15 @@ public class AnonTypeSerializationTests
     }
 
     [Test]
+    public async Task Json_AnonTypeWithArray_Serializes()
+    {
+        var json = PicoJetson.JsonSerializer.Serialize(
+            new { Name = "test", Items = new[] { 1, 2, 3 } }
+        );
+        await Assert.That(json).Contains("\"Items\":[1,2,3]");
+    }
+
+    [Test]
     public async Task Json_DefaultIgnoreCondition_WhenWritingNull()
     {
         var json = PicoJetson.JsonSerializer.Serialize(
