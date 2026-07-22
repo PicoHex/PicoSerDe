@@ -30,6 +30,8 @@ public class SerRegistryTests
     [Test]
     public async Task Handler_IsolatedPerFormatMarker()
     {
+        SerRegistry<RegFmtA, RegPayload>.Handler = null;
+        SerRegistry<RegFmtB, RegPayload>.Handler = null;
         SerRegistry<RegFmtA, RegPayload>.Handler = static (w, v) => { };
         await Assert.That(SerRegistry<RegFmtA, RegPayload>.Handler).IsNotNull();
         await Assert.That(SerRegistry<RegFmtB, RegPayload>.Handler).IsNull();
@@ -38,6 +40,10 @@ public class SerRegistryTests
     [Test]
     public async Task CustomHandler_IndependentOfHandler()
     {
+        SerRegistry<RegFmtA, RegPayload>.Handler = null;
+        SerRegistry<RegFmtA, RegPayload>.CustomHandler = null;
+        SerRegistry<RegFmtB, RegPayload>.Handler = null;
+        SerRegistry<RegFmtB, RegPayload>.CustomHandler = null;
         SerRegistry<RegFmtB, RegPayload>.Handler = static (w, v) => { };
         await Assert.That(SerRegistry<RegFmtB, RegPayload>.CustomHandler).IsNull();
 
@@ -50,6 +56,8 @@ public class SerRegistryTests
     [Test]
     public async Task DesRegistry_IsolatedPerFormatMarker()
     {
+        DesRegistry<RegFmtA, RegPayload>.Deserializer = null;
+        DesRegistry<RegFmtB, RegPayload>.Deserializer = null;
         DesRegistry<RegFmtA, RegPayload>.Deserializer = new RegPayloadDes();
         await Assert.That(DesRegistry<RegFmtA, RegPayload>.Deserializer).IsNotNull();
         await Assert.That(DesRegistry<RegFmtB, RegPayload>.Deserializer).IsNull();
@@ -59,6 +67,7 @@ public class SerRegistryTests
     public async Task SerRegistry_SupportsRefStructPayloads()
     {
         // ref struct T must be usable (allows ref struct constraint)
+        SerRegistry<RegFmtA, RegRefPayload>.Handler = null;
         SerRegistry<RegFmtA, RegRefPayload>.Handler = static (w, v) => { };
         await Assert.That(SerRegistry<RegFmtA, RegRefPayload>.Handler).IsNotNull();
     }
