@@ -17,9 +17,9 @@ many serialization libraries cannot run.
 |--------|---------|--------|:---:|-------|
 | JSON | PicoJetson | ✅ Production | ✅ | [→](PicoJetson/README.md) |
 | MessagePack | PicoMsgPack | ✅ Production | ✅ | [→](PicoMsgPack/README.md) |
-| INI | PicoIni | 🟡 Beta | ✅ | [→](PicoIni/README.md) |
-| TOML | PicoToml | 🟡 Beta | ✅ | [→](PicoToml/README.md) |
-| YAML | PicoYaml | 🟡 Beta | ✅ | [→](PicoYaml/README.md) |
+| INI | PicoIni | ✅ Production | ✅ | [→](PicoIni/README.md) |
+| TOML | PicoToml | ✅ Production | ✅ | [→](PicoToml/README.md) |
+| YAML | PicoYaml | ✅ Production | ✅ | [→](PicoYaml/README.md) |
 
 > PicoYaml is the **only AOT-compatible YAML library** on .NET.
 
