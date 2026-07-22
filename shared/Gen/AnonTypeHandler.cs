@@ -166,6 +166,7 @@ internal static class AnonTypeHandler
 
     internal static void GenerateInterceptorClass(
         SourceProductionContext spc, AnonTypeInfo info, FormatConfig config,
+        AnonFormatConfig afc,
         Func<AnonFieldInfo, string, string, string> emitField)
     {
         var sb = new StringBuilder();
@@ -181,8 +182,7 @@ internal static class AnonTypeHandler
 
         string wt = config.FormatTag switch { "json"=>"JsonWriter","msgpack"=>"MsgPackWriter","ini"=>"IniWriter","toml"=>"TomlWriter","yaml"=>"YamlWriter", _=>"JsonWriter" };
         string ot = config.FormatTag switch { "json"=>"JsonOptions","msgpack"=>"MsgPackOptions","ini"=>"IniOptions","toml"=>"TomlOptions","yaml"=>"YamlOptions", _=>"JsonOptions" };
-        string wv = wt == "JsonWriter" ? "jw" : "__w";
-        bool separateKey = wt is not "IniWriter" and not "TomlWriter";
+        string wv = "jw";
 
         var csid = $"CS{info.Line}_{info.Column}";
         var attr = $"[InterceptsLocation(@\"{Esc(info.FilePath)}\", {info.Line}, {info.Column})]";
@@ -192,87 +192,88 @@ internal static class AnonTypeHandler
         string ret = info.SerializeMethodName switch { "Utf8" => "byte[]", "Writer" => "void", _ => "string" };
         string mn = info.SerializeMethodName switch { "Utf8" => $"__Intercept_Utf8_{csid}", "Writer" => $"__Intercept_Writer_{csid}", _ => $"__Intercept_Ser_{csid}" };
         string ep = info.SerializeMethodName == "Writer" ? "IBufferWriter<byte> writer, " : "";
-        string optionsParam = $", {ot}? options = null";
+        string optionsParam = afc.HasOptionsParam ? $", {ot}? options = null" : "";
 
         sb.AppendLine($"    {attr}");
         sb.AppendLine($"    internal static {ret} {mn}<T>({ep}T value{optionsParam})");
         sb.AppendLine("    {");
         sb.AppendLine("        object obj = (object)value!;");
-        sb.AppendLine($"        var prev = {ot}.Current;");
-        sb.AppendLine($"        {ot}.Current = options;");
-        sb.AppendLine("        try {");
+        if (afc.HasOptionsParam)
+        {
+            sb.AppendLine($"        var prev = {ot}.Current;");
+            sb.AppendLine($"        {ot}.Current = options;");
+            sb.AppendLine("        try {");
+        }
 
         // Format-specific writer construction
         if (info.SerializeMethodName == "Writer")
-        {
             sb.AppendLine($"        var {wv} = new {wt}(writer);");
-        }
         else
         {
             sb.AppendLine("        var __buf = SerializerExtensions.RentWriter();");
-            if (wt is "JsonWriter")
+            if (afc.HasIndentedMaxDepth)
                 sb.AppendLine($"        var {wv} = new {wt}(__buf, indented: {ot}.Current?.Indented ?? false, maxDepth: {ot}.Current?.MaxDepth ?? 63);");
-            else if (wt is "MsgPackWriter")
-                sb.AppendLine($"        var {wv} = new {wt}(__buf);");
             else
                 sb.AppendLine($"        var {wv} = new {wt}(__buf);");
         }
 
         // Format-specific write start
-        if (wt == "MsgPackWriter")
-            sb.AppendLine($"        {wv}.WriteStartObject({info.Fields.Length});");
-        else if (wt == "YamlWriter")
-            sb.AppendLine($"        {wv}.WriteStartMapping();");
-        else if (wt == "JsonWriter")
-            sb.AppendLine($"        {wv}.WriteStartObject();");
+        if (afc.ObjectStartMethod is not null)
+        {
+            if (afc.ObjectStartNeedsCount)
+                sb.AppendLine($"        {wv}.{afc.ObjectStartMethod}({info.Fields.Length});");
+            else
+                sb.AppendLine($"        {wv}.{afc.ObjectStartMethod}();");
+        }
 
         foreach (var f in info.Fields)
         {
             sb.AppendLine("            {");
             sb.AppendLine($"                var __v = __AnonReaders_{fmtTag}_{info.UniqueId}.Read_{f.TypeKind}(obj, {f.RuntimeOffset});");
             bool isRef = TypeLayout[f.TypeKind].IsRef;
-            bool skipNull = wt is "IniWriter" or "TomlWriter" or "YamlWriter";
+            bool skipNull = !afc.HasNullLiteral;
             if (isRef && skipNull)
             {
                 sb.AppendLine("                if (__v != null) {");
-                if (separateKey)
-                    EmitWriterKey(sb, wv, wt, f.JsonName, "                    ");
+                if (!afc.EmbedsKeyInValue)
+                    EmitFieldKey(sb, wv, f.JsonName, afc.KeyIsEncodedString, "                    ");
                 sb.AppendLine($"                    {emitField(f, "__v", wv)}");
                 sb.AppendLine("                }");
             }
             else if (isRef)
             {
-                if (separateKey)
-                    EmitWriterKey(sb, wv, wt, f.JsonName, "                ");
+                if (!afc.EmbedsKeyInValue)
+                    EmitFieldKey(sb, wv, f.JsonName, afc.KeyIsEncodedString, "                ");
                 sb.AppendLine("                if (__v != null) {");
                 sb.AppendLine($"                    {emitField(f, "__v", wv)}");
                 sb.AppendLine($"                }} else {{ {wv}.WriteNull(); }}");
             }
             else
             {
-                if (separateKey)
-                    EmitWriterKey(sb, wv, wt, f.JsonName, "                ");
+                if (!afc.EmbedsKeyInValue)
+                    EmitFieldKey(sb, wv, f.JsonName, afc.KeyIsEncodedString, "                ");
                 sb.AppendLine($"                {emitField(f, "__v", wv)}");
             }
             sb.AppendLine("            }");
         }
 
         // Format-specific write end
-        if (wt == "YamlWriter")
-            sb.AppendLine($"        {wv}.WriteEndMapping();");
-        else if (wt is "JsonWriter" or "MsgPackWriter")
-            sb.AppendLine($"        {wv}.WriteEndObject();");
+        if (afc.ObjectEndMethod is not null)
+            sb.AppendLine($"        {wv}.{afc.ObjectEndMethod}();");
 
         if (info.SerializeMethodName == "Utf8")
             sb.AppendLine("            return __buf.WrittenSpan.ToArray();");
         else if (info.SerializeMethodName != "Writer")
             sb.AppendLine("            return Encoding.UTF8.GetString(__buf.WrittenSpan);");
 
-        sb.AppendLine("        }");
-        sb.AppendLine("        finally");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            {ot}.Current = prev;");
-        sb.AppendLine("        }");
+        if (afc.HasOptionsParam)
+        {
+            sb.AppendLine("        }");
+            sb.AppendLine("        finally");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            {ot}.Current = prev;");
+            sb.AppendLine("        }");
+        }
         sb.AppendLine("    }");
         sb.AppendLine("}");
 
@@ -297,12 +298,10 @@ internal static class AnonTypeHandler
 
     private static string Esc(string s) => s.Replace("\\","\\\\").Replace("\"","\\\"");
 
-    private static void EmitWriterKey(StringBuilder sb, string wv, string wt, string name, string indent)
+    private static void EmitFieldKey(StringBuilder sb, string wv, string name, bool keyIsEncodedString, string indent)
     {
-        if (wt == "MsgPackWriter")
+        if (keyIsEncodedString)
             sb.AppendLine($"{indent}{wv}.WriteString(Encoding.UTF8.GetBytes(\"{Esc(name)}\"));");
-        else if (wt == "YamlWriter")
-            sb.AppendLine($"{indent}{wv}.WritePropertyName(\"{Esc(name)}\"u8);");
         else
             sb.AppendLine($"{indent}{wv}.WritePropertyName(\"{Esc(name)}\"u8);");
     }

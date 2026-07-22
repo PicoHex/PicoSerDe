@@ -35,6 +35,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         OverrideKindWithStringOnConverter: true
     );
 
+    private static readonly PicoSerDe.Gen.AnonFormatConfig AnonCfg = new(
+        HasNullLiteral: true, EmbedsKeyInValue: false,
+        ObjectStartMethod: "WriteStartObject", ObjectEndMethod: "WriteEndObject",
+        ObjectStartNeedsCount: true, HasIndentedMaxDepth: false,
+        KeyIsEncodedString: true, HasOptionsParam: false
+    );
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Pipeline A: usage-driven (existing)
@@ -115,7 +122,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             foreach (var ai in pair.Left)
             {
                 if (ai is not { } info) continue;
-                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config,
+                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config, AnonCfg,
                     (f, vv, wv) => EmitMsgPackValue(f, vv, wv));
             }
         });

@@ -34,6 +34,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         OverrideKindWithStringOnConverter: true
     );
 
+    private static readonly PicoSerDe.Gen.AnonFormatConfig AnonCfg = new(
+        HasNullLiteral: false, EmbedsKeyInValue: true,
+        ObjectStartMethod: null, ObjectEndMethod: null,
+        ObjectStartNeedsCount: false, HasIndentedMaxDepth: false,
+        KeyIsEncodedString: false, HasOptionsParam: false
+    );
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Pipeline A: usage-driven (existing)
@@ -114,7 +121,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             foreach (var ai in pair.Left)
             {
                 if (ai is not { } info) continue;
-                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config,
+                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config, AnonCfg,
                     (f, vv, wv) => EmitTomlValue(f, vv, wv));
             }
         });

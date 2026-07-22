@@ -39,6 +39,7 @@
     <Compile Include="..\..\..\shared\Gen\TypeKindResolver.cs" Link="Gen\TypeKindResolver.cs" />
     <Compile Include="..\..\..\shared\Gen\GenInfrastructure.cs" Link="Gen\GenInfrastructure.cs" />
     <Compile Include="..\..\..\shared\Gen\AnonTypeHandler.cs" Link="Gen\AnonTypeHandler.cs" />
+    <Compile Include="..\..\..\shared\Gen\AnonFormatConfig.cs" Link="Gen\AnonFormatConfig.cs" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="PicoJetson.Integration.Tests" />

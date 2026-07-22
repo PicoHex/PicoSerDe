@@ -34,6 +34,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         OverrideKindWithStringOnConverter: true
     );
 
+    private static readonly PicoSerDe.Gen.AnonFormatConfig AnonCfg = new(
+        HasNullLiteral: false, EmbedsKeyInValue: false,
+        ObjectStartMethod: "WriteStartMapping", ObjectEndMethod: "WriteEndMapping",
+        ObjectStartNeedsCount: false, HasIndentedMaxDepth: false,
+        KeyIsEncodedString: false, HasOptionsParam: false
+    );
+
     public void Initialize(IncrementalGeneratorInitializationContext ctx)
     {
         // Pipeline A: usage-driven (existing)
@@ -114,7 +121,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             foreach (var ai in pair.Left)
             {
                 if (ai is not { } info) continue;
-                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config,
+                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config, AnonCfg,
                     (f, vv, wv) => EmitYamlValue(f, vv, wv));
             }
         });
