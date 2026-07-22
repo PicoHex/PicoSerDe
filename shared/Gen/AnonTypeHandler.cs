@@ -236,14 +236,14 @@ internal static class AnonTypeHandler
             {
                 sb.AppendLine("                if (__v != null) {");
                 if (!afc.EmbedsKeyInValue)
-                    EmitFieldKey(sb, wv, f.JsonName, afc.KeyIsEncodedString, "                    ");
+                    EmitAnonFieldKey(sb, wv, f, afc, ot, "                    ");
                 sb.AppendLine($"                    {emitField(f, "__v", wv)}");
                 sb.AppendLine("                }");
             }
             else if (isRef)
             {
                 if (!afc.EmbedsKeyInValue)
-                    EmitFieldKey(sb, wv, f.JsonName, afc.KeyIsEncodedString, "                ");
+                    EmitAnonFieldKey(sb, wv, f, afc, ot, "                ");
                 sb.AppendLine("                if (__v != null) {");
                 sb.AppendLine($"                    {emitField(f, "__v", wv)}");
                 sb.AppendLine($"                }} else {{ {wv}.WriteNull(); }}");
@@ -251,7 +251,7 @@ internal static class AnonTypeHandler
             else
             {
                 if (!afc.EmbedsKeyInValue)
-                    EmitFieldKey(sb, wv, f.JsonName, afc.KeyIsEncodedString, "                ");
+                    EmitAnonFieldKey(sb, wv, f, afc, ot, "                ");
                 sb.AppendLine($"                {emitField(f, "__v", wv)}");
             }
             sb.AppendLine("            }");
@@ -304,5 +304,22 @@ internal static class AnonTypeHandler
             sb.AppendLine($"{indent}{wv}.WriteString(Encoding.UTF8.GetBytes(\"{Esc(name)}\"));");
         else
             sb.AppendLine($"{indent}{wv}.WritePropertyName(\"{Esc(name)}\"u8);");
+    }
+
+    private static void EmitAnonFieldKey(StringBuilder sb, string wv, AnonFieldInfo f, AnonFormatConfig afc, string ot, string indent)
+    {
+        var camel = GenInfrastructure.ToCamelCase(f.Name);
+        if (afc.HasNamingPolicy && camel != f.JsonName)
+        {
+            sb.AppendLine($"{indent}var __n = {ot}.Current?.PropertyNamingPolicy == PicoJetson.JsonNamingPolicy.CamelCase ? \"{camel}\"u8 : \"{Esc(f.JsonName)}\"u8;");
+            if (afc.KeyIsEncodedString)
+                sb.AppendLine($"{indent}{wv}.WriteString(Encoding.UTF8.GetBytes(__n));");
+            else
+                sb.AppendLine($"{indent}{wv}.WritePropertyName(__n);");
+        }
+        else
+        {
+            EmitFieldKey(sb, wv, f.JsonName, afc.KeyIsEncodedString, indent);
+        }
     }
 }

@@ -38,7 +38,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         HasNullLiteral: false, EmbedsKeyInValue: false,
         ObjectStartMethod: "WriteStartMapping", ObjectEndMethod: "WriteEndMapping",
         ObjectStartNeedsCount: false, HasIndentedMaxDepth: false,
-        KeyIsEncodedString: false, HasOptionsParam: false
+        KeyIsEncodedString: false, HasNamingPolicy: false, HasOptionsParam: false
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext ctx)

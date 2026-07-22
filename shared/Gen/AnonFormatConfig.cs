@@ -8,5 +8,6 @@ internal readonly record struct AnonFormatConfig(
     bool ObjectStartNeedsCount,
     bool HasIndentedMaxDepth,
     bool KeyIsEncodedString,
+    bool HasNamingPolicy,
     bool HasOptionsParam
 );

@@ -39,7 +39,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         HasNullLiteral: true, EmbedsKeyInValue: false,
         ObjectStartMethod: "WriteStartObject", ObjectEndMethod: "WriteEndObject",
         ObjectStartNeedsCount: true, HasIndentedMaxDepth: false,
-        KeyIsEncodedString: true, HasOptionsParam: false
+        KeyIsEncodedString: true, HasNamingPolicy: false, HasOptionsParam: false
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)

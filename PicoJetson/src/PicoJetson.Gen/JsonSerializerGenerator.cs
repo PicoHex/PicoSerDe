@@ -56,7 +56,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         HasNullLiteral: true, EmbedsKeyInValue: false,
         ObjectStartMethod: "WriteStartObject", ObjectEndMethod: "WriteEndObject",
         ObjectStartNeedsCount: false, HasIndentedMaxDepth: true,
-        KeyIsEncodedString: false, HasOptionsParam: true
+        KeyIsEncodedString: false, HasNamingPolicy: true, HasOptionsParam: true
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
