@@ -153,6 +153,21 @@ while (reader.Read())
 }
 ```
 
+The writer side mirrors `Utf8JsonWriter`, including `WriteRawValue` (v2026.4.3+) for injecting pre-validated JSON verbatim — no validation or escaping is performed:
+
+```csharp
+using System.Buffers;
+
+var buffer = new ArrayBufferWriter<byte>();
+var jw = new JsonWriter(buffer);
+jw.WriteStartObject();
+jw.WritePropertyName("payload"u8);
+jw.WriteRawValue(value.PreSerializedJson);  // pre-validated UTF-8 JSON
+jw.WriteEndObject();
+```
+
+All `WriteNumber` overloads format with `CultureInfo.InvariantCulture` — output never depends on the ambient culture.
+
 ## Packages
 
 | Package | Description |
