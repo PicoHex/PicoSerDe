@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace PicoJetson;
 
 public ref struct JsonWriter
@@ -42,7 +44,7 @@ public ref struct JsonWriter
     {
         BeforeWriteValue();
         Span<byte> buf = stackalloc byte[16];
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
         _buffer.Write(buf[..w]);
         _bytesWritten += w;
     }
@@ -51,7 +53,7 @@ public ref struct JsonWriter
     {
         BeforeWriteValue();
         Span<byte> buf = stackalloc byte[32];
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
         _buffer.Write(buf[..w]);
         _bytesWritten += w;
     }
@@ -60,7 +62,7 @@ public ref struct JsonWriter
     {
         BeforeWriteValue();
         Span<byte> buf = stackalloc byte[32];
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
         _buffer.Write(buf[..w]);
         _bytesWritten += w;
     }
@@ -99,7 +101,7 @@ public ref struct JsonWriter
             );
         }
         Span<byte> buf = stackalloc byte[32];
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
         _buffer.Write(buf[..w]);
         _bytesWritten += w;
     }
@@ -108,6 +110,26 @@ public ref struct JsonWriter
     {
         BeforeWriteValue();
         WriteQuotedString(utf8Value);
+    }
+
+    /// <summary>
+    /// Writes a pre-serialized JSON value (object, array, or primitive) verbatim
+    /// into the current position. The caller MUST supply syntactically valid
+    /// JSON — no validation or escaping is performed. Mirrors
+    /// <c>Utf8JsonWriter.WriteRawValue</c>; intended for pre-validated payloads
+    /// such as tool input schemas.
+    /// </summary>
+    public void WriteRawValue(ReadOnlySpan<byte> utf8Json)
+    {
+        BeforeWriteValue();
+        WriteRaw(utf8Json);
+    }
+
+    /// <summary>String overload of <see cref="WriteRawValue(ReadOnlySpan{byte})"/>.</summary>
+    public void WriteRawValue(ReadOnlySpan<char> json)
+    {
+        var bytes = Encoding.UTF8.GetBytes(json.ToArray());
+        WriteRawValue(bytes);
     }
 
     private void WriteQuotedString(scoped ReadOnlySpan<byte> utf8Value)
