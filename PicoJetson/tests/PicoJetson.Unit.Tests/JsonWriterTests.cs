@@ -183,6 +183,25 @@ public class JsonWriterTests
         await Assert.That(json).IsEqualTo("\"line1\\nline2\"");
     }
 
+    // user bug: the char overload's long-string path (>256 UTF-8 bytes) called
+    // the public byte overload, which ran BeforeWriteValue a second time and
+    // emitted a spurious ',' — "\"content\":,\"D:\\...\"" broke strict parsers
+    // with "expected value".
+    [Test]
+    public async Task WriteString_CharOverload_LongString_NoSpuriousComma()
+    {
+        var buf = new ArrayBufferWriter<byte>(512);
+        var w = new JsonWriter(buf);
+        var value = new string('a', 200) + "\"\\\n\u0000" + new string('b', 200); // >256 UTF-8 bytes, needs escaping
+        w.WriteString(value);
+        var json = GetWrittenString(w, buf);
+        await Assert.That(json.StartsWith("\"")).IsTrue(); // starts with quote, not ','
+        await Assert.That(json).DoesNotContain(",\"");
+        // strict round-trip
+        var parsed = System.Text.Json.JsonDocument.Parse(json).RootElement.GetString();
+        await Assert.That(parsed).IsEqualTo(value);
+    }
+
     // === P0-3: NaN/Infinity Tests ===
 
     [Test]

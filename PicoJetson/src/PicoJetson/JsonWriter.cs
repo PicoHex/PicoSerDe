@@ -278,7 +278,13 @@ public ref struct JsonWriter
         else
         {
             var bytes = Encoding.UTF8.GetBytes(value.ToArray());
-            WriteString(bytes);
+            // Direct WriteQuotedString, NOT the public byte overload: the
+            // public overload calls BeforeWriteValue again, which emits a
+            // spurious ',' (the _needsComma bit was already set by the
+            // BeforeWriteValue above) — long strings (>256 UTF-8 bytes)
+            // produced ",\"value\"" and endpoints rejected the body with
+            // "expected value".
+            WriteQuotedString(bytes);
         }
     }
 
