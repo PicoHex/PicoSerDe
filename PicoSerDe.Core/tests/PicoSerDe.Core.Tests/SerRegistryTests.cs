@@ -22,7 +22,9 @@ internal sealed class RegPayloadDes : IDeserializer<RegPayload>
 
 internal ref struct RegRefPayload
 {
-    public int V;
+    public int V = 0;
+
+    public RegRefPayload() { }
 }
 
 [NotInParallel]

@@ -18,7 +18,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     private static readonly DiagnosticDescriptor AnonRequiresCSharp12 = new(
         id: "PICOTOML003",
         title: "Anonymous types require C# 12+",
-        messageFormat: "Anonymous type serialization requires C# 12 or later.",
+        messageFormat: "Anonymous type serialization requires C# 12 or later",
         category: "PicoToml.Gen",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
@@ -27,7 +27,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     private static readonly DiagnosticDescriptor AnonRequiresUnsafe = new(
         id: "PICOTOML004",
         title: "Requires AllowUnsafeBlocks",
-        messageFormat: "Anonymous type serialization requires <AllowUnsafeBlocks>true</AllowUnsafeBlocks>.",
+        messageFormat: "Anonymous type serialization requires AllowUnsafeBlocks to be enabled",
         category: "PicoToml.Gen",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
