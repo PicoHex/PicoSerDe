@@ -79,6 +79,30 @@ namespace PicoJetson.Tests
         public Guid Id { get; set; }
     }
 
+    // ── H5: nullable ctor params + JSON null (poly + plain records) ──
+
+    [PicoSerializable]
+    [PicoDerivedType(typeof(PolyCtorEvent), "polyCtorEvent")]
+    public abstract record PolyCtorEventBase;
+
+    public sealed record PolyCtorEvent(
+        string? ProviderName = null,
+        string? ModelId = null,
+        string? ApiKey = null,
+        string? BaseUrl = null,
+        int? Retries = null
+    ) : PolyCtorEventBase;
+
+    public sealed record PlainCtorRecord(
+        string? ProviderName = null,
+        string? ModelId = null,
+        string? ApiKey = null,
+        string? BaseUrl = null,
+        int? Retries = null
+    );
+
+    public sealed record NonNullableCtorRecord(string Name, int Age);
+
     public class StrictPolyAndOptionsTests
     {
         // ── H3 ──
@@ -99,6 +123,63 @@ namespace PicoJetson.Tests
             NullPolyAnimal? nil = null;
             var json = JsonSerializer.Serialize(nil);
             await Assert.That(PicoDocument.IsValid(Encoding.UTF8.GetBytes(json))).IsTrue();
+        }
+
+        [Test]
+        public async Task Poly_CtorRecordNullableParams_JsonNull_RoundTrips()
+        {
+            PolyCtorEventBase ev = new PolyCtorEvent(
+                ProviderName: "anthropic",
+                ModelId: "claude-4"
+            );
+            var json = JsonSerializer.Serialize(ev);
+            var back = JsonSerializer.Deserialize<PolyCtorEventBase>(Encoding.UTF8.GetBytes(json));
+            await Assert.That(back).IsTypeOf<PolyCtorEvent>();
+            var e = (PolyCtorEvent)back!;
+            await Assert.That(e.ProviderName).IsEqualTo("anthropic");
+            await Assert.That(e.ModelId).IsEqualTo("claude-4");
+            await Assert.That(e.ApiKey).IsNull();
+            await Assert.That(e.BaseUrl).IsNull();
+            await Assert.That(e.Retries).IsNull();
+        }
+
+        [Test]
+        public async Task Poly_CtorRecordNullableParams_OldPersistedJsonWithNull_Replays()
+        {
+            var json =
+                """{"$type":"polyCtorEvent","ProviderName":"anthropic","ModelId":"claude-4","ApiKey":null,"BaseUrl":null,"Retries":null}"""u8;
+            var back = JsonSerializer.Deserialize<PolyCtorEventBase>(json);
+            await Assert.That(back).IsTypeOf<PolyCtorEvent>();
+            var e = (PolyCtorEvent)back!;
+            await Assert.That(e.ApiKey).IsNull();
+            await Assert.That(e.BaseUrl).IsNull();
+            await Assert.That(e.Retries).IsNull();
+        }
+
+        [Test]
+        public async Task Plain_CtorRecordNullableParams_JsonNull_RoundTrips()
+        {
+            var dto = new PlainCtorRecord(ProviderName: "anthropic", ModelId: "claude-4");
+            var json = JsonSerializer.Serialize(dto);
+            var back = JsonSerializer.Deserialize<PlainCtorRecord>(Encoding.UTF8.GetBytes(json));
+            await Assert.That(back!.ApiKey).IsNull();
+            await Assert.That(back.BaseUrl).IsNull();
+            await Assert.That(back.Retries).IsNull();
+        }
+
+        [Test]
+        public async Task CtorRecord_NonNullableParam_JsonNull_StillThrows()
+        {
+            var threw = false;
+            try
+            {
+                JsonSerializer.Deserialize<NonNullableCtorRecord>("""{"Name":null,"Age":1}"""u8);
+            }
+            catch (FormatException)
+            {
+                threw = true;
+            }
+            await Assert.That(threw).IsTrue();
         }
 
         // ── M2 ──

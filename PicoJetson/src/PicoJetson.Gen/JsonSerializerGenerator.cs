@@ -2259,6 +2259,27 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var cp = type.CtorParams[matchIdx];
         var target = $"__cp_{matchIdx}";
 
+        // Nullable ctor params must accept JSON null — the writer emits
+        // "Prop":null for null-valued optional parameters, and persisted
+        // event streams may contain them. Mirror EmitDeserializeProperty:
+        // wrap the kind switch in a null-token guard.
+        var guardIndent = indent;
+        var wrapNullGuard = prop.IsNullable && prop.TypeKind != "object";
+        if (wrapNullGuard)
+        {
+            sb.Append(guardIndent);
+            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+            sb.Append(guardIndent);
+            sb.Append("    ");
+            sb.Append(target);
+            sb.AppendLine(" = null!;");
+            sb.Append(guardIndent);
+            sb.AppendLine("else");
+            sb.Append(guardIndent);
+            sb.AppendLine("{");
+            indent = indent + "    ";
+        }
+
         switch (cp.TypeKind)
         {
             case "string":
@@ -2533,6 +2554,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(target);
                 sb.AppendLine(" = default!; // unsupported ctor param type: " + cp.TypeKind);
                 break;
+        }
+
+        if (wrapNullGuard)
+        {
+            sb.Append(guardIndent);
+            sb.AppendLine("}");
         }
     }
 
