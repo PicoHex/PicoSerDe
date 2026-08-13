@@ -437,6 +437,109 @@ public class PicoDocument
 
     public PicoElement RootElement => new(this, _rootIdx);
 
+    /// <summary>
+    /// Validates JSON document structure beyond token-level syntax:
+    /// container matching, property/value grammar, single root value,
+    /// and no trailing content. The token reader only checks token validity
+    /// and bracket depth; this validator enforces the full document grammar.
+    /// </summary>
+    private struct JsonStructureValidator
+    {
+        // Expectation per open container: 0 = expect value-or-end (array),
+        // 1 = expect property-name-or-end (object), 2 = expect value (after
+        // a property name). Kind per container: 0 = object, 1 = array.
+        private readonly byte[] _expects;
+        private readonly byte[] _kinds;
+        private int _depth;
+        private bool _rootDone;
+
+        public JsonStructureValidator(int maxDepth)
+        {
+            _expects = new byte[maxDepth];
+            _kinds = new byte[maxDepth];
+        }
+
+        public void Accept(TokenType t)
+        {
+            if (_rootDone)
+                throw new FormatException("Unexpected data after the document root.");
+
+            switch (t)
+            {
+                case TokenType.ObjectStart:
+                case TokenType.ArrayStart:
+                    EnsureCanStartValue();
+                    if (_depth >= _expects.Length)
+                        throw new FormatException("Maximum nesting depth exceeded.");
+                    _kinds[_depth] = t == TokenType.ObjectStart ? (byte)0 : (byte)1;
+                    _expects[_depth] = t == TokenType.ObjectStart ? (byte)1 : (byte)0;
+                    _depth++;
+                    // If this container is the value of an object property,
+                    // the parent's "expect value" obligation is now satisfied.
+                    if (_depth > 1 && _kinds[_depth - 2] == 0)
+                        _expects[_depth - 2] = 1;
+                    break;
+                case TokenType.ObjectEnd:
+                case TokenType.ArrayEnd:
+                {
+                    if (_depth == 0)
+                        throw new FormatException("Unexpected closing bracket.");
+                    byte kind = t == TokenType.ObjectEnd ? (byte)0 : (byte)1;
+                    if (_kinds[_depth - 1] != kind)
+                        throw new FormatException("Mismatched closing bracket.");
+                    if (_expects[_depth - 1] == 2)
+                        throw new FormatException("Expected a value after the property name.");
+                    _depth--;
+                    if (_depth == 0)
+                        _rootDone = true;
+                    break;
+                }
+                case TokenType.PropertyName:
+                    if (_depth == 0 || _kinds[_depth - 1] != 0 || _expects[_depth - 1] != 1)
+                        throw new FormatException(
+                            "A property name is only allowed inside an object."
+                        );
+                    _expects[_depth - 1] = 2;
+                    break;
+                default: // scalar value tokens
+                    EnsureCanStartValue();
+                    if (_depth > 0)
+                    {
+                        if (_kinds[_depth - 1] == 0)
+                            _expects[_depth - 1] = 1; // property value consumed
+                        // arrays keep expecting value-or-end
+                    }
+                    else
+                    {
+                        _rootDone = true; // top-level scalar
+                    }
+                    break;
+            }
+        }
+
+        private void EnsureCanStartValue()
+        {
+            if (_depth == 0)
+                return; // root value not yet read
+            if (_kinds[_depth - 1] == 1)
+            {
+                if (_expects[_depth - 1] != 0)
+                    throw new FormatException("Unexpected value in array.");
+                return;
+            }
+            if (_expects[_depth - 1] != 2)
+                throw new FormatException(
+                    "A value is only allowed after a property name in an object."
+                );
+        }
+
+        public void EnsureComplete()
+        {
+            if (!_rootDone)
+                throw new FormatException("Unexpected end of document.");
+        }
+    }
+
     public static PicoDocument Parse(byte[] json) => Parse(json, maxDepth: 64);
 
     public static PicoDocument Parse(byte[] json, int maxDepth)
@@ -474,17 +577,9 @@ public class PicoDocument
 
         if (!reader.Read())
             throw new FormatException("Empty JSON input.");
-        Process(
-            reader,
-            nodes,
-            stringValues,
-            ref pendingNameStart,
-            ref pendingNameEnd,
-            stack,
-            Add,
-            maxDepth
-        );
-        while (reader.Read())
+        try
+        {
+            var validator = new JsonStructureValidator(maxDepth);
             Process(
                 reader,
                 nodes,
@@ -493,10 +588,29 @@ public class PicoDocument
                 ref pendingNameEnd,
                 stack,
                 Add,
-                maxDepth
+                maxDepth,
+                ref validator
             );
-        if (stack.Count > 0)
-            throw new FormatException("Unclosed container.");
+            while (reader.Read())
+                Process(
+                    reader,
+                    nodes,
+                    stringValues,
+                    ref pendingNameStart,
+                    ref pendingNameEnd,
+                    stack,
+                    Add,
+                    maxDepth,
+                    ref validator
+                );
+            if (stack.Count > 0)
+                throw new FormatException("Unclosed container.");
+            validator.EnsureComplete();
+        }
+        finally
+        {
+            reader.Dispose();
+        }
         return new PicoDocument(json, nodes.ToArray(), stringValues.ToArray(), rootIdx);
     }
 
@@ -508,9 +622,11 @@ public class PicoDocument
         ref int pendingNameEnd,
         Stack<int> stack,
         Action<PicoDocNode> add,
-        int maxDepth
+        int maxDepth,
+        ref JsonStructureValidator validator
     )
     {
+        validator.Accept(reader.TokenType);
         switch (reader.TokenType)
         {
             case TokenType.ObjectStart:
@@ -626,21 +742,22 @@ public class PicoDocument
         try
         {
             var r = new JsonReader(json);
-            if (!r.Read() || r.TokenType == TokenType.None)
-                return false;
-            int d = 0;
-            do
+            try
             {
-                if (r.TokenType is TokenType.ObjectStart or TokenType.ArrayStart)
-                    d++;
-                else if (r.TokenType is TokenType.ObjectEnd or TokenType.ArrayEnd)
+                if (!r.Read() || r.TokenType == TokenType.None)
+                    return false;
+                var validator = new JsonStructureValidator(256);
+                do
                 {
-                    d--;
-                    if (d < 0)
-                        return false;
-                }
-            } while (r.Read());
-            return d == 0;
+                    validator.Accept(r.TokenType);
+                } while (r.Read());
+                validator.EnsureComplete();
+                return true;
+            }
+            finally
+            {
+                r.Dispose();
+            }
         }
         catch
         {

@@ -1,8 +1,8 @@
 namespace PicoIni.Gen;
 
+using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
-using Microsoft.CodeAnalysis.CSharp;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -17,14 +17,22 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly DiagnosticDescriptor AnonRequiresCSharp12 = new(
-        id: "PICOINI003", title: "Anonymous types require C# 12+",
+        id: "PICOINI003",
+        title: "Anonymous types require C# 12+",
         messageFormat: "Anonymous type serialization requires C# 12 or later.",
-        category: "PicoIni.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        category: "PicoIni.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly DiagnosticDescriptor AnonRequiresUnsafe = new(
-        id: "PICOINI004", title: "Requires AllowUnsafeBlocks",
+        id: "PICOINI004",
+        title: "Requires AllowUnsafeBlocks",
         messageFormat: "Anonymous type serialization requires <AllowUnsafeBlocks>true</AllowUnsafeBlocks>.",
-        category: "PicoIni.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        category: "PicoIni.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
         HasIniCamelCase,
@@ -38,10 +46,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly PicoSerDe.Gen.AnonFormatConfig AnonCfg = new(
-        HasNullLiteral: false, EmbedsKeyInValue: true,
-        ObjectStartMethod: null, ObjectEndMethod: null,
-        ObjectStartNeedsCount: false, HasIndentedMaxDepth: false,
-        KeyIsEncodedString: false, HasNamingPolicy: false, HasOptionsParam: false
+        HasNullLiteral: false,
+        EmbedsKeyInValue: true,
+        ObjectStartMethod: null,
+        ObjectEndMethod: null,
+        ObjectStartNeedsCount: false,
+        HasIndentedMaxDepth: false,
+        KeyIsEncodedString: false,
+        HasNamingPolicy: false,
+        HasOptionsParam: false
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -102,41 +115,65 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         );
 
         // Pipeline-Anon: anonymous type serialization via interceptors
-        var anonDriven = context.SyntaxProvider.CreateSyntaxProvider(
-            predicate: (n, _) => IsCandidate(n),
-            transform: (ctx, _) =>
-            {
-                var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
-                if (comp.LanguageVersion < LanguageVersion.CSharp12) return null;
-                if (!comp.Options.AllowUnsafe) return null;
-                if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m) return null;
-                if (m.TypeArguments.Length != 1) return null;
-                if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType) return null;
-                if (m.ContainingType.Name != Config.SerializerClassName || m.ContainingType.ContainingNamespace?.ToDisplayString() != Config.Namespace) return null;
-                return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
-            }
-        ).Where(a => a is not null);
+        var anonDriven = context
+            .SyntaxProvider.CreateSyntaxProvider(
+                predicate: (n, _) => IsCandidate(n),
+                transform: (ctx, _) =>
+                {
+                    var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
+                    if (comp.LanguageVersion < LanguageVersion.CSharp12)
+                        return null;
+                    if (!comp.Options.AllowUnsafe)
+                        return null;
+                    if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
+                        return null;
+                    if (m.TypeArguments.Length != 1)
+                        return null;
+                    if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType)
+                        return null;
+                    if (
+                        m.ContainingType.Name != Config.SerializerClassName
+                        || m.ContainingType.ContainingNamespace?.ToDisplayString()
+                            != Config.Namespace
+                    )
+                        return null;
+                    return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
+                }
+            )
+            .Where(a => a is not null);
 
         var anonOut = anonDriven.Collect().Combine(asmName);
-        context.RegisterSourceOutput(anonOut, (spc, pair) =>
-        {
-            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
-            foreach (var ai in pair.Left)
+        context.RegisterSourceOutput(
+            anonOut,
+            (spc, pair) =>
             {
-                if (ai is not { } info) continue;
-                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config, AnonCfg,
-                    (f, vv, wv) => EmitIniValue(f, vv, wv));
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
+                foreach (var ai in pair.Left)
+                {
+                    if (ai is not { } info)
+                        continue;
+                    PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(
+                        spc,
+                        info,
+                        Config,
+                        AnonCfg,
+                        (f, vv, wv) => EmitIniValue(f, vv, wv)
+                    );
+                }
             }
-        });
+        );
 
-        context.RegisterSourceOutput(context.CompilationProvider, (spc, comp) =>
-        {
-            var csComp = (CSharpCompilation)comp;
-            if (csComp.LanguageVersion < LanguageVersion.CSharp12)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
-            else if (!csComp.Options.AllowUnsafe)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
-        });
+        context.RegisterSourceOutput(
+            context.CompilationProvider,
+            (spc, comp) =>
+            {
+                var csComp = (CSharpCompilation)comp;
+                if (csComp.LanguageVersion < LanguageVersion.CSharp12)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
+                else if (!csComp.Options.AllowUnsafe)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
+            }
+        );
 
         // Merge all pipelines into one output
         var all = usageDriven
@@ -150,11 +187,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             .Combine(polyPipeline.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
 
-        context.RegisterSourceOutput(all, static (spc, types) =>
-        {
-            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
-            GenerateAll(spc, types);
-        });
+        context.RegisterSourceOutput(
+            all,
+            static (spc, types) =>
+            {
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
+                GenerateAll(spc, types);
+            }
+        );
     }
 
     // ── Candidate detection ──
@@ -711,7 +751,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("                    { var __dk = Encoding.UTF8.GetString(__k); ");
                 if (dicts[di].ElementTypeKind == "int32")
                 {
-                    s.Append("reader.TryGetInt32(out var __dv); obj.");
+                    s.Append(
+                        "if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\"); obj."
+                    );
                     s.Append(dicts[di].Name);
                     s.AppendLine("[__dk] = __dv; }");
                 }
@@ -1372,7 +1414,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
                 s.Append(pad);
-                s.AppendLine("reader.TryGetInt32(out var __v);");
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 if (ctorAssign)
                     s.Append(target);
@@ -1386,7 +1430,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "int64":
                 s.Append(pad);
-                s.AppendLine("reader.TryGetInt64(out var __v);");
+                s.AppendLine(
+                    "if (!reader.TryGetInt64(out var __v)) throw new System.FormatException($\"Expected a 64-bit integer at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append(target);
                 s.Append('.');
@@ -1395,7 +1441,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "float32":
                 s.Append(pad);
-                s.AppendLine("reader.TryGetFloat64(out var __v);");
+                s.AppendLine(
+                    "if (!reader.TryGetFloat64(out var __v)) throw new System.FormatException($\"Expected a floating-point number at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append(target);
                 s.Append('.');
@@ -1404,7 +1452,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "float64":
                 s.Append(pad);
-                s.AppendLine("reader.TryGetFloat64(out var __v);");
+                s.AppendLine(
+                    "if (!reader.TryGetFloat64(out var __v)) throw new System.FormatException($\"Expected a floating-point number at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append(target);
                 s.Append('.');
@@ -1413,7 +1463,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "boolean":
                 s.Append(pad);
-                s.AppendLine("reader.TryGetBool(out var __v);");
+                s.AppendLine(
+                    "if (!reader.TryGetBool(out var __v)) throw new System.FormatException($\"Expected a boolean at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append(target);
                 s.Append('.');
@@ -1423,7 +1475,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             case "decimal":
                 s.Append(pad);
                 s.AppendLine(
-                    "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out decimal __v, out _);"
+                    "if (!System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out decimal __v, out _)) throw new System.FormatException($\"Invalid decimal at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
                 s.Append(target);
@@ -1599,8 +1651,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return f.TypeKind switch
         {
             "string" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
-            "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
-            _        => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv}.ToString());",
+            "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal" =>
+                $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
+            _ => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv}.ToString());",
         };
     }
 

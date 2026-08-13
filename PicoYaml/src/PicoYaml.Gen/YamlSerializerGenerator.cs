@@ -1,7 +1,7 @@
 namespace PicoYaml.Gen;
 
-using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using Microsoft.CodeAnalysis.CSharp;
+using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -16,14 +16,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly DiagnosticDescriptor AnonRequiresCSharp12 = new(
-        id: "PICOYAML003", title: "Anonymous types require C# 12+",
+        id: "PICOYAML003",
+        title: "Anonymous types require C# 12+",
         messageFormat: "Anonymous type serialization requires C# 12 or later.",
-        category: "PicoYaml.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        category: "PicoYaml.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly DiagnosticDescriptor AnonRequiresUnsafe = new(
-        id: "PICOYAML004", title: "Requires AllowUnsafeBlocks",
+        id: "PICOYAML004",
+        title: "Requires AllowUnsafeBlocks",
         messageFormat: "Anonymous type serialization requires <AllowUnsafeBlocks>true</AllowUnsafeBlocks>.",
-        category: "PicoYaml.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        category: "PicoYaml.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
         HasYamlCamelCase,
@@ -35,10 +43,15 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly PicoSerDe.Gen.AnonFormatConfig AnonCfg = new(
-        HasNullLiteral: false, EmbedsKeyInValue: false,
-        ObjectStartMethod: "WriteStartMapping", ObjectEndMethod: "WriteEndMapping",
-        ObjectStartNeedsCount: false, HasIndentedMaxDepth: false,
-        KeyIsEncodedString: false, HasNamingPolicy: false, HasOptionsParam: false
+        HasNullLiteral: false,
+        EmbedsKeyInValue: false,
+        ObjectStartMethod: "WriteStartMapping",
+        ObjectEndMethod: "WriteEndMapping",
+        ObjectStartNeedsCount: false,
+        HasIndentedMaxDepth: false,
+        KeyIsEncodedString: false,
+        HasNamingPolicy: false,
+        HasOptionsParam: false
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext ctx)
@@ -99,41 +112,65 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         );
 
         // Pipeline-Anon: anonymous type serialization via interceptors
-        var anonDriven = ctx.SyntaxProvider.CreateSyntaxProvider(
-            predicate: (n, _) => IsC(n),
-            transform: (cx, _) =>
-            {
-                var comp = (CSharpCompilation)cx.SemanticModel.Compilation;
-                if (comp.LanguageVersion < LanguageVersion.CSharp12) return null;
-                if (!comp.Options.AllowUnsafe) return null;
-                if (cx.SemanticModel.GetSymbolInfo(cx.Node).Symbol is not IMethodSymbol m) return null;
-                if (m.TypeArguments.Length != 1) return null;
-                if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType) return null;
-                if (m.ContainingType.Name != Config.SerializerClassName || m.ContainingType.ContainingNamespace?.ToDisplayString() != Config.Namespace) return null;
-                return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, cx, Config, Attrs);
-            }
-        ).Where(a => a is not null);
+        var anonDriven = ctx
+            .SyntaxProvider.CreateSyntaxProvider(
+                predicate: (n, _) => IsC(n),
+                transform: (cx, _) =>
+                {
+                    var comp = (CSharpCompilation)cx.SemanticModel.Compilation;
+                    if (comp.LanguageVersion < LanguageVersion.CSharp12)
+                        return null;
+                    if (!comp.Options.AllowUnsafe)
+                        return null;
+                    if (cx.SemanticModel.GetSymbolInfo(cx.Node).Symbol is not IMethodSymbol m)
+                        return null;
+                    if (m.TypeArguments.Length != 1)
+                        return null;
+                    if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType)
+                        return null;
+                    if (
+                        m.ContainingType.Name != Config.SerializerClassName
+                        || m.ContainingType.ContainingNamespace?.ToDisplayString()
+                            != Config.Namespace
+                    )
+                        return null;
+                    return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, cx, Config, Attrs);
+                }
+            )
+            .Where(a => a is not null);
 
         var anonOut = anonDriven.Collect().Combine(asmName);
-        ctx.RegisterSourceOutput(anonOut, (spc, pair) =>
-        {
-            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
-            foreach (var ai in pair.Left)
+        ctx.RegisterSourceOutput(
+            anonOut,
+            (spc, pair) =>
             {
-                if (ai is not { } info) continue;
-                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config, AnonCfg,
-                    (f, vv, wv) => EmitYamlValue(f, vv, wv));
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
+                foreach (var ai in pair.Left)
+                {
+                    if (ai is not { } info)
+                        continue;
+                    PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(
+                        spc,
+                        info,
+                        Config,
+                        AnonCfg,
+                        (f, vv, wv) => EmitYamlValue(f, vv, wv)
+                    );
+                }
             }
-        });
+        );
 
-        ctx.RegisterSourceOutput(ctx.CompilationProvider, (spc, comp) =>
-        {
-            var csComp = (CSharpCompilation)comp;
-            if (csComp.LanguageVersion < LanguageVersion.CSharp12)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
-            else if (!csComp.Options.AllowUnsafe)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
-        });
+        ctx.RegisterSourceOutput(
+            ctx.CompilationProvider,
+            (spc, comp) =>
+            {
+                var csComp = (CSharpCompilation)comp;
+                if (csComp.LanguageVersion < LanguageVersion.CSharp12)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
+                else if (!csComp.Options.AllowUnsafe)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
+            }
+        );
 
         // Merge all pipelines into one output
         var all = usageD
@@ -147,11 +184,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             .Combine(polyD.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
 
-        ctx.RegisterSourceOutput(all, static (spc, types) =>
-        {
-            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
-            GenerateAll(spc, types);
-        });
+        ctx.RegisterSourceOutput(
+            all,
+            static (spc, types) =>
+            {
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
+                GenerateAll(spc, types);
+            }
+        );
     }
 
     private static bool IsC(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
@@ -626,7 +666,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
                 sb.AppendLine(
-                    "                reader.TryGetInt32(out var __dv); obj[__dk] = __dv;"
+                    "                if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\"); obj[__dk] = __dv;"
                 );
                 break;
             case "int64":
@@ -998,7 +1038,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
                 s.Append(pad);
-                s.AppendLine("reader.TryGetInt32(out var __nv);");
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __nv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
@@ -1172,7 +1214,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 {
                     case "int32":
                         s.Append(pad);
-                        s.AppendLine("        reader.TryGetInt32(out var __dv);");
+                        s.AppendLine(
+                            "        if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                        );
                         s.Append(pad);
                         s.Append("        ");
                         s.Append(tgt);
@@ -2257,7 +2301,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             {
                 case "int32":
                     s.Append(pad);
-                    s.AppendLine("        r.TryGetInt32(out var __dv);");
+                    s.AppendLine(
+                        "        if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
                     s.Append(pad);
                     s.Append("        ");
                     EmitTgt();
@@ -2314,7 +2360,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "int32":
                     s.Append(pad);
-                    s.AppendLine("r.TryGetInt32(out var __v);");
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
                     s.Append(pad);
                     EmitTgt();
                     s.AppendLine(" = __v;");
@@ -2336,8 +2384,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "boolean":
                     s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetBool(out var __v)) throw new System.FormatException($\"Expected a boolean at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
                     EmitTgt();
-                    s.AppendLine(" = r.ValueSpan.Length > 0 && r.ValueSpan[0] == (byte)'t';");
+                    s.AppendLine(" = __v;");
                     break;
                 case "datetime":
                     s.Append(pad);
@@ -2345,15 +2397,15 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(pad);
                     if (p.DateTimeFormat is not null)
                     {
-                        s.Append("System.DateTime.TryParseExact(__raw, \"");
+                        s.Append("if (!System.DateTime.TryParseExact(__raw, \"");
                         s.Append(p.DateTimeFormat);
                         s.AppendLine(
-                            "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __dt);"
+                            "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __dt)) throw new System.FormatException($\"Invalid DateTime at offset {r.BytesConsumed}\");"
                         );
                     }
                     else
                         s.AppendLine(
-                            "System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                            "if (!System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt)) throw new System.FormatException($\"Invalid DateTime at offset {r.BytesConsumed}\");"
                         );
                     s.Append(pad);
                     EmitTgt();
@@ -2423,7 +2475,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
                 s.Append(pad);
-                s.AppendLine("r.TryGetInt32(out var __ev);");
+                s.AppendLine(
+                    "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.AppendLine("__tmpList.Add(__ev);");
                 break;
@@ -2761,14 +2815,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
-    private static string EmitYamlValue(AnonFieldInfo f, string vv, string wv)
-        => f.TypeKind switch
+    private static string EmitYamlValue(AnonFieldInfo f, string vv, string wv) =>
+        f.TypeKind switch
         {
-            "string"   => $"{wv}.WriteString({vv});",
+            "string" => $"{wv}.WriteString({vv});",
             "int32" or "int64" => $"{wv}.WriteNumber({vv});",
             "float32" or "float64" => $"{wv}.WriteNumber({vv});",
-            "boolean"  => $"{wv}.WriteBoolean({vv});",
-            _          => $"{wv}.WriteString({vv}.ToString());",
+            "boolean" => $"{wv}.WriteBoolean({vv});",
+            _ => $"{wv}.WriteString({vv}.ToString());",
         };
 
     static void WriteYamlValue(StringBuilder s, PropertyInfo p, string acc)

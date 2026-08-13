@@ -19,6 +19,12 @@ public ref struct JsonWriter
 
     public JsonWriter(IBufferWriter<byte> buffer, bool indented = false, int maxDepth = 63)
     {
+        if (maxDepth is < 0 or > 63)
+            throw new ArgumentOutOfRangeException(
+                nameof(maxDepth),
+                maxDepth,
+                "maxDepth must be between 0 and 63 (the comma-tracking bitmask supports at most 63 levels of nesting)."
+            );
         _buffer = buffer;
         _bytesWritten = 0;
         _indented = indented;
@@ -106,6 +112,12 @@ public ref struct JsonWriter
         _bytesWritten += w;
     }
 
+    /// <summary>
+    /// Writes a string value from pre-encoded UTF-8 bytes. The bytes are
+    /// escaped but NOT validated: invalid UTF-8 sequences are written
+    /// verbatim and produce invalid JSON output. Callers must supply valid
+    /// UTF-8 (e.g. the output of <see cref="Encoding.UTF8.GetBytes(string)"/>).
+    /// </summary>
     public void WriteString(ReadOnlySpan<byte> utf8Value)
     {
         BeforeWriteValue();

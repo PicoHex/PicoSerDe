@@ -20,6 +20,7 @@ internal readonly record struct TypeInfo(
     ImmutableArray<CtorParamInfo> CtorParams = default,
     string? TypeTag = null,
     bool IsRefLikeType = false,
+    bool IsValueType = false,
     string? DiscriminatorPropertyName = null,
     ImmutableArray<DerivedTypeInfo> DerivedTypes = default,
     // Non-null when this TypeInfo represents a top-level array or list type (e.g. string[], List<int>).
@@ -40,6 +41,7 @@ internal readonly record struct TypeInfo(
         && CtorParams.SequenceEqual(other.CtorParams)
         && TypeTag == other.TypeTag
         && IsRefLikeType == other.IsRefLikeType
+        && IsValueType == other.IsValueType
         && IsTopLevelList == other.IsTopLevelList
         && DiscriminatorPropertyName == other.DiscriminatorPropertyName
         && DerivedTypes.SequenceEqual(other.DerivedTypes);
@@ -270,6 +272,25 @@ internal static class GenInfrastructure
         kind is "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal";
 
     /// <summary>
+    /// True for TypeKinds backed by .NET value types (structs). Used for
+    /// WhenWritingDefault guards where '!= default' is the correct check.
+    /// </summary>
+    public static bool IsValueTypeKind(string kind) =>
+        kind
+            is "int32"
+                or "int64"
+                or "float32"
+                or "float64"
+                or "boolean"
+                or "decimal"
+                or "guid"
+                or "datetime"
+                or "dateonly"
+                or "timeonly"
+                or "timespan"
+                or "enum";
+
+    /// <summary>
     /// True for members whose TypeKind is handled by dedicated emit paths
     /// (nested objects and dictionaries) and therefore skipped in flat
     /// member loops such as poly dispatch.
@@ -330,7 +351,8 @@ internal static class GenInfrastructure
             ns,
             namedType.Name,
             properties.ToImmutableArray(),
-            IsRefLikeType: namedType.IsRefLikeType
+            IsRefLikeType: namedType.IsRefLikeType,
+            IsValueType: namedType.IsValueType
         );
     }
 
@@ -975,8 +997,12 @@ internal static class GenInfrastructure
             foreach (var param in ctor.Parameters)
             {
                 var (typeKind, _, _) = TypeKindResolver.Resolve(param.Type, formatTag);
+                // An unsupported parameter type cannot be constructed by the
+                // generated deserializer — fall back to the parameterless
+                // constructor instead of emitting a constructor call with a
+                // missing argument (which would fail compilation).
                 if (typeKind is null)
-                    continue;
+                    return null;
                 ctorParams.Add(
                     new CtorParamInfo(
                         param.Name,
@@ -1079,26 +1105,27 @@ internal static class GenInfrastructure
                 if (primary is not null)
                 {
                     var ctorList = ImmutableArray.CreateBuilder<CtorParamInfo>();
+                    bool anyUnsupported = false;
                     foreach (var param in primary.Parameters)
                     {
                         var (typeKind, _, _) = TypeKindResolver.Resolve(
                             param.Type,
                             config.FormatTag
                         );
-                        if (typeKind is not null)
+                        if (typeKind is null)
                         {
-                            ctorList.Add(
-                                new CtorParamInfo(
-                                    param.Name,
-                                    typeKind,
-                                    param.Type.ToDisplayString(
-                                        SymbolDisplayFormat.FullyQualifiedFormat
-                                    )
-                                )
-                            );
+                            anyUnsupported = true;
+                            break;
                         }
+                        ctorList.Add(
+                            new CtorParamInfo(
+                                param.Name,
+                                typeKind,
+                                param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                            )
+                        );
                     }
-                    ctorParams = ctorList.ToImmutable();
+                    ctorParams = anyUnsupported ? null : ctorList.ToImmutable();
                 }
             }
 

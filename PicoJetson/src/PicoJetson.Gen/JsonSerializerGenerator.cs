@@ -1,8 +1,8 @@
 namespace PicoJetson.Gen;
 
+using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
-using Microsoft.CodeAnalysis.CSharp;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -26,14 +26,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly DiagnosticDescriptor AnonRequiresCSharp12 = new(
-        id: "PICOJETSON003", title: "Anonymous types require C# 12+",
-        messageFormat: "Anonymous type serialization requires C# 12 or later.",
-        category: "PicoJetson.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        id: "PICOJETSON003",
+        title: "Anonymous types require C# 12+",
+        messageFormat: "Anonymous type serialization requires C# 12 or later",
+        category: "PicoJetson.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly DiagnosticDescriptor AnonRequiresUnsafe = new(
-        id: "PICOJETSON004", title: "Requires AllowUnsafeBlocks",
-        messageFormat: "Anonymous type serialization requires <AllowUnsafeBlocks>true</AllowUnsafeBlocks>.",
-        category: "PicoJetson.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        id: "PICOJETSON004",
+        title: "Requires AllowUnsafeBlocks",
+        messageFormat: "Anonymous type serialization requires AllowUnsafeBlocks to be enabled",
+        category: "PicoJetson.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly DiagnosticDescriptor EmptyTypeName = new(
         id: "PICOJETSON002",
@@ -53,10 +61,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly PicoSerDe.Gen.AnonFormatConfig AnonCfg = new(
-        HasNullLiteral: true, EmbedsKeyInValue: false,
-        ObjectStartMethod: "WriteStartObject", ObjectEndMethod: "WriteEndObject",
-        ObjectStartNeedsCount: false, HasIndentedMaxDepth: true,
-        KeyIsEncodedString: false, HasNamingPolicy: true, HasOptionsParam: true
+        HasNullLiteral: true,
+        EmbedsKeyInValue: false,
+        ObjectStartMethod: "WriteStartObject",
+        ObjectEndMethod: "WriteEndObject",
+        ObjectStartNeedsCount: false,
+        HasIndentedMaxDepth: true,
+        KeyIsEncodedString: false,
+        HasNamingPolicy: true,
+        HasOptionsParam: true
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -117,41 +130,65 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         );
 
         // Pipeline-Anon: anonymous type serialization via interceptors
-        var anonDriven = context.SyntaxProvider.CreateSyntaxProvider(
-            predicate: (n, _) => IsCandidate(n),
-            transform: (ctx, _) =>
-            {
-                var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
-                if (comp.LanguageVersion < LanguageVersion.CSharp12) return null;
-                if (!comp.Options.AllowUnsafe) return null;
-                if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m) return null;
-                if (m.TypeArguments.Length != 1) return null;
-                if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType) return null;
-                if (m.ContainingType.Name != Config.SerializerClassName || m.ContainingType.ContainingNamespace?.ToDisplayString() != Config.Namespace) return null;
-                return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
-            }
-        ).Where(a => a is not null);
+        var anonDriven = context
+            .SyntaxProvider.CreateSyntaxProvider(
+                predicate: (n, _) => IsCandidate(n),
+                transform: (ctx, _) =>
+                {
+                    var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
+                    if (comp.LanguageVersion < LanguageVersion.CSharp12)
+                        return null;
+                    if (!comp.Options.AllowUnsafe)
+                        return null;
+                    if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
+                        return null;
+                    if (m.TypeArguments.Length != 1)
+                        return null;
+                    if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType)
+                        return null;
+                    if (
+                        m.ContainingType.Name != Config.SerializerClassName
+                        || m.ContainingType.ContainingNamespace?.ToDisplayString()
+                            != Config.Namespace
+                    )
+                        return null;
+                    return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
+                }
+            )
+            .Where(a => a is not null);
 
         var anonOut = anonDriven.Collect().Combine(asmName);
-        context.RegisterSourceOutput(anonOut, (spc, pair) =>
-        {
-            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
-            foreach (var ai in pair.Left)
+        context.RegisterSourceOutput(
+            anonOut,
+            (spc, pair) =>
             {
-                if (ai is not { } info) continue;
-                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config, AnonCfg,
-                    (f, vv, wv) => EmitJsonValue(f, vv, wv));
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
+                foreach (var ai in pair.Left)
+                {
+                    if (ai is not { } info)
+                        continue;
+                    PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(
+                        spc,
+                        info,
+                        Config,
+                        AnonCfg,
+                        (f, vv, wv) => EmitJsonValue(f, vv, wv)
+                    );
+                }
             }
-        });
+        );
 
-        context.RegisterSourceOutput(context.CompilationProvider, (spc, comp) =>
-        {
-            var csComp = (CSharpCompilation)comp;
-            if (csComp.LanguageVersion < LanguageVersion.CSharp12)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
-            else if (!csComp.Options.AllowUnsafe)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
-        });
+        context.RegisterSourceOutput(
+            context.CompilationProvider,
+            (spc, comp) =>
+            {
+                var csComp = (CSharpCompilation)comp;
+                if (csComp.LanguageVersion < LanguageVersion.CSharp12)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
+                else if (!csComp.Options.AllowUnsafe)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
+            }
+        );
 
         // Merge all pipelines into one output
         var all = usageDriven
@@ -258,7 +295,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             return null;
 
         if (!hasCtor)
+        {
+            // The generated deserializer constructs the type with new() when
+            // there is no constructor path. Skip types that cannot be
+            // constructed that way instead of emitting code that fails
+            // compilation.
+            bool hasParameterless = false;
+            foreach (var c in namedType.Constructors)
+                if (c.DeclaredAccessibility == Accessibility.Public && c.Parameters.Length == 0)
+                {
+                    hasParameterless = true;
+                    break;
+                }
+            if (!hasParameterless)
+                return null;
             return ti;
+        }
 
         // Check for [JsonConstructor] on the target type
         if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol method2)
@@ -281,22 +333,27 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (primary is not null)
             {
                 var list = new List<CtorParamInfo>();
+                bool anyUnsupported = false;
                 foreach (var param in primary.Parameters)
                 {
                     var (typeKind, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(
                         param.Type,
                         Config.FormatTag
                     );
-                    if (typeKind is not null)
-                        list.Add(
-                            new CtorParamInfo(
-                                param.Name,
-                                typeKind,
-                                param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
-                            )
-                        );
+                    if (typeKind is null)
+                    {
+                        anyUnsupported = true;
+                        break;
+                    }
+                    list.Add(
+                        new CtorParamInfo(
+                            param.Name,
+                            typeKind,
+                            param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                        )
+                    );
                 }
-                ctorParams = list.ToArray();
+                ctorParams = anyUnsupported ? null : list.ToArray();
             }
         }
 
@@ -526,6 +583,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 // Merge: if new entry has DerivedTypes but existing doesn't, use new
                 if (!type.DerivedTypes.IsDefaultOrEmpty && existing.DerivedTypes.IsDefaultOrEmpty)
                     typeMap[type.FullyQualifiedName] = type;
+                // Prefer the entry with richer property info: the polymorphic
+                // pipeline merges inherited base-class properties into derived
+                // types, while other pipelines may only see the type's own
+                // (possibly empty) member list.
+                else if (type.Properties.Length > existing.Properties.Length)
+                    typeMap[type.FullyQualifiedName] = type;
                 // If existing has DerivedTypes, keep it (first poly wins)
             }
             else
@@ -661,6 +724,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("();");
         }
         sb.AppendLine(
+            "        if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+        );
+        foreach (var rp in props.Where(p => p.IsRequired))
+        {
+            sb.Append("        bool __seen_");
+            sb.Append(rp.Name);
+            sb.AppendLine(" = false;");
+        }
+        sb.AppendLine(
             "        while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
         );
         sb.AppendLine("        {");
@@ -679,13 +751,35 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             );
             sb.AppendLine("            {");
             EmitDeserializeProperty(sb, np, "obj", "                ");
+            if (np.IsRequired)
+            {
+                sb.Append("                __seen_");
+                sb.Append(np.Name);
+                sb.AppendLine(" = true;");
+            }
             sb.AppendLine("            }");
         }
         if (props.Length > 0)
+        {
+            sb.AppendLine(
+                "            else if (PicoJetson.JsonOptions.Current?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
+            );
+            sb.AppendLine(
+                "                throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(__n)}' at offset {reader.BytesConsumed}\");"
+            );
             sb.AppendLine("            else reader.TrySkip();");
+        }
         else
             sb.AppendLine("            reader.TrySkip();");
         sb.AppendLine("        }");
+        foreach (var rp in props.Where(p => p.IsRequired))
+        {
+            sb.Append("        if (!__seen_");
+            sb.Append(rp.Name);
+            sb.Append(") throw new System.FormatException(\"Missing required property '");
+            sb.Append(EscapeCSharpString(rp.JsonName));
+            sb.AppendLine("'.\");");
+        }
         sb.AppendLine("        return obj;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -1356,38 +1450,121 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     indent
                 );
             case "WhenWritingDefault":
-                if (!PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(prop))
-                    return false;
-                sb.Append(indent);
-                sb.Append("if (");
-                sb.Append(accessor);
-                if (PicoSerDe.Gen.GenInfrastructure.IsValueDefaultKind(prop.TypeKind))
-                    sb.AppendLine(" != default)");
-                else
-                    sb.AppendLine(" != null)");
-                sb.Append(indent);
-                sb.AppendLine("{");
-                return true;
+                return EmitDefaultGuard(sb, prop, accessor, indent);
         }
-        if (!(PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(prop)))
-            return false;
-        sb.Append(indent);
-        sb.AppendLine(
-            "if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
-        );
-        sb.Append(indent);
-        sb.AppendLine("    ? " + accessor + " != null");
-        sb.Append(indent);
-        sb.AppendLine(
-            "    : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
-        );
-        sb.Append(indent);
-        if (PicoSerDe.Gen.GenInfrastructure.IsValueDefaultKind(prop.TypeKind))
-            sb.AppendLine("    ? " + accessor + " != default");
+
+        if (IsNullableValueType(prop))
+        {
+            // Nullable<T>: omitted when null (WhenWritingNull) or when null
+            // or holding default(T) (WhenWritingDefault).
+            sb.Append(indent);
+            sb.AppendLine(
+                "if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
+            );
+            sb.Append(indent);
+            sb.Append("    ? ");
+            sb.Append(accessor);
+            sb.AppendLine(".HasValue");
+            sb.Append(indent);
+            sb.AppendLine(
+                "    : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+            );
+            sb.Append(indent);
+            sb.Append("    ? (");
+            sb.Append(accessor);
+            sb.Append(".HasValue && ");
+            sb.Append(accessor);
+            sb.AppendLine(".Value != default)");
+            sb.Append(indent);
+            sb.AppendLine("    : true)");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            return true;
+        }
+
+        if (PicoSerDe.Gen.GenInfrastructure.IsValueTypeKind(prop.TypeKind))
+        {
+            // Non-nullable value type: only WhenWritingDefault can omit it.
+            sb.Append(indent);
+            sb.AppendLine(
+                "if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+            );
+            sb.Append(indent);
+            sb.Append("    || ");
+            sb.Append(accessor);
+            sb.AppendLine(" != default)");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            return true;
+        }
+
+        if (prop.IsNullableReference)
+        {
+            sb.Append(indent);
+            sb.AppendLine(
+                "if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
+            );
+            sb.Append(indent);
+            sb.Append("    ? ");
+            sb.Append(accessor);
+            sb.AppendLine(" != null");
+            sb.Append(indent);
+            sb.AppendLine(
+                "    : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+            );
+            sb.Append(indent);
+            sb.Append("    ? ");
+            sb.Append(accessor);
+            sb.AppendLine(" != null");
+            sb.Append(indent);
+            sb.AppendLine("    : true)");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>True for Nullable&lt;T&gt; properties (value types wrapped in Nullable).</summary>
+    private static bool IsNullableValueType(PropertyInfo p) =>
+        p.IsNullable && !p.IsNullableReference;
+
+    /// <summary>Emits the per-property WhenWritingDefault guard.</summary>
+    private static bool EmitDefaultGuard(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string accessor,
+        string indent
+    )
+    {
+        if (IsNullableValueType(prop))
+        {
+            sb.Append(indent);
+            sb.Append("if (");
+            sb.Append(accessor);
+            sb.Append(".HasValue && ");
+            sb.Append(accessor);
+            sb.AppendLine(".Value != default)");
+        }
+        else if (PicoSerDe.Gen.GenInfrastructure.IsValueTypeKind(prop.TypeKind))
+        {
+            sb.Append(indent);
+            sb.Append("if (");
+            sb.Append(accessor);
+            sb.AppendLine(" != default)");
+        }
+        else if (PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(prop))
+        {
+            sb.Append(indent);
+            sb.Append("if (");
+            sb.Append(accessor);
+            sb.AppendLine(" != null)");
+        }
         else
-            sb.AppendLine("    ? " + accessor + " != null");
-        sb.Append(indent);
-        sb.AppendLine("    : true)");
+        {
+            return false;
+        }
         sb.Append(indent);
         sb.AppendLine("{");
         return true;
@@ -1444,9 +1621,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             case "string":
                 sb.Append(indent);
-                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                sb.Append("jw.WriteString(");
                 sb.Append(effectiveAccessor);
-                sb.AppendLine("));");
+                sb.AppendLine(");");
                 break;
             case "int32":
             case "int64":
@@ -1478,9 +1655,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 else
                     sb.AppendLine(".ToString(\"O\");");
                 sb.Append(indent);
-                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(__iso_");
+                sb.Append("jw.WriteString(__iso_");
                 sb.Append(prop.Name);
-                sb.AppendLine("));");
+                sb.AppendLine(");");
                 break;
             case "dateonly":
                 sb.Append(indent);
@@ -1508,9 +1685,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "guid":
                 sb.Append(indent);
-                sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                sb.Append("jw.WriteString(");
                 sb.Append(effectiveAccessor);
-                sb.AppendLine(".ToString()));");
+                sb.AppendLine(".ToString());");
                 break;
             case "enum":
                 sb.Append(indent);
@@ -1642,9 +1819,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(itemVar);
                     sb.AppendLine(" != null)");
                     sb.Append(indent);
-                    sb.Append("    jw.WriteString(Encoding.UTF8.GetBytes(");
+                    sb.Append("    jw.WriteString(");
                     sb.Append(itemVar);
-                    sb.AppendLine("));");
+                    sb.AppendLine(");");
                     sb.Append(indent);
                     sb.AppendLine("else");
                     sb.Append(indent);
@@ -1653,9 +1830,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 else
                 {
                     sb.Append(indent);
-                    sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
+                    sb.Append("jw.WriteString(");
                     sb.Append(itemVar);
-                    sb.AppendLine("));");
+                    sb.AppendLine(");");
                 }
                 break;
             case "int32":
@@ -1799,6 +1976,64 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(".DeserializeValue(ref reader);");
     }
 
+    /// <summary>
+    /// Emits a raw throw statement for an invalid property value. The property
+    /// name is escaped for safe embedding in the generated C# interpolated
+    /// string literal.
+    /// </summary>
+    private static void EmitThrowInvalidValue(
+        StringBuilder sb,
+        string indent,
+        PropertyInfo prop,
+        string expected
+    )
+    {
+        var name = EscapeCSharpString(prop.JsonName).Replace("{", "{{").Replace("}", "}}");
+        sb.Append(indent);
+        sb.Append("throw new System.FormatException($\"Expected ");
+        sb.Append(expected);
+        sb.Append(" value for property \\\"");
+        sb.Append(name);
+        sb.AppendLine("\\\" at offset {reader.BytesConsumed}\");");
+    }
+
+    /// <summary>Emits a token-kind check that throws when the current token is not <paramref name="tokenType"/>.</summary>
+    private static void EmitTokenCheck(
+        StringBuilder sb,
+        string indent,
+        PropertyInfo prop,
+        string tokenType
+    )
+    {
+        sb.Append(indent);
+        sb.Append("if (reader.TokenType != TokenType.");
+        sb.Append(tokenType);
+        sb.AppendLine(")");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        EmitThrowInvalidValue(sb, indent + "    ", prop, tokenType);
+        sb.Append(indent);
+        sb.AppendLine("}");
+    }
+
+    /// <summary>
+    /// Emits a token-kind check accepting String or numeric tokens. Used for
+    /// decimal and enum kinds, which are serialized as JSON numbers but also
+    /// accept string forms on input.
+    /// </summary>
+    private static void EmitStringOrNumberCheck(StringBuilder sb, string indent, PropertyInfo prop)
+    {
+        sb.Append(indent);
+        sb.AppendLine(
+            "if (reader.TokenType is not (TokenType.String or TokenType.Int32 or TokenType.Int64 or TokenType.Float32 or TokenType.Float64))"
+        );
+        sb.Append(indent);
+        sb.AppendLine("{");
+        EmitThrowInvalidValue(sb, indent + "    ", prop, "a string or number");
+        sb.Append(indent);
+        sb.AppendLine("}");
+    }
+
     // ── Deserializer emission ──
 
     private static void EmitDeserializer(StringBuilder sb, TypeInfo type)
@@ -1881,6 +2116,18 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
 
         sb.AppendLine("            reader.Read();");
+        if (!type.IsValueType)
+            sb.AppendLine("            if (reader.TokenType == TokenType.Null) return null!;");
+        sb.AppendLine(
+            "            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+        );
+        if (!hasCtor)
+            foreach (var rp in type.Properties.Where(p => p.IsRequired))
+            {
+                sb.Append("            bool __seen_");
+                sb.Append(rp.Name);
+                sb.AppendLine(" = false;");
+            }
         sb.AppendLine(
             "            while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
         );
@@ -1910,6 +2157,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             else
             {
                 EmitDeserializeProperty(sb, prop, "obj", "                    ");
+                if (prop.IsRequired)
+                {
+                    sb.Append("                    __seen_");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(" = true;");
+                }
             }
 
             sb.AppendLine("                }");
@@ -1929,6 +2182,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("                reader.TrySkip();");
 
         sb.AppendLine("            }");
+
+        if (!hasCtor)
+            foreach (var rp in type.Properties.Where(p => p.IsRequired))
+            {
+                sb.Append("            if (!__seen_");
+                sb.Append(rp.Name);
+                sb.Append(") throw new System.FormatException(\"Missing required property '");
+                sb.Append(EscapeCSharpString(rp.JsonName));
+                sb.AppendLine("'.\");");
+            }
+        sb.AppendLine(
+            "            if (reader.Read()) throw new System.FormatException($\"Unexpected data after the document at offset {reader.BytesConsumed}\");"
+        );
 
         if (hasCtor)
         {
@@ -1996,6 +2262,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         switch (cp.TypeKind)
         {
             case "string":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
@@ -2006,7 +2273,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("{");
                 sb.Append(indent);
-                sb.AppendLine("    reader.TryGetInt64(out var __lv);");
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
                 sb.Append(indent);
                 sb.AppendLine("    __v = checked((int)__lv);");
                 sb.Append(indent);
@@ -2017,107 +2285,125 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int64":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetInt64(out var __v);");
+                sb.AppendLine("if (!reader.TryGetInt64(out var __v))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a 64-bit integer");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __v;");
                 break;
             case "float32":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetFloat64(out var __v);");
+                sb.AppendLine("if (!reader.TryGetFloat64(out var __v))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a floating-point number");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = (float)__v;");
                 break;
             case "float64":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetFloat64(out var __v);");
+                sb.AppendLine("if (!reader.TryGetFloat64(out var __v))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a floating-point number");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __v;");
                 break;
             case "boolean":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetBool(out var __v);");
+                sb.AppendLine("if (!reader.TryGetBool(out var __v))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a boolean");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __v;");
                 break;
             case "enum":
+                EmitStringOrNumberCheck(sb, indent, prop);
                 sb.Append(indent);
                 sb.AppendLine(
                     "var __rawStr = System.Text.Encoding.UTF8.GetString(reader.GetStringRaw());"
                 );
                 sb.Append(indent);
-                sb.Append("System.Enum.TryParse<");
+                sb.Append("if (!System.Enum.TryParse<");
                 sb.Append(cp.TypeFullName);
-                sb.AppendLine(">(__rawStr, out var __ev);");
+                sb.AppendLine(">(__rawStr, out var __ev))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "an enum value");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __ev;");
                 break;
             case "datetime":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.AppendLine(
-                    "System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                    "if (!System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt))"
                 );
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a DateTime");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __dt;");
                 break;
             case "guid":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
-                sb.AppendLine("System.Guid.TryParse(__rawBytes, out var __g);");
+                sb.AppendLine("if (!System.Guid.TryParse(__rawBytes, out var __g))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a Guid");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __g;");
                 break;
             case "decimal":
+                EmitStringOrNumberCheck(sb, indent, prop);
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine(
-                    "decimal.TryParse(__rawBytes, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __dec);"
+                    "if (!decimal.TryParse(__rawBytes, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __dec))"
                 );
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a decimal number");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __dec;");
                 break;
             case "dateonly":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.AppendLine("System.DateOnly.TryParse(__strValue, out var __dov);");
+                sb.AppendLine("if (!System.DateOnly.TryParse(__strValue, out var __dov))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a DateOnly");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __dov;");
                 break;
             case "timeonly":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.AppendLine("System.TimeOnly.TryParse(__strValue, out var __tov);");
+                sb.AppendLine("if (!System.TimeOnly.TryParse(__strValue, out var __tov))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a TimeOnly");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __tov;");
                 break;
             case "timespan":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.AppendLine("System.TimeSpan.TryParse(__strValue, out var __tsv);");
+                sb.AppendLine("if (!System.TimeSpan.TryParse(__strValue, out var __tsv))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a TimeSpan");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __tsv;");
@@ -2308,6 +2594,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         switch (prop.TypeKind)
         {
             case "string":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2320,7 +2607,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("{");
                 sb.Append(indent);
-                sb.AppendLine("    reader.TryGetInt64(out var __lv);");
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
                 sb.Append(indent);
                 sb.AppendLine("    __intValue = checked((int)__lv);");
                 sb.Append(indent);
@@ -2333,7 +2621,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int64":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetInt64(out var __longValue);");
+                sb.AppendLine("if (!reader.TryGetInt64(out var __longValue))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a 64-bit integer");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2342,7 +2631,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "float64":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetFloat64(out var __doubleValue);");
+                sb.AppendLine("if (!reader.TryGetFloat64(out var __doubleValue))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a floating-point number");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2351,7 +2641,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "float32":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetFloat64(out var __floatValue);");
+                sb.AppendLine("if (!reader.TryGetFloat64(out var __floatValue))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a floating-point number");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2360,7 +2651,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "boolean":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetBool(out var __boolValue);");
+                sb.AppendLine("if (!reader.TryGetBool(out var __boolValue))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a boolean");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2368,6 +2660,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(" = __boolValue;");
                 break;
             case "datetime":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
@@ -2375,22 +2668,23 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 if (prop.DateTimeFormat is not null)
                 {
-                    sb.Append("System.DateTime.TryParseExact(__strValue, \"");
+                    sb.Append("if (!System.DateTime.TryParseExact(__strValue, \"");
                     sb.Append(prop.DateTimeFormat);
                     sb.Append(
                         "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __dt_"
                     );
                     sb.Append(prop.Name);
-                    sb.AppendLine(");");
+                    sb.AppendLine("))");
                 }
                 else
                 {
                     sb.Append(
-                        "System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt_"
+                        "if (!System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt_"
                     );
                     sb.Append(prop.Name);
-                    sb.AppendLine(");");
+                    sb.AppendLine("))");
                 }
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a DateTime");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2400,10 +2694,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(";");
                 break;
             case "guid":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
-                sb.AppendLine("System.Guid.TryParse(__rawBytes, out var __guidValue);");
+                sb.AppendLine("if (!System.Guid.TryParse(__rawBytes, out var __guidValue))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a Guid");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2411,12 +2707,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(" = __guidValue;");
                 break;
             case "decimal":
+                EmitStringOrNumberCheck(sb, indent, prop);
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine(
-                    "decimal.TryParse(__rawBytes, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decimalValue);"
+                    "if (!decimal.TryParse(__rawBytes, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decimalValue))"
                 );
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a decimal number");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2424,12 +2722,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(" = __decimalValue;");
                 break;
             case "dateonly":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.AppendLine("System.DateOnly.TryParse(__strValue, out var __dateOnlyValue);");
+                sb.AppendLine(
+                    "if (!System.DateOnly.TryParse(__strValue, out var __dateOnlyValue))"
+                );
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a DateOnly");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2437,12 +2739,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(" = __dateOnlyValue;");
                 break;
             case "timeonly":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.AppendLine("System.TimeOnly.TryParse(__strValue, out var __timeOnlyValue);");
+                sb.AppendLine(
+                    "if (!System.TimeOnly.TryParse(__strValue, out var __timeOnlyValue))"
+                );
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a TimeOnly");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2450,12 +2756,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(" = __timeOnlyValue;");
                 break;
             case "timespan":
+                EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.AppendLine("System.TimeSpan.TryParse(__strValue, out var __timeSpanValue);");
+                sb.AppendLine(
+                    "if (!System.TimeSpan.TryParse(__strValue, out var __timeSpanValue))"
+                );
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a TimeSpan");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2463,14 +2773,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(" = __timeSpanValue;");
                 break;
             case "enum":
+                EmitStringOrNumberCheck(sb, indent, prop);
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.Append("System.Enum.TryParse<");
+                sb.Append("if (!System.Enum.TryParse<");
                 sb.Append(prop.TypeFullName);
-                sb.AppendLine(">(__strValue, out var __enumValue);");
+                sb.AppendLine(">(__strValue, out var __enumValue))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "an enum value");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -2687,35 +2999,46 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         switch (prop.ElementTypeKind!)
         {
             case "string":
-                if (prop.ElementIsNullableReference)
-                {
-                    sb.Append(indent);
-                    sb.AppendLine("if (reader.TokenType == TokenType.Null)");
-                    sb.Append(indent);
-                    sb.Append("    ");
-                    sb.Append(listVar);
-                    sb.AppendLine(".Add(null!);");
-                    sb.Append(indent);
-                    sb.AppendLine("else");
-                    sb.Append(indent);
-                    sb.Append("    ");
-                    sb.Append(listVar);
-                    sb.AppendLine(".Add(Encoding.UTF8.GetString(reader.GetStringRaw()));");
-                }
-                else
-                {
-                    sb.Append(indent);
-                    sb.Append(listVar);
-                    sb.AppendLine(".Add(Encoding.UTF8.GetString(reader.GetStringRaw()));");
-                }
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.Append("    ");
+                sb.Append(listVar);
+                sb.AppendLine(".Add(null!);");
+                sb.Append(indent);
+                sb.AppendLine("else");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (reader.TokenType != TokenType.String)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected a string element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.Append("    ");
+                sb.Append(listVar);
+                sb.AppendLine(".Add(Encoding.UTF8.GetString(reader.GetStringRaw()));");
+                sb.Append(indent);
+                sb.AppendLine("}");
                 break;
             case "int32":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue))");
                 sb.Append(indent);
                 sb.AppendLine("{");
                 sb.Append(indent);
-                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.AppendLine("    __elementValue = checked((int)__lev);");
                 sb.Append(indent);
@@ -2726,40 +3049,90 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int64":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetInt64(out var __elementValue);");
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt64(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit integer element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__elementValue);");
                 break;
             case "float32":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetFloat64(out var __elementValue);");
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetFloat64(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add((float)__elementValue);");
                 break;
             case "float64":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetFloat64(out var __elementValue);");
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetFloat64(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__elementValue);");
                 break;
             case "boolean":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetBool(out var __elementValue);");
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a boolean element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetBool(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a boolean element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__elementValue);");
                 break;
             case "datetime":
                 sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType != TokenType.String)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a DateTime element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.AppendLine(
-                    "System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dateTimeValue);"
+                    "if (!System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dateTimeValue))"
+                );
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid DateTime element at offset {reader.BytesConsumed}\");"
                 );
                 sb.Append(indent);
                 sb.Append(listVar);
@@ -2767,19 +3140,41 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "guid":
                 sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType != TokenType.String)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a Guid element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
-                sb.AppendLine("System.Guid.TryParse(__rawBytes, out var __guidValue);");
+                sb.AppendLine("if (!System.Guid.TryParse(__rawBytes, out var __guidValue))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid Guid element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__guidValue);");
                 break;
             case "decimal":
                 sb.Append(indent);
+                sb.AppendLine(
+                    "if (reader.TokenType is not (TokenType.String or TokenType.Int32 or TokenType.Int64 or TokenType.Float32 or TokenType.Float64))"
+                );
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a decimal element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
                 sb.AppendLine(
-                    "decimal.TryParse(__rawBytes, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decimalValue);"
+                    "if (!decimal.TryParse(__rawBytes, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decimalValue))"
+                );
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid decimal element at offset {reader.BytesConsumed}\");"
                 );
                 sb.Append(indent);
                 sb.Append(listVar);
@@ -2854,21 +3249,39 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             case "dateonly":
                 sb.Append(indent);
-                sb.AppendLine("System.DateOnly.TryParse(__strValue, out var __dateOnlyValue);");
+                sb.AppendLine(
+                    "if (!System.DateOnly.TryParse(__strValue, out var __dateOnlyValue))"
+                );
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid DateOnly element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__dateOnlyValue);");
                 break;
             case "timeonly":
                 sb.Append(indent);
-                sb.AppendLine("System.TimeOnly.TryParse(__strValue, out var __timeOnlyValue);");
+                sb.AppendLine(
+                    "if (!System.TimeOnly.TryParse(__strValue, out var __timeOnlyValue))"
+                );
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid TimeOnly element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__timeOnlyValue);");
                 break;
             case "timespan":
                 sb.Append(indent);
-                sb.AppendLine("System.TimeSpan.TryParse(__strValue, out var __timeSpanValue);");
+                sb.AppendLine(
+                    "if (!System.TimeSpan.TryParse(__strValue, out var __timeSpanValue))"
+                );
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid TimeSpan element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__timeSpanValue);");
@@ -2896,19 +3309,31 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
-                sb.AppendLine("int.TryParse(__rawBytes, out var __dictKey);");
+                sb.AppendLine("if (!int.TryParse(__rawBytes, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid integer dictionary key at offset {reader.BytesConsumed}\");"
+                );
                 break;
             case "int64":
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
-                sb.AppendLine("long.TryParse(__rawBytes, out var __dictKey);");
+                sb.AppendLine("if (!long.TryParse(__rawBytes, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid 64-bit dictionary key at offset {reader.BytesConsumed}\");"
+                );
                 break;
             case "guid":
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
                 sb.Append(indent);
-                sb.AppendLine("System.Guid.TryParse(__rawBytes, out var __dictKey);");
+                sb.AppendLine("if (!System.Guid.TryParse(__rawBytes, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid Guid dictionary key at offset {reader.BytesConsumed}\");"
+                );
                 break;
             case "enum":
                 sb.Append(indent);
@@ -2916,9 +3341,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
-                sb.Append("System.Enum.TryParse<");
+                sb.Append("if (!System.Enum.TryParse<");
                 sb.Append(prop.KeyTypeName);
-                sb.AppendLine(">(__strValue, out var __dictKey);");
+                sb.AppendLine(">(__strValue, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid enum dictionary key at offset {reader.BytesConsumed}\");"
+                );
                 break;
             default:
                 sb.Append(indent);
@@ -3227,11 +3656,25 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("();");
             }
         }
+        if (!hasCtor)
+            foreach (var rp in type.Properties.Where(p => p.IsRequired))
+            {
+                sb.Append("        bool __seen_");
+                sb.Append(rp.Name);
+                sb.AppendLine(" = false;");
+            }
         sb.AppendLine();
         sb.AppendLine("        // ReadStart");
         sb.AppendLine(
             "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
         );
+        sb.AppendLine(
+            "        if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+        );
+        if (!type.IsValueType)
+            sb.AppendLine(
+                "        if (reader.TokenType == TokenType.Null) return ReadStatus.Success;"
+            );
         sb.AppendLine();
         sb.AppendLine("        while (true)");
         sb.AppendLine("        {");
@@ -3258,7 +3701,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (hasCtor)
                 EmitDeserializeCtorParam(sb, prop, type, "                ");
             else
+            {
                 EmitDeserializeProperty(sb, prop, "result", "                ");
+                if (prop.IsRequired)
+                {
+                    sb.Append("                __seen_");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(" = true;");
+                }
+            }
             sb.AppendLine("            }");
         }
         if (type.Properties.Length > 0)
@@ -3280,6 +3731,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             }
             sb.AppendLine(");");
         }
+        if (!hasCtor)
+            foreach (var rp in type.Properties.Where(p => p.IsRequired))
+            {
+                sb.Append("        if (!__seen_");
+                sb.Append(rp.Name);
+                sb.Append(") throw new System.FormatException(\"Missing required property '");
+                sb.Append(EscapeCSharpString(rp.JsonName));
+                sb.AppendLine("'.\");");
+            }
         sb.AppendLine("        return ReadStatus.Success;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -3374,6 +3834,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "            var jw = new JsonWriter(writer, indented: PicoJetson.JsonOptions.Current?.Indented ?? false, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 63);"
         );
+        if (!type.IsValueType)
+        {
+            sb.AppendLine("            if (value is null)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                jw.WriteNull();");
+            sb.AppendLine("                return;");
+            sb.AppendLine("            }");
+        }
         sb.AppendLine("            jw.WriteStartObject();");
         sb.Append("            jw.WritePropertyName(Encoding.UTF8.GetBytes(\"");
         sb.Append(EscapeCSharpString(dpn));
@@ -3384,13 +3852,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
         foreach (var dt in type.DerivedTypes)
         {
-            var dtShort = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
             var dtProps = derivedLookup.TryGetValue(dt.FullyQualifiedName, out var dti)
                 ? dti.Properties
                 : ImmutableArray<PropertyInfo>.Empty;
 
+            // Fully-qualified pattern: avoids CS collisions when two derived
+            // types share the same short name in different namespaces.
             sb.Append("                case ");
-            sb.Append(dtShort);
+            sb.Append(dt.FullyQualifiedName);
             sb.AppendLine(" __v:");
             sb.Append("                    jw.WriteString(Encoding.UTF8.GetBytes(\"");
             sb.Append(EscapeCSharpString(dt.TypeDiscriminator));
@@ -3440,7 +3909,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         );
         var dpn = type.DiscriminatorPropertyName ?? "$type";
 
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
         sb.AppendLine("            reader.Read(); // {");
+        if (!type.IsValueType)
+            sb.AppendLine("            if (reader.TokenType == TokenType.Null) return null!;");
         sb.AppendLine("            reader.Read(); // discriminator property name");
         sb.Append("            if (!TextHelpers.Eq(reader.GetStringRaw(), \"");
         sb.Append(EscapeCSharpString(dpn));
@@ -3472,8 +3945,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("\"u8, false))");
             sb.AppendLine("            {");
 
-            // Emit derived type deserialization inline
-            var dtName = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
+            // Emit derived type deserialization inline (fully-qualified type
+            // name to avoid short-name collisions across namespaces).
+            var dtName = dt.FullyQualifiedName;
             if (hasCtor)
             {
                 for (int ci = 0; ci < dti.CtorParams.Length; ci++)
@@ -3559,6 +4033,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "            throw new System.FormatException($\"Unknown type discriminator: {System.Text.Encoding.UTF8.GetString(__disc)}\");"
         );
+        sb.AppendLine("            }");
+        sb.AppendLine("            finally");
+        sb.AppendLine("            {");
+        sb.AppendLine("                reader.Dispose();");
+        sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
     }
@@ -3627,7 +4106,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 ? ImmutableArray<PropertyInfo>.Empty
                 : dti.Properties;
             var hasCtor = !dti.CtorParams.IsDefaultOrEmpty && dti.CtorParams.Length > 0;
-            var dtName = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
+            var dtName = dt.FullyQualifiedName;
 
             sb.Append("        ");
             sb.Append(keyword);
@@ -3919,7 +4398,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             case "string":
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteString(System.Text.Encoding.UTF8.GetBytes(__item));");
+                sb.AppendLine("jw.WriteString(__item);");
                 break;
             case "int32":
             case "int64":
@@ -3992,25 +4471,27 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(">();");
         sb.AppendLine("            try");
         sb.AppendLine("            {");
+        sb.AppendLine("                if (!reader.Read())");
         sb.AppendLine(
-            "                if (!reader.Read() || reader.TokenType != TokenType.ArrayStart)"
+            "                    throw new System.FormatException(\"Empty JSON input.\");"
         );
+        sb.AppendLine("                if (reader.TokenType == TokenType.Null)");
         if (isList)
-        {
-            sb.AppendLine("                    return __list;");
-        }
+            sb.AppendLine("                    return null!;");
         else
-        {
-            sb.Append("                    return Array.Empty<");
-            sb.Append(elemCsType);
-            sb.AppendLine(">();");
-        }
+            sb.AppendLine("                    return null!;");
+        sb.AppendLine(
+            "                if (reader.TokenType != TokenType.ArrayStart) throw new System.FormatException($\"Expected a JSON array at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+        );
         sb.AppendLine(
             "                while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
         );
         sb.AppendLine("                {");
         EmitArrayElementDeserialize(sb, elemKind, elemTypeName, "                    ");
         sb.AppendLine("                }");
+        sb.AppendLine(
+            "                if (reader.Read()) throw new System.FormatException($\"Unexpected data after the document at offset {reader.BytesConsumed}\");"
+        );
         if (isList)
         {
             sb.AppendLine("                return __list;");
@@ -4059,17 +4540,43 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             case "string":
                 sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine("    __list.Add(null!);");
+                sb.Append(indent);
+                sb.AppendLine("else");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (reader.TokenType != TokenType.String)");
+                sb.Append(indent);
                 sb.AppendLine(
-                    "__list.Add(System.Text.Encoding.UTF8.GetString(reader.GetStringRaw()));"
+                    "        throw new System.FormatException($\"Expected a string element at offset {reader.BytesConsumed}\");"
                 );
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    __list.Add(System.Text.Encoding.UTF8.GetString(reader.GetStringRaw()));"
+                );
+                sb.Append(indent);
+                sb.AppendLine("}");
                 break;
             case "int32":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.AppendLine("if (!reader.TryGetInt32(out var __ev))");
                 sb.Append(indent);
                 sb.AppendLine("{");
                 sb.Append(indent);
-                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.AppendLine("    __ev = checked((int)__lev);");
                 sb.Append(indent);
@@ -4079,25 +4586,65 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int64":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetInt64(out var __ev);");
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt64(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit integer element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.AppendLine("__list.Add(__ev);");
                 break;
             case "float32":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetFloat64(out var __ev);");
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetFloat64(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.AppendLine("__list.Add((float)__ev);");
                 break;
             case "float64":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetFloat64(out var __ev);");
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetFloat64(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.AppendLine("__list.Add(__ev);");
                 break;
             case "boolean":
                 sb.Append(indent);
-                sb.AppendLine("reader.TryGetBool(out var __ev);");
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a boolean element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetBool(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a boolean element at offset {reader.BytesConsumed}\");"
+                );
                 sb.Append(indent);
                 sb.AppendLine("__list.Add(__ev);");
                 break;
@@ -4187,6 +4734,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
         );
+        sb.AppendLine(
+            "        if (reader.TokenType != TokenType.ArrayStart) throw new System.FormatException($\"Expected a JSON array at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+        );
+        sb.AppendLine("        if (reader.TokenType == TokenType.Null) return ReadStatus.Success;");
         sb.AppendLine();
         sb.AppendLine("        while (true)");
         sb.AppendLine("        {");
@@ -4209,15 +4760,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("}");
     }
 
-    private static string EmitJsonValue(AnonFieldInfo f, string vv, string wv)
-        => f.TypeKind switch
+    private static string EmitJsonValue(AnonFieldInfo f, string vv, string wv) =>
+        f.TypeKind switch
         {
-            "string"   => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}));",
+            "string" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}));",
             "int32" or "int64" or "float32" or "float64" or "decimal" => $"{wv}.WriteNumber({vv});",
-            "boolean"  => $"{wv}.WriteBoolean({vv});",
+            "boolean" => $"{wv}.WriteBoolean({vv});",
             "datetime" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString(\"O\")));",
-            "dateonly" or "timeonly" or "timespan" or "guid" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString()));",
-            _          => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}?.ToString() ?? \"\"));",
+            "dateonly" or "timeonly" or "timespan" or "guid" =>
+                $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString()));",
+            _ => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}?.ToString() ?? \"\"));",
         };
 
     /// <summary>

@@ -202,13 +202,18 @@ public ref struct TomlReader
 
     public bool TryGetBool(out bool v)
     {
-        if (_valueSpan.IsEmpty)
+        if (_valueSpan.SequenceEqual("true"u8))
+        {
+            v = true;
+            return true;
+        }
+        if (_valueSpan.SequenceEqual("false"u8))
         {
             v = false;
-            return false;
+            return true;
         }
-        v = _valueSpan[0] == (byte)'t';
-        return true;
+        v = false;
+        return false;
     }
 
     public bool TryGetFloat64(out double v)

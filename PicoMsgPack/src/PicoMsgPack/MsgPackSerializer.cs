@@ -137,27 +137,44 @@ public static partial class MsgPackSerializer
         where T : notnull
     {
         var pipe = PipeReader.Create(stream);
-        var state = default(MsgPackReaderState);
+        // StreamPipeReader may reuse its internal buffer, so previously
+        // returned data is not guaranteed to persist across ReadAsync calls.
+        // Copy every chunk into our own accumulator.
+        var accum = new ArrayBufferWriter<byte>(4096);
 
         while (true)
         {
             var r = await pipe.ReadAsync(ct);
-            var reader = new MsgPackReader(r.Buffer, r.IsCompleted, state);
+            foreach (var seg in r.Buffer)
+                accum.Write(seg.Span);
+            pipe.AdvanceTo(r.Buffer.End);
 
-            var status = func(ref reader, out var result);
+            // Re-parse from the beginning on every attempt: streaming
+            // deserializers do not preserve partially parsed state across
+            // NeedMoreData returns, so restarting is the only correct
+            // strategy. The reader is in sequence mode so partial tokens at
+            // the tail signal NeedMoreData instead of throwing.
+            var reader = new MsgPackReader(
+                new ReadOnlySequence<byte>(accum.WrittenMemory),
+                isFinalBlock: r.IsCompleted
+            );
 
-            if (status == ReadStatus.Success)
+            ReadStatus status;
+            try
             {
-                pipe.AdvanceTo(r.Buffer.End);
-                return result!;
+                status = func(ref reader, out var result);
+                if (status == ReadStatus.Success)
+                    return result!;
+            }
+            finally
+            {
+                reader.Dispose();
             }
 
             if (status == ReadStatus.NeedMoreData)
             {
                 if (r.IsCompleted)
                     throw new FormatException("Unexpected end of stream while parsing.");
-                state = reader.ExportState();
-                pipe.AdvanceTo(state.Position, r.Buffer.End);
                 continue;
             }
 

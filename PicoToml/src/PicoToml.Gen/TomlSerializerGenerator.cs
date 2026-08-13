@@ -1,7 +1,7 @@
 namespace PicoToml.Gen;
 
-using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using Microsoft.CodeAnalysis.CSharp;
+using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -16,14 +16,22 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly DiagnosticDescriptor AnonRequiresCSharp12 = new(
-        id: "PICOTOML003", title: "Anonymous types require C# 12+",
+        id: "PICOTOML003",
+        title: "Anonymous types require C# 12+",
         messageFormat: "Anonymous type serialization requires C# 12 or later.",
-        category: "PicoToml.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        category: "PicoToml.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly DiagnosticDescriptor AnonRequiresUnsafe = new(
-        id: "PICOTOML004", title: "Requires AllowUnsafeBlocks",
+        id: "PICOTOML004",
+        title: "Requires AllowUnsafeBlocks",
         messageFormat: "Anonymous type serialization requires <AllowUnsafeBlocks>true</AllowUnsafeBlocks>.",
-        category: "PicoToml.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        category: "PicoToml.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
         HasTomlCamelCase,
@@ -35,10 +43,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly PicoSerDe.Gen.AnonFormatConfig AnonCfg = new(
-        HasNullLiteral: false, EmbedsKeyInValue: true,
-        ObjectStartMethod: null, ObjectEndMethod: null,
-        ObjectStartNeedsCount: false, HasIndentedMaxDepth: false,
-        KeyIsEncodedString: false, HasNamingPolicy: false, HasOptionsParam: false
+        HasNullLiteral: false,
+        EmbedsKeyInValue: true,
+        ObjectStartMethod: null,
+        ObjectEndMethod: null,
+        ObjectStartNeedsCount: false,
+        HasIndentedMaxDepth: false,
+        KeyIsEncodedString: false,
+        HasNamingPolicy: false,
+        HasOptionsParam: false
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -99,41 +112,65 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         );
 
         // Pipeline-Anon: anonymous type serialization via interceptors
-        var anonDriven = context.SyntaxProvider.CreateSyntaxProvider(
-            predicate: (n, _) => IsCandidate(n),
-            transform: (ctx, _) =>
-            {
-                var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
-                if (comp.LanguageVersion < LanguageVersion.CSharp12) return null;
-                if (!comp.Options.AllowUnsafe) return null;
-                if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m) return null;
-                if (m.TypeArguments.Length != 1) return null;
-                if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType) return null;
-                if (m.ContainingType.Name != Config.SerializerClassName || m.ContainingType.ContainingNamespace?.ToDisplayString() != Config.Namespace) return null;
-                return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
-            }
-        ).Where(a => a is not null);
+        var anonDriven = context
+            .SyntaxProvider.CreateSyntaxProvider(
+                predicate: (n, _) => IsCandidate(n),
+                transform: (ctx, _) =>
+                {
+                    var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
+                    if (comp.LanguageVersion < LanguageVersion.CSharp12)
+                        return null;
+                    if (!comp.Options.AllowUnsafe)
+                        return null;
+                    if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
+                        return null;
+                    if (m.TypeArguments.Length != 1)
+                        return null;
+                    if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType)
+                        return null;
+                    if (
+                        m.ContainingType.Name != Config.SerializerClassName
+                        || m.ContainingType.ContainingNamespace?.ToDisplayString()
+                            != Config.Namespace
+                    )
+                        return null;
+                    return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
+                }
+            )
+            .Where(a => a is not null);
 
         var anonOut = anonDriven.Collect().Combine(asmName);
-        context.RegisterSourceOutput(anonOut, (spc, pair) =>
-        {
-            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
-            foreach (var ai in pair.Left)
+        context.RegisterSourceOutput(
+            anonOut,
+            (spc, pair) =>
             {
-                if (ai is not { } info) continue;
-                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config, AnonCfg,
-                    (f, vv, wv) => EmitTomlValue(f, vv, wv));
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
+                foreach (var ai in pair.Left)
+                {
+                    if (ai is not { } info)
+                        continue;
+                    PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(
+                        spc,
+                        info,
+                        Config,
+                        AnonCfg,
+                        (f, vv, wv) => EmitTomlValue(f, vv, wv)
+                    );
+                }
             }
-        });
+        );
 
-        context.RegisterSourceOutput(context.CompilationProvider, (spc, comp) =>
-        {
-            var csComp = (CSharpCompilation)comp;
-            if (csComp.LanguageVersion < LanguageVersion.CSharp12)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
-            else if (!csComp.Options.AllowUnsafe)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
-        });
+        context.RegisterSourceOutput(
+            context.CompilationProvider,
+            (spc, comp) =>
+            {
+                var csComp = (CSharpCompilation)comp;
+                if (csComp.LanguageVersion < LanguageVersion.CSharp12)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
+                else if (!csComp.Options.AllowUnsafe)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
+            }
+        );
 
         // Merge all pipelines into one output
         var all = usageDriven
@@ -147,11 +184,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             .Combine(polyPipeline.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
 
-        context.RegisterSourceOutput(all, static (spc, types) =>
-        {
-            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
-            GenerateAll(spc, types);
-        });
+        context.RegisterSourceOutput(
+            all,
+            static (spc, types) =>
+            {
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
+                GenerateAll(spc, types);
+            }
+        );
     }
 
     private static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
@@ -1522,7 +1562,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "int32":
                 s.AppendLine();
                 s.Append(pad);
-                s.AppendLine("    r.TryGetInt32(out var __dv);");
+                s.AppendLine(
+                    "    if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append("    ");
                 s.Append(tgt);
@@ -1533,7 +1575,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "int64":
                 s.AppendLine();
                 s.Append(pad);
-                s.AppendLine("    r.TryGetInt64(out var __dv);");
+                s.AppendLine(
+                    "    if (!r.TryGetInt64(out var __dv)) throw new System.FormatException($\"Expected a 64-bit integer at offset {r.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append("    ");
                 s.Append(tgt);
@@ -1544,7 +1588,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "float32":
                 s.AppendLine();
                 s.Append(pad);
-                s.AppendLine("    r.TryGetFloat64(out var __dv);");
+                s.AppendLine(
+                    "    if (!r.TryGetFloat64(out var __dv)) throw new System.FormatException($\"Expected a floating-point number at offset {r.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append("    ");
                 s.Append(tgt);
@@ -1555,7 +1601,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "float64":
                 s.AppendLine();
                 s.Append(pad);
-                s.AppendLine("    r.TryGetFloat64(out var __dv);");
+                s.AppendLine(
+                    "    if (!r.TryGetFloat64(out var __dv)) throw new System.FormatException($\"Expected a floating-point number at offset {r.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append("    ");
                 s.Append(tgt);
@@ -1566,7 +1614,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "boolean":
                 s.AppendLine();
                 s.Append(pad);
-                s.AppendLine("    r.TryGetBool(out var __dv);");
+                s.AppendLine(
+                    "    if (!r.TryGetBool(out var __dv)) throw new System.FormatException($\"Expected a boolean at offset {r.BytesConsumed}\");"
+                );
                 s.Append(pad);
                 s.Append("    ");
                 s.Append(tgt);
@@ -1942,14 +1992,18 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "int32":
                     s.Append(pad);
-                    s.AppendLine("r.TryGetInt32(out var __v);");
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
                     s.Append(pad);
                     EmitAssign();
                     s.AppendLine(" = __v;");
                     break;
                 case "int64":
                     s.Append(pad);
-                    s.AppendLine("r.TryGetInt64(out var __v);");
+                    s.AppendLine(
+                        "if (!r.TryGetInt64(out var __v)) throw new System.FormatException($\"Expected a 64-bit integer at offset {r.BytesConsumed}\");"
+                    );
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
@@ -1958,7 +2012,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "float32":
                     s.Append(pad);
-                    s.AppendLine("r.TryGetFloat64(out var __v);");
+                    s.AppendLine(
+                        "if (!r.TryGetFloat64(out var __v)) throw new System.FormatException($\"Expected a floating-point number at offset {r.BytesConsumed}\");"
+                    );
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
@@ -1967,7 +2023,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "float64":
                     s.Append(pad);
-                    s.AppendLine("r.TryGetFloat64(out var __v);");
+                    s.AppendLine(
+                        "if (!r.TryGetFloat64(out var __v)) throw new System.FormatException($\"Expected a floating-point number at offset {r.BytesConsumed}\");"
+                    );
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
@@ -1976,7 +2034,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "boolean":
                     s.Append(pad);
-                    s.AppendLine("r.TryGetBool(out var __v);");
+                    s.AppendLine(
+                        "if (!r.TryGetBool(out var __v)) throw new System.FormatException($\"Expected a boolean at offset {r.BytesConsumed}\");"
+                    );
                     s.Append(pad);
                     s.Append(tgt);
                     s.Append('.');
@@ -1989,15 +2049,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append(pad);
                     if (p.DateTimeFormat is not null)
                     {
-                        s.Append("System.DateTime.TryParseExact(__raw, \"");
+                        s.Append("if (!System.DateTime.TryParseExact(__raw, \"");
                         s.Append(p.DateTimeFormat);
                         s.Append(
-                            "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __dt);"
+                            "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __dt)) throw new System.FormatException($\"Invalid DateTime at offset {r.BytesConsumed}\");"
                         );
                     }
                     else
                         s.AppendLine(
-                            "System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                            "if (!System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt)) throw new System.FormatException($\"Invalid DateTime at offset {r.BytesConsumed}\");"
                         );
                     s.AppendLine();
                     s.Append(pad);
@@ -2489,11 +2549,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         var kn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(f.JsonName);
         return f.TypeKind switch
         {
-            "string"   => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
+            "string" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
             "int32" or "int64" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
             "float32" or "float64" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
-            "boolean"  => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
-            _          => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv}.ToString());",
+            "boolean" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
+            _ => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv}.ToString());",
         };
     }
 

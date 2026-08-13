@@ -246,6 +246,108 @@ public ref struct MsgPackReader
 
     // ── Read ──
 
+    /// <summary>
+    /// Computes the total byte length of the token starting at the current
+    /// position (header + payload), or -1 when the length bytes are not yet
+    /// fully available. Used to avoid tokenizing partial values in streaming
+    /// sequence mode.
+    /// </summary>
+    private int PeekTokenLength()
+    {
+        byte b;
+        if (!_seqReader.TryPeek(0, out b))
+            return -1;
+
+        switch (b)
+        {
+            case <= 0x7F:
+            case >= 0xE0:
+            case 0xC0:
+            case 0xC2:
+            case 0xC3:
+            case 0xC1:
+            case >= 0x80 and <= 0x9F:
+                return 1;
+            case >= 0xA0 and <= 0xBF:
+                return 1 + (b & 0x1F);
+            case 0xCC:
+            case 0xD0:
+                return 2;
+            case 0xCD:
+            case 0xD1:
+            case 0xDC:
+                return 3;
+            case 0xCE:
+            case 0xD2:
+            case 0xCA:
+            case 0xDD:
+            case 0xDF:
+                return 5;
+            case 0xCF:
+            case 0xD3:
+            case 0xCB:
+            case 0xDE:
+                return 9;
+            case 0xD4:
+                return 3;
+            case 0xD5:
+                return 4;
+            case 0xD6:
+                return 6;
+            case 0xD7:
+                return 10;
+            case 0xD8:
+                return 18;
+            case 0xD9:
+                if (!_seqReader.TryPeek(1, out var len8))
+                    return -1;
+                return 2 + len8;
+            case 0xC4:
+                if (!_seqReader.TryPeek(1, out var bin8))
+                    return -1;
+                return 2 + bin8;
+            case 0xC7:
+                if (!_seqReader.TryPeek(1, out var ext8))
+                    return -1;
+                return 3 + ext8;
+            case 0xDA:
+            case 0xC5:
+            case 0xC8:
+            {
+                if (!_seqReader.TryPeek(1, out var hi) || !_seqReader.TryPeek(2, out var lo))
+                    return -1;
+                int len16 = (hi << 8) | lo;
+                return b switch
+                {
+                    0xDA => 3 + len16,
+                    0xC5 => 3 + len16,
+                    _ => 4 + len16,
+                };
+            }
+            case 0xDB:
+            case 0xC6:
+            case 0xC9:
+            {
+                uint len32 = 0;
+                for (int i = 1; i <= 4; i++)
+                {
+                    if (!_seqReader.TryPeek(i, out var lb))
+                        return -1;
+                    len32 = (len32 << 8) | lb;
+                }
+                long total = b switch
+                {
+                    0xDB => 5L + len32,
+                    0xC6 => 5L + len32,
+                    _ => 6L + len32,
+                };
+                return total > int.MaxValue ? -1 : (int)total;
+            }
+            default:
+                return 1; // unknown tag — let Read() produce the proper error
+        }
+    }
+
     public bool Read()
     {
         _needsMoreData = false;
@@ -259,6 +361,18 @@ public ref struct MsgPackReader
         {
             _needsMoreData = !_isFinalBlock;
             return false;
+        }
+
+        // Streaming sequence mode: refuse to tokenize a partial value whose
+        // payload bytes have not fully arrived yet.
+        if (!_isFinalBlock && _isSequence)
+        {
+            int tokenLength = PeekTokenLength();
+            if (tokenLength < 0 || _seqReader.Remaining < tokenLength)
+            {
+                _needsMoreData = true;
+                return false;
+            }
         }
 
         var b = PeekByte();
@@ -499,9 +613,9 @@ public ref struct MsgPackReader
 
     public bool TryGetInt32(out int v)
     {
+        v = 0;
         if (_valueSpan.IsEmpty)
         {
-            v = 0;
             return false;
         }
         if (
@@ -514,19 +628,51 @@ public ref struct MsgPackReader
                 or TokenType.UInt64
         )
         {
-            v = _valueSpan.Length switch
+            switch (_valueSpan.Length)
             {
-                1 => _tokenType == TokenType.UInt8
-                    ? _valueSpan[0]
-                    : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]),
-                2 => _tokenType == TokenType.UInt16
-                    ? BinaryPrimitives.ReadUInt16BigEndian(_valueSpan)
-                    : BinaryPrimitives.ReadInt16BigEndian(_valueSpan),
-                4 => BinaryPrimitives.ReadInt32BigEndian(_valueSpan),
-                8 => (int)BinaryPrimitives.ReadInt64BigEndian(_valueSpan),
-                _ => 0,
-            };
-            return true;
+                case 1:
+                    v =
+                        _tokenType == TokenType.UInt8
+                            ? _valueSpan[0]
+                            : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]);
+                    return true;
+                case 2:
+                    v =
+                        _tokenType == TokenType.UInt16
+                            ? BinaryPrimitives.ReadUInt16BigEndian(_valueSpan)
+                            : BinaryPrimitives.ReadInt16BigEndian(_valueSpan);
+                    return true;
+                case 4 when _tokenType == TokenType.UInt32:
+                {
+                    uint uv = BinaryPrimitives.ReadUInt32BigEndian(_valueSpan);
+                    if (uv > int.MaxValue)
+                        return false;
+                    v = (int)uv;
+                    return true;
+                }
+                case 4:
+                    v = BinaryPrimitives.ReadInt32BigEndian(_valueSpan);
+                    return true;
+                case 8 when _tokenType == TokenType.UInt64:
+                {
+                    ulong uv = BinaryPrimitives.ReadUInt64BigEndian(_valueSpan);
+                    if (uv > int.MaxValue)
+                        return false;
+                    v = (int)uv;
+                    return true;
+                }
+                case 8:
+                {
+                    long lv = BinaryPrimitives.ReadInt64BigEndian(_valueSpan);
+                    if (lv < int.MinValue || lv > int.MaxValue)
+                        return false;
+                    v = (int)lv;
+                    return true;
+                }
+                default:
+                    v = 0;
+                    return false;
+            }
         }
         v = 0;
         return false;
@@ -657,32 +803,68 @@ public ref struct MsgPackReader
     // ── Fast path array reading (used by source generators) ──
 
     /// <summary>Decode MsgPack integer from current position, advance position.</summary>
-    private int DecodeInt32(ref int p)
+    private bool TryDecodeInt32(ref int p, out int v)
     {
+        v = 0;
         int len = _data.Length;
         if (p >= len)
-            return 0;
+            return false;
         byte b = _data[p++];
         if (b <= 0x7F)
-            return b;
+        {
+            v = b;
+            return true;
+        }
         if (b >= 0xE0)
-            return b - 256;
+        {
+            v = b - 256;
+            return true;
+        }
+        if (b == 0xCC && p < len)
+        {
+            v = _data[p++];
+            return true;
+        }
+        if (b == 0xCD && p + 1 < len)
+        {
+            v = (_data[p] << 8) | _data[p + 1];
+            p += 2;
+            return true;
+        }
+        if (b == 0xCE && p + 3 < len)
+        {
+            uint uv =
+                (uint)(_data[p] << 24)
+                | (uint)(_data[p + 1] << 16)
+                | (uint)(_data[p + 2] << 8)
+                | _data[p + 3];
+            if (uv > int.MaxValue)
+                return false;
+            v = (int)uv;
+            p += 4;
+            return true;
+        }
         if (b == 0xD0 && p < len)
-            return (sbyte)_data[p++];
+        {
+            v = (sbyte)_data[p++];
+            return true;
+        }
         if (b == 0xD1 && p + 1 < len)
         {
-            short v = (short)(_data[p] << 8 | _data[p + 1]);
+            v = (short)(_data[p] << 8 | _data[p + 1]);
             p += 2;
-            return v;
+            return true;
         }
         if (b == 0xD2 && p + 3 < len)
         {
-            int v = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
+            v = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
             p += 4;
-            return v;
+            return true;
         }
-        // int64 or unsupported → caller should fallback
-        return 0;
+        // uint64, int64, and floating-point encodings are not int32 —
+        // signal failure so the caller falls back to the validated reader
+        // instead of silently producing 0.
+        return false;
     }
 
     /// <summary>Fast path: read int32 array directly from buffer. Returns count read, or 0 to fallback.</summary>
@@ -718,7 +900,9 @@ public ref struct MsgPackReader
                 return 0;
             if (p < len && _data[p] == 0xD3)
                 return 0;
-            dest[i] = DecodeInt32(ref p);
+            if (!TryDecodeInt32(ref p, out var iv))
+                return 0;
+            dest[i] = iv;
         }
         _position = p;
         return count;

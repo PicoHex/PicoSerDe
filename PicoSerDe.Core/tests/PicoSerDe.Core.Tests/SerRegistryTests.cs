@@ -25,6 +25,7 @@ internal ref struct RegRefPayload
     public int V;
 }
 
+[NotInParallel]
 public class SerRegistryTests
 {
     [Test]

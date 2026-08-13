@@ -40,12 +40,14 @@ public static class DeserializerExtensions
         CancellationToken ct = default
     )
     {
+        // Assemble the complete payload: a message may span multiple pipe
+        // segments, so keep reading until the writer completes.
         ReadResult result;
         do
         {
             ct.ThrowIfCancellationRequested();
             result = await reader.ReadAsync(ct);
-        } while (!result.IsCompleted && result.Buffer.Length == 0);
+        } while (!result.IsCompleted);
 
         var buffer = result.Buffer;
         byte[] data;
@@ -61,6 +63,8 @@ public static class DeserializerExtensions
         }
 
         reader.AdvanceTo(buffer.End);
+        if (data.Length == 0)
+            throw new FormatException("Cannot deserialize from an empty pipe payload.");
         return deserializer.Deserialize(data);
     }
 }

@@ -194,9 +194,20 @@ public ref struct JsonReader
                         else
                             AdvanceByte();
                     }
-                    _needsMoreData = !_isFinalBlock;
-                    return false;
+                    if (!_isFinalBlock)
+                    {
+                        _needsMoreData = true;
+                        return false;
+                    }
+                    throw new FormatException(
+                        $"Unterminated block comment at offset {BytesConsumed}"
+                    );
                 }
+                // A '/' not followed by '/' or '*' is invalid JSON, even in
+                // Skip mode — never silently swallow it.
+                throw new FormatException(
+                    $"Unexpected byte 0x{(byte)'/':X2} at offset {BytesConsumed - 1}"
+                );
             }
         }
 
@@ -208,6 +219,14 @@ public ref struct JsonReader
             var opts = PicoJetson.JsonOptions.Current;
             if (IsAtEnd())
             {
+                // In streaming mode a comma at the buffer end is not
+                // necessarily trailing — more data may arrive. Signal
+                // NeedMoreData and let the next attempt decide.
+                if (!_isFinalBlock)
+                {
+                    _needsMoreData = true;
+                    return false;
+                }
                 if (opts?.AllowTrailingCommas == true)
                 {
                     _needsMoreData = !_isFinalBlock;
@@ -215,12 +234,11 @@ public ref struct JsonReader
                 }
                 throw new FormatException("Trailing comma at end of document");
             }
-            if (PeekByte() is (byte)'}' or (byte)']')
-            {
-                if (opts?.AllowTrailingCommas == true)
-                    return true;
+            if (PeekByte() is (byte)'}' or (byte)']' && opts?.AllowTrailingCommas != true)
                 throw new FormatException("Trailing comma before closing bracket");
-            }
+            // With AllowTrailingCommas enabled, fall through to the switch below,
+            // which emits the proper ObjectEnd/ArrayEnd token instead of returning
+            // with a stale token type.
         }
 
         var b = PeekByte();
@@ -326,19 +344,40 @@ public ref struct JsonReader
 
     public bool TrySkip()
     {
-        var start = _tokenType is TokenType.ObjectStart or TokenType.ArrayStart
-            ? _depth - 1
-            : _depth;
-        try
+        // Container token: skip until the matching end marker.
+        if (_tokenType is TokenType.ObjectStart or TokenType.ArrayStart)
         {
-            while (Read())
+            var start = _depth - 1;
+            try
             {
-                if (_depth == start)
-                    return true;
+                while (Read())
+                {
+                    if (_depth == start)
+                        return true;
+                }
             }
+            catch (FormatException) { }
+            return false;
         }
-        catch (FormatException) { }
-        return false;
+
+        // Property name: skip the following value token.
+        if (_tokenType == TokenType.PropertyName)
+        {
+            var start = _depth;
+            try
+            {
+                while (Read())
+                {
+                    if (_depth == start)
+                        return true;
+                }
+            }
+            catch (FormatException) { }
+            return false;
+        }
+
+        // Scalar token: the value is already fully consumed — nothing to skip.
+        return true;
     }
 
     /// <summary>
@@ -468,13 +507,20 @@ public ref struct JsonReader
             return false;
         }
 
-        int result = 0;
+        // Overflow-checked accumulation: bail on values outside int range
+        // instead of silently wrapping.
+        long result = 0;
         do
         {
             result = result * 10 + (_data[_position] - (byte)'0');
             _position++;
+            if (result > int.MaxValue)
+            {
+                v = 0;
+                return false;
+            }
         } while (_position < len && IsDigit(_data[_position]));
-        v = neg ? -result : result;
+        v = neg ? (int)-result : (int)result;
         return true;
     }
 
@@ -503,6 +549,11 @@ public ref struct JsonReader
         int di = 0;
         while (!_seqReader.End && IsDigit(_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex]))
         {
+            if (di >= buf.Length)
+            {
+                v = 0;
+                return false;
+            }
             buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
         }
@@ -683,6 +734,16 @@ public ref struct JsonReader
                         );
                     b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                     _seqReader.Advance(1);
+                    // Ensure capacity BEFORE writing: a \uXXXX escape can
+                    // produce up to 4 UTF-8 bytes.
+                    if (di + 4 > buf.Length)
+                    {
+                        var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
+                        buf.AsSpan(0, di).CopyTo(newBuf);
+                        ArrayPool<byte>.Shared.Return(buf);
+                        buf = newBuf;
+                        TrackBuffer(buf);
+                    }
                     switch (b)
                     {
                         case (byte)'"':
@@ -1358,7 +1419,10 @@ public ref struct JsonReader
             int v = 0;
             do
             {
-                v = v * 10 + (b - (byte)'0');
+                int digit = b - (byte)'0';
+                if (v > (int.MaxValue - digit) / 10)
+                    return 0; // overflow — fall back to the validated reader
+                v = v * 10 + digit;
                 p++;
                 if (p >= len)
                     break;
@@ -1414,7 +1478,10 @@ public ref struct JsonReader
             long v = 0;
             do
             {
-                v = v * 10 + (b - (byte)'0');
+                long digit = b - (byte)'0';
+                if (v > (long.MaxValue - digit) / 10)
+                    return 0; // overflow — fall back to the validated reader
+                v = v * 10 + digit;
                 p++;
                 if (p >= len)
                     break;

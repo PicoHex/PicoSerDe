@@ -4,6 +4,9 @@ public ref struct MsgPackWriter
 {
     private IBufferWriter<byte> _buffer;
     private long _bytesWritten;
+    private int _depth;
+
+    private const int MaxDepth = 64;
 
     public long BytesWritten => _bytesWritten;
 
@@ -14,6 +17,7 @@ public ref struct MsgPackWriter
     {
         _buffer = buffer;
         _bytesWritten = 0;
+        _depth = 0;
     }
 
     public void WriteNull()
@@ -118,6 +122,11 @@ public ref struct MsgPackWriter
 
     public void WriteStartObject(int count)
     {
+        if (_depth >= MaxDepth)
+            throw new FormatException(
+                $"Maximum depth of {MaxDepth} exceeded (possible cyclic object graph)"
+            );
+        _depth++;
         if (count <= 15)
         {
             Span<byte> s = _buffer.GetSpan(1);
@@ -143,7 +152,10 @@ public ref struct MsgPackWriter
         }
     }
 
-    public void WriteEndObject() { /* MsgPack maps don't have end markers; count is specified upfront */
+    public void WriteEndObject()
+    {
+        _depth--;
+        /* MsgPack maps don't have end markers; count is specified upfront */
     }
 
     public void WriteInt64(long value)
@@ -231,6 +243,11 @@ public ref struct MsgPackWriter
 
     public void WriteStartArray(int count)
     {
+        if (_depth >= MaxDepth)
+            throw new FormatException(
+                $"Maximum depth of {MaxDepth} exceeded (possible cyclic object graph)"
+            );
+        _depth++;
         if (count <= 15)
         {
             Span<byte> s = _buffer.GetSpan(1);
@@ -256,7 +273,10 @@ public ref struct MsgPackWriter
         }
     }
 
-    public void WriteEndArray() { }
+    public void WriteEndArray()
+    {
+        _depth--;
+    }
 
     public void WriteBytes(ReadOnlySpan<byte> value)
     {

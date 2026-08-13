@@ -189,27 +189,44 @@ public static partial class JsonSerializer
         try
         {
             var pipe = PipeReader.Create(stream);
-            var state = default(JsonReaderState);
+            // StreamPipeReader may reuse its internal buffer, so previously
+            // returned data is not guaranteed to persist across ReadAsync
+            // calls. Copy every chunk into our own accumulator.
+            var accum = new ArrayBufferWriter<byte>(4096);
 
             while (true)
             {
                 var r = await pipe.ReadAsync(ct);
-                var reader = new JsonReader(r.Buffer, r.IsCompleted, state);
+                foreach (var seg in r.Buffer)
+                    accum.Write(seg.Span);
+                pipe.AdvanceTo(r.Buffer.End);
 
-                var status = func(ref reader, out var result);
+                // Re-parse from the beginning on every attempt: streaming
+                // deserializers do not preserve partially parsed state across
+                // NeedMoreData returns, so restarting is the only correct
+                // strategy. The parse itself is sequence-mode so partial
+                // strings at the tail signal NeedMoreData instead of throwing.
+                var reader = new JsonReader(
+                    new ReadOnlySequence<byte>(accum.WrittenMemory),
+                    isFinalBlock: r.IsCompleted
+                );
 
-                if (status == ReadStatus.Success)
+                ReadStatus status;
+                try
                 {
-                    pipe.AdvanceTo(r.Buffer.End);
-                    return result!;
+                    status = func(ref reader, out var result);
+                    if (status == ReadStatus.Success)
+                        return result!;
+                }
+                finally
+                {
+                    reader.Dispose();
                 }
 
                 if (status == ReadStatus.NeedMoreData)
                 {
                     if (r.IsCompleted)
                         throw new FormatException("Unexpected end of stream while parsing.");
-                    state = reader.ExportState();
-                    pipe.AdvanceTo(state.Position, r.Buffer.End);
                     continue;
                 }
 
@@ -451,6 +468,8 @@ public static partial class JsonSerializer
 
                         if (b == (byte)'"')
                         {
+                            if (depth == 1 && valueStart < 0)
+                                valueStart = i;
                             i++;
                             while (i < accum.Count)
                             {
@@ -471,7 +490,7 @@ public static partial class JsonSerializer
 
                         if (b is (byte)'{' or (byte)'[')
                         {
-                            if (depth == 1)
+                            if (depth == 1 && valueStart < 0)
                                 valueStart = i;
                             depth++;
                             i++;
@@ -481,23 +500,33 @@ public static partial class JsonSerializer
                         if (b is (byte)'}' or (byte)']')
                         {
                             depth--;
-                            if (depth == 0 && b == (byte)']')
+                            if (depth == 0)
                             {
+                                if (b != (byte)']')
+                                    throw new FormatException(
+                                        "Unexpected '}' inside JSON array stream."
+                                    );
                                 if (valueStart >= 0)
                                 {
                                     var valBytes = accum
                                         .GetRange(valueStart, i - valueStart)
                                         .ToArray();
-                                    yield return deserializer.Deserialize(valBytes);
+                                    var trimmed = TrimArrayElement(valBytes);
+                                    if (trimmed.Length > 0)
+                                        yield return deserializer.Deserialize(trimmed);
                                 }
                                 yield break;
                             }
-                            if (depth == 1 && b == (byte)'}')
+                            if (depth == 1)
                             {
-                                var valBytes = accum
-                                    .GetRange(valueStart, i + 1 - valueStart)
-                                    .ToArray();
-                                yield return deserializer.Deserialize(valBytes);
+                                // A nested container element just completed.
+                                if (valueStart >= 0)
+                                {
+                                    var valBytes = accum
+                                        .GetRange(valueStart, i + 1 - valueStart)
+                                        .ToArray();
+                                    yield return deserializer.Deserialize(valBytes);
+                                }
                                 valueStart = -1;
                                 int consumed = i + 1;
                                 while (consumed < accum.Count && accum[consumed] <= 32)
@@ -510,6 +539,31 @@ public static partial class JsonSerializer
                             }
                             i++;
                             continue;
+                        }
+
+                        // Primitive element boundaries at depth 1.
+                        if (depth == 1)
+                        {
+                            if (b == (byte)',')
+                            {
+                                if (valueStart >= 0)
+                                {
+                                    var valBytes = TrimArrayElement(
+                                        accum.GetRange(valueStart, i - valueStart).ToArray()
+                                    );
+                                    if (valBytes.Length > 0)
+                                        yield return deserializer.Deserialize(valBytes);
+                                    valueStart = -1;
+                                    accum.RemoveRange(0, i + 1);
+                                    i = 0;
+                                    continue;
+                                }
+                                accum.RemoveRange(0, i + 1);
+                                i = 0;
+                                continue;
+                            }
+                            if (valueStart < 0 && b > 32)
+                                valueStart = i;
                         }
 
                         i++;
@@ -532,5 +586,19 @@ public static partial class JsonSerializer
         {
             JsonOptions.Current = prev;
         }
+    }
+
+    /// <summary>Trims ASCII whitespace from both ends of a raw array-element slice.</summary>
+    private static byte[] TrimArrayElement(byte[] data)
+    {
+        int st = 0,
+            e = data.Length;
+        while (st < e && data[st] <= 32)
+            st++;
+        while (e > st && data[e - 1] <= 32)
+            e--;
+        if (st == 0 && e == data.Length)
+            return data;
+        return data.AsSpan(st, e - st).ToArray();
     }
 }

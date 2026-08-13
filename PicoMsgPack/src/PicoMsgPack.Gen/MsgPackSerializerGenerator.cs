@@ -1,7 +1,7 @@
 namespace PicoMsgPack.Gen;
 
-using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using Microsoft.CodeAnalysis.CSharp;
+using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -16,14 +16,22 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly DiagnosticDescriptor AnonRequiresCSharp12 = new(
-        id: "PICOMSG003", title: "Anonymous types require C# 12+",
-        messageFormat: "Anonymous type serialization requires C# 12 or later.",
-        category: "PicoMsgPack.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        id: "PICOMSG003",
+        title: "Anonymous types require C# 12+",
+        messageFormat: "Anonymous type serialization requires C# 12 or later",
+        category: "PicoMsgPack.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly DiagnosticDescriptor AnonRequiresUnsafe = new(
-        id: "PICOMSG004", title: "Requires AllowUnsafeBlocks",
-        messageFormat: "Anonymous type serialization requires <AllowUnsafeBlocks>true</AllowUnsafeBlocks>.",
-        category: "PicoMsgPack.Gen", defaultSeverity: DiagnosticSeverity.Warning, isEnabledByDefault: true);
+        id: "PICOMSG004",
+        title: "Requires AllowUnsafeBlocks",
+        messageFormat: "Anonymous type serialization requires AllowUnsafeBlocks to be enabled",
+        category: "PicoMsgPack.Gen",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
 
     private static readonly PicoSerDe.Gen.AttributeHelpers Attrs = new(
         _ => false,
@@ -36,10 +44,15 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     );
 
     private static readonly PicoSerDe.Gen.AnonFormatConfig AnonCfg = new(
-        HasNullLiteral: true, EmbedsKeyInValue: false,
-        ObjectStartMethod: "WriteStartObject", ObjectEndMethod: "WriteEndObject",
-        ObjectStartNeedsCount: true, HasIndentedMaxDepth: false,
-        KeyIsEncodedString: true, HasNamingPolicy: false, HasOptionsParam: false
+        HasNullLiteral: true,
+        EmbedsKeyInValue: false,
+        ObjectStartMethod: "WriteStartObject",
+        ObjectEndMethod: "WriteEndObject",
+        ObjectStartNeedsCount: true,
+        HasIndentedMaxDepth: false,
+        KeyIsEncodedString: true,
+        HasNamingPolicy: false,
+        HasOptionsParam: false
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -100,41 +113,65 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         );
 
         // Pipeline-Anon: anonymous type serialization via interceptors
-        var anonDriven = context.SyntaxProvider.CreateSyntaxProvider(
-            predicate: (n, _) => IsCandidate(n),
-            transform: (ctx, _) =>
-            {
-                var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
-                if (comp.LanguageVersion < LanguageVersion.CSharp12) return null;
-                if (!comp.Options.AllowUnsafe) return null;
-                if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m) return null;
-                if (m.TypeArguments.Length != 1) return null;
-                if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType) return null;
-                if (m.ContainingType.Name != Config.SerializerClassName || m.ContainingType.ContainingNamespace?.ToDisplayString() != Config.Namespace) return null;
-                return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
-            }
-        ).Where(a => a is not null);
+        var anonDriven = context
+            .SyntaxProvider.CreateSyntaxProvider(
+                predicate: (n, _) => IsCandidate(n),
+                transform: (ctx, _) =>
+                {
+                    var comp = (CSharpCompilation)ctx.SemanticModel.Compilation;
+                    if (comp.LanguageVersion < LanguageVersion.CSharp12)
+                        return null;
+                    if (!comp.Options.AllowUnsafe)
+                        return null;
+                    if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
+                        return null;
+                    if (m.TypeArguments.Length != 1)
+                        return null;
+                    if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType)
+                        return null;
+                    if (
+                        m.ContainingType.Name != Config.SerializerClassName
+                        || m.ContainingType.ContainingNamespace?.ToDisplayString()
+                            != Config.Namespace
+                    )
+                        return null;
+                    return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
+                }
+            )
+            .Where(a => a is not null);
 
         var anonOut = anonDriven.Collect().Combine(asmName);
-        context.RegisterSourceOutput(anonOut, (spc, pair) =>
-        {
-            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
-            foreach (var ai in pair.Left)
+        context.RegisterSourceOutput(
+            anonOut,
+            (spc, pair) =>
             {
-                if (ai is not { } info) continue;
-                PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(spc, info, Config, AnonCfg,
-                    (f, vv, wv) => EmitMsgPackValue(f, vv, wv));
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
+                foreach (var ai in pair.Left)
+                {
+                    if (ai is not { } info)
+                        continue;
+                    PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(
+                        spc,
+                        info,
+                        Config,
+                        AnonCfg,
+                        (f, vv, wv) => EmitMsgPackValue(f, vv, wv)
+                    );
+                }
             }
-        });
+        );
 
-        context.RegisterSourceOutput(context.CompilationProvider, (spc, comp) =>
-        {
-            var csComp = (CSharpCompilation)comp;
-            if (csComp.LanguageVersion < LanguageVersion.CSharp12)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
-            else if (!csComp.Options.AllowUnsafe)
-                spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
-        });
+        context.RegisterSourceOutput(
+            context.CompilationProvider,
+            (spc, comp) =>
+            {
+                var csComp = (CSharpCompilation)comp;
+                if (csComp.LanguageVersion < LanguageVersion.CSharp12)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
+                else if (!csComp.Options.AllowUnsafe)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
+            }
+        );
 
         // Merge all pipelines into one output
         var all = usageDriven
@@ -148,11 +185,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             .Combine(polyPipeline.Collect())
             .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
 
-        context.RegisterSourceOutput(all, static (spc, types) =>
-        {
-            PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
-            GenerateAll(spc, types);
-        });
+        context.RegisterSourceOutput(
+            all,
+            static (spc, types) =>
+            {
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
+                GenerateAll(spc, types);
+            }
+        );
     }
 
     static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
@@ -777,23 +817,29 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 );
                 break;
             case "int32":
-                s.AppendLine("                reader.TryGetInt32(out var __dv); obj[__dk] = __dv;");
+                s.AppendLine(
+                    "                if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\"); obj[__dk] = __dv;"
+                );
                 break;
             case "int64":
-                s.AppendLine("                reader.TryGetInt64(out var __dv); obj[__dk] = __dv;");
+                s.AppendLine(
+                    "                if (!reader.TryGetInt64(out var __dv)) throw new System.FormatException($\"Expected a 64-bit integer at offset {reader.BytesConsumed}\"); obj[__dk] = __dv;"
+                );
                 break;
             case "float32":
                 s.AppendLine(
-                    "                reader.TryGetFloat64(out var __dv); obj[__dk] = (float)__dv;"
+                    "                if (!reader.TryGetFloat64(out var __dv)) throw new System.FormatException($\"Expected a floating-point number at offset {reader.BytesConsumed}\"); obj[__dk] = (float)__dv;"
                 );
                 break;
             case "float64":
                 s.AppendLine(
-                    "                reader.TryGetFloat64(out var __dv); obj[__dk] = __dv;"
+                    "                if (!reader.TryGetFloat64(out var __dv)) throw new System.FormatException($\"Expected a floating-point number at offset {reader.BytesConsumed}\"); obj[__dk] = __dv;"
                 );
                 break;
             case "boolean":
-                s.AppendLine("                reader.TryGetBool(out var __dv); obj[__dk] = __dv;");
+                s.AppendLine(
+                    "                if (!reader.TryGetBool(out var __dv)) throw new System.FormatException($\"Expected a boolean at offset {reader.BytesConsumed}\"); obj[__dk] = __dv;"
+                );
                 break;
             case "any":
                 EmitMsgPackAnyDeserialize(s, "obj[__dk]", "                ");
@@ -1219,7 +1265,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     {
         var nullable = props
             .Where(p =>
-                PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(p)
+                (
+                    PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(p)
+                    || (
+                        p.IgnoreCondition == "WhenWritingDefault"
+                        && PicoSerDe.Gen.GenInfrastructure.IsValueTypeKind(p.TypeKind)
+                    )
+                )
                 // Per-property Never exempts the member from skipping entirely
                 && p.IgnoreCondition != "Never"
             )
@@ -1257,12 +1309,26 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(" == null;");
                     break;
                 case "WhenWritingDefault":
-                    s.Append(" = ");
-                    s.Append(accessor(p));
-                    if (PicoSerDe.Gen.GenInfrastructure.IsValueDefaultKind(p.TypeKind))
+                    if (p.IsNullable && !p.IsNullableReference)
+                    {
+                        s.Append(" = !(");
+                        s.Append(accessor(p));
+                        s.Append(".HasValue && ");
+                        s.Append(accessor(p));
+                        s.AppendLine(".Value != default);");
+                    }
+                    else if (PicoSerDe.Gen.GenInfrastructure.IsValueTypeKind(p.TypeKind))
+                    {
+                        s.Append(" = ");
+                        s.Append(accessor(p));
                         s.AppendLine(" == default;");
+                    }
                     else
+                    {
+                        s.Append(" = ");
+                        s.Append(accessor(p));
                         s.AppendLine(" == null;");
+                    }
                     break;
                 default:
                     s.Append(
@@ -1676,9 +1742,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(" = __nv; } else {");
                 }
                 s.Append(ind);
-                s.Append("reader.TryGetInt32(out var __v");
+                s.Append("if (!reader.TryGetInt32(out var __v");
                 s.Append(c);
-                s.AppendLine(");");
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" = __v");
@@ -1700,9 +1770,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(" = __nv; } else {");
                 }
                 s.Append(ind);
-                s.Append("reader.TryGetInt64(out var __v");
+                s.Append("if (!reader.TryGetInt64(out var __v");
                 s.Append(c);
-                s.AppendLine(");");
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit integer at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" = __v");
@@ -1724,9 +1798,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(" = __nv; } else {");
                 }
                 s.Append(ind);
-                s.Append("reader.TryGetFloat64(out var __v");
+                s.Append("if (!reader.TryGetFloat64(out var __v");
                 s.Append(c);
-                s.AppendLine(");");
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point number at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" = (float)__v");
@@ -1748,9 +1826,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(" = __nv; } else {");
                 }
                 s.Append(ind);
-                s.Append("reader.TryGetFloat64(out var __v");
+                s.Append("if (!reader.TryGetFloat64(out var __v");
                 s.Append(c);
-                s.AppendLine(");");
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point number at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" = __v");
@@ -1772,9 +1854,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(" = __nv; } else {");
                 }
                 s.Append(ind);
-                s.Append("reader.TryGetBool(out var __v");
+                s.Append("if (!reader.TryGetBool(out var __v");
                 s.Append(c);
-                s.AppendLine(");");
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a boolean at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" = __v");
@@ -1788,8 +1874,92 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             case "datetime":
                 s.Append(ind);
+                s.AppendLine("System.DateTime __dt;");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.Extension)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
                 s.AppendLine(
-                    "var __dtRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); DateTime.TryParse(__dtRaw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt);"
+                    "    if (!reader.TryGetExtension(out var __extTag, out var __extData) || __extTag != 0xFF) throw new System.FormatException($\"Invalid timestamp extension at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("    switch (__extData.Length)");
+                s.Append(ind);
+                s.AppendLine("    {");
+                s.Append(ind);
+                s.AppendLine("        case 4:");
+                s.Append(ind);
+                s.AppendLine(
+                    "            __dt = System.DateTimeOffset.FromUnixTimeSeconds(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(__extData)).UtcDateTime;"
+                );
+                s.Append(ind);
+                s.AppendLine("            break;");
+                s.Append(ind);
+                s.AppendLine("        case 8:");
+                s.Append(ind);
+                s.AppendLine("        {");
+                s.Append(ind);
+                s.AppendLine(
+                    "            ulong __ts64 = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(__extData);"
+                );
+                s.Append(ind);
+                s.AppendLine("            long __secs64 = (long)(__ts64 >> 34);");
+                s.Append(ind);
+                s.AppendLine("            ulong __nano64 = __ts64 & 0x3FFFFFFFFUL;");
+                s.Append(ind);
+                s.AppendLine(
+                    "            __dt = System.DateTimeOffset.FromUnixTimeSeconds(__secs64).UtcDateTime.AddTicks((long)(__nano64 / 100));"
+                );
+                s.Append(ind);
+                s.AppendLine("            break;");
+                s.Append(ind);
+                s.AppendLine("        }");
+                s.Append(ind);
+                s.AppendLine("        case 12:");
+                s.Append(ind);
+                s.AppendLine("        {");
+                s.Append(ind);
+                s.AppendLine(
+                    "            uint __nano32 = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(__extData);"
+                );
+                s.Append(ind);
+                s.AppendLine(
+                    "            long __secs96 = System.Buffers.Binary.BinaryPrimitives.ReadInt64BigEndian(__extData.Slice(4));"
+                );
+                s.Append(ind);
+                s.AppendLine(
+                    "            __dt = System.DateTimeOffset.FromUnixTimeSeconds(__secs96).UtcDateTime.AddTicks((long)(__nano32 / 100));"
+                );
+                s.Append(ind);
+                s.AppendLine("            break;");
+                s.Append(ind);
+                s.AppendLine("        }");
+                s.Append(ind);
+                s.AppendLine("        default:");
+                s.Append(ind);
+                s.AppendLine(
+                    "            throw new System.FormatException($\"Unsupported timestamp extension length at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("    }");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    var __dtRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); if (!DateTime.TryParse(__dtRaw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __dt)) throw new System.FormatException($\"Invalid DateTime at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a DateTime at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(ind);
                 s.Append(t);
@@ -1797,8 +1967,36 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             case "timespan":
                 s.Append(ind);
+                s.AppendLine("System.TimeSpan __ts;");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
                 s.AppendLine(
-                    "TimeSpan.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __ts);"
+                    "    if (!TimeSpan.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), out __ts)) throw new System.FormatException($\"Invalid TimeSpan at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine(
+                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
+                );
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!reader.TryGetInt64(out var __tsTicks)) throw new System.FormatException($\"Invalid TimeSpan ticks at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("    __ts = System.TimeSpan.FromTicks(__tsTicks);");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a TimeSpan at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(ind);
                 s.Append(t);
@@ -1807,7 +2005,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             case "decimal":
                 s.Append(ind);
                 s.AppendLine(
-                    "var __decRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); decimal.TryParse(__decRaw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decv);"
+                    "var __decRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); if (!decimal.TryParse(__decRaw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decv)) throw new System.FormatException($\"Invalid decimal at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(ind);
                 s.Append(t);
@@ -1815,8 +2013,36 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             case "dateonly":
                 s.Append(ind);
+                s.AppendLine("System.DateOnly __dov;");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
                 s.AppendLine(
-                    "var __doRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); DateOnly.TryParse(__doRaw, out var __dov);"
+                    "    var __doRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); if (!DateOnly.TryParse(__doRaw, out __dov)) throw new System.FormatException($\"Invalid DateOnly at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine(
+                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
+                );
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!reader.TryGetInt32(out var __dayNumber) || __dayNumber < 1) throw new System.FormatException($\"Invalid DateOnly day number at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("    __dov = DateOnly.FromDayNumber(__dayNumber);");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a DateOnly at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(ind);
                 s.Append(t);
@@ -1824,8 +2050,36 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             case "timeonly":
                 s.Append(ind);
+                s.AppendLine("System.TimeOnly __tov;");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
                 s.AppendLine(
-                    "var __toRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); System.TimeOnly.TryParseExact(__toRaw, \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var __tov);"
+                    "    var __toRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); if (!System.TimeOnly.TryParseExact(__toRaw, \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out __tov)) throw new System.FormatException($\"Invalid TimeOnly at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine(
+                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
+                );
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!reader.TryGetInt64(out var __toTicks)) throw new System.FormatException($\"Invalid TimeOnly ticks at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("    __tov = new System.TimeOnly(__toTicks);");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a TimeOnly at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(ind);
                 s.Append(t);
@@ -1833,19 +2087,52 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             case "guid":
                 s.Append(ind);
-                s.AppendLine("Guid.TryParse(reader.GetStringRaw(), out var __g);");
+                s.AppendLine(
+                    "if (!Guid.TryParse(reader.GetStringRaw(), out var __g)) throw new System.FormatException($\"Invalid Guid at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(t);
                 s.AppendLine(" = __g;");
                 break;
             case "enum":
                 s.Append(ind);
-                s.Append("Enum.TryParse<");
+                s.AppendLine("if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.Append("    if (!Enum.TryParse<");
                 s.Append(p.TypeFullName);
-                s.AppendLine(">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __e);");
+                s.AppendLine(
+                    ">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __e)) throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(t);
                 s.AppendLine(" = __e;");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine(
+                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
+                );
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!reader.TryGetInt32(out var __enumInt)) throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(t);
+                s.Append(" = (");
+                s.Append(p.TypeFullName);
+                s.AppendLine(")(object)__enumInt;");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an enum value at offset {reader.BytesConsumed}\");"
+                );
                 break;
             case "bytes":
                 s.Append(ind);
@@ -1971,16 +2258,16 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static string EmitMsgPackValue(AnonFieldInfo f, string vv, string wv)
-        => f.TypeKind switch
+    private static string EmitMsgPackValue(AnonFieldInfo f, string vv, string wv) =>
+        f.TypeKind switch
         {
-            "string"   => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}));",
-            "int32"    => $"{wv}.WriteInt32({vv});",
-            "int64"    => $"{wv}.WriteInt64({vv});",
-            "float32"  => $"{wv}.WriteFloat64((double){vv});",
-            "float64"  => $"{wv}.WriteFloat64({vv});",
-            "boolean"  => $"{wv}.WriteBoolean({vv});",
-            _          => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString()));",
+            "string" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}));",
+            "int32" => $"{wv}.WriteInt32({vv});",
+            "int64" => $"{wv}.WriteInt64({vv});",
+            "float32" => $"{wv}.WriteFloat64((double){vv});",
+            "float64" => $"{wv}.WriteFloat64({vv});",
+            "boolean" => $"{wv}.WriteBoolean({vv});",
+            _ => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString()));",
         };
 
     static void ReadDeserElem(
