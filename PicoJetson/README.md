@@ -75,6 +75,23 @@ var result = JsonSerializer.Deserialize<MyModel>(json,
 | `AllowTrailingCommas` | `false` | Accept trailing commas |
 | `ReadCommentHandling` | `Disallow` | `Skip` — ignore `//` and `/* */` |
 | `UnmappedMemberHandling` | `Skip` | `Disallow` — throw on unknown properties |
+| `PropertyNameCaseInsensitive` | `true` | Case-insensitive matching by default; `false` for exact matching |
+
+## Strict Deserialization
+
+Deserialization fails loudly instead of silently producing defaults
+(STJ-compatible semantics):
+
+```csharp
+JsonSerializer.Deserialize<Model>("{\"age\":\"abc\"}"u8); // throws FormatException
+JsonSerializer.Deserialize<Model>("null"u8);                 // returns null (reference types)
+JsonSerializer.Deserialize<Model>("{\"a\":1} {\"a\":2}"u8);  // throws: trailing data
+JsonSerializer.Deserialize<Model>("{}"u8);                  // throws if Model has required members
+JsonSerializer.Deserialize<int[]>("[1,null]"u8);            // throws: null into value type
+```
+
+`PicoDocument.IsValid` performs full structural validation (container
+matching, property/value grammar, single root, no trailing content).
 
 ## JSON Lines (JSONL)
 

@@ -27,16 +27,22 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**781 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+**1106 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
 
 | Module | Tests | Competitor | Cross-Validation |
 |--------|:-----:|:-----------|:----------------:|
-| PicoJetson | 324 | System.Text.Json | ✅ bidirectional, all 19 property types |
-| PicoToml | 90 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
-| PicoYaml | 90 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
-| PicoIni | 104 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
-| PicoMsgPack | 113 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
-| PicoSerDe.Core | 36 | — | — |
+| PicoJetson | 473 | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoToml | 120 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
+| PicoYaml | 130 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
+| PicoIni | 125 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
+| PicoMsgPack | 145 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
+| PicoSerDe.Core | 42 | — | — |
+| Integration (cross-format) | 71 | — | Ignore-condition matrix, anon types, round-trips |
+
+> 91 of these are strictness/robustness regression tests added in the
+> strict-deserialization hardening pass: wrong-typed input, trailing data,
+> missing `required` members, malformed documents, chunked streaming, and
+> comment handling all fail loudly instead of silently producing defaults.
 
 ## Performance Summary
 
@@ -116,6 +122,26 @@ class PicoSerDeConfig { }
 No attributes are required for basic usage — calling `Serialize<T>()` automatically triggers generation.
 
 ## Key Features
+
+### Strict Deserialization (fail-loud, STJ-compatible semantics)
+
+Deserialization validates input shape and types instead of silently producing
+default values:
+
+- **Wrong-typed values throw** `FormatException` — `{"age":"abc"}` into an `int`
+  property throws instead of yielding `0`
+- **Top-level `null` returns `null`** for reference-type targets (STJ semantics);
+  value-type targets throw
+- **Trailing data after the document root throws**
+- **Missing `required` members throw** — C# `required` properties are enforced at
+  runtime across object, nested, streaming, and polymorphic paths
+- **`PicoDocument.IsValid` performs full structural validation** — mismatched
+  brackets, bare values in objects, missing property values, and multiple root
+  values are all rejected (token-level checks are not enough)
+- **Arrays**: `null` elements are allowed for reference-type elements and throw
+  for value-type elements; wrong-typed elements throw
+- **Comments** (`ReadCommentHandling.Skip`): malformed comment syntax (`/x`) and
+  unterminated block comments throw instead of being silently swallowed
 
 ### Polymorphic Deserialization (Type Discriminator)
 
@@ -245,7 +271,7 @@ Available options:
 | `PropertyNamingPolicy` | `null` | Naming policy: `CamelCase`, `SnakeCaseLower`, `KebabCaseLower`, `PascalCase` |
 | `DefaultIgnoreCondition` | `Never` | Skip null/default properties: `WhenWritingNull`, `WhenWritingDefault` |
 | `NumberHandling` | `Strict` | Allow named floats: `AllowNamedFloatingPointLiterals` |
-| `PropertyNameCaseInsensitive` | `false` | Case-insensitive property matching (default is already case-insensitive) |
+| `PropertyNameCaseInsensitive` | `true` | Property matching is case-insensitive by default; set `false` for exact case-sensitive matching |
 | `AllowTrailingCommas` | `false` | Accept trailing commas in objects/arrays |
 | `ReadCommentHandling` | `Disallow` | Skip `//` and `/* */` comments |
 | `UnmappedMemberHandling` | `Skip` | Throw on unknown properties: `Disallow` |
@@ -313,7 +339,7 @@ JsonSerializer.RegisterCustom(new MySerializer(), new MyDeserializer());
 | linux-arm64 | ubuntu-24.04-arm |
 | osx-arm64 | macos-latest |
 
-Every push: build + test (500+ tests) + 5 benchmarks smoke + 5 AOT sample publishes.
+Every push: build + test (1100+ tests) + 5 benchmarks smoke + 5 AOT sample publishes.
 Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
 
 ---

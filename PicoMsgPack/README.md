@@ -35,6 +35,12 @@ var user = MsgPackSerializer.Deserialize<User>(bytes);
 - **Extension type support** — `TryGetExtension(out byte tag, out ReadOnlySpan<byte> data)`
 - **Binary primitives** — `BinaryPrimitives.ReadInt16BigEndian` for efficient decoding
 - **Dual-mode** reader: `ReadOnlySpan<byte>` + `ReadOnlySequence<byte>`
+- **MessagePack-CSharp interop decoding** — temporal types decode from all
+  standard encodings: `DateTime` from timestamp extensions (32/64/96-bit, type -1)
+  or strings, `TimeSpan` from strings or integer ticks, `DateOnly` from strings
+  or day numbers, `TimeOnly` from strings or integer ticks, enums from strings
+  or integers, and unsigned integer encodings (uint8/16/32/64) into integer
+  targets with range checks
 
 ## Customization
 
