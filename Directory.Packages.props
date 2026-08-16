@@ -10,7 +10,7 @@
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.400" />
 
     <!-- Testing -->
-    <PackageVersion Include="TUnit" Version="1.64.13" />
+    <PackageVersion Include="TUnit" Version="1.65.0" />
 
     <!-- Benchmarking -->
     <PackageVersion Include="PicoBench" Version="2026.2.5" />
