@@ -143,12 +143,13 @@
 - **文件**: `PicoJetson/src/PicoJetson/JsonSerializer.cs`（注释亦自述 "re-parse from the beginning on every attempt"）
 - **影响**: 大流（MB 级）性能退化；TOML/YAML/INI/MsgPack 的流式路径（`TomlReaderState` 暂停/续传）则无此问题——JSON 是唯一重复解析的实现，设计不一致。
 
-### BUG-13 [P3] 构建告警（全量重建实测 58 条，按代码分布）
+### BUG-13 [P3] 构建告警（全量重建 `--no-incremental` 实测 35 条，Debug 与 `PublishAot=true` 结果相同）
 
-- `PICO*004` × 30（各格式 6 条）：测试/sample/benchmark 项目匿名类型序列化需 `AllowUnsafeBlocks`（src 项目无此告警，属卫生问题）。
-- `IL2026` × 16 + `IL3050` × 4（TomlCrossValidationTests）：测试用 Tomlyn 反射序列化，与 AOT 目标冲突（测试专用，可接受但建议注明）。
-- `CS8602` × 4（StrictPolyAndOptionsTests.cs:194,200 等）：测试代码可能空引用解引用。
-- `CS8619` × 4（生成的 `PicoJetson_Tests_StrictModel_JsonSerializer.g.cs:425,241` 等）：生成代码 `List<string>` 与目标 `List<string?>` 空性不匹配——**生成器对可空元素类型的空性标注有缺陷**，值得单独排查。
+- `PICO*004` × 20（5 种格式各 4 条：src / benchmarks / samples / tests 各 1 条）：匿名类型序列化需 `AllowUnsafeBlocks`。benchmark/sample/test 属卫生问题；src 项目自身也会发出（src 源码并无匿名类型序列化，疑似生成器对宿主编译的误触发诊断），值得在生成器侧排查。
+- `IL2026` × 8 + `IL3050` × 2（TomlCrossValidationTests）：测试用 Tomlyn 反射序列化与 TUnit 结构比较，与 AOT 目标冲突（测试专用，可接受但建议注明）。
+- `CS8602` × 2（StrictPolyAndOptionsTests.cs:194,200）：测试代码可能空引用解引用。
+- `CS8619` × 2（生成的 `PicoJetson_Tests_StrictModel_JsonSerializer.g.cs:241,425`）：生成代码 `List<string>` 与目标 `List<string?>` 空性不匹配——**生成器对可空元素类型的空性标注有缺陷**，值得单独排查。
+- `CS0162` × 1（MsgPackReader.cs:347）：`PeekTokenLength` 外层 switch 覆盖全部字节值，default 分支不可达。
 
 ### BUG-14 [P3] 同步 API 的 ThreadStatic 共享 writer 不可重入（已文档化，但易踩坑）
 
@@ -171,7 +172,7 @@
 1. **立即**（P0，一行级修复）：为 YAML/INI/TOML 三个 reader 的 key 扫描补 `\n`/`\r` 停靠 + 对"无分隔符行"抛 `FormatException`（而非越界）。
 2. **本周**（P1）：`JsonOptions.Current` 改为 `AsyncLocal` 或为流式路径显式传递选项；同步补 async 选项传递的测试。
 3. **本月**（P2）：TOML/YAML fast-path 溢出检查；`int.MinValue` 边界；JSON 严格模式（前导逗号/缺值/非法转义）；seq 字符串双归还；`ReadNumberSeq` 加缓冲增长（P3，与 P2 一并处理）。
-4. **持续**（P3）：CS8619 生成器空性、流式 O(n²)、测试告警清理。
+4. **持续**（P3）：CS8619 生成器空性、流式 O(n²)、MsgPackReader 不可达代码（CS0162）、测试告警清理。
 
 ## 验证方式说明
 
