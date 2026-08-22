@@ -339,9 +339,7 @@ internal static class AnonTypeHandler
         sb.AppendLine("        object obj = (object)value!;");
         if (afc.HasOptionsParam)
         {
-            sb.AppendLine($"        var prev = {ot}.Current;");
-            sb.AppendLine($"        {ot}.Current = options;");
-            sb.AppendLine("        try {");
+            // options parameter is threaded explicitly; no ambient state.
         }
 
         // Format-specific writer construction
@@ -352,7 +350,7 @@ internal static class AnonTypeHandler
             sb.AppendLine("        var __buf = SerializerExtensions.RentWriter();");
             if (afc.HasIndentedMaxDepth)
                 sb.AppendLine(
-                    $"        var {wv} = new {wt}(__buf, indented: {ot}.Current?.Indented ?? false, maxDepth: {ot}.Current?.MaxDepth ?? 63);"
+                    $"        var {wv} = new {wt}(__buf, indented: options?.Indented ?? false, maxDepth: options?.MaxDepth ?? 63, options: options);"
                 );
             else
                 sb.AppendLine($"        var {wv} = new {wt}(__buf);");
@@ -379,13 +377,27 @@ internal static class AnonTypeHandler
                 if (!afc.EmbedsKeyInValue)
                     EmitAnonFieldKey(sb, wv, f, afc, ot, "                    ");
                 if (afc.HasIndentedMaxDepth)
-                    sb.AppendLine(
-                        $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child, 1);"
-                    );
+                {
+                    if (afc.HasOptionsParam)
+                        sb.AppendLine(
+                            $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child, 1, options);"
+                        );
+                    else
+                        sb.AppendLine(
+                            $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child, 1);"
+                        );
+                }
                 else
-                    sb.AppendLine(
-                        $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child);"
-                    );
+                {
+                    if (afc.HasOptionsParam)
+                        sb.AppendLine(
+                            $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child, options);"
+                        );
+                    else
+                        sb.AppendLine(
+                            $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child);"
+                        );
+                }
                 sb.AppendLine("                } else {");
                 if (afc.HasNullLiteral)
                     sb.AppendLine($"                    {wv}.WriteNull();");
@@ -427,7 +439,7 @@ internal static class AnonTypeHandler
                 if (afc.HasOptionsParam)
                 {
                     sb.AppendLine(
-                        $"                if (__v != null || {ot}.Current?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingNull) {{"
+                        $"                if (__v != null || options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingNull) {{"
                     );
                     if (!afc.EmbedsKeyInValue)
                         EmitAnonFieldKey(sb, wv, f, afc, ot, "                    ");
@@ -463,14 +475,7 @@ internal static class AnonTypeHandler
         else if (info.SerializeMethodName != "Writer")
             sb.AppendLine("            return Encoding.UTF8.GetString(__buf.WrittenSpan);");
 
-        if (afc.HasOptionsParam)
-        {
-            sb.AppendLine("        }");
-            sb.AppendLine("        finally");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            {ot}.Current = prev;");
-            sb.AppendLine("        }");
-        }
+        // try/finally removed — options are explicit; nothing to restore.
         sb.AppendLine("    }");
         sb.AppendLine("}");
 
@@ -627,12 +632,16 @@ internal static class AnonTypeHandler
         sb.AppendLine($"file static class __AnonInner_{info.UniqueId}");
         sb.AppendLine("{");
         sb.AppendLine(
-            $"    internal static void Serialize(ref {wt} {wv}, object obj, int __depth = 0)"
+            (
+                afc.HasOptionsParam
+                    ? $"    internal static void Serialize(ref {wt} {wv}, object obj, int __depth = 0, {ot}? options = null)"
+                    : $"    internal static void Serialize(ref {wt} {wv}, object obj, int __depth = 0)"
+            )
         );
         sb.AppendLine("    {");
         if (afc.HasIndentedMaxDepth)
         {
-            sb.AppendLine($"        int __maxDepth = {ot}.Current?.MaxDepth ?? 63;");
+            sb.AppendLine($"        int __maxDepth = options?.MaxDepth ?? 63;");
             sb.AppendLine("        if (__depth >= __maxDepth)");
             sb.AppendLine("            throw new FormatException(\"MaxDepth exceeded\");");
         }
@@ -650,8 +659,17 @@ internal static class AnonTypeHandler
                 if (!afc.EmbedsKeyInValue)
                     EmitAnonFieldKey(sb, wv, f, afc, ot, "            ");
                 if (afc.HasIndentedMaxDepth)
+                    if (afc.HasOptionsParam)
+                        sb.AppendLine(
+                            $"            __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __v{vi}, __depth + 1, options);"
+                        );
+                    else
+                        sb.AppendLine(
+                            $"            __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __v{vi}, __depth + 1);"
+                        );
+                else if (afc.HasOptionsParam)
                     sb.AppendLine(
-                        $"            __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __v{vi}, __depth + 1);"
+                        $"            __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __v{vi}, options);"
                     );
                 else
                     sb.AppendLine(
@@ -676,7 +694,7 @@ internal static class AnonTypeHandler
                     if (afc.HasOptionsParam)
                     {
                         sb.AppendLine(
-                            $"        if (__v{vi} != null || {ot}.Current?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingNull) {{"
+                            $"        if (__v{vi} != null || options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingNull) {{"
                         );
                         if (!afc.EmbedsKeyInValue)
                             EmitAnonFieldKey(sb, wv, f, afc, ot, "            ");
@@ -737,7 +755,7 @@ internal static class AnonTypeHandler
         if (afc.HasNamingPolicy && camel != f.JsonName)
         {
             sb.AppendLine(
-                $"{indent}var __n = {ot}.Current?.PropertyNamingPolicy == PicoJetson.JsonNamingPolicy.CamelCase ? \"{camel}\"u8 : \"{Esc(f.JsonName)}\"u8;"
+                $"{indent}var __n = options?.PropertyNamingPolicy == PicoJetson.JsonNamingPolicy.CamelCase ? \"{camel}\"u8 : \"{Esc(f.JsonName)}\"u8;"
             );
             if (afc.KeyIsEncodedString)
                 sb.AppendLine($"{indent}{wv}.WriteString(Encoding.UTF8.GetBytes(__n));");

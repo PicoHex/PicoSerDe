@@ -6,7 +6,7 @@ public enum MsgPackIgnoreCondition
     WhenWritingNull = 1,
 }
 
-public class MsgPackOptions
+public class MsgPackOptions : SerOptions
 {
     public MsgPackIgnoreCondition DefaultIgnoreCondition { get; set; } =
         MsgPackIgnoreCondition.Never;

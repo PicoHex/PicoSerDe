@@ -25,6 +25,7 @@ public static class SerRegistry<TFormat, T>
 /// <see cref="SerRegistry{TFormat, T}"/>.
 /// </summary>
 public static class DesRegistry<TFormat, T>
+    where T : allows ref struct
 {
     /// <summary>The active top-level deserializer.</summary>
     public static DeserializeDelegate<T>? Deserializer;

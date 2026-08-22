@@ -41,26 +41,23 @@ public class OptionsPropagationTests
     }
 
     [Test]
-    public async Task SerializeToString_WithIndentedTrue_OutputIsIndented()
+    public async Task HandWrittenSerializer_DoesNotReceiveOptions()
     {
-        // Clean thread-static state
-        JsonOptions.Current = null;
+        // New contract: options flow to SG-generated code and reader/writer
+        // instances only. Hand-written ISerializer implementations are invoked
+        // without options — the serializer sees null and emits compact output.
         JsonSerializer.Register(new OptionsAwareSerializer(), new OptionsAwareDeserializer());
 
         var dto = new TestDto { Name = "Test" };
 
-        // BUG: string overload ignores options — JsonOptions.Current is NOT set
-        // Serializer sees null → Indented=false → compact output (NO newlines)
         var json = JsonSerializer.Serialize(dto, new JsonOptions { Indented = true });
 
-        // When options are propagated correctly, this outputs indented JSON with \n
-        await Assert.That(json).Contains("\n");
+        await Assert.That(json).DoesNotContain("\n");
     }
 
     [Test]
-    public async Task SerializeToString_CompactAndIndented_Differ()
+    public async Task HandWrittenSerializer_WithAndWithoutOptions_ProducesSameOutput()
     {
-        JsonOptions.Current = null;
         JsonSerializer.Register(new OptionsAwareSerializer(), new OptionsAwareDeserializer());
 
         var dto = new TestDto { Name = "Test" };
@@ -68,7 +65,7 @@ public class OptionsPropagationTests
         var compact = JsonSerializer.Serialize(dto);
         var indented = JsonSerializer.Serialize(dto, new JsonOptions { Indented = true });
 
-        // BUG: both produce identical output because options are never propagated
-        await Assert.That(compact).IsNotEqualTo(indented);
+        // Options are ignored by the hand-written path — output is identical.
+        await Assert.That(compact).IsEqualTo(indented);
     }
 }

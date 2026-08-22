@@ -746,9 +746,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(kw);
             sb.Append(" (TextHelpers.Eq(__n, \"");
             sb.Append(EscapeCSharpString(np.JsonName));
-            sb.AppendLine(
-                "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
-            );
+            sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
             sb.AppendLine("            {");
             EmitDeserializeProperty(sb, np, "obj", "                ");
             if (np.IsRequired)
@@ -762,7 +760,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         if (props.Length > 0)
         {
             sb.AppendLine(
-                "            else if (PicoJetson.JsonOptions.Current?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
+                "            else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
             );
             sb.AppendLine(
                 "                throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(__n)}' at offset {reader.BytesConsumed}\");"
@@ -1369,32 +1367,20 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     private static void EmitSerializer(StringBuilder sb, TypeInfo type, bool isRefLikeType = false)
     {
-        if (isRefLikeType)
-        {
-            sb.Append("    file static class ");
-            sb.Append(type.Name);
-            sb.AppendLine("JsonSer");
-            sb.AppendLine("    {");
-            sb.Append("        public static void Serialize(IBufferWriter<byte> writer, ");
-        }
-        else
-        {
-            sb.Append("    file readonly struct ");
-            sb.Append(type.Name);
-            sb.AppendLine("JsonSer : ISerializer<");
-            sb.Append(type.Name);
-            sb.AppendLine(">");
-            sb.AppendLine("    {");
-            sb.Append("        public void Serialize(IBufferWriter<byte> writer, ");
-        }
+        // Single static-class form (both ref structs and regular types): the
+        // top-level method carries an explicit options parameter and is
+        // registered as a method group — no ISerializer wrapper class.
+        sb.Append("    file static class ");
         sb.Append(type.Name);
-        if (isRefLikeType)
-            sb.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options)");
-        else
-            sb.AppendLine(" value)");
+        sb.AppendLine("JsonSer");
+        sb.AppendLine("    {");
+        sb.Append("        public static void Serialize(IBufferWriter<byte> writer, ");
+        sb.Append(type.Name);
+        sb.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options)");
         sb.AppendLine("        {");
+        sb.Append("            var __opts = (global::PicoJetson.JsonOptions?)options;\n");
         sb.AppendLine(
-            "            var jw = new JsonWriter(writer, indented: PicoJetson.JsonOptions.Current?.Indented ?? false, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 63);"
+            "            var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);"
         );
         sb.AppendLine("            jw.WriteStartObject();");
 
@@ -1409,7 +1395,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             );
             sb.Append("            var __name_");
             sb.Append(prop.Name);
-            sb.Append(" = PicoJetson.JsonOptions.Current?.PropertyNamingPolicy?.ConvertName(\"");
+            sb.Append(" = jw.Options?.PropertyNamingPolicy?.ConvertName(\"");
             sb.Append(EscapeCSharpString(prop.JsonName));
             sb.AppendLine("\") ?? \"" + EscapeCSharpString(prop.JsonName) + "\";");
             sb.Append("            jw.WritePropertyName(__name_");
@@ -1462,7 +1448,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             // or holding default(T) (WhenWritingDefault).
             sb.Append(indent);
             sb.AppendLine(
-                "if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
+                "if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
             );
             sb.Append(indent);
             sb.Append("    ? ");
@@ -1470,7 +1456,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine(".HasValue");
             sb.Append(indent);
             sb.AppendLine(
-                "    : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+                "    : jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
             );
             sb.Append(indent);
             sb.Append("    ? (");
@@ -1490,7 +1476,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             // Non-nullable value type: only WhenWritingDefault can omit it.
             sb.Append(indent);
             sb.AppendLine(
-                "if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+                "if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
             );
             sb.Append(indent);
             sb.Append("    || ");
@@ -1505,7 +1491,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             sb.Append(indent);
             sb.AppendLine(
-                "if (PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
+                "if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
             );
             sb.Append(indent);
             sb.Append("    ? ");
@@ -1513,7 +1499,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine(" != null");
             sb.Append(indent);
             sb.AppendLine(
-                "    : PicoJetson.JsonOptions.Current?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+                "    : jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
             );
             sb.Append(indent);
             sb.Append("    ? ");
@@ -1779,7 +1765,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(ct);
                 sb.Append(">(jw.Buffer, ");
                 sb.Append(effectiveAccessor);
-                sb.AppendLine(");");
+                sb.AppendLine(", jw.Options);");
                 sb.Append(indent);
                 sb.AppendLine("else");
                 sb.Append(indent);
@@ -2043,18 +2029,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     {
         var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
 
-        sb.Append("    file readonly struct ");
+        sb.Append("    file static class ");
         sb.Append(type.Name);
-        sb.Append("JsonDeserializer : IDeserializer<");
-        sb.Append(type.Name);
-        sb.AppendLine(">");
+        sb.AppendLine("JsonDeserializer");
         sb.AppendLine("    {");
-        sb.Append("        public ");
+        sb.Append("        public static ");
         sb.Append(type.Name);
-        sb.AppendLine(" Deserialize(ReadOnlySpan<byte> data)");
-        sb.AppendLine("        {");
         sb.AppendLine(
-            "            var reader = new JsonReader(data, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 256);"
+            " Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options)"
+        );
+        sb.AppendLine("        {");
+        sb.Append("            var __opts = (global::PicoJetson.JsonOptions?)options;\n");
+        sb.AppendLine(
+            "            var reader = new JsonReader(data, maxDepth: __opts?.MaxDepth ?? 256, options: __opts);"
         );
         sb.AppendLine("            try");
         sb.AppendLine("            {");
@@ -2147,9 +2134,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(keyword);
             sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
             sb.Append(EscapeCSharpString(prop.JsonName));
-            sb.AppendLine(
-                "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
-            );
+            sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
             sb.AppendLine("                {");
 
             if (hasCtor)
@@ -2174,7 +2159,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         if (type.Properties.Length > 0)
         {
             sb.AppendLine(
-                "                else if (PicoJetson.JsonOptions.Current?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
+                "                else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
             );
             sb.AppendLine(
                 "                    throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(propNameSpan)}' at offset {reader.BytesConsumed}\");"
@@ -2998,9 +2983,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(propVarName);
             sb.Append(", \"");
             sb.Append(EscapeCSharpString(np.JsonName));
-            sb.AppendLine(
-                "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
-            );
+            sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
             sb.Append(indent);
             sb.AppendLine("{");
             EmitDeserializeProperty(sb, np, target, indent + "    ", nestLevel);
@@ -3724,9 +3707,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(keyword);
             sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
             sb.Append(EscapeCSharpString(prop.JsonName));
-            sb.AppendLine(
-                "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
-            );
+            sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
             sb.AppendLine("            {");
             if (hasCtor)
                 EmitDeserializeCtorParam(sb, prop, type, "                ");
@@ -3794,11 +3775,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("        global::PicoJetson.JsonSerializer.Register<");
         sb.Append(typeRef);
         sb.AppendLine(">(");
-        sb.Append("            new ");
+        sb.Append("            ");
         sb.Append(type.Name);
-        sb.Append("JsonSer(), new ");
+        sb.Append("JsonSer.Serialize, ");
         sb.Append(type.Name);
-        sb.AppendLine("JsonDeserializer());");
+        sb.AppendLine("JsonDeserializer.Deserialize);");
         // Streaming: emitted for regular, array, and now poly types.
         // (EmitPolyStreamingDeserializer fills the original gap.)
         if (
@@ -3851,18 +3832,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     {
         var dpn = type.DiscriminatorPropertyName ?? "$type";
 
-        sb.Append("    file readonly struct ");
+        sb.Append("    file static class ");
         sb.Append(type.Name);
-        sb.AppendLine("JsonSer : ISerializer<");
-        sb.Append(type.Name);
-        sb.AppendLine(">");
+        sb.AppendLine("JsonSer");
         sb.AppendLine("    {");
-        sb.Append("        public void Serialize(IBufferWriter<byte> writer, ");
+        sb.Append("        public static void Serialize(IBufferWriter<byte> writer, ");
         sb.Append(type.Name);
-        sb.AppendLine(" value)");
+        sb.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options)");
         sb.AppendLine("        {");
+        sb.Append("            var __opts = (global::PicoJetson.JsonOptions?)options;\n");
         sb.AppendLine(
-            "            var jw = new JsonWriter(writer, indented: PicoJetson.JsonOptions.Current?.Indented ?? false, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 63);"
+            "            var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);"
         );
         if (!type.IsValueType)
         {
@@ -3924,18 +3904,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         Dictionary<string, TypeInfo> derivedLookup
     )
     {
-        sb.Append("    file readonly struct ");
+        sb.Append("    file static class ");
         sb.Append(type.Name);
-        sb.Append("JsonDeserializer : IDeserializer<");
-        sb.Append(type.Name);
-        sb.AppendLine(">");
+        sb.AppendLine("JsonDeserializer");
         sb.AppendLine("    {");
-        sb.Append("        public ");
+        sb.Append("        public static ");
         sb.Append(type.Name);
-        sb.AppendLine(" Deserialize(ReadOnlySpan<byte> data)");
-        sb.AppendLine("        {");
         sb.AppendLine(
-            "            var reader = new JsonReader(data, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 256);"
+            " Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options)"
+        );
+        sb.AppendLine("        {");
+        sb.Append("            var __opts = (global::PicoJetson.JsonOptions?)options;\n");
+        sb.AppendLine(
+            "            var reader = new JsonReader(data, maxDepth: __opts?.MaxDepth ?? 256, options: __opts);"
         );
         var dpn = type.DiscriminatorPropertyName ?? "$type";
 
@@ -4023,9 +4004,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(kw2);
                 sb.Append(" (TextHelpers.Eq(__n, \"");
                 sb.Append(EscapeCSharpString(prop.JsonName));
-                sb.AppendLine(
-                    "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
-                );
+                sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
                 sb.AppendLine("                    {");
                 if (hasCtor)
                     EmitDeserializeCtorParam(sb, prop, dti, "                        ");
@@ -4198,9 +4177,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(kw2);
                 sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
                 sb.Append(EscapeCSharpString(prop.JsonName));
-                sb.AppendLine(
-                    "\"u8, !(global::PicoJetson.JsonOptions.Current?.PropertyNameCaseInsensitive ?? true)))"
-                );
+                sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
                 sb.AppendLine("                {");
                 if (hasCtor)
                     EmitDeserializeCtorParam(sb, prop, dti, "                    ");
@@ -4394,18 +4371,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var elemKind = type.ArrayElementKind!;
         var elemTypeName = type.ArrayElementName!;
 
-        sb.Append("file readonly struct ");
+        sb.Append("file static class ");
         sb.Append(type.Name);
-        sb.AppendLine("JsonSer : ISerializer<");
-        sb.Append(arrTypeName);
-        sb.AppendLine(">");
+        sb.AppendLine("JsonSer");
         sb.AppendLine("    {");
-        sb.Append("        public void Serialize(IBufferWriter<byte> writer, ");
+        sb.Append("        public static void Serialize(IBufferWriter<byte> writer, ");
         sb.Append(arrTypeName);
-        sb.AppendLine(" value)");
+        sb.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options)");
         sb.AppendLine("        {");
+        sb.Append("            var __opts = (global::PicoJetson.JsonOptions?)options;\n");
         sb.AppendLine(
-            "            var jw = new JsonWriter(writer, indented: PicoJetson.JsonOptions.Current?.Indented ?? false, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 63);"
+            "            var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);"
         );
         sb.AppendLine("            jw.WriteStartArray();");
         sb.AppendLine("            foreach (var __item in value)");
@@ -4483,18 +4459,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var elemCsType = ElementCSharpTypeName(elemKind, elemTypeName);
         var isList = type.IsTopLevelList;
 
-        sb.Append("    file readonly struct ");
+        sb.Append("    file static class ");
         sb.Append(type.Name);
-        sb.Append("JsonDeserializer : IDeserializer<");
-        sb.Append(arrTypeName);
-        sb.AppendLine(">");
+        sb.AppendLine("JsonDeserializer");
         sb.AppendLine("    {");
-        sb.Append("        public ");
+        sb.Append("        public static ");
         sb.Append(arrTypeName);
-        sb.AppendLine(" Deserialize(ReadOnlySpan<byte> data)");
-        sb.AppendLine("        {");
         sb.AppendLine(
-            "            var reader = new JsonReader(data, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 256);"
+            " Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options)"
+        );
+        sb.AppendLine("        {");
+        sb.Append("            var __opts = (global::PicoJetson.JsonOptions?)options;\n");
+        sb.AppendLine(
+            "            var reader = new JsonReader(data, maxDepth: __opts?.MaxDepth ?? 256, options: __opts);"
         );
         sb.Append("            var __list = new System.Collections.Generic.List<");
         sb.Append(elemCsType);

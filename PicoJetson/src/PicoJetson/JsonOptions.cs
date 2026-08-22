@@ -144,7 +144,7 @@ internal sealed class KebabCaseNamingPolicy : JsonNamingPolicy
 /// Options for <see cref="JsonSerializer"/>.
 /// Default mode is compact (no indentation) — optimal for data transfer.
 /// </summary>
-public class JsonOptions
+public class JsonOptions : SerOptions
 {
     // ── Serialization options ──
 

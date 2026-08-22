@@ -8,6 +8,7 @@ public ref struct JsonWriter
     private long _bytesWritten;
     private readonly bool _indented;
     private readonly int _maxDepth;
+    private readonly JsonOptions? _options;
     private int _depth;
     private ulong _needsComma;
     private bool _afterPropertyName;
@@ -17,7 +18,15 @@ public ref struct JsonWriter
     /// <summary>Exposes the underlying buffer for converter support in nested helpers.</summary>
     public IBufferWriter<byte> Buffer => _buffer;
 
-    public JsonWriter(IBufferWriter<byte> buffer, bool indented = false, int maxDepth = 63)
+    /// <summary>Options supplied at construction, or null when default behavior is desired.</summary>
+    public JsonOptions? Options => _options;
+
+    public JsonWriter(
+        IBufferWriter<byte> buffer,
+        bool indented = false,
+        int maxDepth = 63,
+        JsonOptions? options = null
+    )
     {
         if (maxDepth is < 0 or > 63)
             throw new ArgumentOutOfRangeException(
@@ -29,6 +38,7 @@ public ref struct JsonWriter
         _bytesWritten = 0;
         _indented = indented;
         _maxDepth = maxDepth;
+        _options = options;
         _depth = 0;
         _needsComma = 0UL;
         _afterPropertyName = false;
@@ -79,7 +89,7 @@ public ref struct JsonWriter
         if (double.IsNaN(value))
         {
             if (
-                PicoJetson.JsonOptions.Current?.NumberHandling
+                _options?.NumberHandling
                 == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
             )
             {
@@ -94,7 +104,7 @@ public ref struct JsonWriter
         if (double.IsInfinity(value))
         {
             if (
-                PicoJetson.JsonOptions.Current?.NumberHandling
+                _options?.NumberHandling
                 == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
             )
             {

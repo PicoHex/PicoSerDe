@@ -6,7 +6,7 @@ public enum TomlIgnoreCondition
     WhenWritingNull = 1,
 }
 
-public class TomlOptions
+public class TomlOptions : SerOptions
 {
     public bool Indented { get; set; } = false;
     public TomlIgnoreCondition DefaultIgnoreCondition { get; set; } = TomlIgnoreCondition.Never;

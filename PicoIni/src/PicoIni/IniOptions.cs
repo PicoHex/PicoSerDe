@@ -11,7 +11,7 @@ public enum IniIgnoreCondition
 }
 
 /// <summary>Options for <see cref="IniSerializer"/>.</summary>
-public class IniOptions
+public class IniOptions : SerOptions
 {
     /// <summary>Whether to indent the INI output. Default: false (compact).</summary>
     public bool Indented { get; set; } = false;

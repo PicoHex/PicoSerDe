@@ -49,6 +49,12 @@ public ref struct JsonReader
     private readonly bool _isFinalBlock;
     private bool _needsMoreData;
 
+    // Per-instance options (comment/number handling, ...). No ambient state.
+    private readonly JsonOptions? _options;
+
+    /// <summary>Options supplied at construction, or null when default behavior is desired.</summary>
+    public JsonOptions? Options => _options;
+
     /// <summary>True when Read() returned false because a chunk boundary was reached (not EOF).</summary>
     public bool NeedsMoreData => _needsMoreData;
 
@@ -67,14 +73,24 @@ public ref struct JsonReader
     /// <summary>Creates a reader that resumes from a previously saved state.
     /// The <paramref name="data"/> must start at the same position where the
     /// previous reader stopped (the unconsumed portion of the old sequence).</summary>
-    public JsonReader(ReadOnlySequence<byte> data, bool isFinalBlock, JsonReaderState state)
-        : this(data, state.MaxDepth > 0 ? state.MaxDepth : 256, isFinalBlock)
+    public JsonReader(
+        ReadOnlySequence<byte> data,
+        bool isFinalBlock,
+        JsonReaderState state,
+        JsonOptions? options = null
+    )
+        : this(data, state.MaxDepth > 0 ? state.MaxDepth : 256, isFinalBlock, options)
     {
         _depth = state.Depth;
         _needsMoreData = false;
     }
 
-    public JsonReader(ReadOnlySpan<byte> data, int maxDepth = 256, bool isFinalBlock = true)
+    public JsonReader(
+        ReadOnlySpan<byte> data,
+        int maxDepth = 256,
+        bool isFinalBlock = true,
+        JsonOptions? options = null
+    )
     {
         _data = data;
         _position = 0;
@@ -85,19 +101,26 @@ public ref struct JsonReader
         _tokenType = TokenType.None;
         _depth = 0;
         _maxDepth = maxDepth;
+        _options = options;
         _valueSpan = default;
         _rentedBuffer = null;
         _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
         _bufCount = 0;
     }
 
-    public JsonReader(ReadOnlySequence<byte> data, int maxDepth = 256, bool isFinalBlock = true)
+    public JsonReader(
+        ReadOnlySequence<byte> data,
+        int maxDepth = 256,
+        bool isFinalBlock = true,
+        JsonOptions? options = null
+    )
     {
         _data = default;
         _position = 0;
         _seqReader = new SequenceReader<byte>(data);
         _isSequence = true;
         _isFinalBlock = isFinalBlock;
+        _options = options;
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _depth = 0;
@@ -158,7 +181,7 @@ public ref struct JsonReader
         // Comment handling: skip // and /* */ if enabled
         if (PeekByte() == (byte)'/')
         {
-            var opts = PicoJetson.JsonOptions.Current;
+            var opts = _options;
             if (opts?.ReadCommentHandling == PicoJetson.JsonCommentHandling.Skip)
             {
                 AdvanceByte();
@@ -216,7 +239,7 @@ public ref struct JsonReader
             AdvanceByte();
             SkipWhitespace();
             // Allow trailing commas if requested
-            var opts = PicoJetson.JsonOptions.Current;
+            var opts = _options;
             if (IsAtEnd())
             {
                 // In streaming mode a comma at the buffer end is not
@@ -293,7 +316,7 @@ public ref struct JsonReader
                 return ReadLiteral("null"u8, TokenType.Null);
             case (byte)'N':
                 if (
-                    PicoJetson.JsonOptions.Current?.NumberHandling
+                    _options?.NumberHandling
                     == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
                 )
                     return ReadLiteral("NaN"u8, TokenType.Float64);
@@ -303,7 +326,7 @@ public ref struct JsonReader
             case (byte)'-':
                 // Check for -Infinity
                 if (
-                    PicoJetson.JsonOptions.Current?.NumberHandling
+                    _options?.NumberHandling
                         == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
                     && PeekStartsWith("-Infinity"u8)
                 )
@@ -312,7 +335,7 @@ public ref struct JsonReader
             case (byte)'I':
                 // Infinity
                 if (
-                    PicoJetson.JsonOptions.Current?.NumberHandling
+                    _options?.NumberHandling
                         == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
                     && PeekStartsWith("Infinity"u8)
                 )

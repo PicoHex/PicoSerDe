@@ -36,8 +36,19 @@ public static partial class JsonSerializer
     }
 
     /// <summary>
+    /// Register serializer + deserializer delegates (SG primary path).
+    /// </summary>
+    public static void Register<T>(SerDelegate<T> serializer, DeserializeDelegate<T> deserializer)
+        where T : allows ref struct
+    {
+        SerRegistry<JsonFormat, T>.Handler = serializer;
+        DesRegistry<JsonFormat, T>.Deserializer = deserializer;
+    }
+
+    /// <summary>
     /// Register serializer + deserializer (compat path for hand-written ISerializer/IDeserializer).
     /// The ISerializer&lt;T&gt; is wrapped into a SerDelegate&lt;T&gt; internally.
+    /// Options are not forwarded to hand-written implementations.
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
@@ -64,11 +75,15 @@ public static partial class JsonSerializer
         where T : allows ref struct => SerRegistry<JsonFormat, T>.CustomHandler is not null;
 
     /// <summary>Invokes the custom serializer registered via <see cref="RegisterCustom{T}"/>. Called by SG-generated nested emit paths.</summary>
-    public static void SerializeCustom<T>(IBufferWriter<byte> writer, T value)
+    public static void SerializeCustom<T>(
+        IBufferWriter<byte> writer,
+        T value,
+        JsonOptions? options = null
+    )
         where T : allows ref struct
     {
         if (SerRegistry<JsonFormat, T>.CustomHandler is { } h)
-            h(writer, value, null);
+            h(writer, value, (SerOptions?)options);
         else
             SerializerExtensions.ThrowNoSerializer<T>("RegisterCustom");
     }
@@ -84,18 +99,9 @@ public static partial class JsonSerializer
     {
         if (SerRegistry<JsonFormat, T>.Handler is { } h)
         {
-            var prev = JsonOptions.Current;
-            JsonOptions.Current = options;
-            try
-            {
-                var writer = SerializerExtensions.RentWriter();
-                h(writer, value, null);
-                return writer.WrittenSpan.ToArray();
-            }
-            finally
-            {
-                JsonOptions.Current = prev;
-            }
+            var writer = SerializerExtensions.RentWriter();
+            h(writer, value, options);
+            return writer.WrittenSpan.ToArray();
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
         return default!;
@@ -106,18 +112,9 @@ public static partial class JsonSerializer
     {
         if (SerRegistry<JsonFormat, T>.Handler is { } h)
         {
-            var prev = JsonOptions.Current;
-            JsonOptions.Current = options;
-            try
-            {
-                var writer = SerializerExtensions.RentWriter();
-                h(writer, value, null);
-                return Encoding.UTF8.GetString(writer.WrittenSpan);
-            }
-            finally
-            {
-                JsonOptions.Current = prev;
-            }
+            var writer = SerializerExtensions.RentWriter();
+            h(writer, value, options);
+            return Encoding.UTF8.GetString(writer.WrittenSpan);
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
         return "";
@@ -131,18 +128,7 @@ public static partial class JsonSerializer
         where T : allows ref struct
     {
         if (SerRegistry<JsonFormat, T>.Handler is { } h)
-        {
-            var prev = JsonOptions.Current;
-            JsonOptions.Current = options;
-            try
-            {
-                h(writer, value, null);
-            }
-            finally
-            {
-                JsonOptions.Current = prev;
-            }
-        }
+            h(writer, value, options);
         else
             SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
     }
@@ -150,18 +136,7 @@ public static partial class JsonSerializer
     public static T? Deserialize<T>(ReadOnlySpan<byte> data, JsonOptions? options = null)
     {
         if (DesRegistry<JsonFormat, T>.Deserializer is { } d)
-        {
-            var prev = JsonOptions.Current;
-            JsonOptions.Current = options;
-            try
-            {
-                return d(data, null);
-            }
-            finally
-            {
-                JsonOptions.Current = prev;
-            }
-        }
+            return d(data, options);
         SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
         return default;
     }
@@ -185,58 +160,50 @@ public static partial class JsonSerializer
                 $"No streaming deserializer registered for {typeof(T)}."
             );
 
-        var prev = JsonOptions.Current;
-        JsonOptions.Current = options;
-        try
-        {
-            var pipe = PipeReader.Create(stream);
-            // StreamPipeReader may reuse its internal buffer, so previously
-            // returned data is not guaranteed to persist across ReadAsync
-            // calls. Copy every chunk into our own accumulator.
-            var accum = new ArrayBufferWriter<byte>(4096);
+        var pipe = PipeReader.Create(stream);
+        // StreamPipeReader may reuse its internal buffer, so previously
+        // returned data is not guaranteed to persist across ReadAsync
+        // calls. Copy every chunk into our own accumulator.
+        var accum = new ArrayBufferWriter<byte>(4096);
 
-            while (true)
+        while (true)
+        {
+            var r = await pipe.ReadAsync(ct);
+            foreach (var seg in r.Buffer)
+                accum.Write(seg.Span);
+            pipe.AdvanceTo(r.Buffer.End);
+
+            // Re-parse from the beginning on every attempt: streaming
+            // deserializers do not preserve partially parsed state across
+            // NeedMoreData returns, so restarting is the only correct
+            // strategy. The parse itself is sequence-mode so partial
+            // strings at the tail signal NeedMoreData instead of throwing.
+            var reader = new JsonReader(
+                new ReadOnlySequence<byte>(accum.WrittenMemory),
+                isFinalBlock: r.IsCompleted,
+                options: options
+            );
+
+            ReadStatus status;
+            try
             {
-                var r = await pipe.ReadAsync(ct);
-                foreach (var seg in r.Buffer)
-                    accum.Write(seg.Span);
-                pipe.AdvanceTo(r.Buffer.End);
-
-                // Re-parse from the beginning on every attempt: streaming
-                // deserializers do not preserve partially parsed state across
-                // NeedMoreData returns, so restarting is the only correct
-                // strategy. The parse itself is sequence-mode so partial
-                // strings at the tail signal NeedMoreData instead of throwing.
-                var reader = new JsonReader(
-                    new ReadOnlySequence<byte>(accum.WrittenMemory),
-                    isFinalBlock: r.IsCompleted
-                );
-
-                ReadStatus status;
-                try
-                {
-                    status = func(ref reader, out var result);
-                    if (status == ReadStatus.Success)
-                        return result!;
-                }
-                finally
-                {
-                    reader.Dispose();
-                }
-
-                if (status == ReadStatus.NeedMoreData)
-                {
-                    if (r.IsCompleted)
-                        throw new FormatException("Unexpected end of stream while parsing.");
-                    continue;
-                }
-
-                throw new FormatException("Unexpected parser state.");
+                status = func(ref reader, out var result);
+                if (status == ReadStatus.Success)
+                    return result!;
             }
-        }
-        finally
-        {
-            JsonOptions.Current = prev;
+            finally
+            {
+                reader.Dispose();
+            }
+
+            if (status == ReadStatus.NeedMoreData)
+            {
+                if (r.IsCompleted)
+                    throw new FormatException("Unexpected end of stream while parsing.");
+                continue;
+            }
+
+            throw new FormatException("Unexpected parser state.");
         }
     }
 
@@ -247,29 +214,20 @@ public static partial class JsonSerializer
     public static byte[] SerializeLines<T>(IEnumerable<T> values, JsonOptions? options = null)
         where T : allows ref struct
     {
-        var prev = JsonOptions.Current;
-        JsonOptions.Current = options;
-        try
+        var buf = new ArrayBufferWriter<byte>(1024);
+        foreach (var v in values)
         {
-            var buf = new ArrayBufferWriter<byte>(1024);
-            foreach (var v in values)
+            if (SerRegistry<JsonFormat, T>.Handler is { } h)
             {
-                if (SerRegistry<JsonFormat, T>.Handler is { } h)
-                {
-                    h(buf, v, null);
-                    buf.Write("\n"u8);
-                }
-                else
-                {
-                    SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
-                }
+                h(buf, v, options);
+                buf.Write("\n"u8);
             }
-            return buf.WrittenSpan.ToArray();
+            else
+            {
+                SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
+            }
         }
-        finally
-        {
-            JsonOptions.Current = prev;
-        }
+        return buf.WrittenSpan.ToArray();
     }
 
     /// <summary>
@@ -281,47 +239,38 @@ public static partial class JsonSerializer
         if (data.IsEmpty)
             return [];
 
-        var prev = JsonOptions.Current;
-        JsonOptions.Current = options;
-        try
+        var results = new List<T?>();
+        var remaining = data;
+
+        while (remaining.Length > 0)
         {
-            var results = new List<T?>();
-            var remaining = data;
-
-            while (remaining.Length > 0)
+            int newlineIdx = remaining.IndexOf((byte)'\n');
+            ReadOnlySpan<byte> line;
+            if (newlineIdx >= 0)
             {
-                int newlineIdx = remaining.IndexOf((byte)'\n');
-                ReadOnlySpan<byte> line;
-                if (newlineIdx >= 0)
-                {
-                    line = remaining[..newlineIdx];
-                    remaining = remaining[(newlineIdx + 1)..];
-                }
-                else
-                {
-                    line = remaining;
-                    remaining = default;
-                }
-
-                if (line.IsEmpty)
-                    continue;
-
-                if (DesRegistry<JsonFormat, T>.Deserializer is { } d)
-                {
-                    results.Add(d(line, null));
-                }
-                else
-                {
-                    SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
-                }
+                line = remaining[..newlineIdx];
+                remaining = remaining[(newlineIdx + 1)..];
+            }
+            else
+            {
+                line = remaining;
+                remaining = default;
             }
 
-            return results.ToArray();
+            if (line.IsEmpty)
+                continue;
+
+            if (DesRegistry<JsonFormat, T>.Deserializer is { } d)
+            {
+                results.Add(d(line, options));
+            }
+            else
+            {
+                SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
+            }
         }
-        finally
-        {
-            JsonOptions.Current = prev;
-        }
+
+        return results.ToArray();
     }
 
     /// <summary>
@@ -355,237 +304,218 @@ public static partial class JsonSerializer
             yield break;
         }
 
-        var prev = JsonOptions.Current;
-        JsonOptions.Current = options;
-        try
+        if (topLevelValues)
         {
-            if (topLevelValues)
+            var readBuf = new byte[4096];
+            var accum = new List<byte>(4096);
+
+            while (true)
             {
-                var readBuf = new byte[4096];
-                var accum = new List<byte>(4096);
-
-                while (true)
+                ct.ThrowIfCancellationRequested();
+                int bytesRead = await stream.ReadAsync(readBuf, ct);
+                if (bytesRead == 0)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    int bytesRead = await stream.ReadAsync(readBuf, ct);
-                    if (bytesRead == 0)
+                    if (accum.Count > 0)
                     {
-                        if (accum.Count > 0)
-                        {
-                            // Copy remaining to array before yielding (Span can't cross yield boundary)
-                            var lastLine = accum.ToArray();
-                            yield return deserializer(lastLine, null);
-                        }
-                        yield break;
+                        // Copy remaining to array before yielding (Span can't cross yield boundary)
+                        var lastLine = accum.ToArray();
+                        yield return deserializer(lastLine, options);
                     }
+                    yield break;
+                }
 
-                    accum.AddRange(readBuf.AsSpan(0, bytesRead));
+                accum.AddRange(readBuf.AsSpan(0, bytesRead));
 
-                    int consumed = 0;
-                    while (consumed < accum.Count)
+                int consumed = 0;
+                while (consumed < accum.Count)
+                {
+                    int nlPos = accum.IndexOf((byte)'\n', consumed);
+                    if (nlPos < 0)
+                        break;
+
+                    int lineStart = consumed;
+                    int lineEnd = nlPos;
+                    consumed = lineEnd + 1;
+
+                    if (lineEnd > lineStart)
                     {
-                        int nlPos = accum.IndexOf((byte)'\n', consumed);
-                        if (nlPos < 0)
-                            break;
-
-                        int lineStart = consumed;
-                        int lineEnd = nlPos;
-                        consumed = lineEnd + 1;
-
-                        if (lineEnd > lineStart)
-                        {
-                            // Copy line bytes; List<T>.GetRange avoids Span crossing yield
-                            var lineBytes = accum
-                                .GetRange(lineStart, lineEnd - lineStart)
-                                .ToArray();
-                            yield return deserializer(lineBytes, null);
-                        }
-                    }
-
-                    if (consumed > 0)
-                    {
-                        if (consumed < accum.Count)
-                        {
-                            accum.RemoveRange(0, consumed);
-                        }
-                        else
-                        {
-                            accum.Clear();
-                        }
+                        // Copy line bytes; List<T>.GetRange avoids Span crossing yield
+                        var lineBytes = accum.GetRange(lineStart, lineEnd - lineStart).ToArray();
+                        yield return deserializer(lineBytes, options);
                     }
                 }
-            }
-            else
-            {
-                // ── Array mode: bracket-counting value extraction ──
-                var readBuf = new byte[4096];
-                var accum = new List<byte>(4096);
-                bool sawOpeningBracket = false;
-                int depth = 0;
-                int valueStart = -1;
 
-                while (true)
+                if (consumed > 0)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    int bytesRead = await stream.ReadAsync(readBuf, ct);
-                    if (bytesRead == 0)
+                    if (consumed < accum.Count)
                     {
-                        if (!sawOpeningBracket)
-                            throw new FormatException(
-                                "Expected '[' at start of JSON array stream."
-                            );
-                        if (depth > 0)
-                            throw new FormatException(
-                                "Unexpected end of stream inside JSON array."
-                            );
-                        yield break;
+                        accum.RemoveRange(0, consumed);
                     }
-
-                    accum.AddRange(readBuf.AsSpan(0, bytesRead));
-
-                    int i = 0;
-                    while (i < accum.Count)
+                    else
                     {
-                        byte b = accum[i];
-
-                        if (!sawOpeningBracket)
-                        {
-                            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r')
-                            {
-                                i++;
-                                continue;
-                            }
-                            if (b == (byte)'[')
-                            {
-                                sawOpeningBracket = true;
-                                depth = 1;
-                                i++;
-                                continue;
-                            }
-                            throw new FormatException(
-                                "Expected '[' at start of JSON array stream."
-                            );
-                        }
-
-                        if (b == (byte)'"')
-                        {
-                            if (depth == 1 && valueStart < 0)
-                                valueStart = i;
-                            i++;
-                            while (i < accum.Count)
-                            {
-                                if (accum[i] == (byte)'\\')
-                                {
-                                    i += 2;
-                                    continue;
-                                }
-                                if (accum[i] == (byte)'"')
-                                {
-                                    i++;
-                                    break;
-                                }
-                                i++;
-                            }
-                            continue;
-                        }
-
-                        if (b is (byte)'{' or (byte)'[')
-                        {
-                            if (depth == 1 && valueStart < 0)
-                                valueStart = i;
-                            depth++;
-                            i++;
-                            continue;
-                        }
-
-                        if (b is (byte)'}' or (byte)']')
-                        {
-                            depth--;
-                            if (depth == 0)
-                            {
-                                if (b != (byte)']')
-                                    throw new FormatException(
-                                        "Unexpected '}' inside JSON array stream."
-                                    );
-                                if (valueStart >= 0)
-                                {
-                                    var valBytes = accum
-                                        .GetRange(valueStart, i - valueStart)
-                                        .ToArray();
-                                    var trimmed = TrimArrayElement(valBytes);
-                                    if (trimmed.Length > 0)
-                                        yield return deserializer(trimmed, null);
-                                }
-                                yield break;
-                            }
-                            if (depth == 1)
-                            {
-                                // A nested container element just completed.
-                                if (valueStart >= 0)
-                                {
-                                    var valBytes = accum
-                                        .GetRange(valueStart, i + 1 - valueStart)
-                                        .ToArray();
-                                    yield return deserializer(valBytes, null);
-                                }
-                                valueStart = -1;
-                                int consumed = i + 1;
-                                while (consumed < accum.Count && accum[consumed] <= 32)
-                                    consumed++;
-                                if (consumed < accum.Count && accum[consumed] == (byte)',')
-                                    consumed++;
-                                accum.RemoveRange(0, consumed);
-                                i = 0;
-                                continue;
-                            }
-                            i++;
-                            continue;
-                        }
-
-                        // Primitive element boundaries at depth 1.
-                        if (depth == 1)
-                        {
-                            if (b == (byte)',')
-                            {
-                                if (valueStart >= 0)
-                                {
-                                    var valBytes = TrimArrayElement(
-                                        accum.GetRange(valueStart, i - valueStart).ToArray()
-                                    );
-                                    if (valBytes.Length > 0)
-                                        yield return deserializer(valBytes, null);
-                                    valueStart = -1;
-                                    accum.RemoveRange(0, i + 1);
-                                    i = 0;
-                                    continue;
-                                }
-                                accum.RemoveRange(0, i + 1);
-                                i = 0;
-                                continue;
-                            }
-                            if (valueStart < 0 && b > 32)
-                                valueStart = i;
-                        }
-
-                        i++;
-                    }
-
-                    if (valueStart < 0 && depth == 1)
-                    {
-                        int trim = 0;
-                        while (trim < accum.Count && accum[trim] <= 32)
-                            trim++;
-                        if (trim < accum.Count && accum[trim] == (byte)',')
-                            trim++;
-                        if (trim > 0)
-                            accum.RemoveRange(0, trim);
+                        accum.Clear();
                     }
                 }
             }
         }
-        finally
+        else
         {
-            JsonOptions.Current = prev;
+            // ── Array mode: bracket-counting value extraction ──
+            var readBuf = new byte[4096];
+            var accum = new List<byte>(4096);
+            bool sawOpeningBracket = false;
+            int depth = 0;
+            int valueStart = -1;
+
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                int bytesRead = await stream.ReadAsync(readBuf, ct);
+                if (bytesRead == 0)
+                {
+                    if (!sawOpeningBracket)
+                        throw new FormatException("Expected '[' at start of JSON array stream.");
+                    if (depth > 0)
+                        throw new FormatException("Unexpected end of stream inside JSON array.");
+                    yield break;
+                }
+
+                accum.AddRange(readBuf.AsSpan(0, bytesRead));
+
+                int i = 0;
+                while (i < accum.Count)
+                {
+                    byte b = accum[i];
+
+                    if (!sawOpeningBracket)
+                    {
+                        if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r')
+                        {
+                            i++;
+                            continue;
+                        }
+                        if (b == (byte)'[')
+                        {
+                            sawOpeningBracket = true;
+                            depth = 1;
+                            i++;
+                            continue;
+                        }
+                        throw new FormatException("Expected '[' at start of JSON array stream.");
+                    }
+
+                    if (b == (byte)'"')
+                    {
+                        if (depth == 1 && valueStart < 0)
+                            valueStart = i;
+                        i++;
+                        while (i < accum.Count)
+                        {
+                            if (accum[i] == (byte)'\\')
+                            {
+                                i += 2;
+                                continue;
+                            }
+                            if (accum[i] == (byte)'"')
+                            {
+                                i++;
+                                break;
+                            }
+                            i++;
+                        }
+                        continue;
+                    }
+
+                    if (b is (byte)'{' or (byte)'[')
+                    {
+                        if (depth == 1 && valueStart < 0)
+                            valueStart = i;
+                        depth++;
+                        i++;
+                        continue;
+                    }
+
+                    if (b is (byte)'}' or (byte)']')
+                    {
+                        depth--;
+                        if (depth == 0)
+                        {
+                            if (b != (byte)']')
+                                throw new FormatException(
+                                    "Unexpected '}' inside JSON array stream."
+                                );
+                            if (valueStart >= 0)
+                            {
+                                var valBytes = accum.GetRange(valueStart, i - valueStart).ToArray();
+                                var trimmed = TrimArrayElement(valBytes);
+                                if (trimmed.Length > 0)
+                                    yield return deserializer(trimmed, options);
+                            }
+                            yield break;
+                        }
+                        if (depth == 1)
+                        {
+                            // A nested container element just completed.
+                            if (valueStart >= 0)
+                            {
+                                var valBytes = accum
+                                    .GetRange(valueStart, i + 1 - valueStart)
+                                    .ToArray();
+                                yield return deserializer(valBytes, options);
+                            }
+                            valueStart = -1;
+                            int consumed = i + 1;
+                            while (consumed < accum.Count && accum[consumed] <= 32)
+                                consumed++;
+                            if (consumed < accum.Count && accum[consumed] == (byte)',')
+                                consumed++;
+                            accum.RemoveRange(0, consumed);
+                            i = 0;
+                            continue;
+                        }
+                        i++;
+                        continue;
+                    }
+
+                    // Primitive element boundaries at depth 1.
+                    if (depth == 1)
+                    {
+                        if (b == (byte)',')
+                        {
+                            if (valueStart >= 0)
+                            {
+                                var valBytes = TrimArrayElement(
+                                    accum.GetRange(valueStart, i - valueStart).ToArray()
+                                );
+                                if (valBytes.Length > 0)
+                                    yield return deserializer(valBytes, options);
+                                valueStart = -1;
+                                accum.RemoveRange(0, i + 1);
+                                i = 0;
+                                continue;
+                            }
+                            accum.RemoveRange(0, i + 1);
+                            i = 0;
+                            continue;
+                        }
+                        if (valueStart < 0 && b > 32)
+                            valueStart = i;
+                    }
+
+                    i++;
+                }
+
+                if (valueStart < 0 && depth == 1)
+                {
+                    int trim = 0;
+                    while (trim < accum.Count && accum[trim] <= 32)
+                        trim++;
+                    if (trim < accum.Count && accum[trim] == (byte)',')
+                        trim++;
+                    if (trim > 0)
+                        accum.RemoveRange(0, trim);
+                }
+            }
         }
     }
 

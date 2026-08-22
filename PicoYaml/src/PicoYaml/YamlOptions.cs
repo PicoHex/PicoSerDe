@@ -6,7 +6,7 @@ public enum YamlIgnoreCondition
     WhenWritingNull = 1,
 }
 
-public class YamlOptions
+public class YamlOptions : SerOptions
 {
     public bool Indented { get; set; } = false;
     public YamlIgnoreCondition DefaultIgnoreCondition { get; set; } = YamlIgnoreCondition.Never;

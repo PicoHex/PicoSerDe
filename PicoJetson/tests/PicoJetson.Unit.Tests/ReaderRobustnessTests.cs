@@ -14,11 +14,9 @@ public class ReaderRobustnessTests
     [Test]
     public async Task AllowTrailingCommas_Array_EmitsArrayEndToken()
     {
-        var prev = JsonOptions.Current;
-        JsonOptions.Current = new JsonOptions { AllowTrailingCommas = true };
-        try
+        var opts = new JsonOptions { AllowTrailingCommas = true };
         {
-            var reader = new JsonReader("[1,2,]"u8);
+            var reader = new JsonReader("[1,2,]"u8, options: opts);
             var ok1 = reader.Read();
             var t1 = reader.TokenType;
             var ok2 = reader.Read();
@@ -35,20 +33,14 @@ public class ReaderRobustnessTests
             await Assert.That(t4).IsEqualTo(TokenType.ArrayEnd);
             await Assert.That(ok5).IsFalse(); // EOF
         }
-        finally
-        {
-            JsonOptions.Current = prev;
-        }
     }
 
     [Test]
     public async Task AllowTrailingCommas_Object_EmitsObjectEndToken()
     {
-        var prev = JsonOptions.Current;
-        JsonOptions.Current = new JsonOptions { AllowTrailingCommas = true };
-        try
+        var opts = new JsonOptions { AllowTrailingCommas = true };
         {
-            var reader = new JsonReader("{\"a\":1,}"u8);
+            var reader = new JsonReader("{\"a\":1,}"u8, options: opts);
             var ok1 = reader.Read();
             var t1 = reader.TokenType;
             var ok2 = reader.Read();
@@ -65,10 +57,6 @@ public class ReaderRobustnessTests
             await Assert.That(t4).IsEqualTo(TokenType.ObjectEnd);
             await Assert.That(ok5).IsFalse(); // EOF
         }
-        finally
-        {
-            JsonOptions.Current = prev;
-        }
     }
 
     // ── H5: comment handling strictness ──
@@ -76,11 +64,9 @@ public class ReaderRobustnessTests
     [Test]
     public async Task SkipComments_BareSlash_Throws()
     {
-        var prev = JsonOptions.Current;
-        JsonOptions.Current = new JsonOptions { ReadCommentHandling = JsonCommentHandling.Skip };
-        try
+        var opts = new JsonOptions { ReadCommentHandling = JsonCommentHandling.Skip };
         {
-            var reader = new JsonReader("{\"a\":1} /5"u8);
+            var reader = new JsonReader("{\"a\":1} /5"u8, options: opts);
             var ok1 = reader.Read();
             var ok2 = reader.Read();
             var ok3 = reader.Read();
@@ -101,23 +87,18 @@ public class ReaderRobustnessTests
             await Assert.That(ok4).IsTrue(); // }
             await Assert.That(threw).IsTrue();
         }
-        finally
-        {
-            JsonOptions.Current = prev;
-        }
     }
 
     [Test]
     public async Task SkipComments_UnterminatedBlockCommentInFinalBlock_Throws()
     {
-        var prev = JsonOptions.Current;
-        JsonOptions.Current = new JsonOptions { ReadCommentHandling = JsonCommentHandling.Skip };
-        try
+        var opts = new JsonOptions { ReadCommentHandling = JsonCommentHandling.Skip };
         {
             var reader = new JsonReader(
                 "{\"a\":1} /* never closed"u8,
                 maxDepth: 64,
-                isFinalBlock: true
+                isFinalBlock: true,
+                options: opts
             );
             var threw = false;
             try
@@ -130,10 +111,6 @@ public class ReaderRobustnessTests
             }
 
             await Assert.That(threw).IsTrue();
-        }
-        finally
-        {
-            JsonOptions.Current = prev;
         }
     }
 

@@ -827,22 +827,14 @@ public class JsonReaderTests
         bool gotNaN;
         double value;
         {
-            var prev = PicoJetson.JsonOptions.Current;
-            try
+            var opts = new JsonOptions
             {
-                PicoJetson.JsonOptions.Current = new JsonOptions
-                {
-                    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
-                };
-                var r = new JsonReader("NaN"u8);
-                ok = r.Read();
-                tt = r.TokenType;
-                gotNaN = r.TryGetFloat64(out value);
-            }
-            finally
-            {
-                PicoJetson.JsonOptions.Current = prev;
-            }
+                NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+            };
+            var r = new JsonReader("NaN"u8, options: opts);
+            ok = r.Read();
+            tt = r.TokenType;
+            gotNaN = r.TryGetFloat64(out value);
         }
 
         await Assert.That(ok).IsTrue();
@@ -859,24 +851,16 @@ public class JsonReaderTests
         bool gotInf;
         double value;
         {
-            var prev = PicoJetson.JsonOptions.Current;
-            try
+            var opts = new JsonOptions
             {
-                PicoJetson.JsonOptions.Current = new JsonOptions
-                {
-                    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
-                };
-                var json = "Infinity"u8.ToArray();
-                var seq = new ReadOnlySequence<byte>(json);
-                var r = new JsonReader(seq);
-                ok = r.Read();
-                tt = r.TokenType;
-                gotInf = r.TryGetFloat64(out value);
-            }
-            finally
-            {
-                PicoJetson.JsonOptions.Current = prev;
-            }
+                NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+            };
+            var json = "Infinity"u8.ToArray();
+            var seq = new ReadOnlySequence<byte>(json);
+            var r = new JsonReader(seq, options: opts);
+            ok = r.Read();
+            tt = r.TokenType;
+            gotInf = r.TryGetFloat64(out value);
         }
 
         await Assert.That(ok).IsTrue();
@@ -893,24 +877,16 @@ public class JsonReaderTests
         bool gotInf;
         double value;
         {
-            var prev = PicoJetson.JsonOptions.Current;
-            try
+            var opts = new JsonOptions
             {
-                PicoJetson.JsonOptions.Current = new JsonOptions
-                {
-                    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
-                };
-                var json = "-Infinity"u8.ToArray();
-                var seq = new ReadOnlySequence<byte>(json);
-                var r = new JsonReader(seq);
-                ok = r.Read();
-                tt = r.TokenType;
-                gotInf = r.TryGetFloat64(out value);
-            }
-            finally
-            {
-                PicoJetson.JsonOptions.Current = prev;
-            }
+                NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+            };
+            var json = "-Infinity"u8.ToArray();
+            var seq = new ReadOnlySequence<byte>(json);
+            var r = new JsonReader(seq, options: opts);
+            ok = r.Read();
+            tt = r.TokenType;
+            gotInf = r.TryGetFloat64(out value);
         }
 
         await Assert.That(ok).IsTrue();
