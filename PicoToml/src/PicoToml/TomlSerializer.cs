@@ -38,14 +38,15 @@ public static partial class TomlSerializer
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        SerRegistry<TomlFormat, T>.Handler = (writer, value) => serializer.Serialize(writer, value);
-        DesRegistry<TomlFormat, T>.Deserializer = deserializer;
+        SerRegistry<TomlFormat, T>.Handler = (writer, value, _) =>
+            serializer.Serialize(writer, value);
+        DesRegistry<TomlFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
     }
 
     /// <summary>Register a deserializer only.</summary>
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
     {
-        DesRegistry<TomlFormat, T>.Deserializer = deserializer;
+        DesRegistry<TomlFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
@@ -54,7 +55,7 @@ public static partial class TomlSerializer
         if (SerRegistry<TomlFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
-            h(writer, value);
+            h(writer, value, null);
             return writer.WrittenSpan.ToArray();
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
@@ -67,7 +68,7 @@ public static partial class TomlSerializer
         if (SerRegistry<TomlFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
-            h(writer, value);
+            h(writer, value, null);
             return Encoding.UTF8.GetString(writer.WrittenSpan);
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
@@ -78,7 +79,7 @@ public static partial class TomlSerializer
         where T : allows ref struct
     {
         if (SerRegistry<TomlFormat, T>.Handler is { } h)
-            h(writer, value);
+            h(writer, value, null);
         else
             SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
     }
@@ -86,7 +87,7 @@ public static partial class TomlSerializer
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
         if (DesRegistry<TomlFormat, T>.Deserializer is { } d)
-            return d.Deserialize(data);
+            return d(data, null);
         SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
         return default;
     }

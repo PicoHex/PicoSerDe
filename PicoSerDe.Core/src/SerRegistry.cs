@@ -27,5 +27,5 @@ public static class SerRegistry<TFormat, T>
 public static class DesRegistry<TFormat, T>
 {
     /// <summary>The active top-level deserializer.</summary>
-    public static IDeserializer<T>? Deserializer;
+    public static DeserializeDelegate<T>? Deserializer;
 }

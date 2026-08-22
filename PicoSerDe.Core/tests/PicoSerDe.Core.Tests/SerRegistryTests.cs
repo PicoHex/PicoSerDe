@@ -35,7 +35,7 @@ public class SerRegistryTests
     {
         SerRegistry<RegFmtA, RegPayload>.Handler = null;
         SerRegistry<RegFmtB, RegPayload>.Handler = null;
-        SerRegistry<RegFmtA, RegPayload>.Handler = static (w, v) => { };
+        SerRegistry<RegFmtA, RegPayload>.Handler = static (w, v, _) => { };
         await Assert.That(SerRegistry<RegFmtA, RegPayload>.Handler).IsNotNull();
         await Assert.That(SerRegistry<RegFmtB, RegPayload>.Handler).IsNull();
     }
@@ -47,10 +47,10 @@ public class SerRegistryTests
         SerRegistry<RegFmtA, RegPayload>.CustomHandler = null;
         SerRegistry<RegFmtB, RegPayload>.Handler = null;
         SerRegistry<RegFmtB, RegPayload>.CustomHandler = null;
-        SerRegistry<RegFmtB, RegPayload>.Handler = static (w, v) => { };
+        SerRegistry<RegFmtB, RegPayload>.Handler = static (w, v, _) => { };
         await Assert.That(SerRegistry<RegFmtB, RegPayload>.CustomHandler).IsNull();
 
-        SerRegistry<RegFmtB, RegPayload>.CustomHandler = static (w, v) => { };
+        SerRegistry<RegFmtB, RegPayload>.CustomHandler = static (w, v, _) => { };
         await Assert.That(SerRegistry<RegFmtB, RegPayload>.CustomHandler).IsNotNull();
         // Format isolation holds for the custom slot too
         await Assert.That(SerRegistry<RegFmtA, RegPayload>.CustomHandler).IsNull();
@@ -61,9 +61,19 @@ public class SerRegistryTests
     {
         DesRegistry<RegFmtA, RegPayload>.Deserializer = null;
         DesRegistry<RegFmtB, RegPayload>.Deserializer = null;
-        DesRegistry<RegFmtA, RegPayload>.Deserializer = new RegPayloadDes();
+        DesRegistry<RegFmtA, RegPayload>.Deserializer = (data, _) =>
+            new RegPayloadDes().Deserialize(data);
         await Assert.That(DesRegistry<RegFmtA, RegPayload>.Deserializer).IsNotNull();
         await Assert.That(DesRegistry<RegFmtB, RegPayload>.Deserializer).IsNull();
+    }
+
+    [Test]
+    public async Task DesRegistry_StoresDeserializeDelegate()
+    {
+        DesRegistry<RegFmtA, int>.Deserializer = null;
+        var d = new DeserializeDelegate<int>((data, options) => 7);
+        DesRegistry<RegFmtA, int>.Deserializer = d;
+        await Assert.That(DesRegistry<RegFmtA, int>.Deserializer!(default, null)).IsEqualTo(7);
     }
 
     [Test]
@@ -71,7 +81,7 @@ public class SerRegistryTests
     {
         // ref struct T must be usable (allows ref struct constraint)
         SerRegistry<RegFmtA, RegRefPayload>.Handler = null;
-        SerRegistry<RegFmtA, RegRefPayload>.Handler = static (w, v) => { };
+        SerRegistry<RegFmtA, RegRefPayload>.Handler = static (w, v, _) => { };
         await Assert.That(SerRegistry<RegFmtA, RegRefPayload>.Handler).IsNotNull();
     }
 }

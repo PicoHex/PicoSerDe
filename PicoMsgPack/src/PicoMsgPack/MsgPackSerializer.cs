@@ -39,9 +39,9 @@ public static partial class MsgPackSerializer
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        SerRegistry<MsgPackFormat, T>.Handler = (writer, value) =>
+        SerRegistry<MsgPackFormat, T>.Handler = (writer, value, _) =>
             serializer.Serialize(writer, value);
-        DesRegistry<MsgPackFormat, T>.Deserializer = deserializer;
+        DesRegistry<MsgPackFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
     }
 
     /// <summary>
@@ -52,7 +52,7 @@ public static partial class MsgPackSerializer
     public static void RegisterCustom<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
         Register(serializer, deserializer);
-        SerRegistry<MsgPackFormat, T>.CustomHandler = (writer, value) =>
+        SerRegistry<MsgPackFormat, T>.CustomHandler = (writer, value, _) =>
             serializer.Serialize(writer, value);
     }
 
@@ -65,7 +65,7 @@ public static partial class MsgPackSerializer
         where T : allows ref struct
     {
         if (SerRegistry<MsgPackFormat, T>.CustomHandler is { } h)
-            h(writer, value);
+            h(writer, value, null);
         else
             SerializerExtensions.ThrowNoSerializer<T>("RegisterCustom");
     }
@@ -73,7 +73,7 @@ public static partial class MsgPackSerializer
     /// <summary>Register a deserializer only.</summary>
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
     {
-        DesRegistry<MsgPackFormat, T>.Deserializer = deserializer;
+        DesRegistry<MsgPackFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
@@ -82,7 +82,7 @@ public static partial class MsgPackSerializer
         if (SerRegistry<MsgPackFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
-            h(writer, value);
+            h(writer, value, null);
             return writer.WrittenSpan.ToArray();
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
@@ -93,7 +93,7 @@ public static partial class MsgPackSerializer
         where T : allows ref struct
     {
         if (SerRegistry<MsgPackFormat, T>.Handler is { } h)
-            h(writer, value);
+            h(writer, value, null);
         else
             SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
     }
@@ -101,7 +101,7 @@ public static partial class MsgPackSerializer
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
         if (DesRegistry<MsgPackFormat, T>.Deserializer is { } d)
-            return d.Deserialize(data);
+            return d(data, null);
         SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
         return default;
     }

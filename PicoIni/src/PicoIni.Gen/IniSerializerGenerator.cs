@@ -952,7 +952,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("IniSer {");
         s.Append("    public static void Serialize(IBufferWriter<byte> writer, ");
         s.Append(type.Name);
-        s.AppendLine(" value) {");
+        s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
         s.AppendLine("        var iw = new IniWriter(writer);");
 
         var top = type

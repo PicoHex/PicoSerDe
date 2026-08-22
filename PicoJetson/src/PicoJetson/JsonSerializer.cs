@@ -41,8 +41,9 @@ public static partial class JsonSerializer
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        SerRegistry<JsonFormat, T>.Handler = (writer, value) => serializer.Serialize(writer, value);
-        DesRegistry<JsonFormat, T>.Deserializer = deserializer;
+        SerRegistry<JsonFormat, T>.Handler = (writer, value, _) =>
+            serializer.Serialize(writer, value);
+        DesRegistry<JsonFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
     }
 
     /// <summary>
@@ -54,7 +55,7 @@ public static partial class JsonSerializer
     public static void RegisterCustom<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
         Register(serializer, deserializer);
-        SerRegistry<JsonFormat, T>.CustomHandler = (writer, value) =>
+        SerRegistry<JsonFormat, T>.CustomHandler = (writer, value, _) =>
             serializer.Serialize(writer, value);
     }
 
@@ -67,7 +68,7 @@ public static partial class JsonSerializer
         where T : allows ref struct
     {
         if (SerRegistry<JsonFormat, T>.CustomHandler is { } h)
-            h(writer, value);
+            h(writer, value, null);
         else
             SerializerExtensions.ThrowNoSerializer<T>("RegisterCustom");
     }
@@ -75,7 +76,7 @@ public static partial class JsonSerializer
     /// <summary>Register a deserializer only.</summary>
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
     {
-        DesRegistry<JsonFormat, T>.Deserializer = deserializer;
+        DesRegistry<JsonFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value, JsonOptions? options = null)
@@ -88,7 +89,7 @@ public static partial class JsonSerializer
             try
             {
                 var writer = SerializerExtensions.RentWriter();
-                h(writer, value);
+                h(writer, value, null);
                 return writer.WrittenSpan.ToArray();
             }
             finally
@@ -110,7 +111,7 @@ public static partial class JsonSerializer
             try
             {
                 var writer = SerializerExtensions.RentWriter();
-                h(writer, value);
+                h(writer, value, null);
                 return Encoding.UTF8.GetString(writer.WrittenSpan);
             }
             finally
@@ -135,7 +136,7 @@ public static partial class JsonSerializer
             JsonOptions.Current = options;
             try
             {
-                h(writer, value);
+                h(writer, value, null);
             }
             finally
             {
@@ -154,7 +155,7 @@ public static partial class JsonSerializer
             JsonOptions.Current = options;
             try
             {
-                return d.Deserialize(data);
+                return d(data, null);
             }
             finally
             {
@@ -255,7 +256,7 @@ public static partial class JsonSerializer
             {
                 if (SerRegistry<JsonFormat, T>.Handler is { } h)
                 {
-                    h(buf, v);
+                    h(buf, v, null);
                     buf.Write("\n"u8);
                 }
                 else
@@ -307,7 +308,7 @@ public static partial class JsonSerializer
 
                 if (DesRegistry<JsonFormat, T>.Deserializer is { } d)
                 {
-                    results.Add(d.Deserialize(line));
+                    results.Add(d(line, null));
                 }
                 else
                 {
@@ -373,7 +374,7 @@ public static partial class JsonSerializer
                         {
                             // Copy remaining to array before yielding (Span can't cross yield boundary)
                             var lastLine = accum.ToArray();
-                            yield return deserializer.Deserialize(lastLine);
+                            yield return deserializer(lastLine, null);
                         }
                         yield break;
                     }
@@ -397,7 +398,7 @@ public static partial class JsonSerializer
                             var lineBytes = accum
                                 .GetRange(lineStart, lineEnd - lineStart)
                                 .ToArray();
-                            yield return deserializer.Deserialize(lineBytes);
+                            yield return deserializer(lineBytes, null);
                         }
                     }
 
@@ -513,7 +514,7 @@ public static partial class JsonSerializer
                                         .ToArray();
                                     var trimmed = TrimArrayElement(valBytes);
                                     if (trimmed.Length > 0)
-                                        yield return deserializer.Deserialize(trimmed);
+                                        yield return deserializer(trimmed, null);
                                 }
                                 yield break;
                             }
@@ -525,7 +526,7 @@ public static partial class JsonSerializer
                                     var valBytes = accum
                                         .GetRange(valueStart, i + 1 - valueStart)
                                         .ToArray();
-                                    yield return deserializer.Deserialize(valBytes);
+                                    yield return deserializer(valBytes, null);
                                 }
                                 valueStart = -1;
                                 int consumed = i + 1;
@@ -552,7 +553,7 @@ public static partial class JsonSerializer
                                         accum.GetRange(valueStart, i - valueStart).ToArray()
                                     );
                                     if (valBytes.Length > 0)
-                                        yield return deserializer.Deserialize(valBytes);
+                                        yield return deserializer(valBytes, null);
                                     valueStart = -1;
                                     accum.RemoveRange(0, i + 1);
                                     i = 0;

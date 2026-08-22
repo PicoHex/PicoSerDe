@@ -1090,7 +1090,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("MsgPackSer {");
         s.Append("    public static void Serialize(IBufferWriter<byte> writer, ");
         s.Append(t.Name);
-        s.AppendLine(" v) {");
+        s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
         s.Append("        var mw = new MsgPackWriter(writer); mw.WriteStartObject(");
         s.Append(t.Properties.Length);
         s.AppendLine(");");

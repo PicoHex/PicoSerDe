@@ -38,14 +38,15 @@ public static partial class YamlSerializer
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        SerRegistry<YamlFormat, T>.Handler = (writer, value) => serializer.Serialize(writer, value);
-        DesRegistry<YamlFormat, T>.Deserializer = deserializer;
+        SerRegistry<YamlFormat, T>.Handler = (writer, value, _) =>
+            serializer.Serialize(writer, value);
+        DesRegistry<YamlFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
     }
 
     /// <summary>Register a deserializer only.</summary>
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
     {
-        DesRegistry<YamlFormat, T>.Deserializer = deserializer;
+        DesRegistry<YamlFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
     }
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
@@ -54,7 +55,7 @@ public static partial class YamlSerializer
         if (SerRegistry<YamlFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
-            h(writer, value);
+            h(writer, value, null);
             return writer.WrittenSpan.ToArray();
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoYaml.Gen");
@@ -67,7 +68,7 @@ public static partial class YamlSerializer
         if (SerRegistry<YamlFormat, T>.Handler is { } h)
         {
             var writer = SerializerExtensions.RentWriter();
-            h(writer, value);
+            h(writer, value, null);
             return Encoding.UTF8.GetString(writer.WrittenSpan);
         }
         SerializerExtensions.ThrowNoSerializer<T>("PicoYaml.Gen");
@@ -78,7 +79,7 @@ public static partial class YamlSerializer
         where T : allows ref struct
     {
         if (SerRegistry<YamlFormat, T>.Handler is { } h)
-            h(writer, value);
+            h(writer, value, null);
         else
             SerializerExtensions.ThrowNoSerializer<T>("PicoYaml.Gen");
     }
@@ -86,7 +87,7 @@ public static partial class YamlSerializer
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
         if (DesRegistry<YamlFormat, T>.Deserializer is { } d)
-            return d.Deserialize(data);
+            return d(data, null);
         SerializerExtensions.ThrowNoSerializer<T>("PicoYaml.Gen");
         return default;
     }

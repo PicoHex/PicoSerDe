@@ -1009,7 +1009,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("TomlSer {");
         s.Append("    public static void Serialize(IBufferWriter<byte> w, ");
         s.Append(t.Name);
-        s.AppendLine(" v) {");
+        s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
         s.AppendLine("        var tw = new TomlWriter(w);");
         foreach (var p in t.Properties)
         {

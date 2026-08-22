@@ -1388,7 +1388,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append("        public void Serialize(IBufferWriter<byte> writer, ");
         }
         sb.Append(type.Name);
-        sb.AppendLine(" value)");
+        if (isRefLikeType)
+            sb.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options)");
+        else
+            sb.AppendLine(" value)");
         sb.AppendLine("        {");
         sb.AppendLine(
             "            var jw = new JsonWriter(writer, indented: PicoJetson.JsonOptions.Current?.Indented ?? false, maxDepth: PicoJetson.JsonOptions.Current?.MaxDepth ?? 63);"

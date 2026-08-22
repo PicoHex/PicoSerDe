@@ -1549,7 +1549,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("YamlSer {");
         s.Append("    public static void Serialize(IBufferWriter<byte> w, ");
         s.Append(t.Name);
-        s.AppendLine(" v) {");
+        s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
         s.AppendLine("        var yw = new YamlWriter(w);");
         s.AppendLine("        yw.WriteStartMapping();");
         foreach (var p in t.Properties)
