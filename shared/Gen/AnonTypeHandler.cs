@@ -331,7 +331,7 @@ internal static class AnonTypeHandler
             _ => $"__Intercept_Ser_{csid}",
         };
         string ep = info.SerializeMethodName == "Writer" ? "IBufferWriter<byte> writer, " : "";
-        string optionsParam = afc.HasOptionsParam ? $", {ot}? options = null" : "";
+        string optionsParam = afc.FacadeTakesOptions ? $", {ot}? options = null" : "";
 
         sb.AppendLine($"    {attr}");
         sb.AppendLine($"    internal static {ret} {mn}<T>({ep}T value{optionsParam})");

@@ -41,23 +41,16 @@ public class MIgnPolyB : MIgnPolyBase
 
 // ── Tests ──
 
-[NotInParallel("MsgPackOptions.Current")]
+[NotInParallel]
 public class IgnoreConditionTests
 {
     private static byte[] SerializeWhenWritingNull(MIgnOuter model)
     {
-        MsgPackOptions.Current = new MsgPackOptions
+        var opts = new MsgPackOptions
         {
             DefaultIgnoreCondition = MsgPackIgnoreCondition.WhenWritingNull,
         };
-        try
-        {
-            return MsgPackSerializer.SerializeToUtf8Bytes(model);
-        }
-        finally
-        {
-            MsgPackOptions.Current = null;
-        }
+        return MsgPackSerializer.SerializeToUtf8Bytes(model, opts);
     }
 
     // Core: null members are skipped (payload shrinks) and the map header
@@ -166,19 +159,11 @@ public class IgnoreConditionTests
     {
         MIgnPolyBase value = new MIgnPolyA { Content = "c", Note = null };
         var full = MsgPackSerializer.SerializeToUtf8Bytes(value);
-        MsgPackOptions.Current = new MsgPackOptions
+        var opts = new MsgPackOptions
         {
             DefaultIgnoreCondition = MsgPackIgnoreCondition.WhenWritingNull,
         };
-        byte[] skipped;
-        try
-        {
-            skipped = MsgPackSerializer.SerializeToUtf8Bytes(value);
-        }
-        finally
-        {
-            MsgPackOptions.Current = null;
-        }
+        var skipped = MsgPackSerializer.SerializeToUtf8Bytes(value, opts);
         await Assert.That(skipped.Length).IsLessThan(full.Length);
         var back = MsgPackSerializer.Deserialize<MIgnPolyBase>(skipped);
         await Assert.That(back).IsNotNull();

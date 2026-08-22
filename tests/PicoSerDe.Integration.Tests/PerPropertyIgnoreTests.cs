@@ -184,19 +184,11 @@ public class PerPropertyIgnoreTests
     [Test]
     public async Task MsgPack_PerProp_Never_KeepsKeyUnderGlobalCondition()
     {
-        PicoMsgPack.MsgPackOptions.Current = new PicoMsgPack.MsgPackOptions
+        var opts = new PicoMsgPack.MsgPackOptions
         {
             DefaultIgnoreCondition = PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull,
         };
-        byte[] bytes;
-        try
-        {
-            bytes = PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes(Create());
-        }
-        finally
-        {
-            PicoMsgPack.MsgPackOptions.Current = null;
-        }
+        var bytes = PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes(Create(), opts);
         var map = MessagePack.MessagePackSerializer.Deserialize<Dictionary<int, object?>>(bytes);
         // Pinned (key 2) exempt from the global condition; Plain (key 3) skipped by it
         await Assert.That(map.ContainsKey(2)).IsTrue();

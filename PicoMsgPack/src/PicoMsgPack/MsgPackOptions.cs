@@ -10,7 +10,4 @@ public class MsgPackOptions : SerOptions
 {
     public MsgPackIgnoreCondition DefaultIgnoreCondition { get; set; } =
         MsgPackIgnoreCondition.Never;
-
-    [ThreadStatic]
-    public static MsgPackOptions? Current;
 }

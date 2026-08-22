@@ -5,6 +5,7 @@ public ref struct MsgPackWriter
     private IBufferWriter<byte> _buffer;
     private long _bytesWritten;
     private int _depth;
+    private readonly MsgPackOptions? _options;
 
     private const int MaxDepth = 64;
 
@@ -13,11 +14,15 @@ public ref struct MsgPackWriter
     /// <summary>Underlying buffer — used by SG-generated code to hand off to custom serializers.</summary>
     public IBufferWriter<byte> Buffer => _buffer;
 
-    public MsgPackWriter(IBufferWriter<byte> buffer)
+    /// <summary>Options supplied at construction, or null when default behavior is desired.</summary>
+    public MsgPackOptions? Options => _options;
+
+    public MsgPackWriter(IBufferWriter<byte> buffer, MsgPackOptions? options = null)
     {
         _buffer = buffer;
         _bytesWritten = 0;
         _depth = 0;
+        _options = options;
     }
 
     public void WriteNull()

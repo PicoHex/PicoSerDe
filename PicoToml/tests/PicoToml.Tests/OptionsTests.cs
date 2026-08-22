@@ -38,21 +38,11 @@ public class TomlOptionsSGTests
     public async Task TomlOptions_IgnoreNull_Never_WritesAllProperties()
     {
         var dto = new TomlNullableDto { Name = "test", Title = "Mr" };
-        TomlOptions.Current = new TomlOptions
-        {
-            DefaultIgnoreCondition = TomlIgnoreCondition.Never,
-        };
-        try
-        {
-            var toml = TomlSerializer.Serialize(dto);
-            await Assert.That(toml).Contains("Name");
-            await Assert.That(toml).Contains("Title");
-            await Assert.That(toml).Contains("Mr");
-        }
-        finally
-        {
-            TomlOptions.Current = null;
-        }
+
+        var toml = TomlSerializer.Serialize(dto);
+        await Assert.That(toml).Contains("Name");
+        await Assert.That(toml).Contains("Title");
+        await Assert.That(toml).Contains("Mr");
     }
 }
 

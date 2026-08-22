@@ -11,8 +11,8 @@ public class OptionsPropagationTests
     {
         public void Serialize(IBufferWriter<byte> writer, TestDto value)
         {
-            var indented = JsonOptions.Current?.Indented ?? false;
-            var jw = new JsonWriter(writer, indented: indented, maxDepth: 63);
+            // Hand-written serializers do not receive options (explicit contract).
+            var jw = new JsonWriter(writer, indented: false, maxDepth: 63);
             jw.WriteStartObject();
             jw.WritePropertyName("Name"u8);
             jw.WriteString(Encoding.UTF8.GetBytes(value.Name));

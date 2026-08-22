@@ -10,11 +10,10 @@ public class OptionsTests
     }
 
     [Test]
-    public async Task IniOptions_ThreadStatic()
+    public async Task IniOptions_IsSerOptions()
     {
-        IniOptions.Current = new IniOptions { Indented = true };
-        await Assert.That(IniOptions.Current?.Indented).IsTrue();
-        IniOptions.Current = null;
+        var opts = new IniOptions();
+        await Assert.That(opts).IsAssignableTo<SerOptions>();
     }
 }
 
@@ -46,20 +45,10 @@ public class OptionsSGTests
     public async Task IniOptions_IgnoreNull_OmitsNullProperty()
     {
         var dto = new NullableIniDto { Name = "test" }; // Title is null
-        IniOptions.Current = new IniOptions
-        {
-            DefaultIgnoreCondition = IniIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            var ini = IniSerializer.Serialize(dto);
-            await Assert.That(ini).Contains("Name");
-            await Assert.That(ini).DoesNotContain("Title");
-        }
-        finally
-        {
-            IniOptions.Current = null;
-        }
+        // INI omits null members unconditionally (no null literal on the wire).
+        var ini = IniSerializer.Serialize(dto);
+        await Assert.That(ini).Contains("Name");
+        await Assert.That(ini).DoesNotContain("Title");
     }
 }
 

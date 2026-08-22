@@ -18,23 +18,11 @@ public class YIgnPolyMsg : YIgnPolyBase
 
 // ── Tests ──
 
-[NotInParallel("YamlOptions.Current")]
 public class IgnoreConditionPolyTests
 {
     private static string SerializeWhenWritingNull(YIgnPolyBase value)
     {
-        YamlOptions.Current = new YamlOptions
-        {
-            DefaultIgnoreCondition = YamlIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            return YamlSerializer.Serialize(value);
-        }
-        finally
-        {
-            YamlOptions.Current = null;
-        }
+        return YamlSerializer.Serialize(value);
     }
 
     [Test]

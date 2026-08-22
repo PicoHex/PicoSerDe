@@ -24,23 +24,11 @@ public class YIgnOuter
 
 // ── Tests ──
 
-[NotInParallel("YamlOptions.Current")]
 public class IgnoreConditionNestedTests
 {
     private static string SerializeWhenWritingNull(YIgnOuter model)
     {
-        YamlOptions.Current = new YamlOptions
-        {
-            DefaultIgnoreCondition = YamlIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            return YamlSerializer.Serialize(model);
-        }
-        finally
-        {
-            YamlOptions.Current = null;
-        }
+        return YamlSerializer.Serialize(model);
     }
 
     // Bug 1: nested object property (YamlInner.Serialize path)

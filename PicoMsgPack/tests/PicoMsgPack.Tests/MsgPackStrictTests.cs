@@ -79,24 +79,16 @@ public class MsgPackStrictTests
     [Test]
     public async Task WhenWritingDefault_NullableHoldingDefault_IsOmitted()
     {
-        var prev = MsgPackOptions.Current;
-        try
+        var opts = new MsgPackOptions
         {
-            MsgPackOptions.Current = new MsgPackOptions
-            {
-                DefaultIgnoreCondition = MsgPackIgnoreCondition.WhenWritingNull,
-            };
-            // Per-property WhenWritingDefault is honored independent of the
-            // global option.
-            var bytes = MsgPackSerializer.SerializeToUtf8Bytes(new OptModel());
-            // Map with 0 entries: all properties skipped (WhenWritingDefault on Opt, null Name)
-            await Assert.That(bytes.Length).IsGreaterThanOrEqualTo(1);
-            await Assert.That(bytes[0]).IsEqualTo((byte)0x80); // fixmap(0)
-        }
-        finally
-        {
-            MsgPackOptions.Current = prev;
-        }
+            DefaultIgnoreCondition = MsgPackIgnoreCondition.WhenWritingNull,
+        };
+        // Per-property WhenWritingDefault is honored independent of the
+        // global option.
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(new OptModel(), opts);
+        // Map with 0 entries: all properties skipped (WhenWritingDefault on Opt, null Name)
+        await Assert.That(bytes.Length).IsGreaterThanOrEqualTo(1);
+        await Assert.That(bytes[0]).IsEqualTo((byte)0x80); // fixmap(0)
     }
 }
 

@@ -69,7 +69,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         HasIndentedMaxDepth: true,
         KeyIsEncodedString: false,
         HasNamingPolicy: true,
-        HasOptionsParam: true
+        HasOptionsParam: true,
+        FacadeTakesOptions: true
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)

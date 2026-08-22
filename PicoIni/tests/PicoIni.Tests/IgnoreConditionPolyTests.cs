@@ -17,7 +17,6 @@ public class IIgnPolyMsg : IIgnPolyBase
 
 // ── Tests ──
 
-[NotInParallel("IniOptions.Current")]
 public class IgnoreConditionPolyTests
 {
     // Bug: poly dispatch property loop had no ignore-condition guard
@@ -25,20 +24,10 @@ public class IgnoreConditionPolyTests
     public async Task WhenWritingNull_PolyNullProperty_Omitted()
     {
         IIgnPolyBase value = new IIgnPolyMsg { Content = "hello", Note = null };
-        IniOptions.Current = new IniOptions
-        {
-            DefaultIgnoreCondition = IniIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            var ini = IniSerializer.Serialize(value);
-            await Assert.That(ini).DoesNotContain("Note");
-            await Assert.That(ini).Contains("hello");
-        }
-        finally
-        {
-            IniOptions.Current = null;
-        }
+
+        var ini = IniSerializer.Serialize(value);
+        await Assert.That(ini).DoesNotContain("Note");
+        await Assert.That(ini).Contains("hello");
     }
 
     // Non-null values must still be written when the condition is active
@@ -46,20 +35,10 @@ public class IgnoreConditionPolyTests
     public async Task WhenWritingNull_PolyNonNullProperty_StillWritten()
     {
         IIgnPolyBase value = new IIgnPolyMsg { Content = "hello", Note = "n1" };
-        IniOptions.Current = new IniOptions
-        {
-            DefaultIgnoreCondition = IniIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            var ini = IniSerializer.Serialize(value);
-            await Assert.That(ini).Contains("Note");
-            await Assert.That(ini).Contains("n1");
-        }
-        finally
-        {
-            IniOptions.Current = null;
-        }
+
+        var ini = IniSerializer.Serialize(value);
+        await Assert.That(ini).Contains("Note");
+        await Assert.That(ini).Contains("n1");
     }
 
     // Never (default): INI has no null literal — null values are omitted

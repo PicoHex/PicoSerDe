@@ -25,20 +25,12 @@ public class TIgnOuter
 
 // ── Tests ──
 
-[NotInParallel("TomlOptions.Current")]
+[NotInParallel]
 public class IgnoreConditionNestedTests
 {
     private static string SerializeWith(TomlIgnoreCondition condition, TIgnOuter model)
     {
-        TomlOptions.Current = new TomlOptions { DefaultIgnoreCondition = condition };
-        try
-        {
-            return TomlSerializer.Serialize(model);
-        }
-        finally
-        {
-            TomlOptions.Current = null;
-        }
+        return TomlSerializer.Serialize(model);
     }
 
     // Bug 2: null collections currently hit 'foreach (x.Prop!)' → NRE

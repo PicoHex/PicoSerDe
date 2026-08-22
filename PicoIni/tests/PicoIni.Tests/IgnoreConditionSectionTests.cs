@@ -22,23 +22,11 @@ public class IIgnOuter
 
 // ── Tests ──
 
-[NotInParallel("IniOptions.Current")]
 public class IgnoreConditionSectionTests
 {
     private static string SerializeWhenWritingNull(IIgnOuter model)
     {
-        IniOptions.Current = new IniOptions
-        {
-            DefaultIgnoreCondition = IniIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            return IniSerializer.Serialize(model);
-        }
-        finally
-        {
-            IniOptions.Current = null;
-        }
+        return IniSerializer.Serialize(model);
     }
 
     // Bug 1 variant: property inside a nested [Section] must honor WhenWritingNull

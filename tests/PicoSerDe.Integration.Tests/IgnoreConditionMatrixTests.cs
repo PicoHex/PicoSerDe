@@ -135,62 +135,32 @@ public class IgnoreConditionMatrixTests
     [Test]
     public async Task Yaml_WhenWritingNull_OmitsNulls()
     {
-        PicoYaml.YamlOptions.Current = new PicoYaml.YamlOptions
-        {
-            DefaultIgnoreCondition = PicoYaml.YamlIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            var yaml = PicoYaml.YamlSerializer.Serialize(IgnMatrixFactory.CreateWithNulls());
-            await Assert.That(yaml).DoesNotContain("NullNote");
-            await Assert.That(yaml).DoesNotContain("NullCount");
-            await Assert.That(yaml).DoesNotContain("Note");
-            await Assert.That(yaml).Contains("inner");
-        }
-        finally
-        {
-            PicoYaml.YamlOptions.Current = null;
-        }
+        // YAML omits null members unconditionally (no null literal on the wire).
+        var yaml = PicoYaml.YamlSerializer.Serialize(IgnMatrixFactory.CreateWithNulls());
+        await Assert.That(yaml).DoesNotContain("NullNote");
+        await Assert.That(yaml).DoesNotContain("NullCount");
+        await Assert.That(yaml).DoesNotContain("Note");
+        await Assert.That(yaml).Contains("inner");
     }
 
     [Test]
     public async Task Toml_WhenWritingNull_OmitsNulls()
     {
-        PicoToml.TomlOptions.Current = new PicoToml.TomlOptions
-        {
-            DefaultIgnoreCondition = PicoToml.TomlIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            var toml = PicoToml.TomlSerializer.Serialize(IgnMatrixFactory.CreateWithNulls());
-            await Assert.That(toml).DoesNotContain("NullNote");
-            await Assert.That(toml).DoesNotContain("NullCount");
-            await Assert.That(toml).DoesNotContain("Note");
-        }
-        finally
-        {
-            PicoToml.TomlOptions.Current = null;
-        }
+        // TOML omits null members unconditionally (no null literal on the wire).
+        var toml = PicoToml.TomlSerializer.Serialize(IgnMatrixFactory.CreateWithNulls());
+        await Assert.That(toml).DoesNotContain("NullNote");
+        await Assert.That(toml).DoesNotContain("NullCount");
+        await Assert.That(toml).DoesNotContain("Note");
     }
 
     [Test]
     public async Task Ini_WhenWritingNull_OmitsNulls()
     {
-        PicoIni.IniOptions.Current = new PicoIni.IniOptions
-        {
-            DefaultIgnoreCondition = PicoIni.IniIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            var ini = PicoIni.IniSerializer.Serialize(IgnMatrixFactory.CreateWithNulls());
-            await Assert.That(ini).DoesNotContain("NullNote");
-            await Assert.That(ini).DoesNotContain("NullCount");
-            await Assert.That(ini).DoesNotContain("Note");
-        }
-        finally
-        {
-            PicoIni.IniOptions.Current = null;
-        }
+        // INI omits null members unconditionally (no null literal on the wire).
+        var ini = PicoIni.IniSerializer.Serialize(IgnMatrixFactory.CreateWithNulls());
+        await Assert.That(ini).DoesNotContain("NullNote");
+        await Assert.That(ini).DoesNotContain("NullCount");
+        await Assert.That(ini).DoesNotContain("Note");
     }
 
     [Test]
@@ -198,19 +168,11 @@ public class IgnoreConditionMatrixTests
     {
         var model = IgnMatrixFactory.CreateWithNulls();
         var full = PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes(model);
-        PicoMsgPack.MsgPackOptions.Current = new PicoMsgPack.MsgPackOptions
+        var opts = new PicoMsgPack.MsgPackOptions
         {
             DefaultIgnoreCondition = PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull,
         };
-        byte[] skipped;
-        try
-        {
-            skipped = PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes(model);
-        }
-        finally
-        {
-            PicoMsgPack.MsgPackOptions.Current = null;
-        }
+        var skipped = PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes(model, opts);
         await Assert.That(skipped.Length).IsLessThan(full.Length);
         var back = PicoMsgPack.MsgPackSerializer.Deserialize<IgnMatrixModel>(skipped);
         await Assert.That(back).IsNotNull();

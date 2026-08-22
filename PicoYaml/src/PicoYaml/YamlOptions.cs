@@ -10,7 +10,4 @@ public class YamlOptions : SerOptions
 {
     public bool Indented { get; set; } = false;
     public YamlIgnoreCondition DefaultIgnoreCondition { get; set; } = YamlIgnoreCondition.Never;
-
-    [ThreadStatic]
-    public static YamlOptions? Current;
 }

@@ -6,20 +6,10 @@ public class YamlOptionsSGTests
     public async Task YamlOptions_WhenWritingNull_OmitsNull()
     {
         var dto = new YamlNullableDto { Name = "test" }; // Title is null
-        YamlOptions.Current = new YamlOptions
-        {
-            DefaultIgnoreCondition = YamlIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            var yaml = YamlSerializer.Serialize(dto);
-            await Assert.That(yaml).Contains("Name:");
-            await Assert.That(yaml).DoesNotContain("Title:");
-        }
-        finally
-        {
-            YamlOptions.Current = null;
-        }
+
+        var yaml = YamlSerializer.Serialize(dto);
+        await Assert.That(yaml).Contains("Name:");
+        await Assert.That(yaml).DoesNotContain("Title:");
     }
 }
 

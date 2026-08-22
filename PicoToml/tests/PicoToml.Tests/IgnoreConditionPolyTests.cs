@@ -18,7 +18,6 @@ public class TIgnPolyMsg : TIgnPolyBase
 
 // ── Tests ──
 
-[NotInParallel("TomlOptions.Current")]
 public class IgnoreConditionPolyTests
 {
     [Test]
@@ -30,21 +29,11 @@ public class IgnoreConditionPolyTests
             Note = null,
             Rank = null,
         };
-        TomlOptions.Current = new TomlOptions
-        {
-            DefaultIgnoreCondition = TomlIgnoreCondition.WhenWritingNull,
-        };
-        try
-        {
-            var toml = TomlSerializer.Serialize(value);
-            await Assert.That(toml).DoesNotContain("Note");
-            await Assert.That(toml).DoesNotContain("Rank");
-            await Assert.That(toml).Contains("hello");
-        }
-        finally
-        {
-            TomlOptions.Current = null;
-        }
+
+        var toml = TomlSerializer.Serialize(value);
+        await Assert.That(toml).DoesNotContain("Note");
+        await Assert.That(toml).DoesNotContain("Rank");
+        await Assert.That(toml).Contains("hello");
     }
 
     // TOML cannot express null: null poly properties are omitted under any

@@ -52,7 +52,8 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         HasIndentedMaxDepth: false,
         KeyIsEncodedString: true,
         HasNamingPolicy: false,
-        HasOptionsParam: false
+        HasOptionsParam: false,
+        FacadeTakesOptions: true
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -470,15 +471,15 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
         var sorted = type.Properties.OrderBy(p => p.IntKey ?? 0).ToImmutableArray();
 
-        s.Append("file readonly struct ");
+        s.Append("file static class ");
         s.Append(type.Name);
-        s.Append("MsgPackSerializer : ISerializer<");
+        s.AppendLine("MsgPackSerializer {");
+        s.Append("    public static void Serialize(IBufferWriter<byte> writer, ");
         s.Append(type.Name);
-        s.AppendLine("> {");
-        s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
-        s.Append(type.Name);
-        s.AppendLine(" value) {");
-        s.AppendLine("        var mw = new MsgPackWriter(writer);");
+        s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine(
+            "        var mw = new MsgPackWriter(writer, options: ((global::PicoMsgPack.MsgPackOptions?)options));"
+        );
         var topSkips = EmitObjectHeaderWithSkips(
             s,
             sorted,
@@ -499,14 +500,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        mw.WriteEndObject(); } }");
         s.AppendLine();
 
-        s.Append("file readonly struct ");
+        s.Append("file static class ");
         s.Append(type.Name);
-        s.Append("MsgPackDeserializer : IDeserializer<");
+        s.AppendLine("MsgPackDeserializer {");
+        s.Append("    public static ");
         s.Append(type.Name);
-        s.AppendLine("> {");
-        s.Append("    public ");
-        s.Append(type.Name);
-        s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
+        s.AppendLine(
+            " Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options) {"
+        );
         var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
         Dictionary<string, int>? ctorMap = null;
         if (hasCtor)
@@ -696,11 +697,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    [ModuleInitializer] internal static void Register() {");
         s.Append("        MsgPackSerializer.Register<");
         s.Append(type.Name);
-        s.Append(">(new ");
+        s.Append(">(");
         s.Append(type.Name);
-        s.Append("MsgPackSerializer(), new ");
+        s.Append("MsgPackSerializer.Serialize, ");
         s.Append(type.Name);
-        s.AppendLine("MsgPackDeserializer());");
+        s.AppendLine("MsgPackDeserializer.Deserialize);");
         if (hasCtor)
             s.AppendLine("        // Streaming skipped for constructor type");
         else
@@ -1091,7 +1092,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append("    public static void Serialize(IBufferWriter<byte> writer, ");
         s.Append(t.Name);
         s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
-        s.Append("        var mw = new MsgPackWriter(writer); mw.WriteStartObject(");
+        s.Append(
+            "        var mw = new MsgPackWriter(writer, options: ((global::PicoMsgPack.MsgPackOptions?)options)); mw.WriteStartObject("
+        );
         s.Append(t.Properties.Length);
         s.AppendLine(");");
         foreach (var p in t.Properties)
@@ -1138,15 +1141,15 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine();
 
         // ── Serializer ──
-        s.Append("file readonly struct ");
+        s.Append("file static class ");
         s.Append(type.Name);
-        s.Append("MsgPackSerializer : ISerializer<");
+        s.AppendLine("MsgPackSerializer {");
+        s.Append("    public static void Serialize(IBufferWriter<byte> writer, ");
         s.Append(listFqn);
-        s.AppendLine("> {");
-        s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
-        s.Append(listFqn);
-        s.AppendLine(" value) {");
-        s.AppendLine("        var mw = new MsgPackWriter(writer);");
+        s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine(
+            "        var mw = new MsgPackWriter(writer, options: ((global::PicoMsgPack.MsgPackOptions?)options));"
+        );
         s.AppendLine("        mw.WriteStartArray(value.Count);");
         s.AppendLine("        foreach (var __item in value) {");
         // Create a synthetic PropertyInfo for element serialization
@@ -1172,14 +1175,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine();
 
         // ── Deserializer ──
-        s.Append("file readonly struct ");
+        s.Append("file static class ");
         s.Append(type.Name);
-        s.Append("MsgPackDeserializer : IDeserializer<");
+        s.AppendLine("MsgPackDeserializer {");
+        s.Append("    public static ");
         s.Append(listFqn);
-        s.AppendLine("> {");
-        s.Append("    public ");
-        s.Append(listFqn);
-        s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
+        s.AppendLine(
+            " Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options) {"
+        );
         s.AppendLine("        var reader = new MsgPackReader(data);");
         s.AppendLine("        reader.Read();");
         s.Append("        var __list = new List<");
@@ -1203,11 +1206,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    internal static void Register() {");
         s.Append("        global::PicoMsgPack.MsgPackSerializer.Register<");
         s.Append(listFqn);
-        s.Append(">(new ");
+        s.Append(">(");
         s.Append(type.Name);
-        s.Append("MsgPackSerializer(), new ");
+        s.Append("MsgPackSerializer.Serialize, ");
         s.Append(type.Name);
-        s.AppendLine("MsgPackDeserializer());");
+        s.AppendLine("MsgPackDeserializer.Deserialize);");
         s.AppendLine("    } }");
 
         return s.ToString();
@@ -1332,7 +1335,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     break;
                 default:
                     s.Append(
-                        " = PicoMsgPack.MsgPackOptions.Current?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && "
+                        " = mw.Options?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && "
                     );
                     s.Append(accessor(p));
                     s.AppendLine(" == null;");
@@ -2404,15 +2407,15 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine();
 
         // ── Serializer ──
-        s.Append("file readonly struct ");
+        s.Append("file static class ");
         s.Append(type.Name);
-        s.Append("MsgPackSerializer : ISerializer<");
+        s.AppendLine("MsgPackSerializer {");
+        s.Append("    public static void Serialize(IBufferWriter<byte> writer, ");
         s.Append(type.Name);
-        s.AppendLine("> {");
-        s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
-        s.Append(type.Name);
-        s.AppendLine(" value) {");
-        s.AppendLine("        var mw = new MsgPackWriter(writer);");
+        s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine(
+            "        var mw = new MsgPackWriter(writer, options: ((global::PicoMsgPack.MsgPackOptions?)options));"
+        );
         int c = 0;
         s.AppendLine("        switch (value)");
         s.AppendLine("        {");
@@ -2463,14 +2466,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine();
 
         // ── Deserializer ──
-        s.Append("file readonly struct ");
+        s.Append("file static class ");
         s.Append(type.Name);
-        s.Append("MsgPackDeserializer : IDeserializer<");
+        s.AppendLine("MsgPackDeserializer {");
+        s.Append("    public static ");
         s.Append(type.Name);
-        s.AppendLine("> {");
-        s.Append("    public ");
-        s.Append(type.Name);
-        s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
+        s.AppendLine(
+            " Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options) {"
+        );
         s.AppendLine("        var reader = new MsgPackReader(data);");
         s.AppendLine("        reader.Read(); // map start");
         s.AppendLine("        reader.Read(); // discriminator key");
@@ -2616,12 +2619,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append("        MsgPackSerializer.Register<");
         s.Append(typeRef);
         s.AppendLine(">(");
-        s.Append("            new ");
+        s.Append("            ");
         s.Append(type.Name);
-        s.AppendLine("MsgPackSerializer(),");
-        s.Append("            new ");
+        s.AppendLine("MsgPackSerializer.Serialize,");
+        s.Append("            ");
         s.Append(type.Name);
-        s.AppendLine("MsgPackDeserializer());");
+        s.AppendLine("MsgPackDeserializer.Deserialize);");
         s.AppendLine("    }");
         s.AppendLine("}");
 

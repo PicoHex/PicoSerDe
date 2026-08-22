@@ -18,7 +18,4 @@ public class IniOptions : SerOptions
 
     /// <summary>Controls when properties are skipped based on their value. Default: Never.</summary>
     public IniIgnoreCondition DefaultIgnoreCondition { get; set; } = IniIgnoreCondition.Never;
-
-    [ThreadStatic]
-    public static IniOptions? Current;
 }

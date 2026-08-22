@@ -10,7 +10,4 @@ public class TomlOptions : SerOptions
 {
     public bool Indented { get; set; } = false;
     public TomlIgnoreCondition DefaultIgnoreCondition { get; set; } = TomlIgnoreCondition.Never;
-
-    [ThreadStatic]
-    public static TomlOptions? Current;
 }
