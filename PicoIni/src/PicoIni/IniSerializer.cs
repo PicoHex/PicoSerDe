@@ -10,6 +10,7 @@ public static partial class IniSerializer
 
     // Serialization/deserialization registries live in PicoSerDe.Core
     // (SerRegistry/DesRegistry), isolated per format via IniFormat.
+    // All shared methods forward to SerializerFacade<IniFormat>.
 
     /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
     public delegate ReadStatus StreamingFunc<T>(ref IniReader reader, out T? result);
@@ -29,69 +30,29 @@ public static partial class IniSerializer
 
     /// <summary>Register a delegate-based serializer (SG primary path).</summary>
     public static void Register<T>(SerDelegate<T> handler)
-        where T : allows ref struct
-    {
-        SerRegistry<IniFormat, T>.Handler = handler;
-    }
+        where T : allows ref struct => SerializerFacade<IniFormat>.Register(handler);
 
     /// <summary>
     /// Register serializer + deserializer (compat path for hand-written ISerializer/IDeserializer).
     /// </summary>
-    public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
-    {
-        SerRegistry<IniFormat, T>.Handler = (writer, value, _) =>
-            serializer.Serialize(writer, value);
-        DesRegistry<IniFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
-    }
+    public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer) =>
+        SerializerFacade<IniFormat>.Register(serializer, deserializer);
 
     /// <summary>Register a deserializer only.</summary>
-    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
-    {
-        DesRegistry<IniFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
-    }
+    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer) =>
+        SerializerFacade<IniFormat>.RegisterDeserializer(deserializer);
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
-        where T : allows ref struct
-    {
-        if (SerRegistry<IniFormat, T>.Handler is { } h)
-        {
-            var writer = SerializerExtensions.RentWriter();
-            h(writer, value, null);
-            return writer.WrittenSpan.ToArray();
-        }
-        SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
-        return default!;
-    }
+        where T : allows ref struct => SerializerFacade<IniFormat>.SerializeToUtf8Bytes(value);
 
     public static string Serialize<T>(T value)
-        where T : allows ref struct
-    {
-        if (SerRegistry<IniFormat, T>.Handler is { } h)
-        {
-            var writer = SerializerExtensions.RentWriter();
-            h(writer, value, null);
-            return Encoding.UTF8.GetString(writer.WrittenSpan);
-        }
-        SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
-        return "";
-    }
+        where T : allows ref struct => SerializerFacade<IniFormat>.Serialize(value);
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
-        where T : allows ref struct
-    {
-        if (SerRegistry<IniFormat, T>.Handler is { } h)
-            h(writer, value, null);
-        else
-            SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
-    }
+        where T : allows ref struct => SerializerFacade<IniFormat>.Serialize(writer, value);
 
-    public static T? Deserialize<T>(ReadOnlySpan<byte> data)
-    {
-        if (DesRegistry<IniFormat, T>.Deserializer is { } d)
-            return d(data, null);
-        SerializerExtensions.ThrowNoSerializer<T>("PicoIni.Gen");
-        return default;
-    }
+    public static T? Deserialize<T>(ReadOnlySpan<byte> data) =>
+        SerializerFacade<IniFormat>.Deserialize<T>(data);
 
     public static async ValueTask<T> DeserializeFromStreamAsync<T>(
         Stream stream,

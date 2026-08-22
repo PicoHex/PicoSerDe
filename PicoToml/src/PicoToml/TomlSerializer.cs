@@ -1,16 +1,18 @@
 namespace PicoToml;
 
-/// <summary>Format marker isolating SerRegistry/DesRegistry entries for TOML.</summary>
+/// <summary>Format marker isolating SerRegistry/DesRegistry entries for PicoToml.</summary>
 public readonly struct TomlFormat { }
 
 public static partial class TomlSerializer
 {
-    /// <summary>HTTP Content-Type header value for TOML.</summary>
+    /// <summary>HTTP Content-Type header value for PicoToml.</summary>
     public const string ContentType = "application/toml";
 
     // Serialization/deserialization registries live in PicoSerDe.Core
     // (SerRegistry/DesRegistry), isolated per format via TomlFormat.
+    // All shared methods forward to SerializerFacade<TomlFormat>.
 
+    /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
     public delegate ReadStatus StreamingFunc<T>(ref TomlReader reader, out T? result);
 
     private static class StreamingCache<T>
@@ -28,69 +30,29 @@ public static partial class TomlSerializer
 
     /// <summary>Register a delegate-based serializer (SG primary path).</summary>
     public static void Register<T>(SerDelegate<T> handler)
-        where T : allows ref struct
-    {
-        SerRegistry<TomlFormat, T>.Handler = handler;
-    }
+        where T : allows ref struct => SerializerFacade<TomlFormat>.Register(handler);
 
     /// <summary>
-    /// Register serializer + deserializer (compat path).
+    /// Register serializer + deserializer (compat path for hand-written ISerializer/IDeserializer).
     /// </summary>
-    public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
-    {
-        SerRegistry<TomlFormat, T>.Handler = (writer, value, _) =>
-            serializer.Serialize(writer, value);
-        DesRegistry<TomlFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
-    }
+    public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer) =>
+        SerializerFacade<TomlFormat>.Register(serializer, deserializer);
 
     /// <summary>Register a deserializer only.</summary>
-    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
-    {
-        DesRegistry<TomlFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
-    }
+    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer) =>
+        SerializerFacade<TomlFormat>.RegisterDeserializer(deserializer);
 
     public static byte[] SerializeToUtf8Bytes<T>(T value)
-        where T : allows ref struct
-    {
-        if (SerRegistry<TomlFormat, T>.Handler is { } h)
-        {
-            var writer = SerializerExtensions.RentWriter();
-            h(writer, value, null);
-            return writer.WrittenSpan.ToArray();
-        }
-        SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
-        return default!;
-    }
+        where T : allows ref struct => SerializerFacade<TomlFormat>.SerializeToUtf8Bytes(value);
 
     public static string Serialize<T>(T value)
-        where T : allows ref struct
-    {
-        if (SerRegistry<TomlFormat, T>.Handler is { } h)
-        {
-            var writer = SerializerExtensions.RentWriter();
-            h(writer, value, null);
-            return Encoding.UTF8.GetString(writer.WrittenSpan);
-        }
-        SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
-        return "";
-    }
+        where T : allows ref struct => SerializerFacade<TomlFormat>.Serialize(value);
 
     public static void Serialize<T>(IBufferWriter<byte> writer, T value)
-        where T : allows ref struct
-    {
-        if (SerRegistry<TomlFormat, T>.Handler is { } h)
-            h(writer, value, null);
-        else
-            SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
-    }
+        where T : allows ref struct => SerializerFacade<TomlFormat>.Serialize(writer, value);
 
-    public static T? Deserialize<T>(ReadOnlySpan<byte> data)
-    {
-        if (DesRegistry<TomlFormat, T>.Deserializer is { } d)
-            return d(data, null);
-        SerializerExtensions.ThrowNoSerializer<T>("PicoToml.Gen");
-        return default;
-    }
+    public static T? Deserialize<T>(ReadOnlySpan<byte> data) =>
+        SerializerFacade<TomlFormat>.Deserialize<T>(data);
 
     public static async ValueTask<T> DeserializeFromStreamAsync<T>(
         Stream stream,

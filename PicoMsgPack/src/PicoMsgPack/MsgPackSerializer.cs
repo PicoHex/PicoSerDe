@@ -29,30 +29,20 @@ public static partial class MsgPackSerializer
 
     /// <summary>Register a delegate-based serializer (SG primary path).</summary>
     public static void Register<T>(SerDelegate<T> handler)
-        where T : allows ref struct
-    {
-        SerRegistry<MsgPackFormat, T>.Handler = handler;
-    }
+        where T : allows ref struct => SerializerFacade<MsgPackFormat>.Register(handler);
 
     /// <summary>
     /// Register serializer + deserializer delegates (SG primary path).
     /// </summary>
     public static void Register<T>(SerDelegate<T> serializer, DeserializeDelegate<T> deserializer)
-        where T : allows ref struct
-    {
-        SerRegistry<MsgPackFormat, T>.Handler = serializer;
-        DesRegistry<MsgPackFormat, T>.Deserializer = deserializer;
-    }
+        where T : allows ref struct =>
+        SerializerFacade<MsgPackFormat>.Register(serializer, deserializer);
 
     /// <summary>
     /// Register serializer + deserializer (compat path).
     /// </summary>
-    public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
-    {
-        SerRegistry<MsgPackFormat, T>.Handler = (writer, value, _) =>
-            serializer.Serialize(writer, value);
-        DesRegistry<MsgPackFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
-    }
+    public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer) =>
+        SerializerFacade<MsgPackFormat>.Register(serializer, deserializer);
 
     /// <summary>
     /// Register a user serializer pair that ALSO overrides SG-generated
@@ -85,36 +75,20 @@ public static partial class MsgPackSerializer
     }
 
     /// <summary>Register a deserializer only.</summary>
-    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
-    {
-        DesRegistry<MsgPackFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
-    }
+    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer) =>
+        SerializerFacade<MsgPackFormat>.RegisterDeserializer(deserializer);
 
     public static byte[] SerializeToUtf8Bytes<T>(T value, MsgPackOptions? options = null)
-        where T : allows ref struct
-    {
-        if (SerRegistry<MsgPackFormat, T>.Handler is { } h)
-        {
-            var writer = SerializerExtensions.RentWriter();
-            h(writer, value, options);
-            return writer.WrittenSpan.ToArray();
-        }
-        SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
-        return default!;
-    }
+        where T : allows ref struct =>
+        SerializerFacade<MsgPackFormat>.SerializeToUtf8Bytes(value, options);
 
     public static void Serialize<T>(
         IBufferWriter<byte> writer,
         T value,
         MsgPackOptions? options = null
     )
-        where T : allows ref struct
-    {
-        if (SerRegistry<MsgPackFormat, T>.Handler is { } h)
-            h(writer, value, options);
-        else
-            SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
-    }
+        where T : allows ref struct =>
+        SerializerFacade<MsgPackFormat>.Serialize(writer, value, options);
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {

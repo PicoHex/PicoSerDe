@@ -30,32 +30,21 @@ public static partial class JsonSerializer
 
     /// <summary>Register a delegate-based serializer (SG primary path).</summary>
     public static void Register<T>(SerDelegate<T> handler)
-        where T : allows ref struct
-    {
-        SerRegistry<JsonFormat, T>.Handler = handler;
-    }
+        where T : allows ref struct => SerializerFacade<JsonFormat>.Register(handler);
 
     /// <summary>
     /// Register serializer + deserializer delegates (SG primary path).
     /// </summary>
     public static void Register<T>(SerDelegate<T> serializer, DeserializeDelegate<T> deserializer)
-        where T : allows ref struct
-    {
-        SerRegistry<JsonFormat, T>.Handler = serializer;
-        DesRegistry<JsonFormat, T>.Deserializer = deserializer;
-    }
+        where T : allows ref struct =>
+        SerializerFacade<JsonFormat>.Register(serializer, deserializer);
 
     /// <summary>
     /// Register serializer + deserializer (compat path for hand-written ISerializer/IDeserializer).
-    /// The ISerializer&lt;T&gt; is wrapped into a SerDelegate&lt;T&gt; internally.
     /// Options are not forwarded to hand-written implementations.
     /// </summary>
-    public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
-    {
-        SerRegistry<JsonFormat, T>.Handler = (writer, value, _) =>
-            serializer.Serialize(writer, value);
-        DesRegistry<JsonFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
-    }
+    public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer) =>
+        SerializerFacade<JsonFormat>.Register(serializer, deserializer);
 
     /// <summary>
     /// Register a user serializer pair that ALSO overrides SG-generated
@@ -89,57 +78,26 @@ public static partial class JsonSerializer
     }
 
     /// <summary>Register a deserializer only.</summary>
-    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer)
-    {
-        DesRegistry<JsonFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
-    }
+    public static void RegisterDeserializer<T>(IDeserializer<T> deserializer) =>
+        SerializerFacade<JsonFormat>.RegisterDeserializer(deserializer);
 
     public static byte[] SerializeToUtf8Bytes<T>(T value, JsonOptions? options = null)
-        where T : allows ref struct
-    {
-        if (SerRegistry<JsonFormat, T>.Handler is { } h)
-        {
-            var writer = SerializerExtensions.RentWriter();
-            h(writer, value, options);
-            return writer.WrittenSpan.ToArray();
-        }
-        SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
-        return default!;
-    }
+        where T : allows ref struct =>
+        SerializerFacade<JsonFormat>.SerializeToUtf8Bytes(value, options);
 
     public static string Serialize<T>(T value, JsonOptions? options = null)
-        where T : allows ref struct
-    {
-        if (SerRegistry<JsonFormat, T>.Handler is { } h)
-        {
-            var writer = SerializerExtensions.RentWriter();
-            h(writer, value, options);
-            return Encoding.UTF8.GetString(writer.WrittenSpan);
-        }
-        SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
-        return "";
-    }
+        where T : allows ref struct => SerializerFacade<JsonFormat>.Serialize(value, options);
 
     public static void Serialize<T>(
         IBufferWriter<byte> writer,
         T value,
         JsonOptions? options = null
     )
-        where T : allows ref struct
-    {
-        if (SerRegistry<JsonFormat, T>.Handler is { } h)
-            h(writer, value, options);
-        else
-            SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
-    }
+        where T : allows ref struct =>
+        SerializerFacade<JsonFormat>.Serialize(writer, value, options);
 
-    public static T? Deserialize<T>(ReadOnlySpan<byte> data, JsonOptions? options = null)
-    {
-        if (DesRegistry<JsonFormat, T>.Deserializer is { } d)
-            return d(data, options);
-        SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
-        return default;
-    }
+    public static T? Deserialize<T>(ReadOnlySpan<byte> data, JsonOptions? options = null) =>
+        SerializerFacade<JsonFormat>.Deserialize<T>(data, options);
 
     /// <summary>
     /// Deserializes asynchronously from a Stream using PipeReader-based streaming.
