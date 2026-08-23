@@ -96,7 +96,13 @@ try {
         }
         Write-Host "  -> pack $project" -ForegroundColor DarkGray
         dotnet pack $project @args
-        if ($LASTEXITCODE -ne 0) { Fail "Pack failed: $project" }
+        if ($LASTEXITCODE -ne 0) {
+            # Occasional MSBuild node races exit non-zero after a successful
+            # compile (no error output) - retry once before failing.
+            Write-Host "  !! pack failed (exit $LASTEXITCODE), retrying once..." -ForegroundColor Yellow
+            dotnet pack $project @args
+            if ($LASTEXITCODE -ne 0) { Fail "Pack failed: $project" }
+        }
     }
 
     Write-Host "=== Phase 1: Core ===" -ForegroundColor Cyan
