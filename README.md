@@ -349,6 +349,12 @@ is the canonical property (`Name` is an obsolete alias).
 
 Every push: build + test (1100+ tests) + 5 benchmarks smoke + 5 AOT sample publishes.
 Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
+Local feed: run `./scripts/release.ps1 -Version <ver>` **before** pushing the
+tag — it runs the test suite, packs all 11 packages into `artifacts/nupkg`
+(declared as the `local` NuGet source in `NuGet.config`), then tags and pushes.
+Sibling PicoHex repos add the same folder path after nuget.org in their
+`NuGet.config` to consume the new version instantly, bypassing nuget.org's
+indexing window and 30-minute HTTP cache.
 
 ---
 
