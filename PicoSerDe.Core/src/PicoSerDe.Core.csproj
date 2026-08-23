@@ -1,12 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <IsAotCompatible>true</IsAotCompatible>
-    <IsTrimmable>true</IsTrimmable>
-    <IsPackable>true</IsPackable>
+<IsPackable>true</IsPackable>
     <PackageId>PicoSerDe.Core</PackageId>
     <Description>PicoSerDe Core — shared serialization infrastructure, contracts, and utilities for the PicoHex ecosystem</Description>
     <PackageTags>PicoHex;Serialization;AOT;Core</PackageTags>

@@ -7,6 +7,12 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <InterceptorsNamespaces>$(InterceptorsNamespaces);__PicoSerDe_$(AssemblyName.Replace('.','_').Replace('-','_').Replace(' ','_'))</InterceptorsNamespaces>
     <Features>$(Features);Interceptors</Features>
   </PropertyGroup>
@@ -24,4 +30,59 @@
   <ItemGroup Condition="'$(IsPackable)' == 'true'">
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
   </ItemGroup>
+
+  <!-- ===== AOT Strategy ===== -->
+
+  <!--
+    AotOptimizationLevel:
+      minimal  - Tests and default. PublishAot + TrimMode only, fast compilation.
+      aggressive - Samples and Benchmarks. Full trimming, no reflection, no debug info.
+    Override per-project via <AotOptimizationLevel>aggressive</AotOptimizationLevel>.
+  -->
+  <PropertyGroup>
+    <AotOptimizationLevel Condition="'$(AotOptimizationLevel)' == ''">minimal</AotOptimizationLevel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AotOptimizationLevel)' == 'minimal'">
+    <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
+    <TrimMode Condition="'$(TrimMode)' == ''">full</TrimMode>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AotOptimizationLevel)' == 'aggressive'">
+    <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
+    <TrimMode Condition="'$(TrimMode)' == ''">full</TrimMode>
+    <IlcGenerateStackTraceData>false</IlcGenerateStackTraceData>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <PublishTrimmed>true</PublishTrimmed>
+    <IlcTrimMetadata>true</IlcTrimMetadata>
+    <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+    <IlcDisableReflection>true</IlcDisableReflection>
+    <IlcGenerateDebugInfo>false</IlcGenerateDebugInfo>
+    <IlcGenerateCompleteTypeMetadata>false</IlcGenerateCompleteTypeMetadata>
+    <IlcGenerateUnwindStackTraceData>false</IlcGenerateUnwindStackTraceData>
+  </PropertyGroup>
+
+  <!-- netstandard2.0 must NEVER AOT - this block MUST come after the AOT level
+       blocks. Only source generators (PicoXxx.Gen) remain on netstandard2.0. -->
+  <PropertyGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETStandard'">
+    <PublishAot>false</PublishAot>
+    <IsAotCompatible>false</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
+    <TrimMode>partial</TrimMode>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+  </PropertyGroup>
+
+  <!-- Libraries: declare AOT-compatible but do not self-publish. -->
+  <PropertyGroup>
+    <IsAotCompatible
+      Condition="'$(IsAotCompatible)' == '' and '$(OutputType)' != 'Exe' and $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))"
+      >true</IsAotCompatible>
+  </PropertyGroup>
+
+  <!-- PublishAotOnRun: dotnet run auto-publishes as AOT in CI only. -->
+  <PropertyGroup>
+    <PublishAotOnRun Condition="'$(PublishAotOnRun)' == '' and '$(CI)' == 'true'">true</PublishAotOnRun>
+    <PublishAotOnRun Condition="'$(PublishAotOnRun)' == ''">false</PublishAotOnRun>
+  </PropertyGroup>
+
 </Project>

@@ -4,10 +4,7 @@
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <IsPackable>false</IsPackable>
+<IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

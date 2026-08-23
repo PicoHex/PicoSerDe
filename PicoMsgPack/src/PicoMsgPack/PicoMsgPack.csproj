@@ -1,12 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <IsAotCompatible>true</IsAotCompatible>
-    <IsTrimmable>true</IsTrimmable>
-    <IsPackable>true</IsPackable>
+<IsPackable>true</IsPackable>
     <PackageId>PicoMsgPack</PackageId>
     <Description>PicoMsgPack — high-performance, AOT-first MessagePack serializer with zero-reflection source generation for the PicoHex ecosystem</Description>
     <PackageTags>PicoHex;MessagePack;AOT;Serialization</PackageTags>

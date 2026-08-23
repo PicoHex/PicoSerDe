@@ -4,10 +4,7 @@
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <IsPackable>false</IsPackable>
+<IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn)</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
