@@ -12,6 +12,7 @@ public static partial class JsonSerializer
     // (SerRegistry/DesRegistry), isolated per format via JsonFormat.
 
     private static class StreamingCache<T>
+        where T : notnull
     {
         internal static StreamingFunc<JsonReader, T>? Func;
     }
