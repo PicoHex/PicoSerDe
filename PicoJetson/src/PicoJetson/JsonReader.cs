@@ -24,7 +24,7 @@ public struct JsonReaderState
     internal SequencePosition Position;
 }
 
-public ref struct JsonReader
+public ref struct JsonReader : ITokenReader
 {
     // Span mode fields
     private ReadOnlySpan<byte> _data;

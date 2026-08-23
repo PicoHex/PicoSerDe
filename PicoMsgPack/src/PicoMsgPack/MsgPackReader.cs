@@ -11,7 +11,7 @@ public struct MsgPackReaderState
     internal bool[]? ExpectKeyStack;
 }
 
-public ref struct MsgPackReader
+public ref struct MsgPackReader : ITokenReader
 {
     // Span mode
     private ReadOnlySpan<byte> _data;

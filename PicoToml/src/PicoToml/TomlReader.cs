@@ -17,7 +17,7 @@ public struct TomlReaderState
     internal bool DottedActive;
 }
 
-public ref struct TomlReader
+public ref struct TomlReader : ITokenReader
 {
     // Span mode fields
     private ReadOnlySpan<byte> _data;
@@ -631,13 +631,24 @@ public ref struct TomlReader
         }
         else
         {
-            while (_position < _data.Length && _data[_position] != (byte)'=')
+            // Line-bound key scan: never consume past \n/\r (audit BUG-03).
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)'='
+                && _data[_position] is not ((byte)'\n' or (byte)'\r')
+            )
                 _position++;
             _keySpan = TrimEnd(_data[keyStart.._position]);
         }
 
-        while (_position < _data.Length && _data[_position] != (byte)'=')
+        while (
+            _position < _data.Length
+            && _data[_position] != (byte)'='
+            && _data[_position] is not ((byte)'\n' or (byte)'\r')
+        )
             _position++;
+        if (_position >= _data.Length || _data[_position] != (byte)'=')
+            throw new FormatException("Invalid TOML line: expected '='.");
         _position++;
         while (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;

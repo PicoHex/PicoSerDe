@@ -24,6 +24,19 @@ public static class TextHelpers
         return s[st..e];
     }
 
+    /// <summary>
+    /// Advances to the first '\n' or '\r' at or after <paramref name="position"/>,
+    /// or <paramref name="data"/>.Length if none exists. Never scans past a line end.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int ScanUntilLineEnd(ReadOnlySpan<byte> data, int position)
+    {
+        int len = data.Length;
+        while (position < len && data[position] is not ((byte)'\n' or (byte)'\r'))
+            position++;
+        return position;
+    }
+
     /// <summary>Case-insensitive byte-span equality (used by SG deserializers for property name matching).</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool Eq(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b, bool caseSensitive = false)

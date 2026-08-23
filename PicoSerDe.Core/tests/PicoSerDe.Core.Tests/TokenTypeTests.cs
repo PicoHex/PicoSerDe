@@ -29,15 +29,12 @@ public class TokenTypeTests
         await Assert.That(values).Contains(TokenType.Bool);
         await Assert.That(values).Contains(TokenType.String);
         await Assert.That(values).Contains(TokenType.Bytes);
-        await Assert.That(values).Contains(TokenType.Int8);
-        await Assert.That(values).Contains(TokenType.Int16);
         await Assert.That(values).Contains(TokenType.Int32);
         await Assert.That(values).Contains(TokenType.Int64);
         await Assert.That(values).Contains(TokenType.UInt8);
         await Assert.That(values).Contains(TokenType.UInt16);
         await Assert.That(values).Contains(TokenType.UInt32);
         await Assert.That(values).Contains(TokenType.UInt64);
-        await Assert.That(values).Contains(TokenType.Float16);
         await Assert.That(values).Contains(TokenType.Float32);
         await Assert.That(values).Contains(TokenType.Float64);
     }
@@ -50,10 +47,10 @@ public class TokenTypeTests
     }
 
     [Test]
-    public async Task TotalMemberCount_IsTwentyTwo()
+    public async Task TotalMemberCount_IsNineteen()
     {
         var count = Enum.GetValues<TokenType>().Length;
-        await Assert.That(count).IsEqualTo(22);
+        await Assert.That(count).IsEqualTo(19);
     }
 
     [Test]

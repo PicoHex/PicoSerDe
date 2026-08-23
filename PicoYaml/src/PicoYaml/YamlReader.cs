@@ -14,7 +14,7 @@ public struct YamlReaderState
     internal bool DocStartPending;
 }
 
-public ref struct YamlReader
+public ref struct YamlReader : ITokenReader
 {
     // Span mode fields
     private ReadOnlySpan<byte> _data;
@@ -479,6 +479,25 @@ public ref struct YamlReader
             }
             return true;
         }
+        // Document end marker: ... at indent 0 — the document is finished.
+        if (
+            lineIndent == 0
+            && _data[_position] == (byte)'.'
+            && _position + 2 < _data.Length
+            && _data[_position + 1] == (byte)'.'
+            && _data[_position + 2] == (byte)'.'
+        )
+        {
+            _position = _data.Length; // stop reading this document
+            if (_stackCount > 0)
+            {
+                PopIndent();
+                _tokenType = TokenType.ObjectEnd;
+                _depth--;
+                return true;
+            }
+            return false;
+        }
         if (_docStartPending)
         {
             _docStartPending = false;
@@ -595,9 +614,16 @@ public ref struct YamlReader
             return true;
         }
         int ks = _position;
-        while (_position < _data.Length && _data[_position] != (byte)':')
+        // Line-bound key scan: never consume past \n/\r (audit BUG-01).
+        while (
+            _position < _data.Length
+            && _data[_position] != (byte)':'
+            && _data[_position] is not ((byte)'\n' or (byte)'\r')
+        )
             _position++;
         _keySpan = TrimEnd(_data[ks.._position]);
+        if (_position >= _data.Length || _data[_position] != (byte)':')
+            throw new FormatException("Invalid YAML mapping line: expected ':'.");
         _position++;
         if (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;
@@ -885,9 +911,16 @@ public ref struct YamlReader
             return true;
         }
         int ks = _position;
-        while (_position < _data.Length && _data[_position] != (byte)':')
+        // Line-bound key scan: never consume past \n/\r (audit BUG-01).
+        while (
+            _position < _data.Length
+            && _data[_position] != (byte)':'
+            && _data[_position] is not ((byte)'\n' or (byte)'\r')
+        )
             _position++;
         _keySpan = TrimEnd(_data[ks.._position]);
+        if (_position >= _data.Length || _data[_position] != (byte)':')
+            throw new FormatException("Invalid YAML mapping line: expected ':'.");
         _position++;
         if (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;

@@ -11,19 +11,15 @@ public enum TokenType
     Null,
     Bool,
 
-    // ── Reserved for future format support ──
-    // These enum values are placeholders for potential Int8/Int16/Float16
-    // support (e.g., MsgPack). Not emitted by any current reader/writer.
-    // If unused by v2.1, consider removal or consolidation.
-    Int8,
-    Int16,
+    // ── Numeric tokens ──
+    // Emitted by real readers/writers: MsgPack emits UInt8/16/32/64,
+    // Int32/64, Float32/64; JSON/TOML/YAML/INI emit Int32/64, Float64.
     Int32,
     Int64,
     UInt8,
     UInt16,
     UInt32,
     UInt64,
-    Float16,
     Float32,
     Float64,
 

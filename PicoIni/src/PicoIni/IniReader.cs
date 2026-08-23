@@ -11,7 +11,7 @@ public struct IniReaderState
     internal SequencePosition Position;
 }
 
-public ref struct IniReader
+public ref struct IniReader : ITokenReader
 {
     private ReadOnlySpan<byte> _data;
     private int _position;
@@ -350,10 +350,17 @@ public ref struct IniReader
     private bool ReadKeyValueSpan()
     {
         var keyStart = _position;
-        while (_position < _data.Length && _data[_position] != (byte)'=')
+        // Line-bound key scan: never consume past \n/\r (audit BUG-02).
+        while (
+            _position < _data.Length
+            && _data[_position] != (byte)'='
+            && _data[_position] is not ((byte)'\n' or (byte)'\r')
+        )
             _position++;
         _currentValue = TrimEnd(_data[keyStart.._position]);
         _tokenType = TokenType.PropertyName;
+        if (_position >= _data.Length || _data[_position] != (byte)'=')
+            throw new FormatException("Invalid INI line: expected '='.");
         _position++;
         while (
             _position < _data.Length
