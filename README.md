@@ -142,6 +142,11 @@ default values:
   for value-type elements; wrong-typed elements throw
 - **Comments** (`ReadCommentHandling.Skip`): malformed comment syntax (`/x`) and
   unterminated block comments throw instead of being silently swallowed
+- **Streaming** (`DeserializeFromStreamAsync<T>`) honors the same semantics —
+  `UnmappedMemberHandling.Disallow` and top-level `null` handling are identical
+  to the direct path (v2026.4.11+; both paths share one generated dispatch
+  chain). Struct DTOs and propertyless types have no streaming delegate
+  (`DeserializeFromStreamAsync<Struct>` throws `InvalidOperationException`)
 
 ### Polymorphic Deserialization (Type Discriminator)
 
