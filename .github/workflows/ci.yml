@@ -43,7 +43,10 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       - name: Show logical target
         run: echo "Testing ${{ matrix.logical-target }}"
-      - run: dotnet restore -p:UseProjectReferences=true
+      - name: Restore
+        run: |
+          mkdir -p ./artifacts/nupkg
+          dotnet restore -p:UseProjectReferences=true
       - run: dotnet build --configuration Release --no-restore -p:UseProjectReferences=true
       - run: dotnet test --configuration Release --no-build --verbosity normal
       - run: dotnet build PicoJetson/benchmarks/PicoJetson.Benchmarks/PicoJetson.Benchmarks.csproj -c Release --no-restore
@@ -97,6 +100,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang zlib1g-dev
+      - name: Create local feed dir (NuGet.config local source)
+        shell: bash
+        run: mkdir -p ./artifacts/nupkg
       - run: dotnet publish PicoJetson/samples/PicoJetson.Sample/PicoJetson.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoIni/samples/PicoIni.Sample/PicoIni.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoToml/samples/PicoToml.Sample/PicoToml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
