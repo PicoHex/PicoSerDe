@@ -46,13 +46,12 @@
   <PropertyGroup Condition="'$(AotOptimizationLevel)' == 'minimal'">
     <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
     <TrimMode Condition="'$(TrimMode)' == ''">full</TrimMode>
-    <!-- PicoSerDe stack is reflection-free by design (source generators + C# 12
-         interceptors replace reflection) - enable metadata trimming and disable
-         reflection support in the default AOT tier too. Only affects AOT
-         publish; managed builds and test runs are unaffected. -->
-    <IlcTrimMetadata>true</IlcTrimMetadata>
-    <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
-    <IlcDisableReflection>true</IlcDisableReflection>
+    <!-- NOTE: the classic Ilc* MSBuild properties (IlcTrimMetadata,
+         IlcFoldIdenticalMethodBodies, IlcDisableReflection, ...) were removed
+         in .NET 10 SDK (>= 10.0.400) and are silently ignored - ILC uses its
+         built-in defaults. Size levers now: StackTraceSupport,
+         UseSystemResourceKeys, InvariantGlobalization (see csproj-format
+         skill "Ilc* MSBuild properties are GONE"). -->
   </PropertyGroup>
 
 
