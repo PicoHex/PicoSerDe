@@ -1,9 +1,8 @@
 namespace PicoYaml;
 
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class YamlDateTimeFormatAttribute : Attribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class YamlDateTimeFormatAttribute : PicoDateTimeFormatAttribute
 {
-    public string Format { get; }
-
-    public YamlDateTimeFormatAttribute(string format) => Format = format;
+    public YamlDateTimeFormatAttribute(string format)
+        : base(format) { }
 }

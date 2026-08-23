@@ -1,7 +1,7 @@
 namespace PicoMsgPack;
 
-[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = true)]
-public sealed class PicoMsgPackSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class PicoMsgPackSerializableAttribute : PicoSerializableAttribute
 {
     public PicoMsgPackSerializableAttribute() { }
 

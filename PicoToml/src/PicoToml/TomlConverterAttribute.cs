@@ -1,10 +1,8 @@
 namespace PicoToml;
 
-/// <summary>Specifies a custom converter to use for serializing a property.</summary>
-[AttributeUsage(AttributeTargets.Property | AttributeTargets.Class)]
-public sealed class TomlConverterAttribute : Attribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class TomlConverterAttribute : PicoConverterAttribute
 {
-    public Type ConverterType { get; }
-
-    public TomlConverterAttribute(Type converterType) => ConverterType = converterType;
+    public TomlConverterAttribute(Type converterType)
+        : base(converterType) { }
 }

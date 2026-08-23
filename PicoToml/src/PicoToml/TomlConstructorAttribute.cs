@@ -1,4 +1,4 @@
 namespace PicoToml;
 
-[AttributeUsage(AttributeTargets.Constructor)]
-public sealed class TomlConstructorAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class TomlConstructorAttribute : PicoConstructorAttribute { }

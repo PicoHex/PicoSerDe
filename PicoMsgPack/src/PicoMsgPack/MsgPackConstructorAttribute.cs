@@ -1,4 +1,4 @@
 namespace PicoMsgPack;
 
-[AttributeUsage(AttributeTargets.Constructor)]
-public sealed class MsgPackConstructorAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class MsgPackConstructorAttribute : PicoConstructorAttribute { }

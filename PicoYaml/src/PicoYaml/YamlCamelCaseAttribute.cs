@@ -1,4 +1,4 @@
 namespace PicoYaml;
 
-[AttributeUsage(AttributeTargets.Class)]
-public sealed class YamlCamelCaseAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class YamlCamelCaseAttribute : PicoCamelCaseAttribute { }

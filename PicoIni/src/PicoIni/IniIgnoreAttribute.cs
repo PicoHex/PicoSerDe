@@ -1,5 +1,4 @@
 namespace PicoIni;
 
-/// <summary>Excludes a property from INI serialization and deserialization.</summary>
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class IniIgnoreAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class IniIgnoreAttribute : PicoIgnoreAttribute { }

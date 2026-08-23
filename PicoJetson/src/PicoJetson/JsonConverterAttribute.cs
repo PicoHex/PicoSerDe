@@ -1,9 +1,8 @@
 namespace PicoJetson;
 
-[AttributeUsage(AttributeTargets.Property | AttributeTargets.Class)]
-public sealed class JsonConverterAttribute : Attribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class JsonConverterAttribute : PicoConverterAttribute
 {
-    public Type ConverterType { get; }
-
-    public JsonConverterAttribute(Type converterType) => ConverterType = converterType;
+    public JsonConverterAttribute(Type converterType)
+        : base(converterType) { }
 }

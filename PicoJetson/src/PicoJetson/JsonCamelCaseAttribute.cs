@@ -1,4 +1,4 @@
 namespace PicoJetson;
 
-[AttributeUsage(AttributeTargets.Class)]
-public sealed class JsonCamelCaseAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class JsonCamelCaseAttribute : PicoCamelCaseAttribute { }

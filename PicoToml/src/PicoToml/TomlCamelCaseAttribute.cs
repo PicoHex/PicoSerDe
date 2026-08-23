@@ -1,4 +1,4 @@
 namespace PicoToml;
 
-[AttributeUsage(AttributeTargets.Class)]
-public sealed class TomlCamelCaseAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class TomlCamelCaseAttribute : PicoCamelCaseAttribute { }

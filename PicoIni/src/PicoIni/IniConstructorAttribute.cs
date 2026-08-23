@@ -1,4 +1,4 @@
 namespace PicoIni;
 
-[AttributeUsage(AttributeTargets.Constructor)]
-public sealed class IniConstructorAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class IniConstructorAttribute : PicoConstructorAttribute { }

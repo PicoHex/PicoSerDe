@@ -1,12 +1,8 @@
 namespace PicoIni;
 
-/// <summary>Specifies a custom <see cref="IIniConverter{T}"/> for a property.</summary>
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class IniConverterAttribute : Attribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class IniConverterAttribute : PicoConverterAttribute
 {
-    /// <summary>The converter type (must implement <see cref="IIniConverter{T}"/>).</summary>
-    public Type ConverterType { get; }
-
-    /// <param name="converterType">The converter type.</param>
-    public IniConverterAttribute(Type converterType) => ConverterType = converterType;
+    public IniConverterAttribute(Type converterType)
+        : base(converterType) { }
 }

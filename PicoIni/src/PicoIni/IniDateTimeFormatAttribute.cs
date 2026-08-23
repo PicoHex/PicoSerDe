@@ -1,9 +1,8 @@
 namespace PicoIni;
 
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class IniDateTimeFormatAttribute : Attribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class IniDateTimeFormatAttribute : PicoDateTimeFormatAttribute
 {
-    public string Format { get; }
-
-    public IniDateTimeFormatAttribute(string format) => Format = format;
+    public IniDateTimeFormatAttribute(string format)
+        : base(format) { }
 }

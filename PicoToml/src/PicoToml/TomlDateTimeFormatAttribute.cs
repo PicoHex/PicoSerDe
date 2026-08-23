@@ -1,9 +1,8 @@
 namespace PicoToml;
 
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class TomlDateTimeFormatAttribute : Attribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class TomlDateTimeFormatAttribute : PicoDateTimeFormatAttribute
 {
-    public string Format { get; }
-
-    public TomlDateTimeFormatAttribute(string format) => Format = format;
+    public TomlDateTimeFormatAttribute(string format)
+        : base(format) { }
 }

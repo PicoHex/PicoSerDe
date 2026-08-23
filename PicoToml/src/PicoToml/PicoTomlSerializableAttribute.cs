@@ -1,7 +1,7 @@
 namespace PicoToml;
 
-[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = true)]
-public sealed class PicoTomlSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class PicoTomlSerializableAttribute : PicoSerializableAttribute
 {
     public PicoTomlSerializableAttribute() { }
 

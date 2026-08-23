@@ -1,5 +1,4 @@
 namespace PicoToml;
 
-/// <summary>Marks a property to be ignored during TOML serialization and deserialization.</summary>
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class TomlIgnoreAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class TomlIgnoreAttribute : PicoIgnoreAttribute { }

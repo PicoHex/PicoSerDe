@@ -1,5 +1,4 @@
 namespace PicoYaml;
 
-/// <summary>Marks a property to be ignored during YAML serialization and deserialization.</summary>
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class YamlIgnoreAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class YamlIgnoreAttribute : PicoIgnoreAttribute { }

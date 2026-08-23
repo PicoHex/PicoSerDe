@@ -1,10 +1,8 @@
 namespace PicoYaml;
 
-/// <summary>Specifies a custom converter to use for serializing a property.</summary>
-[AttributeUsage(AttributeTargets.Property | AttributeTargets.Class)]
-public sealed class YamlConverterAttribute : Attribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class YamlConverterAttribute : PicoConverterAttribute
 {
-    public Type ConverterType { get; }
-
-    public YamlConverterAttribute(Type converterType) => ConverterType = converterType;
+    public YamlConverterAttribute(Type converterType)
+        : base(converterType) { }
 }

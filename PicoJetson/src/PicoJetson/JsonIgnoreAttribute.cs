@@ -1,4 +1,4 @@
 namespace PicoJetson;
 
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class JsonIgnoreAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class JsonIgnoreAttribute : PicoIgnoreAttribute { }

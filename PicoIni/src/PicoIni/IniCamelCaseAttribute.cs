@@ -1,4 +1,4 @@
 namespace PicoIni;
 
-[AttributeUsage(AttributeTargets.Class)]
-public sealed class IniCamelCaseAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class IniCamelCaseAttribute : PicoCamelCaseAttribute { }

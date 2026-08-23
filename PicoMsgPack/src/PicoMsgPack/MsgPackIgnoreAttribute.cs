@@ -1,4 +1,4 @@
 namespace PicoMsgPack;
 
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class MsgPackIgnoreAttribute : Attribute { }
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class MsgPackIgnoreAttribute : PicoIgnoreAttribute { }

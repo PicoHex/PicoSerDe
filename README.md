@@ -316,6 +316,14 @@ JsonSerializer.RegisterCustom(new MySerializer(), new MyDeserializer());
 
 ---
 
+## Shared Attribute Hierarchy
+
+Per-format attributes (`[JsonIgnore]`, `[IniKey]`, ...) inherit shared PicoSerDe.Core bases
+(`PicoIgnoreAttribute`, `PicoSerializableAttribute`, `PicoCamelCaseAttribute`,
+`PicoConstructorAttribute`, `PicoDateTimeFormatAttribute`, `PicoConverterAttribute`) —
+one implementation per concept, format-specific public names preserved. `IniKeyAttribute.Key`
+is the canonical property (`Name` is an obsolete alias).
+
 ## Packages
 
 | Package | NuGet |

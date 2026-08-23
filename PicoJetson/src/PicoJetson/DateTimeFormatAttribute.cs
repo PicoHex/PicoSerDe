@@ -1,9 +1,8 @@
 namespace PicoJetson;
 
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class DateTimeFormatAttribute : Attribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class DateTimeFormatAttribute : PicoDateTimeFormatAttribute
 {
-    public string Format { get; }
-
-    public DateTimeFormatAttribute(string format) => Format = format;
+    public DateTimeFormatAttribute(string format)
+        : base(format) { }
 }

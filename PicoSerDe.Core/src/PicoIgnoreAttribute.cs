@@ -38,7 +38,7 @@ public enum PicoIgnoreCondition
 /// unconditional ignores.
 /// </summary>
 [AttributeUsage(AttributeTargets.Property)]
-public sealed class PicoIgnoreAttribute : Attribute
+public class PicoIgnoreAttribute : Attribute
 {
     /// <summary>The condition under which the property is ignored. Default: <see cref="PicoIgnoreCondition.Always"/>.</summary>
     public PicoIgnoreCondition Condition { get; set; } = PicoIgnoreCondition.Always;

@@ -1,9 +1,8 @@
 namespace PicoMsgPack;
 
-[AttributeUsage(AttributeTargets.Property)]
-public sealed class MsgPackConverterAttribute : Attribute
+/// <summary>Format-specific marker; shares behavior with the PicoSerDe.Core base.</summary>
+public sealed class MsgPackConverterAttribute : PicoConverterAttribute
 {
-    public Type ConverterType { get; }
-
-    public MsgPackConverterAttribute(Type converterType) => ConverterType = converterType;
+    public MsgPackConverterAttribute(Type converterType)
+        : base(converterType) { }
 }
