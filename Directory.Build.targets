@@ -12,6 +12,15 @@
     <TrimMode>partial</TrimMode>
   </PropertyGroup>
 
+  <!-- Libraries: declare trim-compatible (net8.0+ TFMs only, i.e. not
+       netstandard2.0 generators). IsAotCompatible lives in
+       Directory.Build.props; IsTrimmable must be set here where the TFM
+       identifier is known (netstandard2.0 does not support IsTrimmable -
+       NETSDK1212). -->
+  <PropertyGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETCoreApp'">
+    <IsTrimmable>true</IsTrimmable>
+  </PropertyGroup>
+
   <Target
     Name="PublishAotIfRequested"
     BeforeTargets="Run"
