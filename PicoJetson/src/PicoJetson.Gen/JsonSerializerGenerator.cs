@@ -1355,9 +1355,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine();
             EmitRegistration(sb, type);
             sb.AppendLine();
-            // Skip streaming for types with [JsonConstructor] (immutable types)
+            // Skip streaming for value types (shared StreamingFunc<T> delegate
+            // cannot express Nullable<T> parameters — struct DTOs keep the
+            // direct deserialization path) and for types with [JsonConstructor].
             var hasCtor = !type.CtorParams.IsDefaultOrEmpty && type.CtorParams.Length > 0;
-            if (type.Properties.Length > 0)
+            if (type.Properties.Length > 0 && !type.IsValueType)
                 EmitStreamingDeserializer(sb, type);
         }
 
@@ -2047,163 +2049,191 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            try");
         sb.AppendLine("            {");
 
-        if (hasCtor)
+        if (type.Properties.Length > 0 && !type.IsValueType)
         {
-            // Declare temp variables for constructor parameters
-            for (int ci = 0; ci < type.CtorParams.Length; ci++)
-            {
-                var cp = type.CtorParams[ci];
-                // Use TypeFullName directly — MapTypeName with null type NREs
-                // for complex kinds (object, enum, list, dict).
-                var typeName = cp.TypeFullName;
-                var defaultVal = cp.TypeKind switch
-                {
-                    "string" => "\"\"",
-                    "int32" or "int64" or "float64" => "0",
-                    "boolean" => "false",
-                    _ => "default!",
-                };
-                sb.Append("            ");
-                sb.Append(typeName);
-                sb.Append(" __cp_");
-                sb.Append(ci);
-                sb.Append(" = ");
-                sb.Append(defaultVal);
-                sb.AppendLine(";");
-            }
+            // ── Thin wrapper over the streaming delegate ──
+            // The single property dispatch chain lives in {Type}Streaming.
+            // DeserializeStreaming. Deserialize and DeserializeStreaming share
+            // it, so behavior (UnmappedMemberHandling, top-level null, ...)
+            // can never drift between the two paths again.
+            sb.Append("                ");
+            sb.Append(type.Name);
+            sb.AppendLine("? result;");
+            sb.Append("                var __status = ");
+            sb.Append(type.Name);
+            sb.AppendLine("Streaming.DeserializeStreaming(ref reader, null, out result);");
+            sb.AppendLine("                if (__status == ReadStatus.EndOfInput)");
+            sb.AppendLine(
+                "                    throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            );
+            sb.AppendLine("                if (__status == ReadStatus.NeedMoreData)");
+            sb.AppendLine(
+                "                    throw new System.FormatException(\"Unexpected end of stream while parsing.\");"
+            );
+            sb.AppendLine(
+                "                if (reader.Read()) throw new System.FormatException($\"Unexpected data after the document at offset {reader.BytesConsumed}\");"
+            );
+            sb.AppendLine("                return result!;");
         }
         else
         {
-            var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
-            if (reqProps.Length > 0)
+            if (hasCtor)
             {
-                sb.Append("            var obj = new ");
-                sb.Append(type.Name);
-                sb.AppendLine(" {");
-                foreach (var rp in reqProps)
+                // Declare temp variables for constructor parameters
+                for (int ci = 0; ci < type.CtorParams.Length; ci++)
                 {
-                    sb.Append("                ");
-                    sb.Append(rp.Name);
-                    sb.Append(" = ");
-                    switch (rp.TypeKind)
+                    var cp = type.CtorParams[ci];
+                    // Use TypeFullName directly — MapTypeName with null type NREs
+                    // for complex kinds (object, enum, list, dict).
+                    var typeName = cp.TypeFullName;
+                    var defaultVal = cp.TypeKind switch
                     {
-                        case "string":
-                            sb.Append("\"\"");
-                            break;
-                        default:
-                            sb.Append("default");
-                            break;
-                    }
-                    sb.AppendLine(",");
+                        "string" => "\"\"",
+                        "int32" or "int64" or "float64" => "0",
+                        "boolean" => "false",
+                        _ => "default!",
+                    };
+                    sb.Append("            ");
+                    sb.Append(typeName);
+                    sb.Append(" __cp_");
+                    sb.Append(ci);
+                    sb.Append(" = ");
+                    sb.Append(defaultVal);
+                    sb.AppendLine(";");
                 }
-                sb.Append("            };");
             }
             else
             {
-                sb.Append("            var obj = new ");
-                sb.Append(type.Name);
-                sb.AppendLine("();");
+                var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
+                if (reqProps.Length > 0)
+                {
+                    sb.Append("            var obj = new ");
+                    sb.Append(type.Name);
+                    sb.AppendLine(" {");
+                    foreach (var rp in reqProps)
+                    {
+                        sb.Append("                ");
+                        sb.Append(rp.Name);
+                        sb.Append(" = ");
+                        switch (rp.TypeKind)
+                        {
+                            case "string":
+                                sb.Append("\"\"");
+                                break;
+                            default:
+                                sb.Append("default");
+                                break;
+                        }
+                        sb.AppendLine(",");
+                    }
+                    sb.Append("            };");
+                }
+                else
+                {
+                    sb.Append("            var obj = new ");
+                    sb.Append(type.Name);
+                    sb.AppendLine("();");
+                }
             }
-        }
 
-        sb.AppendLine("            reader.Read();");
-        if (!type.IsValueType)
-            sb.AppendLine("            if (reader.TokenType == TokenType.Null) return null!;");
-        sb.AppendLine(
-            "            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
-        );
-        if (!hasCtor)
-            foreach (var rp in type.Properties.Where(p => p.IsRequired))
+            sb.AppendLine("            reader.Read();");
+            if (!type.IsValueType)
+                sb.AppendLine("            if (reader.TokenType == TokenType.Null) return null!;");
+            sb.AppendLine(
+                "            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            );
+            if (!hasCtor)
+                foreach (var rp in type.Properties.Where(p => p.IsRequired))
+                {
+                    sb.Append("            bool __seen_");
+                    sb.Append(rp.Name);
+                    sb.AppendLine(" = false;");
+                }
+            sb.AppendLine(
+                "            while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
+            );
+            sb.AppendLine("            {");
+            sb.AppendLine("                var propNameSpan = reader.GetStringRaw();");
+            sb.AppendLine("                reader.Read();");
+            sb.AppendLine();
+
+            for (var i = 0; i < type.Properties.Length; i++)
             {
-                sb.Append("            bool __seen_");
-                sb.Append(rp.Name);
-                sb.AppendLine(" = false;");
-            }
-        sb.AppendLine(
-            "            while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
-        );
-        sb.AppendLine("            {");
-        sb.AppendLine("                var propNameSpan = reader.GetStringRaw();");
-        sb.AppendLine("                reader.Read();");
-        sb.AppendLine();
+                var prop = type.Properties[i];
+                var keyword = i == 0 ? "if" : "else if";
+                sb.Append("                ");
+                sb.Append(keyword);
+                sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
+                sb.Append(EscapeCSharpString(prop.JsonName));
+                sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
+                sb.AppendLine("                {");
 
-        for (var i = 0; i < type.Properties.Length; i++)
-        {
-            var prop = type.Properties[i];
-            var keyword = i == 0 ? "if" : "else if";
-            sb.Append("                ");
-            sb.Append(keyword);
-            sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
-            sb.Append(EscapeCSharpString(prop.JsonName));
-            sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
-            sb.AppendLine("                {");
+                if (hasCtor)
+                {
+                    // Map JSON property to constructor parameter by name
+                    EmitDeserializeCtorParam(sb, prop, type, "                    ");
+                }
+                else
+                {
+                    EmitDeserializeProperty(sb, prop, "obj", "                    ");
+                    if (prop.IsRequired)
+                    {
+                        sb.Append("                    __seen_");
+                        sb.Append(prop.Name);
+                        sb.AppendLine(" = true;");
+                    }
+                }
+
+                sb.AppendLine("                }");
+            }
+
+            if (type.Properties.Length > 0)
+            {
+                sb.AppendLine(
+                    "                else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
+                );
+                sb.AppendLine(
+                    "                    throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(propNameSpan)}' at offset {reader.BytesConsumed}\");"
+                );
+                sb.AppendLine("                else reader.TrySkip();");
+            }
+            else
+                sb.AppendLine("                reader.TrySkip();");
+
+            sb.AppendLine("            }");
+
+            if (!hasCtor)
+                foreach (var rp in type.Properties.Where(p => p.IsRequired))
+                {
+                    sb.Append("            if (!__seen_");
+                    sb.Append(rp.Name);
+                    sb.Append(") throw new System.FormatException(\"Missing required property '");
+                    sb.Append(EscapeCSharpString(rp.JsonName));
+                    sb.AppendLine("'.\");");
+                }
+            sb.AppendLine(
+                "            if (reader.Read()) throw new System.FormatException($\"Unexpected data after the document at offset {reader.BytesConsumed}\");"
+            );
 
             if (hasCtor)
             {
-                // Map JSON property to constructor parameter by name
-                EmitDeserializeCtorParam(sb, prop, type, "                    ");
+                sb.Append("            return new ");
+                sb.Append(type.Name);
+                sb.Append("(");
+                for (int ci = 0; ci < type.CtorParams.Length; ci++)
+                {
+                    if (ci > 0)
+                        sb.Append(", ");
+                    sb.Append("__cp_");
+                    sb.Append(ci);
+                }
+                sb.AppendLine(");");
             }
             else
             {
-                EmitDeserializeProperty(sb, prop, "obj", "                    ");
-                if (prop.IsRequired)
-                {
-                    sb.Append("                    __seen_");
-                    sb.Append(prop.Name);
-                    sb.AppendLine(" = true;");
-                }
+                sb.AppendLine("            return obj;");
             }
-
-            sb.AppendLine("                }");
-        }
-
-        if (type.Properties.Length > 0)
-        {
-            sb.AppendLine(
-                "                else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
-            );
-            sb.AppendLine(
-                "                    throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(propNameSpan)}' at offset {reader.BytesConsumed}\");"
-            );
-            sb.AppendLine("                else reader.TrySkip();");
-        }
-        else
-            sb.AppendLine("                reader.TrySkip();");
-
-        sb.AppendLine("            }");
-
-        if (!hasCtor)
-            foreach (var rp in type.Properties.Where(p => p.IsRequired))
-            {
-                sb.Append("            if (!__seen_");
-                sb.Append(rp.Name);
-                sb.Append(") throw new System.FormatException(\"Missing required property '");
-                sb.Append(EscapeCSharpString(rp.JsonName));
-                sb.AppendLine("'.\");");
-            }
-        sb.AppendLine(
-            "            if (reader.Read()) throw new System.FormatException($\"Unexpected data after the document at offset {reader.BytesConsumed}\");"
-        );
-
-        if (hasCtor)
-        {
-            sb.Append("            return new ");
-            sb.Append(type.Name);
-            sb.Append("(");
-            for (int ci = 0; ci < type.CtorParams.Length; ci++)
-            {
-                if (ci > 0)
-                    sb.Append(", ");
-                sb.Append("__cp_");
-                sb.Append(ci);
-            }
-            sb.AppendLine(");");
-        }
-        else
-        {
-            sb.AppendLine("            return obj;");
-        }
-
+        } // end else (value types / 0-prop types keep the direct path — no streaming delegate)
         sb.AppendLine("            }");
         sb.AppendLine("            finally");
         sb.AppendLine("            {");
@@ -3699,13 +3729,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
         );
+        if (!type.IsValueType)
+            sb.AppendLine(
+                "            if (reader.TokenType == TokenType.Null) { result = null; return ReadStatus.Success; }"
+            );
         sb.AppendLine(
             "            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
         );
-        if (!type.IsValueType)
-            sb.AppendLine(
-                "            if (reader.TokenType == TokenType.Null) return ReadStatus.Success;"
-            );
         sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        while (true)");
@@ -3744,6 +3774,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
         if (type.Properties.Length > 0)
         {
+            sb.AppendLine(
+                "            else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
+            );
+            sb.AppendLine(
+                "                throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(propNameSpan)}' at offset {reader.BytesConsumed}\");"
+            );
             sb.AppendLine("            else reader.TrySkip();");
         }
         sb.AppendLine("        }");
@@ -3799,10 +3835,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("JsonSer.Serialize, ");
         sb.Append(type.Name);
         sb.AppendLine("JsonDeserializer.Deserialize);");
-        // Streaming: emitted for regular, array, and now poly types.
+        // Streaming: emitted for regular (class only), array, and poly types.
         // (EmitPolyStreamingDeserializer fills the original gap.)
         if (
-            type.Properties.Length > 0
+            (type.Properties.Length > 0 && !type.IsValueType)
             || type.ArrayElementKind is not null
             || !type.DerivedTypes.IsDefaultOrEmpty
         )
