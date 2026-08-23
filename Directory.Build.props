@@ -55,21 +55,13 @@
     <IlcDisableReflection>true</IlcDisableReflection>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(AotOptimizationLevel)' == 'aggressive'">
-    <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
-    <TrimMode Condition="'$(TrimMode)' == ''">full</TrimMode>
-    <IlcGenerateStackTraceData>false</IlcGenerateStackTraceData>
-    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
-    <PublishTrimmed>true</PublishTrimmed>
-    <IlcTrimMetadata>true</IlcTrimMetadata>
-    <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
-    <IlcDisableReflection>true</IlcDisableReflection>
-    <IlcGenerateDebugInfo>false</IlcGenerateDebugInfo>
-    <IlcGenerateCompleteTypeMetadata>false</IlcGenerateCompleteTypeMetadata>
-    <IlcGenerateUnwindStackTraceData>false</IlcGenerateUnwindStackTraceData>
-  </PropertyGroup>
 
   <!--
+    The aggressive tier is implemented in Directory.Build.targets, NOT here:
+    this file evaluates BEFORE the project file, so a per-project
+    <AotOptimizationLevel>aggressive</AotOptimizationLevel> would never match
+    a conditional block in this file (the value is still 'minimal' here).
+    Declare the tier in the csproj; the implementation lives in the targets.
     netstandard2.0 must NEVER AOT - the guard lives in Directory.Build.targets
     (evaluated after the SDK sets TargetFrameworkIdentifier).
     Libraries declare IsAotCompatible here unconditionally; the guard flips it

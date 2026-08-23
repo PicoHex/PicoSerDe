@@ -4,6 +4,27 @@
     to publish as AOT first, then execute the native binary.
     Gates: only for Exe projects (libraries cannot self-publish).
   -->
+  <!--
+    Aggressive tier implementation. Lives here (after the project file) so a
+    per-project <AotOptimizationLevel>aggressive</AotOptimizationLevel>
+    declaration is visible when this block evaluates. PublishAot/TrimMode/ILC
+    trinity are already set by the minimal tier in Directory.Build.props;
+    this block adds the size-optimization and no-debug-info overrides.
+  -->
+  <PropertyGroup Condition="'$(AotOptimizationLevel)' == 'aggressive'">
+    <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
+    <TrimMode Condition="'$(TrimMode)' == ''">full</TrimMode>
+    <IlcGenerateStackTraceData>false</IlcGenerateStackTraceData>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <PublishTrimmed>true</PublishTrimmed>
+    <IlcTrimMetadata>true</IlcTrimMetadata>
+    <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+    <IlcDisableReflection>true</IlcDisableReflection>
+    <IlcGenerateDebugInfo>false</IlcGenerateDebugInfo>
+    <IlcGenerateCompleteTypeMetadata>false</IlcGenerateCompleteTypeMetadata>
+    <IlcGenerateUnwindStackTraceData>false</IlcGenerateUnwindStackTraceData>
+  </PropertyGroup>
+
   <!-- netstandard2.0 must NEVER AOT. Only source generators (PicoXxx.Gen)
        remain on netstandard2.0 - evaluated here where TFM is known. -->
   <PropertyGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETStandard'">
