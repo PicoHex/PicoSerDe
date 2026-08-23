@@ -6,6 +6,14 @@ public struct JsonReaderState
     /// <summary>Nesting depth at the moment of interruption.</summary>
     internal int Depth;
 
+    /// <summary>Format-specific streaming scratch state (e.g. the in-progress
+    /// List for array streaming). Carried across chunk boundaries.</summary>
+    public object? Aux;
+
+    /// <summary>True when the previous attempt rewound to a property-name start
+    /// (incomplete value); the ReadStart section must re-run on resume.</summary>
+    public bool Rewound;
+
     /// <summary>Maximum allowed depth.</summary>
     internal int MaxDepth;
 
@@ -52,8 +60,23 @@ public ref struct JsonReader
     // Per-instance options (comment/number handling, ...). No ambient state.
     private readonly JsonOptions? _options;
 
+    // Streaming resume support: position (in the sequence) where the current
+    // property name started, so an incomplete value read can rewind and let
+    // the next attempt re-read the property from scratch.
+    private long _propertyNameStart = -1;
+
     /// <summary>Options supplied at construction, or null when default behavior is desired.</summary>
     public JsonOptions? Options => _options;
+
+    /// <summary>True when this reader resumes a previously exported state (streaming).</summary>
+    public bool IsResumed { get; }
+
+    /// <summary>Format-specific streaming scratch state (carried via JsonReaderState.Aux).</summary>
+    public object? StreamState { get; set; }
+
+    /// <summary>True when the previous call rewound to the current property name
+    /// (an incomplete value was seen) — the ReadStart section must re-run.</summary>
+    public bool Rewound { get; private set; }
 
     /// <summary>True when Read() returned false because a chunk boundary was reached (not EOF).</summary>
     public bool NeedsMoreData => _needsMoreData;
@@ -67,6 +90,8 @@ public ref struct JsonReader
             MaxDepth = _maxDepth,
             BytesConsumed = _seqReader.Consumed,
             Position = _seqReader.Position,
+            Aux = StreamState,
+            Rewound = Rewound,
         };
     }
 
@@ -79,10 +104,18 @@ public ref struct JsonReader
         JsonReaderState state,
         JsonOptions? options = null
     )
-        : this(data, state.MaxDepth > 0 ? state.MaxDepth : 256, isFinalBlock, options)
+        : this(
+            data,
+            options?.MaxDepth ?? (state.MaxDepth > 0 ? state.MaxDepth : 256),
+            isFinalBlock,
+            options
+        )
     {
         _depth = state.Depth;
         _needsMoreData = false;
+        IsResumed = state.BytesConsumed > 0 || state.Depth > 0;
+        StreamState = state.Aux;
+        Rewound = state.Rewound;
     }
 
     public JsonReader(
@@ -170,6 +203,7 @@ public ref struct JsonReader
     public bool Read()
     {
         _needsMoreData = false;
+        Rewound = false;
         SkipWhitespace();
         Retry:
         if (IsAtEnd())
@@ -304,15 +338,34 @@ public ref struct JsonReader
                 // current sequence before starting to read. Prevents partial-value reads.
                 if (!_isFinalBlock && _isSequence && !HasCompletePropertyOrString())
                 {
+                    RewindToPropertyName();
                     _needsMoreData = true;
                     return false;
                 }
                 return ReadStringOrProperty();
             case (byte)'t':
+                if (!_isFinalBlock && _isSequence && !HasCompleteLiteral("true"u8))
+                {
+                    RewindToPropertyName();
+                    _needsMoreData = true;
+                    return false;
+                }
                 return ReadLiteral("true"u8, TokenType.Bool);
             case (byte)'f':
+                if (!_isFinalBlock && _isSequence && !HasCompleteLiteral("false"u8))
+                {
+                    RewindToPropertyName();
+                    _needsMoreData = true;
+                    return false;
+                }
                 return ReadLiteral("false"u8, TokenType.Bool);
             case (byte)'n':
+                if (!_isFinalBlock && _isSequence && !HasCompleteLiteral("null"u8))
+                {
+                    RewindToPropertyName();
+                    _needsMoreData = true;
+                    return false;
+                }
                 return ReadLiteral("null"u8, TokenType.Null);
             case (byte)'N':
                 if (
@@ -331,6 +384,12 @@ public ref struct JsonReader
                     && PeekStartsWith("-Infinity"u8)
                 )
                     return ReadLiteral("-Infinity"u8, TokenType.Float64);
+                if (!_isFinalBlock && _isSequence && !HasCompleteNumber())
+                {
+                    RewindToPropertyName();
+                    _needsMoreData = true;
+                    return false;
+                }
                 goto case (byte)'0';
             case (byte)'I':
                 // Infinity
@@ -353,6 +412,12 @@ public ref struct JsonReader
             case (byte)'7':
             case (byte)'8':
             case (byte)'9':
+                if (!_isFinalBlock && _isSequence && !HasCompleteNumber())
+                {
+                    RewindToPropertyName();
+                    _needsMoreData = true;
+                    return false;
+                }
                 return ReadNumber();
             default:
                 throw new FormatException($"Unexpected byte 0x{b:X2} at offset {BytesConsumed}");
@@ -653,6 +718,77 @@ public ref struct JsonReader
     /// Used in streaming mode (!isFinalBlock) to avoid starting a value
     /// whose closing delimiter or token-type signifier (':') is in a later chunk.
     /// </summary>
+    /// <summary>Rewinds the sequence reader to the start of the current property name,
+    /// so a resumed attempt re-reads the property from scratch (streaming resume).</summary>
+    private void RewindToPropertyName()
+    {
+        if (_tokenType == TokenType.PropertyName && _propertyNameStart >= 0)
+        {
+            _seqReader.Rewind(_seqReader.Consumed - _propertyNameStart);
+            Rewound = true;
+        }
+    }
+
+    /// <summary>True when the full literal text is present in the current sequence
+    /// and terminated by a delimiter or buffer end (streaming completeness check).</summary>
+    private bool HasCompleteLiteral(ReadOnlySpan<byte> lit)
+    {
+        var seq = _seqReader.Sequence.Slice(_seqReader.Position);
+        var r = new SequenceReader<byte>(seq);
+        if (r.Remaining < lit.Length)
+            return false;
+        for (int i = 0; i < lit.Length; i++)
+        {
+            if (r.CurrentSpan[r.CurrentSpanIndex] != lit[i])
+                return false;
+            r.Advance(1);
+        }
+        // Terminated by a delimiter? If the buffer ends right after the literal,
+        // more data may arrive — treat as incomplete for safety.
+        if (r.End)
+            return false;
+        var next = r.CurrentSpan[r.CurrentSpanIndex];
+        return next
+            is (byte)' '
+                or (byte)'\t'
+                or (byte)'\n'
+                or (byte)'\r'
+                or (byte)','
+                or (byte)'}'
+                or (byte)']';
+    }
+
+    /// <summary>True when the number starting at the current position is terminated
+    /// by a delimiter or the buffer end (streaming completeness check).</summary>
+    private bool HasCompleteNumber()
+    {
+        var seq = _seqReader.Sequence.Slice(_seqReader.Position);
+        var r = new SequenceReader<byte>(seq);
+        while (!r.End)
+        {
+            var b = r.CurrentSpan[r.CurrentSpanIndex];
+            if (b is (byte)'-' or (byte)'+' or (byte)'.' or (byte)'e' or (byte)'E')
+            {
+                r.Advance(1);
+                continue;
+            }
+            if (b is >= (byte)'0' and <= (byte)'9')
+            {
+                r.Advance(1);
+                continue;
+            }
+            return b
+                is (byte)' '
+                    or (byte)'\t'
+                    or (byte)'\n'
+                    or (byte)'\r'
+                    or (byte)','
+                    or (byte)'}'
+                    or (byte)']';
+        }
+        return false; // buffer ended mid-number — more data may arrive
+    }
+
     private bool HasCompletePropertyOrString()
     {
         var seq = _seqReader.Sequence.Slice(_seqReader.Position);
@@ -684,7 +820,19 @@ public ref struct JsonReader
         while (!r.End && (r.CurrentSpan[r.CurrentSpanIndex] is (byte)' ' or (byte)'\t'))
             r.Advance(1);
 
-        return !r.End;
+        // A property name must be followed by its ':' (which may live in the
+        // next chunk). A string value is complete once its closing quote and a
+        // trailing delimiter/end are present.
+        if (r.End)
+            return false;
+        if (r.CurrentSpan[r.CurrentSpanIndex] == (byte)':')
+        {
+            r.Advance(1);
+            while (!r.End && (r.CurrentSpan[r.CurrentSpanIndex] is (byte)' ' or (byte)'\t'))
+                r.Advance(1);
+            return !r.End;
+        }
+        return true;
     }
 
     private bool ReadStringOrProperty()
@@ -732,6 +880,7 @@ public ref struct JsonReader
 
     private bool ReadStringOrPropertySeq()
     {
+        var propStart = _seqReader.Consumed; // position of the opening quote
         _seqReader.Advance(1); // skip opening "
 
         var buf = ArrayPool<byte>.Shared.Rent(256);
@@ -826,6 +975,7 @@ public ref struct JsonReader
             if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)':')
             {
                 _tokenType = TokenType.PropertyName;
+                _propertyNameStart = propStart;
                 _seqReader.Advance(1);
             }
             else

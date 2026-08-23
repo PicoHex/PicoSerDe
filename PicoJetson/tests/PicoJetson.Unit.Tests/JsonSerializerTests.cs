@@ -190,7 +190,7 @@ public class JsonSerializerTests
 
         // Manually register a streaming delegate (SG would auto-generate this)
         JsonSerializer.RegisterStreaming<Person>(
-            static (ref JsonReader reader, out Person? result) =>
+            static (ref JsonReader reader, Person? partial, out Person? result) =>
             {
                 result = default;
                 // Minimal streaming deserializer for testing

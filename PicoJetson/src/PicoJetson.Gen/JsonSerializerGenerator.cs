@@ -725,7 +725,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("();");
         }
         sb.AppendLine(
-            "        if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            "        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
         );
         foreach (var rp in props.Where(p => p.IsRequired))
         {
@@ -2218,7 +2218,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         StringBuilder sb,
         PropertyInfo prop,
         TypeInfo type,
-        string indent
+        string indent,
+        string namePrefix = ""
     )
     {
         // Find matching constructor parameter by case-insensitive name
@@ -2246,7 +2247,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
 
         var cp = type.CtorParams[matchIdx];
-        var target = $"__cp_{matchIdx}";
+        var target = $"__cp_{namePrefix}{matchIdx}";
 
         // Nullable ctor params must accept JSON null — the writer emits
         // "Prop":null for null-valued optional parameters, and persisted
@@ -3604,14 +3605,55 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("Streaming");
         sb.AppendLine("{");
         sb.AppendLine(
-            "    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, out "
+            "    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, "
+                + type.Name
+                + "? partial, out "
                 + type.Name
                 + "? result)"
         );
         sb.AppendLine("    {");
-        sb.Append("        result = default;");
+        sb.Append("        result = partial ?? ");
+        if (!hasCtor)
+        {
+            var reqProps2 = type.Properties.Where(p => p.IsRequired).ToArray();
+            if (reqProps2.Length > 0)
+            {
+                sb.Append("new ");
+                sb.Append(type.Name);
+                sb.AppendLine(" {");
+                foreach (var rp in reqProps2)
+                {
+                    sb.Append("            ");
+                    sb.Append(rp.Name);
+                    sb.Append(" = ");
+                    switch (rp.TypeKind)
+                    {
+                        case "string":
+                            sb.Append("\"\"");
+                            break;
+                        default:
+                            sb.Append("default");
+                            break;
+                    }
+                    sb.AppendLine(",");
+                }
+                sb.Append("        };");
+            }
+            else
+            {
+                sb.Append("new ");
+                sb.Append(type.Name);
+                sb.AppendLine("();");
+            }
+        }
+        else
+        {
+            sb.AppendLine("default;");
+        }
         sb.AppendLine();
 
+        // Constructor-param temps and required-property flags persist across
+        // resumes (streaming state), so they stay OUTSIDE the IsResumed guard.
         if (hasCtor)
         {
             // Declare temp variables for constructor parameters
@@ -3639,36 +3681,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
         else
         {
+            // Object creation happens inside the IsResumed guard below; only the
+            // required-property tracking flags persist across resumes.
             var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
-            if (reqProps.Length > 0)
-            {
-                sb.Append("        result = new ");
-                sb.Append(type.Name);
-                sb.AppendLine(" {");
-                foreach (var rp in reqProps)
-                {
-                    sb.Append("            ");
-                    sb.Append(rp.Name);
-                    sb.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            sb.Append("\"\"");
-                            break;
-                        default:
-                            sb.Append("default");
-                            break;
-                    }
-                    sb.AppendLine(",");
-                }
-                sb.Append("        };");
-            }
-            else
-            {
-                sb.Append("        result = new ");
-                sb.Append(type.Name);
-                sb.AppendLine("();");
-            }
         }
         if (!hasCtor)
             foreach (var rp in type.Properties.Where(p => p.IsRequired))
@@ -3678,17 +3693,20 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(" = false;");
             }
         sb.AppendLine();
-        sb.AppendLine("        // ReadStart");
+        sb.AppendLine("        // ReadStart runs on the first invocation only.");
+        sb.AppendLine("        if (!reader.IsResumed)");
+        sb.AppendLine("        {");
         sb.AppendLine(
-            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
         );
         sb.AppendLine(
-            "        if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            "            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
         );
         if (!type.IsValueType)
             sb.AppendLine(
-                "        if (reader.TokenType == TokenType.Null) return ReadStatus.Success;"
+                "            if (reader.TokenType == TokenType.Null) return ReadStatus.Success;"
             );
+        sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        while (true)");
         sb.AppendLine("        {");
@@ -3731,7 +3749,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        }");
         if (hasCtor)
         {
-            sb.Append("        result = new ");
+            sb.Append("        result = partial ?? new ");
             sb.Append(type.Name);
             sb.Append("(");
             for (int ci = 0; ci < type.CtorParams.Length; ci++)
@@ -4064,45 +4082,53 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(type.Name);
         sb.AppendLine("Streaming");
         sb.AppendLine("{");
-        sb.Append(
-            "    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, out "
-        );
+        sb.Append("    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, ");
+        sb.Append(type.Name);
+        sb.Append("? partial, out ");
         sb.Append(type.Name);
         sb.AppendLine("? result)");
         sb.AppendLine("    {");
-        sb.Append("        result = default;");
+        sb.Append("        result = partial;");
+        sb.AppendLine();
+        sb.AppendLine("        string? __disc = reader.StreamState as string;");
         sb.AppendLine();
 
         var dpn = type.DiscriminatorPropertyName ?? "$type";
 
-        // ReadStart — consume opening brace
-        sb.AppendLine("        // ReadStart");
+        // ObjectStart read runs on the first invocation only.
+        sb.AppendLine("        if (!reader.IsResumed)");
+        sb.AppendLine("        {");
         sb.AppendLine(
-            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
         );
+        sb.AppendLine("        }");
         sb.AppendLine();
-
-        // Read discriminator property name
+        sb.AppendLine("        // Discriminator read: skipped once __disc is set (resume after");
+        sb.AppendLine("        // the discriminator, or re-run after a rewind).");
+        sb.AppendLine("        if (__disc is null)");
+        sb.AppendLine("        {");
         sb.AppendLine(
-            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
         );
         sb.AppendLine(
-            "        if (reader.TokenType != TokenType.PropertyName) return ReadStatus.Success;"
+            "            if (reader.TokenType != TokenType.PropertyName) return ReadStatus.Success;"
         );
-        sb.Append("        if (!TextHelpers.Eq(reader.GetStringRaw(), \"");
+        sb.Append("            if (!TextHelpers.Eq(reader.GetStringRaw(), \"");
         sb.Append(EscapeCSharpString(dpn));
         sb.AppendLine("\"u8, false))");
         sb.Append(
-            "            throw new System.FormatException(\"Expected discriminator property '"
+            "                throw new System.FormatException(\"Expected discriminator property '"
         );
         sb.Append(EscapeCSharpString(dpn));
         sb.AppendLine("' but found different property name\");");
-
-        // Read discriminator value
         sb.AppendLine(
-            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
         );
-        sb.AppendLine("        var __disc = reader.GetStringRaw();");
+        sb.AppendLine(
+            "            __disc = System.Text.Encoding.UTF8.GetString(reader.GetStringRaw());"
+        );
+        sb.AppendLine("            reader.StreamState = __disc;");
+        sb.AppendLine("        }");
         sb.AppendLine();
 
         for (int i = 0; i < type.DerivedTypes.Length; i++)
@@ -4120,15 +4146,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
             sb.Append("        ");
             sb.Append(keyword);
-            sb.Append(" (TextHelpers.Eq(__disc, \"");
+            sb.Append(" (TextHelpers.Eq(System.Text.Encoding.UTF8.GetBytes(__disc), \"");
             sb.Append(EscapeCSharpString(dt.TypeDiscriminator));
             sb.AppendLine("\"u8, false))");
             sb.AppendLine("        {");
 
-            // Initialize: parameterless for non-ctor types; only ctor temps for [JsonConstructor]
+            // Initialize: guarded creation for non-ctor types (resume keeps the object);
+            // ctor temps are hoisted to method scope with branch-unique names so they
+            // persist across resumes.
             if (!hasCtor)
             {
-                sb.Append("            var __polyObj = new ");
+                sb.Append("            if (result is null) result = new ");
                 sb.Append(dtName);
                 sb.AppendLine("();");
             }
@@ -4148,9 +4176,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         "boolean" => "false",
                         _ => "default!",
                     };
-                    sb.Append("            ");
+                    sb.Append("        ");
                     sb.Append(tn);
                     sb.Append(" __cp_");
+                    sb.Append(i);
+                    sb.Append("_");
                     sb.Append(ci);
                     sb.Append(" = ");
                     sb.Append(dv);
@@ -4181,9 +4211,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
                 sb.AppendLine("                {");
                 if (hasCtor)
-                    EmitDeserializeCtorParam(sb, prop, dti, "                    ");
+                    EmitDeserializeCtorParam(sb, prop, dti, "                    ", $"{i}_");
                 else
-                    EmitDeserializeProperty(sb, prop, "__polyObj", "                    ");
+                    EmitDeserializeProperty(
+                        sb,
+                        prop,
+                        $"(({dtName})result!)",
+                        "                    "
+                    );
                 sb.AppendLine("                }");
             }
 
@@ -4194,7 +4229,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             // Construct result
             if (hasCtor)
             {
-                sb.Append("            var __polyObj = new ");
+                sb.Append("            if (result is null) result = new ");
                 sb.Append(dtName);
                 sb.Append("(");
                 for (int ci = 0; ci < dti.CtorParams.Length; ci++)
@@ -4202,14 +4237,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     if (ci > 0)
                         sb.Append(", ");
                     sb.Append("__cp_");
+                    sb.Append(i);
+                    sb.Append("_");
                     sb.Append(ci);
                 }
                 sb.AppendLine(");");
-                sb.AppendLine("            result = __polyObj;");
-            }
-            else
-            {
-                sb.AppendLine("            result = __polyObj;");
             }
 
             sb.AppendLine("            return ReadStatus.Success;");
@@ -4218,7 +4250,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
         sb.AppendLine();
         sb.AppendLine(
-            "        throw new System.FormatException($\"Unknown type discriminator: {System.Text.Encoding.UTF8.GetString(__disc)}\");"
+            "        throw new System.FormatException($\"Unknown type discriminator: {__disc}\");"
         );
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -4489,7 +4521,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         else
             sb.AppendLine("                    return null!;");
         sb.AppendLine(
-            "                if (reader.TokenType != TokenType.ArrayStart) throw new System.FormatException($\"Expected a JSON array at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            "                if (!reader.IsResumed && reader.TokenType != TokenType.ArrayStart) throw new System.FormatException($\"Expected a JSON array at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
         );
         sb.AppendLine(
             "                while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
@@ -4728,24 +4760,33 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(type.Name);
         sb.AppendLine("Streaming");
         sb.AppendLine("{");
-        sb.Append(
-            "    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, out "
-        );
+        sb.Append("    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, ");
+        sb.Append(arrTypeName);
+        sb.Append("? partial, out ");
         sb.Append(arrTypeName);
         sb.AppendLine("? result)");
         sb.AppendLine("    {");
-        sb.Append("        var __list = new System.Collections.Generic.List<");
+        sb.Append("        var __list = reader.StreamState as System.Collections.Generic.List<");
+        sb.Append(elemCsType);
+        sb.AppendLine("> ?? new System.Collections.Generic.List<");
         sb.Append(elemCsType);
         sb.AppendLine(">();");
+        sb.Append("        reader.StreamState = __list;");
         sb.AppendLine("        result = default;");
         sb.AppendLine();
+        sb.AppendLine("        // ArrayStart read runs on the first invocation only.");
+        sb.AppendLine("        if (!reader.IsResumed)");
+        sb.AppendLine("        {");
         sb.AppendLine(
-            "        if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
         );
         sb.AppendLine(
-            "        if (reader.TokenType != TokenType.ArrayStart) throw new System.FormatException($\"Expected a JSON array at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            "            if (reader.TokenType != TokenType.ArrayStart) throw new System.FormatException($\"Expected a JSON array at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
         );
-        sb.AppendLine("        if (reader.TokenType == TokenType.Null) return ReadStatus.Success;");
+        sb.AppendLine(
+            "            if (reader.TokenType == TokenType.Null) return ReadStatus.Success;"
+        );
+        sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        while (true)");
         sb.AppendLine("        {");

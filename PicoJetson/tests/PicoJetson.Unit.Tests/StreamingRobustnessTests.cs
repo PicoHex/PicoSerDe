@@ -26,12 +26,12 @@ public class StreamingRobustnessTests
         }
     }
 
-    private static ReadStatus PairFunc(ref JsonReader r, out Pair? v)
+    private static ReadStatus PairFunc(ref JsonReader r, Pair? partial, out Pair? v)
     {
-        v = new Pair();
-        // Consume the opening token (the object start), mirroring the
-        // SG-generated streaming deserializer structure.
-        if (!r.Read())
+        v = partial ?? new Pair();
+        // Consume the opening token (the object start) on the first call only,
+        // mirroring the SG-generated streaming deserializer structure.
+        if (!r.IsResumed && !r.Read())
             return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
         while (true)
         {
@@ -58,9 +58,10 @@ public class StreamingRobustnessTests
         return ReadStatus.Success;
     }
 
-    private static ReadStatus IntArrayFunc(ref JsonReader r, out int[]? v)
+    private static ReadStatus IntArrayFunc(ref JsonReader r, int[]? partial, out int[]? v)
     {
-        var list = new List<int>();
+        var list = r.StreamState as List<int> ?? new List<int>();
+        r.StreamState = list;
         v = default;
         while (r.Read())
         {

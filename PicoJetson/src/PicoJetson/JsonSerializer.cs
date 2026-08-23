@@ -11,15 +11,12 @@ public static partial class JsonSerializer
     // Serialization/deserialization registries live in PicoSerDe.Core
     // (SerRegistry/DesRegistry), isolated per format via JsonFormat.
 
-    /// <summary>Delegate for streaming deserialization via PipeReader.</summary>
-    public delegate ReadStatus StreamingFunc<T>(ref JsonReader reader, out T? result);
-
     private static class StreamingCache<T>
     {
-        internal static StreamingFunc<T>? Func;
+        internal static StreamingFunc<JsonReader, T>? Func;
     }
 
-    public static void RegisterStreaming<T>(StreamingFunc<T> func)
+    public static void RegisterStreaming<T>(StreamingFunc<JsonReader, T> func)
         where T : notnull
     {
         StreamingCache<T>.Func = func;
@@ -117,52 +114,36 @@ public static partial class JsonSerializer
             ?? throw new InvalidOperationException(
                 $"No streaming deserializer registered for {typeof(T)}."
             );
+        return await StreamingRunner.RunAsync<JsonReader, JsonReaderState, T>(
+            stream,
+            func,
+            options,
+            Step<T>,
+            ct
+        );
+    }
 
-        var pipe = PipeReader.Create(stream);
-        // StreamPipeReader may reuse its internal buffer, so previously
-        // returned data is not guaranteed to persist across ReadAsync
-        // calls. Copy every chunk into our own accumulator.
-        var accum = new ArrayBufferWriter<byte>(4096);
-
-        while (true)
-        {
-            var r = await pipe.ReadAsync(ct);
-            foreach (var seg in r.Buffer)
-                accum.Write(seg.Span);
-            pipe.AdvanceTo(r.Buffer.End);
-
-            // Re-parse from the beginning on every attempt: streaming
-            // deserializers do not preserve partially parsed state across
-            // NeedMoreData returns, so restarting is the only correct
-            // strategy. The parse itself is sequence-mode so partial
-            // strings at the tail signal NeedMoreData instead of throwing.
-            var reader = new JsonReader(
-                new ReadOnlySequence<byte>(accum.WrittenMemory),
-                isFinalBlock: r.IsCompleted,
-                options: options
-            );
-
-            ReadStatus status;
-            try
-            {
-                status = func(ref reader, out var result);
-                if (status == ReadStatus.Success)
-                    return result!;
-            }
-            finally
-            {
-                reader.Dispose();
-            }
-
-            if (status == ReadStatus.NeedMoreData)
-            {
-                if (r.IsCompleted)
-                    throw new FormatException("Unexpected end of stream while parsing.");
-                continue;
-            }
-
-            throw new FormatException("Unexpected parser state.");
-        }
+    private static ReadStatus Step<T>(
+        ReadOnlySequence<byte> buffer,
+        bool isFinalBlock,
+        JsonReaderState state,
+        SerOptions? options,
+        StreamingFunc<JsonReader, T> func,
+        T? partial,
+        out T? result,
+        out JsonReaderState next,
+        out SequencePosition advanceTo
+    )
+        where T : notnull
+    {
+        var reader = new JsonReader(buffer, isFinalBlock, state, (JsonOptions?)options);
+        // partial is the previous chunk's partially built result (null on the first call).
+        var status = func(ref reader, partial, out result);
+        next = reader.ExportState();
+        advanceTo = next.Position;
+        // Return rented buffers (the result was already materialized by func).
+        reader.Dispose();
+        return status;
     }
 
     /// <summary>
