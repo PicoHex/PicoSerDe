@@ -4,6 +4,14 @@
     to publish as AOT first, then execute the native binary.
     Gates: only for Exe projects (libraries cannot self-publish).
   -->
+  <!-- netstandard2.0 must NEVER AOT. Only source generators (PicoXxx.Gen)
+       remain on netstandard2.0 - evaluated here where TFM is known. -->
+  <PropertyGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETStandard'">
+    <PublishAot>false</PublishAot>
+    <IsAotCompatible>false</IsAotCompatible>
+    <TrimMode>partial</TrimMode>
+  </PropertyGroup>
+
   <Target
     Name="PublishAotIfRequested"
     BeforeTargets="Run"

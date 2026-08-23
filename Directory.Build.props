@@ -62,21 +62,14 @@
     <IlcGenerateUnwindStackTraceData>false</IlcGenerateUnwindStackTraceData>
   </PropertyGroup>
 
-  <!-- netstandard2.0 must NEVER AOT - this block MUST come after the AOT level
-       blocks. Only source generators (PicoXxx.Gen) remain on netstandard2.0. -->
-  <PropertyGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETStandard'">
-    <PublishAot>false</PublishAot>
-    <IsAotCompatible>false</IsAotCompatible>
-    <IsTrimmable>true</IsTrimmable>
-    <TrimMode>partial</TrimMode>
-    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
-  </PropertyGroup>
-
-  <!-- Libraries: declare AOT-compatible but do not self-publish. -->
+  <!--
+    netstandard2.0 must NEVER AOT - the guard lives in Directory.Build.targets
+    (evaluated after the SDK sets TargetFrameworkIdentifier).
+    Libraries declare IsAotCompatible here unconditionally; the guard flips it
+    back to false for netstandard2.0 generator projects.
+  -->
   <PropertyGroup>
-    <IsAotCompatible
-      Condition="'$(IsAotCompatible)' == '' and '$(OutputType)' != 'Exe' and $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))"
-      >true</IsAotCompatible>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <!-- PublishAotOnRun: dotnet run auto-publishes as AOT in CI only. -->
