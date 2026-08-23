@@ -356,6 +356,12 @@ Sibling PicoHex repos add the same folder path after nuget.org in their
 `NuGet.config` to consume the new version instantly, bypassing nuget.org's
 indexing window and 30-minute HTTP cache.
 
+AOT tiers (`AotOptimizationLevel` in `Directory.Build.props`): `minimal`
+(default - PublishAot + TrimMode=full + IlcTrimMetadata/IlcFoldIdenticalMethodBodies/IlcDisableReflection)
+and `aggressive` (samples/benchmarks - adds size optimization, no debug
+info). Libraries declare `IsAotCompatible`+`IsTrimmable`; only source
+generators (`PicoXxx.Gen`, netstandard2.0) never AOT.
+
 ---
 
 ## Comparison
