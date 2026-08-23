@@ -10,13 +10,13 @@
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.400" />
 
     <!-- Testing -->
-    <PackageVersion Include="TUnit" Version="1.65.0" />
+    <PackageVersion Include="TUnit" Version="1.65.38" />
 
     <!-- Benchmarking -->
     <PackageVersion Include="PicoBench" Version="2026.2.5" />
 
     <!-- Source generators (Roslyn) -->
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
 
     <!-- Third-party serialization libraries (cross-validation / benchmarks) -->
     <PackageVersion Include="ini-parser-netstandard" Version="2.5.3" />
