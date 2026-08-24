@@ -363,10 +363,11 @@ indexing window and 30-minute HTTP cache.
 
 AOT tiers - declare `<AotOptimizationLevel>` per project (`minimal` default /
 `aggressive` for samples/benchmarks). Implementations: `minimal` in
-`Directory.Build.props` (PublishAot + TrimMode=full +
-IlcTrimMetadata/IlcFoldIdenticalMethodBodies/IlcDisableReflection), `aggressive`
-in `Directory.Build.targets` (adds size optimization, no debug info) - it must
-live there so a csproj-level declaration is visible when it evaluates.
+`Directory.Build.props` (PublishAot + TrimMode=full), `aggressive` in
+`Directory.Build.targets` (adds `StackTraceSupport=false` +
+`UseSystemResourceKeys=true`; classic `Ilc*` MSBuild properties are removed in
+.NET 10 SDK >= 10.0.400 and silently ignored) - the aggressive block lives in
+targets so a csproj-level declaration is visible when it evaluates.
 Libraries declare `IsAotCompatible`+`IsTrimmable`; only source generators
 (`PicoXxx.Gen`, netstandard2.0) never AOT.
 
