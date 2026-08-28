@@ -24,7 +24,8 @@ public static partial class JsonSerializer
     }
 
     /// <summary>True when a streaming deserializer has been registered for T.</summary>
-    public static bool HasStreamingDelegate<T>() => StreamingCache<T>.Func is not null;
+    public static bool HasStreamingDelegate<T>()
+        where T : notnull => StreamingCache<T>.Func is not null;
 
     /// <summary>Register a delegate-based serializer (SG primary path).</summary>
     public static void Register<T>(SerDelegate<T> handler)
@@ -167,7 +168,7 @@ public static partial class JsonSerializer
                 SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
             }
         }
-        return buf.WrittenSpan.ToArray();
+        return [.. buf.WrittenSpan];
     }
 
     /// <summary>
@@ -274,27 +275,24 @@ public static partial class JsonSerializer
                         break;
 
                     int lineStart = consumed;
-                    int lineEnd = nlPos;
-                    consumed = lineEnd + 1;
+                    consumed = nlPos + 1;
 
-                    if (lineEnd > lineStart)
-                    {
-                        // Copy line bytes; List<T>.GetRange avoids Span crossing yield
-                        var lineBytes = accum.GetRange(lineStart, lineEnd - lineStart).ToArray();
-                        yield return deserializer(lineBytes, options);
-                    }
+                    if (nlPos <= lineStart)
+                        continue;
+                    // Copy line bytes; List<T>.GetRange avoids Span crossing yield
+                    var lineBytes = accum.GetRange(lineStart, nlPos - lineStart).ToArray();
+                    yield return deserializer(lineBytes, options);
                 }
 
-                if (consumed > 0)
+                if (consumed <= 0)
+                    continue;
+                if (consumed < accum.Count)
                 {
-                    if (consumed < accum.Count)
-                    {
-                        accum.RemoveRange(0, consumed);
-                    }
-                    else
-                    {
-                        accum.Clear();
-                    }
+                    accum.RemoveRange(0, consumed);
+                }
+                else
+                {
+                    accum.Clear();
                 }
             }
         }
@@ -329,92 +327,100 @@ public static partial class JsonSerializer
 
                     if (!sawOpeningBracket)
                     {
-                        if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r')
+                        switch (b)
                         {
-                            i++;
-                            continue;
-                        }
-                        if (b == (byte)'[')
-                        {
-                            sawOpeningBracket = true;
-                            depth = 1;
-                            i++;
-                            continue;
-                        }
-                        throw new FormatException("Expected '[' at start of JSON array stream.");
-                    }
-
-                    if (b == (byte)'"')
-                    {
-                        if (depth == 1 && valueStart < 0)
-                            valueStart = i;
-                        i++;
-                        while (i < accum.Count)
-                        {
-                            if (accum[i] == (byte)'\\')
-                            {
-                                i += 2;
-                                continue;
-                            }
-                            if (accum[i] == (byte)'"')
-                            {
+                            case (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r':
                                 i++;
-                                break;
-                            }
-                            i++;
-                        }
-                        continue;
-                    }
-
-                    if (b is (byte)'{' or (byte)'[')
-                    {
-                        if (depth == 1 && valueStart < 0)
-                            valueStart = i;
-                        depth++;
-                        i++;
-                        continue;
-                    }
-
-                    if (b is (byte)'}' or (byte)']')
-                    {
-                        depth--;
-                        if (depth == 0)
-                        {
-                            if (b != (byte)']')
+                                continue;
+                            case (byte)'[':
+                                sawOpeningBracket = true;
+                                depth = 1;
+                                i++;
+                                continue;
+                            default:
                                 throw new FormatException(
-                                    "Unexpected '}' inside JSON array stream."
+                                    "Expected '[' at start of JSON array stream."
                                 );
-                            if (valueStart >= 0)
-                            {
-                                var valBytes = accum.GetRange(valueStart, i - valueStart).ToArray();
-                                var trimmed = TrimArrayElement(valBytes);
-                                if (trimmed.Length > 0)
-                                    yield return deserializer(trimmed, options);
-                            }
-                            yield break;
                         }
-                        if (depth == 1)
+                    }
+
+                    switch (b)
+                    {
+                        case (byte)'"':
                         {
-                            // A nested container element just completed.
-                            if (valueStart >= 0)
+                            if (depth == 1 && valueStart < 0)
+                                valueStart = i;
+                            i++;
+                            while (i < accum.Count)
                             {
-                                var valBytes = accum
-                                    .GetRange(valueStart, i + 1 - valueStart)
-                                    .ToArray();
-                                yield return deserializer(valBytes, options);
+                                if (accum[i] == (byte)'\\')
+                                {
+                                    i += 2;
+                                    continue;
+                                }
+                                if (accum[i] == (byte)'"')
+                                {
+                                    i++;
+                                    break;
+                                }
+                                i++;
                             }
-                            valueStart = -1;
-                            int consumed = i + 1;
-                            while (consumed < accum.Count && accum[consumed] <= 32)
-                                consumed++;
-                            if (consumed < accum.Count && accum[consumed] == (byte)',')
-                                consumed++;
-                            accum.RemoveRange(0, consumed);
-                            i = 0;
                             continue;
                         }
-                        i++;
-                        continue;
+                        case (byte)'{' or (byte)'[':
+                        {
+                            if (depth == 1 && valueStart < 0)
+                                valueStart = i;
+                            depth++;
+                            i++;
+                            continue;
+                        }
+                        case (byte)'}' or (byte)']':
+                        {
+                            depth--;
+                            switch (depth)
+                            {
+                                case 0 when b != (byte)']':
+                                    throw new FormatException(
+                                        "Unexpected '}' inside JSON array stream."
+                                    );
+                                case 0:
+                                {
+                                    if (valueStart < 0)
+                                        yield break;
+                                    var valBytes = accum
+                                        .GetRange(valueStart, i - valueStart)
+                                        .ToArray();
+                                    var trimmed = TrimArrayElement(valBytes);
+                                    if (trimmed.Length > 0)
+                                        yield return deserializer(trimmed, options);
+                                    yield break;
+                                }
+                                case 1:
+                                {
+                                    // A nested container element just completed.
+                                    if (valueStart >= 0)
+                                    {
+                                        var valBytes = accum
+                                            .GetRange(valueStart, i + 1 - valueStart)
+                                            .ToArray();
+                                        yield return deserializer(valBytes, options);
+                                    }
+                                    valueStart = -1;
+                                    int consumed = i + 1;
+                                    while (consumed < accum.Count && accum[consumed] <= 32)
+                                        consumed++;
+                                    if (consumed < accum.Count && accum[consumed] == (byte)',')
+                                        consumed++;
+                                    accum.RemoveRange(0, consumed);
+                                    i = 0;
+                                    continue;
+                                }
+                                default:
+                                    i++;
+                                    continue;
+                            }
+                        }
                     }
 
                     // Primitive element boundaries at depth 1.
@@ -445,16 +451,15 @@ public static partial class JsonSerializer
                     i++;
                 }
 
-                if (valueStart < 0 && depth == 1)
-                {
-                    int trim = 0;
-                    while (trim < accum.Count && accum[trim] <= 32)
-                        trim++;
-                    if (trim < accum.Count && accum[trim] == (byte)',')
-                        trim++;
-                    if (trim > 0)
-                        accum.RemoveRange(0, trim);
-                }
+                if (valueStart >= 0 || depth != 1)
+                    continue;
+                int trim = 0;
+                while (trim < accum.Count && accum[trim] <= 32)
+                    trim++;
+                if (trim < accum.Count && accum[trim] == (byte)',')
+                    trim++;
+                if (trim > 0)
+                    accum.RemoveRange(0, trim);
             }
         }
     }

@@ -316,11 +316,10 @@ public ref struct MsgPackReader : ITokenReader
             {
                 if (!_seqReader.TryPeek(1, out var hi) || !_seqReader.TryPeek(2, out var lo))
                     return -1;
-                int len16 = (hi << 8) | lo;
+                var len16 = (hi << 8) | lo;
                 return b switch
                 {
-                    0xDA => 3 + len16,
-                    0xC5 => 3 + len16,
+                    0xDA or 0xC5 => 3 + len16,
                     _ => 4 + len16,
                 };
             }
@@ -335,10 +334,9 @@ public ref struct MsgPackReader : ITokenReader
                         return -1;
                     len32 = (len32 << 8) | lb;
                 }
-                long total = b switch
+                var total = b switch
                 {
-                    0xDB => 5L + len32,
-                    0xC6 => 5L + len32,
+                    0xDB or 0xC6 => 5L + len32,
                     _ => 6L + len32,
                 };
                 return total > int.MaxValue ? -1 : (int)total;
@@ -378,223 +376,216 @@ public ref struct MsgPackReader : ITokenReader
         var b = PeekByte();
         AdvanceByte(); // consume tag byte
 
-        // Positive fixint 0x00-0x7F
-        if (b <= 0x7F)
-        {
-            _singleByte = b;
-            _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
-            _tokenType = TokenType.Int32;
-            CountElement();
-            return true;
-        }
-
-        // Fixmap 0x80-0x8F
-        if (b >= 0x80 && b <= 0x8F)
-        {
-            CountElement();
-            PushLevel(true, (b & 0x0F) * 2);
-            _tokenType = TokenType.ObjectStart;
-            return true;
-        }
-
-        // Fixarray 0x90-0x9F
-        if (b >= 0x90 && b <= 0x9F)
-        {
-            CountElement();
-            PushLevel(false, b & 0x0F);
-            _tokenType = TokenType.ArrayStart;
-            return true;
-        }
-
-        // Fixstr 0xA0-0xBF
-        if (b >= 0xA0 && b <= 0xBF)
-            return ReadString(b & 0x1F);
-
-        // Negative fixint 0xE0-0xFF
-        if (b >= 0xE0)
-        {
-            _singleByte = b;
-            _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
-            _tokenType = TokenType.Int32;
-            CountElement();
-            return true;
-        }
-
         switch (b)
         {
-            case 0xC0:
-                _tokenType = TokenType.Null;
-                CountElement();
-                return true;
-            case 0xC2:
-            case 0xC3:
+            // Positive fixint 0x00-0x7F
+            case <= 0x7F:
                 _singleByte = b;
                 _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
-                _tokenType = TokenType.Bool;
-                CountElement();
-                return true;
-            case 0xCC:
-                _valueSpan = ReadBytes(1);
-                _tokenType = TokenType.UInt8;
-                CountElement();
-                return true;
-            case 0xCD:
-                _valueSpan = ReadBytes(2);
-                _tokenType = TokenType.UInt16;
-                CountElement();
-                return true;
-            case 0xCE:
-                _valueSpan = ReadBytes(4);
-                _tokenType = TokenType.UInt32;
-                CountElement();
-                return true;
-            case 0xCF:
-                _valueSpan = ReadBytes(8);
-                _tokenType = TokenType.UInt64;
-                CountElement();
-                return true;
-            case 0xD0:
-                _valueSpan = ReadBytes(1);
                 _tokenType = TokenType.Int32;
                 CountElement();
                 return true;
-            case 0xD1:
-                _valueSpan = ReadBytes(2);
-                _tokenType = TokenType.Int32;
+            // Fixmap 0x80-0x8F
+            case >= 0x80 and <= 0x8F:
                 CountElement();
-                return true;
-            case 0xD2:
-                _valueSpan = ReadBytes(4);
-                _tokenType = TokenType.Int32;
-                CountElement();
-                return true;
-            case 0xD3:
-                _valueSpan = ReadBytes(8);
-                _tokenType = TokenType.Int64;
-                CountElement();
-                return true;
-            case 0xCA:
-                _valueSpan = ReadBytes(4);
-                _tokenType = TokenType.Float32;
-                CountElement();
-                return true;
-            case 0xCB:
-                _valueSpan = ReadBytes(8);
-                _tokenType = TokenType.Float64;
-                CountElement();
-                return true;
-            // bin family
-            case 0xC4:
-                _valueSpan = ReadBytes(ReadByteLen(1));
-                _tokenType = TokenType.Bytes;
-                CountElement();
-                return true;
-            case 0xC5:
-                _valueSpan = ReadBytes(ReadByteLen(2));
-                _tokenType = TokenType.Bytes;
-                CountElement();
-                return true;
-            case 0xC6:
-                _valueSpan = ReadBytes(ReadByteLen(4));
-                _tokenType = TokenType.Bytes;
-                CountElement();
-                return true;
-            // ext family
-            case 0xD4:
-                _tag = PeekByte();
-                AdvanceByte();
-                _valueSpan = ReadBytes(1);
-                _tokenType = TokenType.Extension;
-                CountElement();
-                return true;
-            case 0xD5:
-                _tag = PeekByte();
-                AdvanceByte();
-                _valueSpan = ReadBytes(2);
-                _tokenType = TokenType.Extension;
-                CountElement();
-                return true;
-            case 0xD6:
-                _tag = PeekByte();
-                AdvanceByte();
-                _valueSpan = ReadBytes(4);
-                _tokenType = TokenType.Extension;
-                CountElement();
-                return true;
-            case 0xD7:
-                _tag = PeekByte();
-                AdvanceByte();
-                _valueSpan = ReadBytes(8);
-                _tokenType = TokenType.Extension;
-                CountElement();
-                return true;
-            case 0xD8:
-                _tag = PeekByte();
-                AdvanceByte();
-                _valueSpan = ReadBytes(16);
-                _tokenType = TokenType.Extension;
-                CountElement();
-                return true;
-            case 0xC7:
-            {
-                int extLen = ReadByteLen(1);
-                _tag = PeekByte();
-                AdvanceByte();
-                _valueSpan = ReadBytes(extLen);
-                _tokenType = TokenType.Extension;
-                CountElement();
-                return true;
-            }
-            case 0xC8:
-            {
-                int extLen = ReadByteLen(2);
-                _tag = PeekByte();
-                AdvanceByte();
-                _valueSpan = ReadBytes(extLen);
-                _tokenType = TokenType.Extension;
-                CountElement();
-                return true;
-            }
-            case 0xC9:
-            {
-                int extLen = ReadByteLen(4);
-                _tag = PeekByte();
-                AdvanceByte();
-                _valueSpan = ReadBytes(extLen);
-                _tokenType = TokenType.Extension;
-                CountElement();
-                return true;
-            }
-            case 0xD9:
-                return ReadString(ReadByteLen(1));
-            case 0xDA:
-                return ReadString(ReadByteLen(2));
-            case 0xDB:
-                return ReadString(ReadByteLen(4));
-            case 0xDC:
-                CountElement();
-                PushLevel(false, ReadByteLen(2));
-                _tokenType = TokenType.ArrayStart;
-                return true;
-            case 0xDD:
-                CountElement();
-                PushLevel(false, ReadByteLen(4));
-                _tokenType = TokenType.ArrayStart;
-                return true;
-            case 0xDE:
-                CountElement();
-                PushLevel(true, ReadByteLen(2) * 2);
+                PushLevel(true, (b & 0x0F) * 2);
                 _tokenType = TokenType.ObjectStart;
                 return true;
-            case 0xDF:
+            // Fixarray 0x90-0x9F
+            case >= 0x90 and <= 0x9F:
                 CountElement();
-                PushLevel(true, ReadByteLen(4) * 2);
-                _tokenType = TokenType.ObjectStart;
+                PushLevel(false, b & 0x0F);
+                _tokenType = TokenType.ArrayStart;
+                return true;
+            // Fixstr 0xA0-0xBF
+            case >= 0xA0 and <= 0xBF:
+                return ReadString(b & 0x1F);
+            // Negative fixint 0xE0-0xFF
+            case >= 0xE0:
+                _singleByte = b;
+                _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
+                _tokenType = TokenType.Int32;
+                CountElement();
                 return true;
             default:
-                throw new FormatException(
-                    $"Unknown MsgPack byte 0x{b:X2} at offset {BytesConsumed}"
-                );
+                switch (b)
+                {
+                    case 0xC0:
+                        _tokenType = TokenType.Null;
+                        CountElement();
+                        return true;
+                    case 0xC2:
+                    case 0xC3:
+                        _singleByte = b;
+                        _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
+                        _tokenType = TokenType.Bool;
+                        CountElement();
+                        return true;
+                    case 0xCC:
+                        _valueSpan = ReadBytes(1);
+                        _tokenType = TokenType.UInt8;
+                        CountElement();
+                        return true;
+                    case 0xCD:
+                        _valueSpan = ReadBytes(2);
+                        _tokenType = TokenType.UInt16;
+                        CountElement();
+                        return true;
+                    case 0xCE:
+                        _valueSpan = ReadBytes(4);
+                        _tokenType = TokenType.UInt32;
+                        CountElement();
+                        return true;
+                    case 0xCF:
+                        _valueSpan = ReadBytes(8);
+                        _tokenType = TokenType.UInt64;
+                        CountElement();
+                        return true;
+                    case 0xD0:
+                        _valueSpan = ReadBytes(1);
+                        _tokenType = TokenType.Int32;
+                        CountElement();
+                        return true;
+                    case 0xD1:
+                        _valueSpan = ReadBytes(2);
+                        _tokenType = TokenType.Int32;
+                        CountElement();
+                        return true;
+                    case 0xD2:
+                        _valueSpan = ReadBytes(4);
+                        _tokenType = TokenType.Int32;
+                        CountElement();
+                        return true;
+                    case 0xD3:
+                        _valueSpan = ReadBytes(8);
+                        _tokenType = TokenType.Int64;
+                        CountElement();
+                        return true;
+                    case 0xCA:
+                        _valueSpan = ReadBytes(4);
+                        _tokenType = TokenType.Float32;
+                        CountElement();
+                        return true;
+                    case 0xCB:
+                        _valueSpan = ReadBytes(8);
+                        _tokenType = TokenType.Float64;
+                        CountElement();
+                        return true;
+                    // bin family
+                    case 0xC4:
+                        _valueSpan = ReadBytes(ReadByteLen(1));
+                        _tokenType = TokenType.Bytes;
+                        CountElement();
+                        return true;
+                    case 0xC5:
+                        _valueSpan = ReadBytes(ReadByteLen(2));
+                        _tokenType = TokenType.Bytes;
+                        CountElement();
+                        return true;
+                    case 0xC6:
+                        _valueSpan = ReadBytes(ReadByteLen(4));
+                        _tokenType = TokenType.Bytes;
+                        CountElement();
+                        return true;
+                    // ext family
+                    case 0xD4:
+                        _tag = PeekByte();
+                        AdvanceByte();
+                        _valueSpan = ReadBytes(1);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xD5:
+                        _tag = PeekByte();
+                        AdvanceByte();
+                        _valueSpan = ReadBytes(2);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xD6:
+                        _tag = PeekByte();
+                        AdvanceByte();
+                        _valueSpan = ReadBytes(4);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xD7:
+                        _tag = PeekByte();
+                        AdvanceByte();
+                        _valueSpan = ReadBytes(8);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xD8:
+                        _tag = PeekByte();
+                        AdvanceByte();
+                        _valueSpan = ReadBytes(16);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xC7:
+                    {
+                        int extLen = ReadByteLen(1);
+                        _tag = PeekByte();
+                        AdvanceByte();
+                        _valueSpan = ReadBytes(extLen);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    }
+                    case 0xC8:
+                    {
+                        int extLen = ReadByteLen(2);
+                        _tag = PeekByte();
+                        AdvanceByte();
+                        _valueSpan = ReadBytes(extLen);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    }
+                    case 0xC9:
+                    {
+                        var extLen = ReadByteLen(4);
+                        _tag = PeekByte();
+                        AdvanceByte();
+                        _valueSpan = ReadBytes(extLen);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    }
+                    case 0xD9:
+                        return ReadString(ReadByteLen(1));
+                    case 0xDA:
+                        return ReadString(ReadByteLen(2));
+                    case 0xDB:
+                        return ReadString(ReadByteLen(4));
+                    case 0xDC:
+                        CountElement();
+                        PushLevel(false, ReadByteLen(2));
+                        _tokenType = TokenType.ArrayStart;
+                        return true;
+                    case 0xDD:
+                        CountElement();
+                        PushLevel(false, ReadByteLen(4));
+                        _tokenType = TokenType.ArrayStart;
+                        return true;
+                    case 0xDE:
+                        CountElement();
+                        PushLevel(true, ReadByteLen(2) * 2);
+                        _tokenType = TokenType.ObjectStart;
+                        return true;
+                    case 0xDF:
+                        CountElement();
+                        PushLevel(true, ReadByteLen(4) * 2);
+                        _tokenType = TokenType.ObjectStart;
+                        return true;
+                    default:
+                        throw new FormatException(
+                            $"Unknown MsgPack byte 0x{b:X2} at offset {BytesConsumed}"
+                        );
+                }
+
+                break;
         }
     }
 
@@ -765,15 +756,19 @@ public ref struct MsgPackReader : ITokenReader
 
     public void Skip()
     {
-        if (_tokenType is TokenType.ObjectStart or TokenType.ArrayStart)
+        if (_tokenType is not (TokenType.ObjectStart or TokenType.ArrayStart))
+            return;
+        var targetDepth = 1;
+        while (Read() && targetDepth > 0)
         {
-            int targetDepth = 1;
-            while (Read() && targetDepth > 0)
+            switch (_tokenType)
             {
-                if (_tokenType is TokenType.ObjectStart or TokenType.ArrayStart)
+                case TokenType.ObjectStart or TokenType.ArrayStart:
                     targetDepth++;
-                else if (_tokenType is TokenType.ObjectEnd or TokenType.ArrayEnd)
+                    break;
+                case TokenType.ObjectEnd or TokenType.ArrayEnd:
                     targetDepth--;
+                    break;
             }
         }
     }
@@ -810,61 +805,51 @@ public ref struct MsgPackReader : ITokenReader
         if (p >= len)
             return false;
         byte b = _data[p++];
-        if (b <= 0x7F)
+        switch (b)
         {
-            v = b;
-            return true;
-        }
-        if (b >= 0xE0)
-        {
-            v = b - 256;
-            return true;
-        }
-        if (b == 0xCC && p < len)
-        {
-            v = _data[p++];
-            return true;
-        }
-        if (b == 0xCD && p + 1 < len)
-        {
-            v = (_data[p] << 8) | _data[p + 1];
-            p += 2;
-            return true;
-        }
-        if (b == 0xCE && p + 3 < len)
-        {
-            uint uv =
-                (uint)(_data[p] << 24)
-                | (uint)(_data[p + 1] << 16)
-                | (uint)(_data[p + 2] << 8)
-                | _data[p + 3];
-            if (uv > int.MaxValue)
+            case <= 0x7F:
+                v = b;
+                return true;
+            case >= 0xE0:
+                v = b - 256;
+                return true;
+            case 0xCC when p < len:
+                v = _data[p++];
+                return true;
+            case 0xCD when p + 1 < len:
+                v = (_data[p] << 8) | _data[p + 1];
+                p += 2;
+                return true;
+            case 0xCE when p + 3 < len:
+            {
+                uint uv =
+                    (uint)(_data[p] << 24)
+                    | (uint)(_data[p + 1] << 16)
+                    | (uint)(_data[p + 2] << 8)
+                    | _data[p + 3];
+                if (uv > int.MaxValue)
+                    return false;
+                v = (int)uv;
+                p += 4;
+                return true;
+            }
+            case 0xD0 when p < len:
+                v = (sbyte)_data[p++];
+                return true;
+            case 0xD1 when p + 1 < len:
+                v = (short)(_data[p] << 8 | _data[p + 1]);
+                p += 2;
+                return true;
+            case 0xD2 when p + 3 < len:
+                v = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
+                p += 4;
+                return true;
+            default:
+                // uint64, int64, and floating-point encodings are not int32 —
+                // signal failure so the caller falls back to the validated reader
+                // instead of silently producing 0.
                 return false;
-            v = (int)uv;
-            p += 4;
-            return true;
         }
-        if (b == 0xD0 && p < len)
-        {
-            v = (sbyte)_data[p++];
-            return true;
-        }
-        if (b == 0xD1 && p + 1 < len)
-        {
-            v = (short)(_data[p] << 8 | _data[p + 1]);
-            p += 2;
-            return true;
-        }
-        if (b == 0xD2 && p + 3 < len)
-        {
-            v = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
-            p += 4;
-            return true;
-        }
-        // uint64, int64, and floating-point encodings are not int32 —
-        // signal failure so the caller falls back to the validated reader
-        // instead of silently producing 0.
-        return false;
     }
 
     /// <summary>Fast path: read int32 array directly from buffer. Returns count read, or 0 to fallback.</summary>
@@ -878,20 +863,22 @@ public ref struct MsgPackReader : ITokenReader
             return 0;
         byte hdr = _data[p++];
         int count;
-        if (hdr >= 0x90 && hdr <= 0x9F)
-            count = hdr - 0x90;
-        else if (hdr == 0xDC && p + 1 < len)
+        switch (hdr)
         {
-            count = _data[p] << 8 | _data[p + 1];
-            p += 2;
+            case >= 0x90 and <= 0x9F:
+                count = hdr - 0x90;
+                break;
+            case 0xDC when p + 1 < len:
+                count = _data[p] << 8 | _data[p + 1];
+                p += 2;
+                break;
+            case 0xDD when p + 3 < len:
+                count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
+                p += 4;
+                break;
+            default:
+                return 0;
         }
-        else if (hdr == 0xDD && p + 3 < len)
-        {
-            count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
-            p += 4;
-        }
-        else
-            return 0;
         if (count > dest.Length)
             return 0;
         for (int i = 0; i < count; i++)
@@ -919,20 +906,22 @@ public ref struct MsgPackReader : ITokenReader
             return 0;
         byte hdr = _data[p++];
         int count;
-        if (hdr >= 0x90 && hdr <= 0x9F)
-            count = hdr - 0x90;
-        else if (hdr == 0xDC && p + 1 < len)
+        switch (hdr)
         {
-            count = _data[p] << 8 | _data[p + 1];
-            p += 2;
+            case >= 0x90 and <= 0x9F:
+                count = hdr - 0x90;
+                break;
+            case 0xDC when p + 1 < len:
+                count = _data[p] << 8 | _data[p + 1];
+                p += 2;
+                break;
+            case 0xDD when p + 3 < len:
+                count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
+                p += 4;
+                break;
+            default:
+                return 0;
         }
-        else if (hdr == 0xDD && p + 3 < len)
-        {
-            count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
-            p += 4;
-        }
-        else
-            return 0;
         if (count > dest.Length)
             return 0;
         for (int i = 0; i < count; i++)
@@ -941,37 +930,40 @@ public ref struct MsgPackReader : ITokenReader
                 return 0;
             long v;
             byte b = _data[p++];
-            if (b <= 0x7F)
-                v = b;
-            else if (b >= 0xE0)
-                v = b - 256;
-            else if (b == 0xD0 && p < len)
-                v = (sbyte)_data[p++];
-            else if (b == 0xD1 && p + 1 < len)
+            switch (b)
             {
-                v = (short)(_data[p] << 8 | _data[p + 1]);
-                p += 2;
+                case <= 0x7F:
+                    v = b;
+                    break;
+                case >= 0xE0:
+                    v = b - 256;
+                    break;
+                case 0xD0 when p < len:
+                    v = (sbyte)_data[p++];
+                    break;
+                case 0xD1 when p + 1 < len:
+                    v = (short)(_data[p] << 8 | _data[p + 1]);
+                    p += 2;
+                    break;
+                case 0xD2 when p + 3 < len:
+                    v = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
+                    p += 4;
+                    break;
+                case 0xD3 when p + 7 < len:
+                    v =
+                        (long)_data[p] << 56
+                        | (long)_data[p + 1] << 48
+                        | (long)_data[p + 2] << 40
+                        | (long)_data[p + 3] << 32
+                        | (long)_data[p + 4] << 24
+                        | (long)_data[p + 5] << 16
+                        | (long)_data[p + 6] << 8
+                        | _data[p + 7];
+                    p += 8;
+                    break;
+                default:
+                    return 0;
             }
-            else if (b == 0xD2 && p + 3 < len)
-            {
-                v = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
-                p += 4;
-            }
-            else if (b == 0xD3 && p + 7 < len)
-            {
-                v =
-                    (long)_data[p] << 56
-                    | (long)_data[p + 1] << 48
-                    | (long)_data[p + 2] << 40
-                    | (long)_data[p + 3] << 32
-                    | (long)_data[p + 4] << 24
-                    | (long)_data[p + 5] << 16
-                    | (long)_data[p + 6] << 8
-                    | _data[p + 7];
-                p += 8;
-            }
-            else
-                return 0;
             dest[i] = v;
         }
         _position = p;
@@ -989,20 +981,22 @@ public ref struct MsgPackReader : ITokenReader
             return 0;
         byte hdr = _data[p++];
         int count;
-        if (hdr >= 0x90 && hdr <= 0x9F)
-            count = hdr - 0x90;
-        else if (hdr == 0xDC && p + 1 < len)
+        switch (hdr)
         {
-            count = _data[p] << 8 | _data[p + 1];
-            p += 2;
+            case >= 0x90 and <= 0x9F:
+                count = hdr - 0x90;
+                break;
+            case 0xDC when p + 1 < len:
+                count = _data[p] << 8 | _data[p + 1];
+                p += 2;
+                break;
+            case 0xDD when p + 3 < len:
+                count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
+                p += 4;
+                break;
+            default:
+                return 0;
         }
-        else if (hdr == 0xDD && p + 3 < len)
-        {
-            count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
-            p += 4;
-        }
-        else
-            return 0;
         if (count > dest.Length)
             return 0;
         for (int i = 0; i < count; i++)
@@ -1010,22 +1004,23 @@ public ref struct MsgPackReader : ITokenReader
             if (p >= len)
                 return 0;
             byte b = _data[p++];
-            if (b == 0xCB && p + 7 < len)
+            switch (b)
             {
-                dest[i] = BitConverter.Int64BitsToDouble(
-                    BinaryPrimitives.ReadInt64BigEndian(_data.Slice(p, 8))
-                );
-                p += 8;
+                case 0xCB when p + 7 < len:
+                    dest[i] = BitConverter.Int64BitsToDouble(
+                        BinaryPrimitives.ReadInt64BigEndian(_data.Slice(p, 8))
+                    );
+                    p += 8;
+                    break;
+                case 0xCA when p + 3 < len:
+                    dest[i] = BitConverter.Int32BitsToSingle(
+                        BinaryPrimitives.ReadInt32BigEndian(_data.Slice(p, 4))
+                    );
+                    p += 4;
+                    break;
+                default:
+                    return 0;
             }
-            else if (b == 0xCA && p + 3 < len)
-            {
-                dest[i] = BitConverter.Int32BitsToSingle(
-                    BinaryPrimitives.ReadInt32BigEndian(_data.Slice(p, 4))
-                );
-                p += 4;
-            }
-            else
-                return 0;
         }
         _position = p;
         return count;
@@ -1042,20 +1037,22 @@ public ref struct MsgPackReader : ITokenReader
             return 0;
         byte hdr = _data[p++];
         int count;
-        if (hdr >= 0x90 && hdr <= 0x9F)
-            count = hdr - 0x90;
-        else if (hdr == 0xDC && p + 1 < len)
+        switch (hdr)
         {
-            count = _data[p] << 8 | _data[p + 1];
-            p += 2;
+            case >= 0x90 and <= 0x9F:
+                count = hdr - 0x90;
+                break;
+            case 0xDC when p + 1 < len:
+                count = _data[p] << 8 | _data[p + 1];
+                p += 2;
+                break;
+            case 0xDD when p + 3 < len:
+                count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
+                p += 4;
+                break;
+            default:
+                return 0;
         }
-        else if (hdr == 0xDD && p + 3 < len)
-        {
-            count = _data[p] << 24 | _data[p + 1] << 16 | _data[p + 2] << 8 | _data[p + 3];
-            p += 4;
-        }
-        else
-            return 0;
         if (count > dest.Length)
             return 0;
         for (int i = 0; i < count; i++)
@@ -1063,12 +1060,17 @@ public ref struct MsgPackReader : ITokenReader
             if (p >= len)
                 return 0;
             byte b = _data[p++];
-            if (b == 0xC3)
-                dest[i] = true;
-            else if (b == 0xC2)
-                dest[i] = false;
-            else
-                return 0;
+            switch (b)
+            {
+                case 0xC3:
+                    dest[i] = true;
+                    break;
+                case 0xC2:
+                    dest[i] = false;
+                    break;
+                default:
+                    return 0;
+            }
         }
         _position = p;
         return count;

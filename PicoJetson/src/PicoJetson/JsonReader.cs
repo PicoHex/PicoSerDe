@@ -344,13 +344,11 @@ public ref struct JsonReader : ITokenReader
                 }
                 return ReadStringOrProperty();
             case (byte)'t':
-                if (!_isFinalBlock && _isSequence && !HasCompleteLiteral("true"u8))
-                {
-                    RewindToPropertyName();
-                    _needsMoreData = true;
-                    return false;
-                }
-                return ReadLiteral("true"u8, TokenType.Bool);
+                if (_isFinalBlock || !_isSequence || HasCompleteLiteral("true"u8))
+                    return ReadLiteral("true"u8, TokenType.Bool);
+                RewindToPropertyName();
+                _needsMoreData = true;
+                return false;
             case (byte)'f':
                 if (!_isFinalBlock && _isSequence && !HasCompleteLiteral("false"u8))
                 {
@@ -360,13 +358,11 @@ public ref struct JsonReader : ITokenReader
                 }
                 return ReadLiteral("false"u8, TokenType.Bool);
             case (byte)'n':
-                if (!_isFinalBlock && _isSequence && !HasCompleteLiteral("null"u8))
-                {
-                    RewindToPropertyName();
-                    _needsMoreData = true;
-                    return false;
-                }
-                return ReadLiteral("null"u8, TokenType.Null);
+                if (_isFinalBlock || !_isSequence || HasCompleteLiteral("null"u8))
+                    return ReadLiteral("null"u8, TokenType.Null);
+                RewindToPropertyName();
+                _needsMoreData = true;
+                return false;
             case (byte)'N':
                 if (
                     _options?.NumberHandling
@@ -394,8 +390,7 @@ public ref struct JsonReader : ITokenReader
             case (byte)'I':
                 // Infinity
                 if (
-                    _options?.NumberHandling
-                        == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
+                    _options?.NumberHandling == JsonNumberHandling.AllowNamedFloatingPointLiterals
                     && PeekStartsWith("Infinity"u8)
                 )
                     return ReadLiteral("Infinity"u8, TokenType.Float64);
@@ -412,13 +407,11 @@ public ref struct JsonReader : ITokenReader
             case (byte)'7':
             case (byte)'8':
             case (byte)'9':
-                if (!_isFinalBlock && _isSequence && !HasCompleteNumber())
-                {
-                    RewindToPropertyName();
-                    _needsMoreData = true;
-                    return false;
-                }
-                return ReadNumber();
+                if (_isFinalBlock || !_isSequence || HasCompleteNumber())
+                    return ReadNumber();
+                RewindToPropertyName();
+                _needsMoreData = true;
+                return false;
             default:
                 throw new FormatException($"Unexpected byte 0x{b:X2} at offset {BytesConsumed}");
         }
@@ -432,40 +425,42 @@ public ref struct JsonReader : ITokenReader
 
     public bool TrySkip()
     {
-        // Container token: skip until the matching end marker.
-        if (_tokenType is TokenType.ObjectStart or TokenType.ArrayStart)
+        switch (_tokenType)
         {
-            var start = _depth - 1;
-            try
+            // Container token: skip until the matching end marker.
+            case TokenType.ObjectStart or TokenType.ArrayStart:
             {
-                while (Read())
+                var start = _depth - 1;
+                try
                 {
-                    if (_depth == start)
-                        return true;
+                    while (Read())
+                    {
+                        if (_depth == start)
+                            return true;
+                    }
                 }
+                catch (FormatException) { }
+                return false;
             }
-            catch (FormatException) { }
-            return false;
-        }
-
-        // Property name: skip the following value token.
-        if (_tokenType == TokenType.PropertyName)
-        {
-            var start = _depth;
-            try
+            // Property name: skip the following value token.
+            case TokenType.PropertyName:
             {
-                while (Read())
+                var start = _depth;
+                try
                 {
-                    if (_depth == start)
-                        return true;
+                    while (Read())
+                    {
+                        if (_depth == start)
+                            return true;
+                    }
                 }
+                catch (FormatException) { }
+                return false;
             }
-            catch (FormatException) { }
-            return false;
+            default:
+                // Scalar token: the value is already fully consumed — nothing to skip.
+                return true;
         }
-
-        // Scalar token: the value is already fully consumed — nothing to skip.
-        return true;
     }
 
     /// <summary>
@@ -476,41 +471,32 @@ public ref struct JsonReader : ITokenReader
 
     public bool TryGetInt32(out int v)
     {
-        if (_tokenType is TokenType.Int32)
-            return Utf8Parser.TryParse(_valueSpan, out v, out _);
-
-        if (_tokenType is TokenType.Int64)
+        switch (_tokenType)
         {
-            if (
-                Utf8Parser.TryParse(_valueSpan, out long lv, out _)
-                && lv >= int.MinValue
-                && lv <= int.MaxValue
-            )
-            {
+            case TokenType.Int32:
+                return Utf8Parser.TryParse(_valueSpan, out v, out _);
+            case TokenType.Int64
+                when Utf8Parser.TryParse(_valueSpan, out long lv, out _)
+                    && lv is >= int.MinValue and <= int.MaxValue:
                 v = (int)lv;
                 return true;
-            }
+            default:
+                v = 0;
+                return false;
         }
-
-        v = 0;
-        return false;
     }
 
     public bool TryReadNextInt32(out int v)
     {
-        if (_isSequence)
-            return TryReadNextInt32Seq(out v);
-        return TryReadNextInt32Span(out v);
+        return _isSequence ? TryReadNextInt32Seq(out v) : TryReadNextInt32Span(out v);
     }
 
     public bool TryGetInt64(out long v)
     {
-        if (_tokenType is not (TokenType.Int32 or TokenType.Int64))
-        {
-            v = 0;
-            return false;
-        }
-        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+        if (_tokenType is TokenType.Int32 or TokenType.Int64)
+            return Utf8Parser.TryParse(_valueSpan, out v, out _);
+        v = 0;
+        return false;
     }
 
     public bool TryGetFloat64(out double v)
@@ -520,38 +506,31 @@ public ref struct JsonReader : ITokenReader
             v = 0;
             return false;
         }
-        // Handle NaN/Infinity literals (AllowNamedFloatingPointLiterals)
-        if (
-            _valueSpan.Length == 3
-            && _valueSpan[0] == (byte)'N'
-            && _valueSpan[1] == (byte)'a'
-            && _valueSpan[2] == (byte)'N'
-        )
+
+        switch (_valueSpan.Length)
         {
-            v = double.NaN;
-            return true;
+            // Handle NaN/Infinity literals (AllowNamedFloatingPointLiterals)
+            case 3
+                when _valueSpan[0] == (byte)'N'
+                    && _valueSpan[1] == (byte)'a'
+                    && _valueSpan[2] == (byte)'N':
+                v = double.NaN;
+                return true;
+            case 8
+                when _valueSpan[0] == (byte)'I'
+                    && _valueSpan[1] == (byte)'n'
+                    && _valueSpan[2] == (byte)'f':
+                v = double.PositiveInfinity;
+                return true;
+            case 9
+                when _valueSpan[0] == (byte)'-'
+                    && _valueSpan[1] == (byte)'I'
+                    && _valueSpan[2] == (byte)'n':
+                v = double.NegativeInfinity;
+                return true;
+            default:
+                return Utf8Parser.TryParse(_valueSpan, out v, out _);
         }
-        if (
-            _valueSpan.Length == 8
-            && _valueSpan[0] == (byte)'I'
-            && _valueSpan[1] == (byte)'n'
-            && _valueSpan[2] == (byte)'f'
-        )
-        {
-            v = double.PositiveInfinity;
-            return true;
-        }
-        if (
-            _valueSpan.Length == 9
-            && _valueSpan[0] == (byte)'-'
-            && _valueSpan[1] == (byte)'I'
-            && _valueSpan[2] == (byte)'n'
-        )
-        {
-            v = double.NegativeInfinity;
-            return true;
-        }
-        return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
     public bool TryGetBool(out bool v)
@@ -602,11 +581,10 @@ public ref struct JsonReader : ITokenReader
         {
             result = result * 10 + (_data[_position] - (byte)'0');
             _position++;
-            if (result > int.MaxValue)
-            {
-                v = 0;
-                return false;
-            }
+            if (result <= int.MaxValue)
+                continue;
+            v = 0;
+            return false;
         } while (_position < len && IsDigit(_data[_position]));
         v = neg ? (int)-result : (int)result;
         return true;
@@ -694,20 +672,18 @@ public ref struct JsonReader : ITokenReader
     /// </summary>
     private bool PeekStartsWith(ReadOnlySpan<byte> expected)
     {
-        if (_isSequence)
-        {
-            if (_seqReader.Remaining < expected.Length)
-                return false;
-            var seq = _seqReader.Sequence.Slice(_seqReader.Position, expected.Length);
-            // Fast path: single segment (common for small literals)
-            if (seq.FirstSpan.Length >= expected.Length)
-                return seq.FirstSpan.Slice(0, expected.Length).SequenceEqual(expected);
-            // Multi-segment fallback
-            Span<byte> buf = stackalloc byte[expected.Length];
-            seq.CopyTo(buf);
-            return buf.SequenceEqual(expected);
-        }
-        return _data[_position..].StartsWith(expected);
+        if (!_isSequence)
+            return _data[_position..].StartsWith(expected);
+        if (_seqReader.Remaining < expected.Length)
+            return false;
+        var seq = _seqReader.Sequence.Slice(_seqReader.Position, expected.Length);
+        // Fast path: single segment (common for small literals)
+        if (seq.FirstSpan.Length >= expected.Length)
+            return seq.FirstSpan.Slice(0, expected.Length).SequenceEqual(expected);
+        // Multi-segment fallback
+        Span<byte> buf = stackalloc byte[expected.Length];
+        seq.CopyTo(buf);
+        return buf.SequenceEqual(expected);
     }
 
     // ── String / Property reading ──
@@ -722,11 +698,10 @@ public ref struct JsonReader : ITokenReader
     /// so a resumed attempt re-reads the property from scratch (streaming resume).</summary>
     private void RewindToPropertyName()
     {
-        if (_tokenType == TokenType.PropertyName && _propertyNameStart >= 0)
-        {
-            _seqReader.Rewind(_seqReader.Consumed - _propertyNameStart);
-            Rewound = true;
-        }
+        if (_tokenType != TokenType.PropertyName || _propertyNameStart < 0)
+            return;
+        _seqReader.Rewind(_seqReader.Consumed - _propertyNameStart);
+        Rewound = true;
     }
 
     /// <summary>True when the full literal text is present in the current sequence
@@ -737,9 +712,9 @@ public ref struct JsonReader : ITokenReader
         var r = new SequenceReader<byte>(seq);
         if (r.Remaining < lit.Length)
             return false;
-        for (int i = 0; i < lit.Length; i++)
+        foreach (var t in lit)
         {
-            if (r.CurrentSpan[r.CurrentSpanIndex] != lit[i])
+            if (r.CurrentSpan[r.CurrentSpanIndex] != t)
                 return false;
             r.Advance(1);
         }
@@ -767,24 +742,27 @@ public ref struct JsonReader : ITokenReader
         while (!r.End)
         {
             var b = r.CurrentSpan[r.CurrentSpanIndex];
-            if (b is (byte)'-' or (byte)'+' or (byte)'.' or (byte)'e' or (byte)'E')
-            {
-                r.Advance(1);
-                continue;
-            }
-            if (b is >= (byte)'0' and <= (byte)'9')
-            {
-                r.Advance(1);
-                continue;
-            }
-            return b
-                is (byte)' '
-                    or (byte)'\t'
-                    or (byte)'\n'
-                    or (byte)'\r'
-                    or (byte)','
-                    or (byte)'}'
-                    or (byte)']';
+            if (
+                b
+                is not (
+                    (byte)'-'
+                    or (byte)'+'
+                    or (byte)'.'
+                    or (byte)'e'
+                    or (byte)'E'
+                    or >= (byte)'0'
+                    and <= (byte)'9'
+                )
+            )
+                return b
+                    is (byte)' '
+                        or (byte)'\t'
+                        or (byte)'\n'
+                        or (byte)'\r'
+                        or (byte)','
+                        or (byte)'}'
+                        or (byte)']';
+            r.Advance(1);
         }
         return false; // buffer ended mid-number — more data may arrive
     }
@@ -825,21 +803,17 @@ public ref struct JsonReader : ITokenReader
         // trailing delimiter/end are present.
         if (r.End)
             return false;
-        if (r.CurrentSpan[r.CurrentSpanIndex] == (byte)':')
-        {
+        if (r.CurrentSpan[r.CurrentSpanIndex] != (byte)':')
+            return true;
+        r.Advance(1);
+        while (!r.End && (r.CurrentSpan[r.CurrentSpanIndex] is (byte)' ' or (byte)'\t'))
             r.Advance(1);
-            while (!r.End && (r.CurrentSpan[r.CurrentSpanIndex] is (byte)' ' or (byte)'\t'))
-                r.Advance(1);
-            return !r.End;
-        }
-        return true;
+        return !r.End;
     }
 
     private bool ReadStringOrProperty()
     {
-        if (_isSequence)
-            return ReadStringOrPropertySeq();
-        return ReadStringOrPropertySpan();
+        return _isSequence ? ReadStringOrPropertySeq() : ReadStringOrPropertySpan();
     }
 
     private bool ReadStringOrPropertySpan()
@@ -956,14 +930,13 @@ public ref struct JsonReader : ITokenReader
                 {
                     buf[di++] = b;
                     _seqReader.Advance(1);
-                    if (di >= buf.Length)
-                    {
-                        var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
-                        buf.AsSpan(0, di).CopyTo(newBuf);
-                        ArrayPool<byte>.Shared.Return(buf);
-                        buf = newBuf;
-                        TrackBuffer(buf);
-                    }
+                    if (di < buf.Length)
+                        continue;
+                    var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
+                    buf.AsSpan(0, di).CopyTo(newBuf);
+                    ArrayPool<byte>.Shared.Return(buf);
+                    buf = newBuf;
+                    TrackBuffer(buf);
                 }
             }
 
@@ -995,7 +968,7 @@ public ref struct JsonReader : ITokenReader
     private int ReadUnicodeEscapeSeq(byte[] buf, int di)
     {
         int codepoint = 0;
-        for (int j = 0; j < 4; j++)
+        for (var j = 0; j < 4; j++)
         {
             if (_seqReader.End)
                 throw new FormatException(
@@ -1004,88 +977,93 @@ public ref struct JsonReader : ITokenReader
             var hex = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
             codepoint <<= 4;
-            if (hex is >= (byte)'0' and <= (byte)'9')
-                codepoint |= hex - (byte)'0';
-            else if (hex is >= (byte)'A' and <= (byte)'F')
-                codepoint |= hex - (byte)'A' + 10;
-            else if (hex is >= (byte)'a' and <= (byte)'f')
-                codepoint |= hex - (byte)'a' + 10;
-            else
-                throw new FormatException(
-                    $"Invalid unicode escape character '{(char)hex}' at offset {_seqReader.Consumed}"
-                );
-        }
-
-        if (codepoint is >= 0xD800 and <= 0xDBFF)
-        {
-            if (_seqReader.End || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\\')
-                throw new FormatException(
-                    $"Lone high surrogate U+{codepoint:X4} at offset {_seqReader.Consumed}"
-                );
-            _seqReader.Advance(1);
-            if (_seqReader.End || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'u')
-                throw new FormatException(
-                    $"Lone high surrogate U+{codepoint:X4} at offset {_seqReader.Consumed}"
-                );
-            _seqReader.Advance(1);
-
-            int lowSurrogate = 0;
-            for (int j = 0; j < 4; j++)
+            codepoint |= hex switch
             {
-                if (_seqReader.End)
-                    throw new FormatException(
-                        $"Incomplete unicode escape at offset {_seqReader.Consumed}"
-                    );
-                var hex = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-                _seqReader.Advance(1);
-                lowSurrogate <<= 4;
-                if (hex is >= (byte)'0' and <= (byte)'9')
-                    lowSurrogate |= hex - (byte)'0';
-                else if (hex is >= (byte)'A' and <= (byte)'F')
-                    lowSurrogate |= hex - (byte)'A' + 10;
-                else if (hex is >= (byte)'a' and <= (byte)'f')
-                    lowSurrogate |= hex - (byte)'a' + 10;
-                else
-                    throw new FormatException(
-                        $"Invalid unicode escape character '{(char)hex}' at offset {_seqReader.Consumed}"
-                    );
-            }
+                >= (byte)'0' and <= (byte)'9' => hex - (byte)'0',
+                >= (byte)'A' and <= (byte)'F' => hex - (byte)'A' + 10,
+                >= (byte)'a' and <= (byte)'f' => hex - (byte)'a' + 10,
+                _ => throw new FormatException(
+                    $"Invalid unicode escape character '{(char)hex}' at offset {_seqReader.Consumed}"
+                ),
+            };
+        }
 
-            if (lowSurrogate is < 0xDC00 or > 0xDFFF)
+        switch (codepoint)
+        {
+            case >= 0xD800
+            and <= 0xDBFF
+                when _seqReader.End
+                    || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\\':
                 throw new FormatException(
-                    $"Invalid low surrogate U+{lowSurrogate:X4} at offset {_seqReader.Consumed}"
+                    $"Lone high surrogate U+{codepoint:X4} at offset {_seqReader.Consumed}"
                 );
+            case >= 0xD800 and <= 0xDBFF:
+            {
+                _seqReader.Advance(1);
+                if (
+                    _seqReader.End
+                    || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'u'
+                )
+                    throw new FormatException(
+                        $"Lone high surrogate U+{codepoint:X4} at offset {_seqReader.Consumed}"
+                    );
+                _seqReader.Advance(1);
 
-            codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (lowSurrogate - 0xDC00);
-        }
-        else if (codepoint is >= 0xDC00 and <= 0xDFFF)
-        {
-            throw new FormatException(
-                $"Lone low surrogate U+{codepoint:X4} at offset {_seqReader.Consumed}"
-            );
+                var lowSurrogate = 0;
+                for (var j = 0; j < 4; j++)
+                {
+                    if (_seqReader.End)
+                        throw new FormatException(
+                            $"Incomplete unicode escape at offset {_seqReader.Consumed}"
+                        );
+                    var hex = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                    _seqReader.Advance(1);
+                    lowSurrogate <<= 4;
+                    lowSurrogate |= hex switch
+                    {
+                        >= (byte)'0' and <= (byte)'9' => hex - (byte)'0',
+                        >= (byte)'A' and <= (byte)'F' => hex - (byte)'A' + 10,
+                        >= (byte)'a' and <= (byte)'f' => hex - (byte)'a' + 10,
+                        _ => throw new FormatException(
+                            $"Invalid unicode escape character '{(char)hex}' at offset {_seqReader.Consumed}"
+                        ),
+                    };
+                }
+
+                if (lowSurrogate is < 0xDC00 or > 0xDFFF)
+                    throw new FormatException(
+                        $"Invalid low surrogate U+{lowSurrogate:X4} at offset {_seqReader.Consumed}"
+                    );
+
+                codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (lowSurrogate - 0xDC00);
+                break;
+            }
+            case >= 0xDC00 and <= 0xDFFF:
+                throw new FormatException(
+                    $"Lone low surrogate U+{codepoint:X4} at offset {_seqReader.Consumed}"
+                );
         }
 
-        if (codepoint < 0x80)
+        switch (codepoint)
         {
-            buf[di++] = (byte)codepoint;
-        }
-        else if (codepoint < 0x800)
-        {
-            buf[di++] = (byte)(0xC0 | (codepoint >> 6));
-            buf[di++] = (byte)(0x80 | (codepoint & 0x3F));
-        }
-        else if (codepoint < 0x10000)
-        {
-            buf[di++] = (byte)(0xE0 | (codepoint >> 12));
-            buf[di++] = (byte)(0x80 | ((codepoint >> 6) & 0x3F));
-            buf[di++] = (byte)(0x80 | (codepoint & 0x3F));
-        }
-        else
-        {
-            buf[di++] = (byte)(0xF0 | (codepoint >> 18));
-            buf[di++] = (byte)(0x80 | ((codepoint >> 12) & 0x3F));
-            buf[di++] = (byte)(0x80 | ((codepoint >> 6) & 0x3F));
-            buf[di++] = (byte)(0x80 | (codepoint & 0x3F));
+            case < 0x80:
+                buf[di++] = (byte)codepoint;
+                break;
+            case < 0x800:
+                buf[di++] = (byte)(0xC0 | (codepoint >> 6));
+                buf[di++] = (byte)(0x80 | (codepoint & 0x3F));
+                break;
+            case < 0x10000:
+                buf[di++] = (byte)(0xE0 | (codepoint >> 12));
+                buf[di++] = (byte)(0x80 | ((codepoint >> 6) & 0x3F));
+                buf[di++] = (byte)(0x80 | (codepoint & 0x3F));
+                break;
+            default:
+                buf[di++] = (byte)(0xF0 | (codepoint >> 18));
+                buf[di++] = (byte)(0x80 | ((codepoint >> 12) & 0x3F));
+                buf[di++] = (byte)(0x80 | ((codepoint >> 6) & 0x3F));
+                buf[di++] = (byte)(0x80 | (codepoint & 0x3F));
+                break;
         }
 
         return di;
@@ -1136,56 +1114,55 @@ public ref struct JsonReader : ITokenReader
 
     private void UnescapeIfNeeded()
     {
-        if (ContainsBackslash(_valueSpan))
+        if (!ContainsBackslash(_valueSpan))
+            return;
+        var decoded = ArrayPool<byte>.Shared.Rent(_valueSpan.Length);
+        TrackBuffer(decoded);
+        try
         {
-            var decoded = ArrayPool<byte>.Shared.Rent(_valueSpan.Length);
-            TrackBuffer(decoded);
-            try
+            var di = 0;
+            for (var si = 0; si < _valueSpan.Length; si++)
             {
-                int di = 0;
-                for (int si = 0; si < _valueSpan.Length; si++)
+                if (_valueSpan[si] == (byte)'\\' && si + 1 < _valueSpan.Length)
                 {
-                    if (_valueSpan[si] == (byte)'\\' && si + 1 < _valueSpan.Length)
+                    si++;
+                    switch (_valueSpan[si])
                     {
-                        si++;
-                        switch (_valueSpan[si])
-                        {
-                            case (byte)'"':
-                                decoded[di++] = (byte)'"';
-                                break;
-                            case (byte)'\\':
-                                decoded[di++] = (byte)'\\';
-                                break;
-                            case (byte)'/':
-                                decoded[di++] = (byte)'/';
-                                break;
-                            case (byte)'n':
-                                decoded[di++] = (byte)'\n';
-                                break;
-                            case (byte)'r':
-                                decoded[di++] = (byte)'\r';
-                                break;
-                            case (byte)'t':
-                                decoded[di++] = (byte)'\t';
-                                break;
-                            case (byte)'u':
-                                si = ReadUnicodeEscapeSpan(decoded, ref di, si);
-                                break;
-                            default:
-                                decoded[di++] = _valueSpan[si];
-                                break;
-                        }
+                        case (byte)'"':
+                            decoded[di++] = (byte)'"';
+                            break;
+                        case (byte)'\\':
+                            decoded[di++] = (byte)'\\';
+                            break;
+                        case (byte)'/':
+                            decoded[di++] = (byte)'/';
+                            break;
+                        case (byte)'n':
+                            decoded[di++] = (byte)'\n';
+                            break;
+                        case (byte)'r':
+                            decoded[di++] = (byte)'\r';
+                            break;
+                        case (byte)'t':
+                            decoded[di++] = (byte)'\t';
+                            break;
+                        case (byte)'u':
+                            si = ReadUnicodeEscapeSpan(decoded, ref di, si);
+                            break;
+                        default:
+                            decoded[di++] = _valueSpan[si];
+                            break;
                     }
-                    else
-                        decoded[di++] = _valueSpan[si];
                 }
-                _valueSpan = decoded.AsSpan(0, di);
+                else
+                    decoded[di++] = _valueSpan[si];
             }
-            catch
-            {
-                ReturnBuffer();
-                throw;
-            }
+            _valueSpan = decoded.AsSpan(0, di);
+        }
+        catch
+        {
+            ReturnBuffer();
+            throw;
         }
     }
 
@@ -1280,10 +1257,14 @@ public ref struct JsonReader : ITokenReader
                 buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                 _seqReader.Advance(1);
             }
-            if (digitCount > 1 && firstIsZero)
-                throw new FormatException("Leading zeros are not allowed");
-            if (digitCount == 0 && di > 0)
-                throw new FormatException($"Expected digit at offset {BytesConsumed}");
+            switch (digitCount)
+            {
+                case > 1 when firstIsZero:
+                    throw new FormatException("Leading zeros are not allowed");
+                case 0 when di > 0:
+                    throw new FormatException($"Expected digit at offset {BytesConsumed}");
+            }
+
             if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'.')
             {
                 isFloat = true;
@@ -1342,9 +1323,7 @@ public ref struct JsonReader : ITokenReader
 
     private bool ReadLiteral(ReadOnlySpan<byte> expected, TokenType token)
     {
-        if (_isSequence)
-            return ReadLiteralSeq(expected, token);
-        return ReadLiteralSpan(expected, token);
+        return _isSequence ? ReadLiteralSeq(expected, token) : ReadLiteralSpan(expected, token);
     }
 
     private bool ReadLiteralSpan(ReadOnlySpan<byte> expected, TokenType token)
@@ -1413,69 +1392,71 @@ public ref struct JsonReader : ITokenReader
                 );
         }
 
-        if (codepoint is >= 0xD800 and <= 0xDBFF)
+        switch (codepoint)
         {
-            if (
-                si + 6 >= _valueSpan.Length
-                || _valueSpan[si + 1] != (byte)'\\'
-                || _valueSpan[si + 2] != (byte)'u'
-            )
+            case >= 0xD800
+            and <= 0xDBFF
+                when si + 6 >= _valueSpan.Length
+                    || _valueSpan[si + 1] != (byte)'\\'
+                    || _valueSpan[si + 2] != (byte)'u':
                 throw new FormatException(
                     $"Lone high surrogate U+{codepoint:X4} at offset {_position}"
                 );
-
-            si += 2;
-            int lowSurrogate = 0;
-            for (int j = 0; j < 4; j++)
+            case >= 0xD800 and <= 0xDBFF:
             {
-                si++;
-                var hex = _valueSpan[si];
-                lowSurrogate <<= 4;
-                if (hex is >= (byte)'0' and <= (byte)'9')
-                    lowSurrogate |= hex - (byte)'0';
-                else if (hex is >= (byte)'A' and <= (byte)'F')
-                    lowSurrogate |= hex - (byte)'A' + 10;
-                else if (hex is >= (byte)'a' and <= (byte)'f')
-                    lowSurrogate |= hex - (byte)'a' + 10;
-                else
+                si += 2;
+                int lowSurrogate = 0;
+                for (int j = 0; j < 4; j++)
+                {
+                    si++;
+                    var hex = _valueSpan[si];
+                    lowSurrogate <<= 4;
+                    if (hex is >= (byte)'0' and <= (byte)'9')
+                        lowSurrogate |= hex - (byte)'0';
+                    else if (hex is >= (byte)'A' and <= (byte)'F')
+                        lowSurrogate |= hex - (byte)'A' + 10;
+                    else if (hex is >= (byte)'a' and <= (byte)'f')
+                        lowSurrogate |= hex - (byte)'a' + 10;
+                    else
+                        throw new FormatException(
+                            $"Invalid unicode escape character '{(char)hex}' at offset {_position}"
+                        );
+                }
+
+                if (lowSurrogate is < 0xDC00 or > 0xDFFF)
                     throw new FormatException(
-                        $"Invalid unicode escape character '{(char)hex}' at offset {_position}"
+                        $"Invalid low surrogate U+{lowSurrogate:X4} at offset {_position}"
                     );
+
+                codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (lowSurrogate - 0xDC00);
+                break;
             }
-
-            if (lowSurrogate is < 0xDC00 or > 0xDFFF)
+            case >= 0xDC00 and <= 0xDFFF:
                 throw new FormatException(
-                    $"Invalid low surrogate U+{lowSurrogate:X4} at offset {_position}"
+                    $"Lone low surrogate U+{codepoint:X4} at offset {_position}"
                 );
-
-            codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (lowSurrogate - 0xDC00);
-        }
-        else if (codepoint is >= 0xDC00 and <= 0xDFFF)
-        {
-            throw new FormatException($"Lone low surrogate U+{codepoint:X4} at offset {_position}");
         }
 
-        if (codepoint < 0x80)
+        switch (codepoint)
         {
-            decoded[di++] = (byte)codepoint;
-        }
-        else if (codepoint < 0x800)
-        {
-            decoded[di++] = (byte)(0xC0 | (codepoint >> 6));
-            decoded[di++] = (byte)(0x80 | (codepoint & 0x3F));
-        }
-        else if (codepoint < 0x10000)
-        {
-            decoded[di++] = (byte)(0xE0 | (codepoint >> 12));
-            decoded[di++] = (byte)(0x80 | ((codepoint >> 6) & 0x3F));
-            decoded[di++] = (byte)(0x80 | (codepoint & 0x3F));
-        }
-        else
-        {
-            decoded[di++] = (byte)(0xF0 | (codepoint >> 18));
-            decoded[di++] = (byte)(0x80 | ((codepoint >> 12) & 0x3F));
-            decoded[di++] = (byte)(0x80 | ((codepoint >> 6) & 0x3F));
-            decoded[di++] = (byte)(0x80 | (codepoint & 0x3F));
+            case < 0x80:
+                decoded[di++] = (byte)codepoint;
+                break;
+            case < 0x800:
+                decoded[di++] = (byte)(0xC0 | (codepoint >> 6));
+                decoded[di++] = (byte)(0x80 | (codepoint & 0x3F));
+                break;
+            case < 0x10000:
+                decoded[di++] = (byte)(0xE0 | (codepoint >> 12));
+                decoded[di++] = (byte)(0x80 | ((codepoint >> 6) & 0x3F));
+                decoded[di++] = (byte)(0x80 | (codepoint & 0x3F));
+                break;
+            default:
+                decoded[di++] = (byte)(0xF0 | (codepoint >> 18));
+                decoded[di++] = (byte)(0x80 | ((codepoint >> 12) & 0x3F));
+                decoded[di++] = (byte)(0x80 | ((codepoint >> 6) & 0x3F));
+                decoded[di++] = (byte)(0x80 | (codepoint & 0x3F));
+                break;
         }
 
         return si;
@@ -1497,12 +1478,11 @@ public ref struct JsonReader : ITokenReader
 
     private void ReturnBuf(ref byte[]? buf)
     {
-        if (buf is not null)
-        {
-            ArrayPool<byte>.Shared.Return(buf);
-            buf = null;
-            LeakedBufferCount--;
-        }
+        if (buf is null)
+            return;
+        ArrayPool<byte>.Shared.Return(buf);
+        buf = null;
+        LeakedBufferCount--;
     }
 
     private void TrackBuffer(byte[] buf)

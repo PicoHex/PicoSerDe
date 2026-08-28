@@ -1,10 +1,8 @@
-using System.Globalization;
-
 namespace PicoJetson;
 
 public ref struct JsonWriter
 {
-    private IBufferWriter<byte> _buffer;
+    private readonly IBufferWriter<byte> _buffer;
     private long _bytesWritten;
     private readonly bool _indented;
     private readonly int _maxDepth;

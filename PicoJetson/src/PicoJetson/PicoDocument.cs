@@ -1,6 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
-
 namespace PicoJetson;
 
 /// <summary>Kind of a JSON value.</summary>
@@ -443,21 +440,15 @@ public class PicoDocument
     /// and no trailing content. The token reader only checks token validity
     /// and bracket depth; this validator enforces the full document grammar.
     /// </summary>
-    private struct JsonStructureValidator
+    private struct JsonStructureValidator(int maxDepth)
     {
         // Expectation per open container: 0 = expect value-or-end (array),
         // 1 = expect property-name-or-end (object), 2 = expect value (after
         // a property name). Kind per container: 0 = object, 1 = array.
-        private readonly byte[] _expects;
-        private readonly byte[] _kinds;
+        private readonly byte[] _expects = new byte[maxDepth];
+        private readonly byte[] _kinds = new byte[maxDepth];
         private int _depth;
         private bool _rootDone;
-
-        public JsonStructureValidator(int maxDepth)
-        {
-            _expects = new byte[maxDepth];
-            _kinds = new byte[maxDepth];
-        }
 
         public void Accept(TokenType t)
         {
