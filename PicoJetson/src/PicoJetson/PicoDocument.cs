@@ -144,6 +144,8 @@ public readonly struct PicoElement
             return 0;
         if (long.TryParse(v, out var r))
             return r;
+        if (ulong.TryParse(v, out _))
+            throw new FormatException($"Value '{Encoding.UTF8.GetString(v)}' exceeds Int64 range.");
         if (
             double.TryParse(
                 v,
@@ -154,6 +156,31 @@ public readonly struct PicoElement
         )
             return (long)dr;
         throw new FormatException($"Cannot parse '{Encoding.UTF8.GetString(v)}' as Int64.");
+    }
+
+    public ulong GetUInt64()
+    {
+        if (ValueKind != PicoValueKind.Number)
+            throw new InvalidOperationException("Not a number.");
+        ref readonly var n = ref _doc._nodes[_nodeIdx];
+        var v =
+            n.ValueEnd > n.ValueStart
+                ? _doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart)
+                : default;
+        if (v.IsEmpty)
+            return 0;
+        if (ulong.TryParse(v, out var r))
+            return r;
+        if (
+            double.TryParse(
+                v,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var dr
+            )
+        )
+            return checked((ulong)dr);
+        throw new FormatException($"Cannot parse '{Encoding.UTF8.GetString(v)}' as UInt64.");
     }
 
     public double GetDouble()
@@ -207,6 +234,21 @@ public readonly struct PicoElement
         if (v.IsEmpty)
             return false;
         return long.TryParse(v, out value);
+    }
+
+    public bool TryGetUInt64(out ulong value)
+    {
+        value = 0;
+        if (ValueKind != PicoValueKind.Number)
+            return false;
+        ref readonly var n = ref _doc._nodes[_nodeIdx];
+        var v =
+            n.ValueEnd > n.ValueStart
+                ? _doc._json.AsSpan(n.ValueStart, n.ValueEnd - n.ValueStart)
+                : default;
+        if (v.IsEmpty)
+            return false;
+        return ulong.TryParse(v, out value);
     }
 
     public bool GetBoolean()
@@ -678,6 +720,7 @@ public class PicoDocument
                 break;
             }
             case TokenType.Int64:
+            case TokenType.UInt64:
             case TokenType.Float64:
             case TokenType.Int32:
             case TokenType.Float32:

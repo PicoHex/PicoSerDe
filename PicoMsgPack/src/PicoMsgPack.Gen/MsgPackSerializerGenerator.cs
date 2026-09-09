@@ -367,12 +367,17 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     {
         // Collect nested Dictionary types for inner helper generation
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
-        foreach (var t in types)
+        var validTypes = types
+            .Where(t =>
+                !string.IsNullOrEmpty(t.FullyQualifiedName) && !string.IsNullOrEmpty(t.Name)
+            )
+            .ToArray();
+        foreach (var t in validTypes)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedDictTypes(t, nestedDictTypes);
 
         // Collect nested object types (from DTO properties + top-level array/list elements)
         var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
-        foreach (var t in types)
+        foreach (var t in validTypes)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(t, nestedTypes);
         foreach (var t in types)
         {
@@ -758,6 +763,18 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             case "int64":
                 s.AppendLine("            mw.WriteInt64(__dikvp.Value);");
                 break;
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+                s.AppendLine("            mw.WriteInt32(__dikvp.Value);");
+                break;
+            case "uint32":
+                s.AppendLine("            mw.WriteInt64(__dikvp.Value);");
+                break;
+            case "uint64":
+                s.AppendLine("            mw.WriteUInt64(__dikvp.Value);");
+                break;
             case "float32":
                 s.AppendLine("            mw.WriteFloat64((double)__dikvp.Value);");
                 break;
@@ -825,6 +842,36 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             case "int64":
                 s.AppendLine(
                     "                if (!reader.TryGetInt64(out var __dv)) throw new System.FormatException($\"Expected a 64-bit integer at offset {reader.BytesConsumed}\"); obj[__dk] = __dv;"
+                );
+                break;
+            case "int16":
+                s.AppendLine(
+                    "                if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\"); obj[__dk] = checked((short)__dv);"
+                );
+                break;
+            case "uint16":
+                s.AppendLine(
+                    "                if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\"); obj[__dk] = checked((ushort)__dv);"
+                );
+                break;
+            case "sbyte":
+                s.AppendLine(
+                    "                if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\"); obj[__dk] = checked((sbyte)__dv);"
+                );
+                break;
+            case "byte":
+                s.AppendLine(
+                    "                if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\"); obj[__dk] = checked((byte)__dv);"
+                );
+                break;
+            case "uint32":
+                s.AppendLine(
+                    "                if (!reader.TryGetInt64(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\"); obj[__dk] = checked((uint)__dv);"
+                );
+                break;
+            case "uint64":
+                s.AppendLine(
+                    "                if (!reader.TryGetUInt64(out var __dv)) throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {reader.BytesConsumed}\"); obj[__dk] = __dv;"
                 );
                 break;
             case "float32":
@@ -991,6 +1038,26 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append("else if (");
         s.Append(valueExpr);
         s.AppendLine(" is uint __ui) mw.WriteInt64((long)__ui);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is ulong __ul) mw.WriteUInt64(__ul);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is short __sh) mw.WriteInt32(__sh);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is ushort __ush) mw.WriteInt32(__ush);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is sbyte __sby) mw.WriteInt32(__sby);");
+        s.Append(indent);
+        s.Append("else if (");
+        s.Append(valueExpr);
+        s.AppendLine(" is byte __by) mw.WriteInt32(__by);");
         s.Append(indent);
         s.Append("else if (");
         s.Append(valueExpr);
@@ -1424,6 +1491,27 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(a);
                 s.AppendLine(");");
                 break;
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+                s.Append(ind);
+                s.Append("mw.WriteInt32(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            case "uint32":
+                s.Append(ind);
+                s.Append("mw.WriteInt64(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            case "uint64":
+                s.Append(ind);
+                s.Append("mw.WriteUInt64(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
             case "float32":
                 s.Append(ind);
                 s.Append("mw.WriteFloat64((double)(");
@@ -1613,6 +1701,27 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(a);
                 s.AppendLine(");");
                 break;
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+                s.Append(ind);
+                s.Append("mw.WriteInt32(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            case "uint32":
+                s.Append(ind);
+                s.Append("mw.WriteInt64(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            case "uint64":
+                s.Append(ind);
+                s.Append("mw.WriteUInt64(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
             case "float32":
                 s.Append(ind);
                 s.Append("mw.WriteFloat64((double)(");
@@ -1779,6 +1888,174 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.AppendLine(
                     "    throw new System.FormatException($\"Expected a 64-bit integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(t);
+                s.Append(" = __v");
+                s.Append(c++);
+                s.AppendLine(";");
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                break;
+            case "int16":
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null) { short? __nv = null; ");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = __nv; } else {");
+                }
+                s.Append(ind);
+                s.Append("if (!reader.TryGetInt32(out var __v");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(t);
+                s.Append(" = checked((short)__v");
+                s.Append(c++);
+                s.AppendLine(");");
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                break;
+            case "uint16":
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null) { ushort? __nv = null; ");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = __nv; } else {");
+                }
+                s.Append(ind);
+                s.Append("if (!reader.TryGetInt32(out var __v");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(t);
+                s.Append(" = checked((ushort)__v");
+                s.Append(c++);
+                s.AppendLine(");");
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                break;
+            case "sbyte":
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null) { sbyte? __nv = null; ");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = __nv; } else {");
+                }
+                s.Append(ind);
+                s.Append("if (!reader.TryGetInt32(out var __v");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(t);
+                s.Append(" = checked((sbyte)__v");
+                s.Append(c++);
+                s.AppendLine(");");
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                break;
+            case "byte":
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null) { byte? __nv = null; ");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = __nv; } else {");
+                }
+                s.Append(ind);
+                s.Append("if (!reader.TryGetInt32(out var __v");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(t);
+                s.Append(" = checked((byte)__v");
+                s.Append(c++);
+                s.AppendLine(");");
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                break;
+            case "uint32":
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null) { uint? __nv = null; ");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = __nv; } else {");
+                }
+                s.Append(ind);
+                s.Append("if (!reader.TryGetInt64(out var __v");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(t);
+                s.Append(" = checked((uint)__v");
+                s.Append(c++);
+                s.AppendLine(");");
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                break;
+            case "uint64":
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null) { ulong? __nv = null; ");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = __nv; } else {");
+                }
+                s.Append(ind);
+                s.Append("if (!reader.TryGetUInt64(out var __v");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(ind);
                 s.Append(t);
@@ -2267,6 +2544,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             "string" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}));",
             "int32" => $"{wv}.WriteInt32({vv});",
             "int64" => $"{wv}.WriteInt64({vv});",
+            "int16" or "uint16" or "sbyte" or "byte" => $"{wv}.WriteInt32({vv});",
+            "uint32" => $"{wv}.WriteInt64({vv});",
+            "uint64" => $"{wv}.WriteUInt64({vv});",
             "float32" => $"{wv}.WriteFloat64((double){vv});",
             "float64" => $"{wv}.WriteFloat64({vv});",
             "boolean" => $"{wv}.WriteBoolean({vv});",
@@ -2301,6 +2581,54 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             case "int64":
                 s.Append(ind);
                 s.AppendLine("reader.TryGetInt64(out var __ev);");
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.AppendLine("(__ev);");
+                break;
+            case "int16":
+                s.Append(ind);
+                s.AppendLine("reader.TryGetInt32(out var __ev);");
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.AppendLine("(checked((short)__ev));");
+                break;
+            case "uint16":
+                s.Append(ind);
+                s.AppendLine("reader.TryGetInt32(out var __ev);");
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.AppendLine("(checked((ushort)__ev));");
+                break;
+            case "sbyte":
+                s.Append(ind);
+                s.AppendLine("reader.TryGetInt32(out var __ev);");
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.AppendLine("(checked((sbyte)__ev));");
+                break;
+            case "byte":
+                s.Append(ind);
+                s.AppendLine("reader.TryGetInt32(out var __ev);");
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.AppendLine("(checked((byte)__ev));");
+                break;
+            case "uint32":
+                s.Append(ind);
+                s.AppendLine("reader.TryGetInt64(out var __ev);");
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.AppendLine("(checked((uint)__ev));");
+                break;
+            case "uint64":
+                s.Append(ind);
+                s.AppendLine("reader.TryGetUInt64(out var __ev);");
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
@@ -2515,7 +2843,15 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                         cp.TypeKind switch
                         {
                             "string" => "\"\"",
-                            "int32" or "int64" or "float64" => "0",
+                            "int32"
+                            or "int64"
+                            or "int16"
+                            or "uint16"
+                            or "sbyte"
+                            or "byte"
+                            or "uint32"
+                            or "uint64"
+                            or "float64" => "0",
                             "boolean" => "false",
                             _ => "default!",
                         }
@@ -2661,6 +2997,56 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     );
                 else
                     s.Append("reader.TryGetInt64(out var __lv) ? __lv : 0");
+                break;
+            case "int16":
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(short?) : (reader.TryGetInt32(out var __iv) ? checked((short)__iv) : (short)0)"
+                    );
+                else
+                    s.Append("reader.TryGetInt32(out var __iv) ? checked((short)__iv) : (short)0");
+                break;
+            case "uint16":
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(ushort?) : (reader.TryGetInt32(out var __iv) ? checked((ushort)__iv) : (ushort)0)"
+                    );
+                else
+                    s.Append(
+                        "reader.TryGetInt32(out var __iv) ? checked((ushort)__iv) : (ushort)0"
+                    );
+                break;
+            case "sbyte":
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(sbyte?) : (reader.TryGetInt32(out var __iv) ? checked((sbyte)__iv) : (sbyte)0)"
+                    );
+                else
+                    s.Append("reader.TryGetInt32(out var __iv) ? checked((sbyte)__iv) : (sbyte)0");
+                break;
+            case "byte":
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(byte?) : (reader.TryGetInt32(out var __iv) ? checked((byte)__iv) : (byte)0)"
+                    );
+                else
+                    s.Append("reader.TryGetInt32(out var __iv) ? checked((byte)__iv) : (byte)0");
+                break;
+            case "uint32":
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(uint?) : (reader.TryGetInt64(out var __lv) ? checked((uint)__lv) : 0u)"
+                    );
+                else
+                    s.Append("reader.TryGetInt64(out var __lv) ? checked((uint)__lv) : 0u");
+                break;
+            case "uint64":
+                if (nullable)
+                    s.Append(
+                        "reader.TokenType == TokenType.Null ? default(ulong?) : (reader.TryGetUInt64(out var __ulv) ? __ulv : 0ul)"
+                    );
+                else
+                    s.Append("reader.TryGetUInt64(out var __ulv) ? __ulv : 0ul");
                 break;
             case "float64":
             case "float32":

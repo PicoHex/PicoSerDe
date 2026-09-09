@@ -114,7 +114,48 @@ public ref struct TomlWriter
         WriteKeyValue(Encoding.UTF8.GetBytes(key), value);
     }
 
+    public void WriteKeyValue(string key, short value) => WriteKeyValue(key, (long)value);
+
+    public void WriteKeyValue(string key, ushort value) => WriteKeyValue(key, (long)value);
+
+    public void WriteKeyValue(string key, sbyte value) => WriteKeyValue(key, (long)value);
+
+    public void WriteKeyValue(string key, byte value) => WriteKeyValue(key, (long)value);
+
+    public void WriteKeyValue(string key, uint value) => WriteKeyValue(key, (long)value);
+
+    public void WriteKeyValue(string key, ulong value)
+    {
+        WriteKeyValue(Encoding.UTF8.GetBytes(key), value);
+    }
+
     public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, long value)
+    {
+        WriteKey(utf8Key);
+        WriteRaw(" = "u8);
+        Span<byte> buf = _buffer.GetSpan(32);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, short value) =>
+        WriteKeyValue(utf8Key, (long)value);
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, ushort value) =>
+        WriteKeyValue(utf8Key, (long)value);
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, sbyte value) =>
+        WriteKeyValue(utf8Key, (long)value);
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, byte value) =>
+        WriteKeyValue(utf8Key, (long)value);
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, uint value) =>
+        WriteKeyValue(utf8Key, (long)value);
+
+    public void WriteKeyValue(ReadOnlySpan<byte> utf8Key, ulong value)
     {
         WriteKey(utf8Key);
         WriteRaw(" = "u8);
@@ -214,6 +255,25 @@ public ref struct TomlWriter
     }
 
     public void WriteArrayValue(long value)
+    {
+        ArrayBeforeValue();
+        Span<byte> buf = _buffer.GetSpan(32);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+    }
+
+    public void WriteArrayValue(short value) => WriteArrayValue((long)value);
+
+    public void WriteArrayValue(ushort value) => WriteArrayValue((long)value);
+
+    public void WriteArrayValue(sbyte value) => WriteArrayValue((long)value);
+
+    public void WriteArrayValue(byte value) => WriteArrayValue((long)value);
+
+    public void WriteArrayValue(uint value) => WriteArrayValue((long)value);
+
+    public void WriteArrayValue(ulong value)
     {
         ArrayBeforeValue();
         Span<byte> buf = _buffer.GetSpan(32);

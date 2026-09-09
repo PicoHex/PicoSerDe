@@ -706,6 +706,94 @@ public ref struct MsgPackReader : ITokenReader
         return false;
     }
 
+    public bool TryGetUInt64(out ulong v)
+    {
+        if (_valueSpan.IsEmpty)
+        {
+            v = 0;
+            return false;
+        }
+        if (
+            _tokenType
+            is TokenType.Int32
+                or TokenType.UInt8
+                or TokenType.UInt16
+                or TokenType.UInt32
+                or TokenType.Int64
+                or TokenType.UInt64
+        )
+        {
+            switch (_valueSpan.Length)
+            {
+                case 1:
+                    // 0x00-0x7F positive fixint (Int32) or UInt8; 0xE0-0xFF negative fixint (Int64) is rejected
+                    if (_tokenType == TokenType.Int64 && _valueSpan[0] >= 0x80)
+                    {
+                        v = 0;
+                        return false;
+                    }
+                    v = _valueSpan[0];
+                    return true;
+                case 2:
+                    if (_tokenType == TokenType.UInt16)
+                    {
+                        v = BinaryPrimitives.ReadUInt16BigEndian(_valueSpan);
+                        return true;
+                    }
+
+                    {
+                        var s = BinaryPrimitives.ReadInt16BigEndian(_valueSpan);
+                        if (s < 0)
+                        {
+                            v = 0;
+                            return false;
+                        }
+                        v = (ulong)s;
+                        return true;
+                    }
+                case 4:
+                    if (_tokenType == TokenType.UInt32)
+                    {
+                        v = BinaryPrimitives.ReadUInt32BigEndian(_valueSpan);
+                        return true;
+                    }
+
+                    {
+                        var i = BinaryPrimitives.ReadInt32BigEndian(_valueSpan);
+                        if (i < 0)
+                        {
+                            v = 0;
+                            return false;
+                        }
+                        v = (ulong)i;
+                        return true;
+                    }
+                case 8:
+                    if (_tokenType == TokenType.UInt64)
+                    {
+                        v = BinaryPrimitives.ReadUInt64BigEndian(_valueSpan);
+                        return true;
+                    }
+
+                    {
+                        var l = BinaryPrimitives.ReadInt64BigEndian(_valueSpan);
+                        if (l < 0)
+                        {
+                            v = 0;
+                            return false;
+                        }
+                        v = (ulong)l;
+                        return true;
+                    }
+                default:
+                    v = 0;
+                    return false;
+            }
+        }
+        v = 0;
+        return false;
+    }
+
     public bool TryGetBool(out bool v)
     {
         if (_tokenType != TokenType.Bool || _valueSpan.IsEmpty)

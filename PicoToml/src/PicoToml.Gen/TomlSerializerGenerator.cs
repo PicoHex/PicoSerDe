@@ -370,7 +370,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
         var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
-        foreach (var t in types)
+        var validTypes = types
+            .Where(t =>
+                !string.IsNullOrEmpty(t.FullyQualifiedName) && !string.IsNullOrEmpty(t.Name)
+            )
+            .ToArray();
+        foreach (var t in validTypes)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(t, nestedTypes);
 
         // Also collect element types from top-level arrays/lists (e.g. SimplePoco for List<SimplePoco>)
@@ -390,7 +395,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
         // Collect nested Dictionary types
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
-        foreach (var t in types)
+        foreach (var t in validTypes)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedDictTypes(t, nestedDictTypes);
 
         var hintNames = new HashSet<string>();
@@ -533,11 +538,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("            tw.WriteKeyValue(__kvp.Key, __kvp.Value!);");
                 break;
             case "int32":
-                s.AppendLine("            tw.WriteKeyValue(__kvp.Key, __kvp.Value);");
-                break;
             case "int64":
-                s.AppendLine("            tw.WriteKeyValue(__kvp.Key, __kvp.Value);");
-                break;
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+            case "uint32":
+            case "uint64":
             case "float32":
             case "float64":
                 s.AppendLine("            tw.WriteKeyValue(__kvp.Key, __kvp.Value);");
@@ -577,6 +584,34 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 break;
             case "int64":
                 s.AppendLine("            r.TryGetInt64(out var __dv); o[__dk] = __dv;");
+                break;
+            case "int16":
+                s.AppendLine(
+                    "            r.TryGetInt32(out var __dv); o[__dk] = checked((short)__dv);"
+                );
+                break;
+            case "uint16":
+                s.AppendLine(
+                    "            r.TryGetInt32(out var __dv); o[__dk] = checked((ushort)__dv);"
+                );
+                break;
+            case "sbyte":
+                s.AppendLine(
+                    "            r.TryGetInt32(out var __dv); o[__dk] = checked((sbyte)__dv);"
+                );
+                break;
+            case "byte":
+                s.AppendLine(
+                    "            r.TryGetInt32(out var __dv); o[__dk] = checked((byte)__dv);"
+                );
+                break;
+            case "uint32":
+                s.AppendLine(
+                    "            r.TryGetInt64(out var __dv); o[__dk] = checked((uint)__dv);"
+                );
+                break;
+            case "uint64":
+                s.AppendLine("            r.TryGetUInt64(out var __dv); o[__dk] = __dv;");
                 break;
             case "float32":
                 s.AppendLine("            r.TryGetFloat64(out var __dv); o[__dk] = (float)__dv;");
@@ -648,6 +683,30 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "int64":
                 s.Append(indent);
                 s.AppendLine("long.TryParse(r.KeySpan, out var __dk);");
+                break;
+            case "int16":
+                s.Append(indent);
+                s.AppendLine("short.TryParse(r.KeySpan, out var __dk);");
+                break;
+            case "uint16":
+                s.Append(indent);
+                s.AppendLine("ushort.TryParse(r.KeySpan, out var __dk);");
+                break;
+            case "sbyte":
+                s.Append(indent);
+                s.AppendLine("sbyte.TryParse(r.KeySpan, out var __dk);");
+                break;
+            case "byte":
+                s.Append(indent);
+                s.AppendLine("byte.TryParse(r.KeySpan, out var __dk);");
+                break;
+            case "uint32":
+                s.Append(indent);
+                s.AppendLine("uint.TryParse(r.KeySpan, out var __dk);");
+                break;
+            case "uint64":
+                s.Append(indent);
+                s.AppendLine("ulong.TryParse(r.KeySpan, out var __dk);");
                 break;
             default:
                 s.Append(indent);
@@ -1585,6 +1644,84 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(dp.Name);
                 s.AppendLine("[__dk] = __dv;");
                 break;
+            case "int16":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine(
+                    "    if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = checked((short)__dv);");
+                break;
+            case "uint16":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine(
+                    "    if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = checked((ushort)__dv);");
+                break;
+            case "sbyte":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine(
+                    "    if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = checked((sbyte)__dv);");
+                break;
+            case "byte":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine(
+                    "    if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = checked((byte)__dv);");
+                break;
+            case "uint32":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine(
+                    "    if (!r.TryGetInt64(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = checked((uint)__dv);");
+                break;
+            case "uint64":
+                s.AppendLine();
+                s.Append(pad);
+                s.AppendLine(
+                    "    if (!r.TryGetUInt64(out var __dv)) throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append("    ");
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(dp.Name);
+                s.AppendLine("[__dk] = __dv;");
+                break;
             case "float32":
                 s.AppendLine();
                 s.Append(pad);
@@ -1821,13 +1958,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("tw.WriteArrayValue(__item);");
                 break;
             case "int32":
-                s.Append(indent);
-                s.AppendLine("tw.WriteArrayValue(__item);");
-                break;
             case "int64":
-                s.Append(indent);
-                s.AppendLine("tw.WriteArrayValue(__item);");
-                break;
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+            case "uint32":
+            case "uint64":
             case "float32":
             case "float64":
                 s.Append(indent);
@@ -2010,6 +2147,60 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append(p.Name);
                     s.AppendLine(" = __v;");
                     break;
+                case "int16":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitAssign();
+                    s.AppendLine(" = checked((short)__v);");
+                    break;
+                case "uint16":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitAssign();
+                    s.AppendLine(" = checked((ushort)__v);");
+                    break;
+                case "sbyte":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitAssign();
+                    s.AppendLine(" = checked((sbyte)__v);");
+                    break;
+                case "byte":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitAssign();
+                    s.AppendLine(" = checked((byte)__v);");
+                    break;
+                case "uint32":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetInt64(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitAssign();
+                    s.AppendLine(" = checked((uint)__v);");
+                    break;
+                case "uint64":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetUInt64(out var __v)) throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitAssign();
+                    s.AppendLine(" = __v;");
+                    break;
                 case "float32":
                     s.Append(pad);
                     s.AppendLine(
@@ -2167,6 +2358,72 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                             s.Append(p.Name);
                             s.AppendLine("[__dk] = __dv;");
                             break;
+                        case "int16":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetInt32(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = checked((short)__dv);");
+                            break;
+                        case "uint16":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetInt32(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = checked((ushort)__dv);");
+                            break;
+                        case "sbyte":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetInt32(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = checked((sbyte)__dv);");
+                            break;
+                        case "byte":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetInt32(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = checked((byte)__dv);");
+                            break;
+                        case "uint32":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetInt64(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = checked((uint)__dv);");
+                            break;
+                        case "uint64":
+                            s.AppendLine();
+                            s.Append(pad);
+                            s.AppendLine("    r.TryGetUInt64(out var __dv);");
+                            s.Append(pad);
+                            s.Append("    ");
+                            s.Append(tgt);
+                            s.Append('.');
+                            s.Append(p.Name);
+                            s.AppendLine("[__dk] = __dv;");
+                            break;
                         case "float64":
                             s.AppendLine();
                             s.Append(pad);
@@ -2264,6 +2521,42 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "int64":
                 s.Append(pad);
                 s.AppendLine("r.TryGetInt64(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__ev);");
+                break;
+            case "int16":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt32(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((short)__ev));");
+                break;
+            case "uint16":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt32(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((ushort)__ev));");
+                break;
+            case "sbyte":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt32(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((sbyte)__ev));");
+                break;
+            case "byte":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt32(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((byte)__ev));");
+                break;
+            case "uint32":
+                s.Append(pad);
+                s.AppendLine("r.TryGetInt64(out var __ev);");
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((uint)__ev));");
+                break;
+            case "uint64":
+                s.Append(pad);
+                s.AppendLine("r.TryGetUInt64(out var __ev);");
                 s.Append(pad);
                 s.AppendLine("__tmpList.Add(__ev);");
                 break;
@@ -2550,7 +2843,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         return f.TypeKind switch
         {
             "string" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
-            "int32" or "int64" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
+            "int32"
+            or "int64"
+            or "int16"
+            or "uint16"
+            or "sbyte"
+            or "byte"
+            or "uint32"
+            or "uint64" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
             "float32" or "float64" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
             "boolean" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
             _ => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv}.ToString());",

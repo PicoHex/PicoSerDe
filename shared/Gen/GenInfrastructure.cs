@@ -269,7 +269,19 @@ internal static class GenInfrastructure
     /// '!= default' instead of '!= null' (numeric-like value kinds).
     /// </summary>
     public static bool IsValueDefaultKind(string kind) =>
-        kind is "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal";
+        kind
+            is "int32"
+                or "int64"
+                or "int16"
+                or "uint16"
+                or "sbyte"
+                or "byte"
+                or "uint32"
+                or "uint64"
+                or "float32"
+                or "float64"
+                or "boolean"
+                or "decimal";
 
     /// <summary>
     /// True for TypeKinds backed by .NET value types (structs). Used for
@@ -279,6 +291,12 @@ internal static class GenInfrastructure
         kind
             is "int32"
                 or "int64"
+                or "int16"
+                or "uint16"
+                or "sbyte"
+                or "byte"
+                or "uint32"
+                or "uint64"
                 or "float32"
                 or "float64"
                 or "boolean"

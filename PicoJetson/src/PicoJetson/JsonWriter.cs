@@ -63,6 +63,60 @@ public ref struct JsonWriter
         _bytesWritten += w;
     }
 
+    public void WriteNumber(short value)
+    {
+        BeforeWriteValue();
+        Span<byte> buf = stackalloc byte[8];
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+    }
+
+    public void WriteNumber(ushort value)
+    {
+        BeforeWriteValue();
+        Span<byte> buf = stackalloc byte[8];
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+    }
+
+    public void WriteNumber(sbyte value)
+    {
+        BeforeWriteValue();
+        Span<byte> buf = stackalloc byte[8];
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+    }
+
+    public void WriteNumber(byte value)
+    {
+        BeforeWriteValue();
+        Span<byte> buf = stackalloc byte[8];
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+    }
+
+    public void WriteNumber(uint value)
+    {
+        BeforeWriteValue();
+        Span<byte> buf = stackalloc byte[16];
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+    }
+
+    public void WriteNumber(ulong value)
+    {
+        BeforeWriteValue();
+        Span<byte> buf = stackalloc byte[32];
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+    }
+
     public void WriteNumber(long value)
     {
         BeforeWriteValue();

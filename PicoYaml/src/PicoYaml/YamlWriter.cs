@@ -166,6 +166,20 @@ public ref struct YamlWriter
         WriteNewLine();
     }
 
+    public void WriteUInt64(ulong value)
+    {
+        if (_afterKey)
+        {
+            WriteByte((byte)' ');
+            _afterKey = false;
+        }
+        Span<byte> buf = _buffer.GetSpan(32);
+        value.TryFormat(buf, out var w);
+        _buffer.Advance(w);
+        _bytesWritten += w;
+        WriteNewLine();
+    }
+
     public void WriteDouble(double value)
     {
         if (double.IsNaN(value) || double.IsInfinity(value))

@@ -200,6 +200,16 @@ public ref struct TomlReader : ITokenReader
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
+    public bool TryGetUInt64(out ulong v)
+    {
+        if (_valueSpan.IsEmpty)
+        {
+            v = 0;
+            return false;
+        }
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+    }
+
     public bool TryGetBool(out bool v)
     {
         if (_valueSpan.SequenceEqual("true"u8))

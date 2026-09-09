@@ -384,7 +384,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         var hintNames = new HashSet<string>();
 
         var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
-        foreach (var t in ts)
+        var validTypes = ts.Where(t =>
+                !string.IsNullOrEmpty(t.FullyQualifiedName) && !string.IsNullOrEmpty(t.Name)
+            )
+            .ToArray();
+        foreach (var t in validTypes)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(t, nestedTypes);
 
         // Also collect element types from top-level arrays/lists (e.g. YamlAddress for List<YamlAddress>)
@@ -404,7 +408,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
         // Collect nested Dictionary types
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
-        foreach (var t in ts)
+        foreach (var t in validTypes)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedDictTypes(t, nestedDictTypes);
 
         foreach (var kv in nestedTypes)
@@ -593,6 +597,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
             case "int64":
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+            case "uint32":
+            case "uint64":
             case "float32":
             case "float64":
                 sb.AppendLine(
@@ -672,6 +682,36 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "int64":
                 sb.AppendLine(
                     "                obj[__dk] = long.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                );
+                break;
+            case "int16":
+                sb.AppendLine(
+                    "                obj[__dk] = short.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                );
+                break;
+            case "uint16":
+                sb.AppendLine(
+                    "                obj[__dk] = ushort.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                );
+                break;
+            case "sbyte":
+                sb.AppendLine(
+                    "                obj[__dk] = sbyte.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                );
+                break;
+            case "byte":
+                sb.AppendLine(
+                    "                obj[__dk] = byte.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                );
+                break;
+            case "uint32":
+                sb.AppendLine(
+                    "                obj[__dk] = uint.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                );
+                break;
+            case "uint64":
+                sb.AppendLine(
+                    "                obj[__dk] = ulong.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
                 );
                 break;
             case "float32":
@@ -811,6 +851,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(accessor);
                 s.AppendLine(");");
                 break;
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+            case "uint32":
+                s.Append(ind);
+                s.Append("yw.WriteInt64(");
+                s.Append(accessor);
+                s.AppendLine(");");
+                break;
+            case "uint64":
+                s.Append(ind);
+                s.Append("yw.WriteUInt64(");
+                s.Append(accessor);
+                s.AppendLine(");");
+                break;
             case "float32":
             case "float64":
                 s.Append(ind);
@@ -943,6 +999,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         break;
                     case "int32":
                     case "int64":
+                    case "int16":
+                    case "uint16":
+                    case "sbyte":
+                    case "byte":
+                    case "uint32":
+                    case "uint64":
                     case "float32":
                     case "float64":
                         s.Append(ind);
@@ -1053,6 +1115,64 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append('.');
                 s.Append(p.Name);
                 s.AppendLine(" = long.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                break;
+            case "int16":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __nv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = checked((short)__nv);");
+                break;
+            case "uint16":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __nv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = checked((ushort)__nv);");
+                break;
+            case "sbyte":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __nv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = checked((sbyte)__nv);");
+                break;
+            case "byte":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __nv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = checked((byte)__nv);");
+                break;
+            case "uint32":
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = uint.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                break;
+            case "uint64":
+                s.Append(pad);
+                s.Append(tgt);
+                s.Append('.');
+                s.Append(p.Name);
+                s.AppendLine(" = ulong.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
                 break;
             case "float32":
                 s.Append(pad);
@@ -1223,6 +1343,74 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         s.Append('.');
                         s.Append(p.Name);
                         s.AppendLine("[__dk] = __dv;");
+                        break;
+                    case "int16":
+                        s.Append(pad);
+                        s.AppendLine(
+                            "        if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                        );
+                        s.Append(pad);
+                        s.Append("        ");
+                        s.Append(tgt);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.AppendLine("[__dk] = checked((short)__dv);");
+                        break;
+                    case "uint16":
+                        s.Append(pad);
+                        s.AppendLine(
+                            "        if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                        );
+                        s.Append(pad);
+                        s.Append("        ");
+                        s.Append(tgt);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.AppendLine("[__dk] = checked((ushort)__dv);");
+                        break;
+                    case "sbyte":
+                        s.Append(pad);
+                        s.AppendLine(
+                            "        if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                        );
+                        s.Append(pad);
+                        s.Append("        ");
+                        s.Append(tgt);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.AppendLine("[__dk] = checked((sbyte)__dv);");
+                        break;
+                    case "byte":
+                        s.Append(pad);
+                        s.AppendLine(
+                            "        if (!reader.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                        );
+                        s.Append(pad);
+                        s.Append("        ");
+                        s.Append(tgt);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.AppendLine("[__dk] = checked((byte)__dv);");
+                        break;
+                    case "uint32":
+                        s.Append(pad);
+                        s.Append("        ");
+                        s.Append(tgt);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.AppendLine(
+                            "[__dk] = uint.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                        );
+                        break;
+                    case "uint64":
+                        s.Append(pad);
+                        s.Append("        ");
+                        s.Append(tgt);
+                        s.Append('.');
+                        s.Append(p.Name);
+                        s.AppendLine(
+                            "[__dk] = ulong.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                        );
                         break;
                     case "object":
                     {
@@ -1858,6 +2046,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 case "int64":
                 case "float32":
                 case "float64":
+                case "int16":
+                case "uint16":
+                case "sbyte":
+                case "byte":
+                case "uint32":
+                case "uint64":
                     s.Append(ind);
                     s.AppendLine(
                         "    yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));"
@@ -1961,6 +2155,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(valAccessor);
                     s.AppendLine(");");
                     break;
+                case "int16":
+                case "uint16":
+                case "sbyte":
+                case "byte":
+                case "uint32":
+                    s.Append(ind);
+                    s.Append("    yw.WriteInt64(");
+                    s.Append(valAccessor);
+                    s.AppendLine(");");
+                    break;
+                case "uint64":
+                    s.Append(ind);
+                    s.Append("    yw.WriteUInt64(");
+                    s.Append(valAccessor);
+                    s.AppendLine(");");
+                    break;
                 case "float32":
                 case "float64":
                     s.Append(ind);
@@ -2041,6 +2251,26 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 case "int64":
                     s.Append(ind);
                     s.Append("yw.WriteInt64(");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(");");
+                    break;
+                case "int16":
+                case "uint16":
+                case "sbyte":
+                case "byte":
+                case "uint32":
+                    s.Append(ind);
+                    s.Append("yw.WriteInt64(");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(");");
+                    break;
+                case "uint64":
+                    s.Append(ind);
+                    s.Append("yw.WriteUInt64(");
                     s.Append(target);
                     s.Append('.');
                     s.Append(p.Name);
@@ -2309,6 +2539,76 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     EmitTgt();
                     s.AppendLine("[__dk] = __dv;");
                     break;
+                case "int16":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "        if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    s.Append("        ");
+                    EmitTgt();
+                    s.AppendLine("[__dk] = checked((short)__dv);");
+                    break;
+                case "uint16":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "        if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    s.Append("        ");
+                    EmitTgt();
+                    s.AppendLine("[__dk] = checked((ushort)__dv);");
+                    break;
+                case "sbyte":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "        if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    s.Append("        ");
+                    EmitTgt();
+                    s.AppendLine("[__dk] = checked((sbyte)__dv);");
+                    break;
+                case "byte":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "        if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    s.Append("        ");
+                    EmitTgt();
+                    s.AppendLine("[__dk] = checked((byte)__dv);");
+                    break;
+                case "uint32":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "        if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    s.Append("        ");
+                    EmitTgt();
+                    s.AppendLine("[__dk] = checked((uint)__dv);");
+                    break;
+                case "uint64":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "        if (!r.TryGetUInt64(out var __dv)) throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    s.Append("        ");
+                    EmitTgt();
+                    s.AppendLine("[__dk] = __dv;");
+                    break;
+                case "int64":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "        if (!r.TryGetInt64(out var __dv)) throw new System.FormatException($\"Expected a 64-bit integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    s.Append("        ");
+                    EmitTgt();
+                    s.AppendLine("[__dk] = __dv;");
+                    break;
                 case "dict":
                 {
                     var dsn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -2371,6 +2671,52 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(pad);
                     EmitTgt();
                     s.AppendLine(" = long.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                    break;
+                case "int16":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitTgt();
+                    s.AppendLine(" = checked((short)__v);");
+                    break;
+                case "uint16":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitTgt();
+                    s.AppendLine(" = checked((ushort)__v);");
+                    break;
+                case "sbyte":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitTgt();
+                    s.AppendLine(" = checked((sbyte)__v);");
+                    break;
+                case "byte":
+                    s.Append(pad);
+                    s.AppendLine(
+                        "if (!r.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
+                    EmitTgt();
+                    s.AppendLine(" = checked((byte)__v);");
+                    break;
+                case "uint32":
+                    s.Append(pad);
+                    EmitTgt();
+                    s.AppendLine(" = uint.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                    break;
+                case "uint64":
+                    s.Append(pad);
+                    EmitTgt();
+                    s.AppendLine(" = ulong.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
                     break;
                 case "float32":
                     s.Append(pad);
@@ -2477,6 +2823,62 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine(
                     "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__ev);");
+                break;
+            case "int16":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((short)__ev));");
+                break;
+            case "uint16":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((ushort)__ev));");
+                break;
+            case "sbyte":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((sbyte)__ev));");
+                break;
+            case "byte":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((byte)__ev));");
+                break;
+            case "uint32":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(checked((uint)__ev));");
+                break;
+            case "uint64":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!r.TryGetUInt64(out var __ev)) throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__ev);");
+                break;
+            case "int64":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!r.TryGetInt64(out var __ev)) throw new System.FormatException($\"Expected a 64-bit integer at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
                 s.AppendLine("__tmpList.Add(__ev);");
@@ -2819,7 +3221,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         f.TypeKind switch
         {
             "string" => $"{wv}.WriteString({vv});",
-            "int32" or "int64" => $"{wv}.WriteNumber({vv});",
+            "int32" or "int64" or "int16" or "uint16" or "sbyte" or "byte" =>
+                $"{wv}.WriteNumber({vv});",
+            "uint32" or "uint64" => $"{wv}.WriteInt64({vv});",
             "float32" or "float64" => $"{wv}.WriteNumber({vv});",
             "boolean" => $"{wv}.WriteBoolean({vv});",
             _ => $"{wv}.WriteString({vv}.ToString());",
@@ -2842,6 +3246,24 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         else if (p.TypeKind == "int64")
         {
             s.Append("yw.WriteInt64(");
+            s.Append(acc);
+            s.Append(");");
+        }
+        else if (
+            p.TypeKind == "int16"
+            || p.TypeKind == "uint16"
+            || p.TypeKind == "sbyte"
+            || p.TypeKind == "byte"
+            || p.TypeKind == "uint32"
+        )
+        {
+            s.Append("yw.WriteInt64(");
+            s.Append(acc);
+            s.Append(");");
+        }
+        else if (p.TypeKind == "uint64")
+        {
+            s.Append("yw.WriteUInt64(");
             s.Append(acc);
             s.Append(");");
         }
@@ -2873,6 +3295,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("int.TryParse(__v, out var __iv) ? __iv : 0");
         else if (p.TypeKind == "int64")
             s.Append("long.TryParse(__v, out var __lv) ? __lv : 0");
+        else if (p.TypeKind == "int16")
+            s.Append("short.TryParse(__v, out var __v16) ? __v16 : (short)0");
+        else if (p.TypeKind == "uint16")
+            s.Append("ushort.TryParse(__v, out var __v16) ? __v16 : (ushort)0");
+        else if (p.TypeKind == "sbyte")
+            s.Append("sbyte.TryParse(__v, out var __v8) ? __v8 : (sbyte)0");
+        else if (p.TypeKind == "byte")
+            s.Append("byte.TryParse(__v, out var __v8) ? __v8 : (byte)0");
+        else if (p.TypeKind == "uint32")
+            s.Append("uint.TryParse(__v, out var __vu) ? __vu : 0u");
+        else if (p.TypeKind == "uint64")
+            s.Append("ulong.TryParse(__v, out var __vul) ? __vul : 0ul");
         else if (p.TypeKind == "float64" || p.TypeKind == "float32")
             s.Append("double.TryParse(__v, out var __dv) ? __dv : 0");
         else if (p.TypeKind == "boolean")

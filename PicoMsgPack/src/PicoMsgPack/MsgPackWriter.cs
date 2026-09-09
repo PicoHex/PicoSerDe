@@ -237,6 +237,49 @@ public ref struct MsgPackWriter
         }
     }
 
+    public void WriteUInt64(ulong value)
+    {
+        if (value <= 127)
+        {
+            Span<byte> s = _buffer.GetSpan(1);
+            s[0] = (byte)value;
+            _buffer.Advance(1);
+            _bytesWritten++;
+        }
+        else if (value <= byte.MaxValue)
+        {
+            Span<byte> s = _buffer.GetSpan(2);
+            s[0] = 0xCC;
+            s[1] = (byte)value;
+            _buffer.Advance(2);
+            _bytesWritten += 2;
+        }
+        else if (value <= ushort.MaxValue)
+        {
+            Span<byte> s = _buffer.GetSpan(3);
+            s[0] = 0xCD;
+            BinaryPrimitives.WriteUInt16BigEndian(s.Slice(1), (ushort)value);
+            _buffer.Advance(3);
+            _bytesWritten += 3;
+        }
+        else if (value <= uint.MaxValue)
+        {
+            Span<byte> s = _buffer.GetSpan(5);
+            s[0] = 0xCE;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(1), (uint)value);
+            _buffer.Advance(5);
+            _bytesWritten += 5;
+        }
+        else
+        {
+            Span<byte> s = _buffer.GetSpan(9);
+            s[0] = 0xCF;
+            BinaryPrimitives.WriteUInt64BigEndian(s.Slice(1), value);
+            _buffer.Advance(9);
+            _bytesWritten += 9;
+        }
+    }
+
     public void WriteFloat64(double value)
     {
         Span<byte> s = _buffer.GetSpan(9);

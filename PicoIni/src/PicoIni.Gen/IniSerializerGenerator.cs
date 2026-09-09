@@ -757,6 +757,32 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.Append(dicts[di].Name);
                     s.AppendLine("[__dk] = __dv; }");
                 }
+                else if (
+                    dicts[di].ElementTypeKind
+                    is "int16"
+                        or "uint16"
+                        or "sbyte"
+                        or "byte"
+                        or "uint32"
+                        or "int64"
+                )
+                {
+                    s.Append(
+                        "if (!reader.TryGetInt64(out var __dv)) { if (!reader.TryGetUInt64(out var __duv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\"); __dv = checked((long)__duv); } obj."
+                    );
+                    s.Append(dicts[di].Name);
+                    s.Append("[__dk] = checked((");
+                    s.Append(IniNumericCastExpr(dicts[di].ElementTypeKind!));
+                    s.AppendLine(")__dv); }");
+                }
+                else if (dicts[di].ElementTypeKind == "uint64")
+                {
+                    s.Append(
+                        "if (!reader.TryGetUInt64(out var __dv)) throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {reader.BytesConsumed}\"); obj."
+                    );
+                    s.Append(dicts[di].Name);
+                    s.AppendLine("[__dk] = __dv; }");
+                }
                 else if (dicts[di].ElementTypeKind == "string")
                 {
                     s.Append("obj.");
@@ -1210,6 +1236,12 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
             case "int64":
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+            case "uint32":
+            case "uint64":
             case "float32":
             case "float64":
             case "boolean":
@@ -1439,6 +1471,110 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(p.Name);
                 s.AppendLine(" = __v;");
                 break;
+            case "int16":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                if (ctorAssign)
+                    s.Append(target);
+                else
+                {
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                }
+                s.AppendLine(" = checked((short)__v);");
+                break;
+            case "uint16":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                if (ctorAssign)
+                    s.Append(target);
+                else
+                {
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                }
+                s.AppendLine(" = checked((ushort)__v);");
+                break;
+            case "sbyte":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                if (ctorAssign)
+                    s.Append(target);
+                else
+                {
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                }
+                s.AppendLine(" = checked((sbyte)__v);");
+                break;
+            case "byte":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                if (ctorAssign)
+                    s.Append(target);
+                else
+                {
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                }
+                s.AppendLine(" = checked((byte)__v);");
+                break;
+            case "uint32":
+                s.Append(pad);
+                s.AppendLine("if (!reader.TryGetInt64(out var __v))");
+                s.Append(pad);
+                s.AppendLine("{");
+                s.Append(pad);
+                s.AppendLine(
+                    "    if (!reader.TryGetUInt64(out var __uv)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("    __v = checked((long)__uv);");
+                s.Append(pad);
+                s.AppendLine("}");
+                s.Append(pad);
+                if (ctorAssign)
+                    s.Append(target);
+                else
+                {
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                }
+                s.AppendLine(" = checked((uint)__v);");
+                break;
+            case "uint64":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!reader.TryGetUInt64(out var __v)) throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                if (ctorAssign)
+                    s.Append(target);
+                else
+                {
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                }
+                s.AppendLine(" = __v;");
+                break;
             case "float32":
                 s.Append(pad);
                 s.AppendLine(
@@ -1651,8 +1787,18 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return f.TypeKind switch
         {
             "string" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
-            "int32" or "int64" or "float32" or "float64" or "boolean" or "decimal" =>
-                $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
+            "int32"
+            or "int64"
+            or "int16"
+            or "uint16"
+            or "sbyte"
+            or "byte"
+            or "uint32"
+            or "uint64"
+            or "float32"
+            or "float64"
+            or "boolean"
+            or "decimal" => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv});",
             _ => $"{wv}.WriteKeyValue(\"{kn}\"u8, {vv}.ToString());",
         };
     }
@@ -1789,7 +1935,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                         cp.TypeKind switch
                         {
                             "string" => "\"\"",
-                            "int32" or "int64" or "float64" => "0",
+                            "int32"
+                            or "int64"
+                            or "int16"
+                            or "uint16"
+                            or "sbyte"
+                            or "byte"
+                            or "uint32"
+                            or "uint64"
+                            or "float64" => "0",
                             "boolean" => "false",
                             _ => "default!",
                         }
@@ -1924,6 +2078,18 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         {
             s.Append("long.TryParse(__rv, out var __lv) ? __lv : 0");
         }
+        else if (cp.TypeKind == "int16")
+            s.Append("short.TryParse(__rv, out var __v16) ? __v16 : (short)0");
+        else if (cp.TypeKind == "uint16")
+            s.Append("ushort.TryParse(__rv, out var __v16) ? __v16 : (ushort)0");
+        else if (cp.TypeKind == "sbyte")
+            s.Append("sbyte.TryParse(__rv, out var __v8) ? __v8 : (sbyte)0");
+        else if (cp.TypeKind == "byte")
+            s.Append("byte.TryParse(__rv, out var __v8) ? __v8 : (byte)0");
+        else if (cp.TypeKind == "uint32")
+            s.Append("uint.TryParse(__rv, out var __vu) ? __vu : 0u");
+        else if (cp.TypeKind == "uint64")
+            s.Append("ulong.TryParse(__rv, out var __vul) ? __vul : 0ul");
         else if (cp.TypeKind == "float64")
         {
             s.Append("double.TryParse(__rv, out var __dv) ? __dv : 0");
@@ -1944,6 +2110,18 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.Append("int.TryParse(__rv, out var __iv) ? __iv : 0");
         else if (prop.TypeKind == "int64")
             s.Append("long.TryParse(__rv, out var __lv) ? __lv : 0");
+        else if (prop.TypeKind == "int16")
+            s.Append("short.TryParse(__rv, out var __v16) ? __v16 : (short)0");
+        else if (prop.TypeKind == "uint16")
+            s.Append("ushort.TryParse(__rv, out var __v16) ? __v16 : (ushort)0");
+        else if (prop.TypeKind == "sbyte")
+            s.Append("sbyte.TryParse(__rv, out var __v8) ? __v8 : (sbyte)0");
+        else if (prop.TypeKind == "byte")
+            s.Append("byte.TryParse(__rv, out var __v8) ? __v8 : (byte)0");
+        else if (prop.TypeKind == "uint32")
+            s.Append("uint.TryParse(__rv, out var __vu) ? __vu : 0u");
+        else if (prop.TypeKind == "uint64")
+            s.Append("ulong.TryParse(__rv, out var __vul) ? __vul : 0ul");
         else if (prop.TypeKind == "float32" || prop.TypeKind == "float64")
             s.Append(
                 $"double.TryParse(__rv, out var __dv) ? ({GetCSharpType(prop.TypeKind)})__dv : 0"
@@ -1970,9 +2148,27 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.Append("Encoding.UTF8.GetString(__rv)");
     }
 
+    private static string IniNumericCastExpr(string kind) =>
+        kind switch
+        {
+            "int16" => "short",
+            "uint16" => "ushort",
+            "sbyte" => "sbyte",
+            "byte" => "byte",
+            "uint32" => "uint",
+            "int64" => "long",
+            _ => "long",
+        };
+
     private static string GetCSharpType(string typeKind) =>
         typeKind switch
         {
+            "int16" => "short",
+            "uint16" => "ushort",
+            "sbyte" => "sbyte",
+            "byte" => "byte",
+            "uint32" => "uint",
+            "uint64" => "ulong",
             "float32" => "float",
             "float64" => "double",
             _ => "object",

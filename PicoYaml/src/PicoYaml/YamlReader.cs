@@ -320,6 +320,16 @@ public ref struct YamlReader : ITokenReader
         return Utf8Parser.TryParse(_valueSpan, out v, out _);
     }
 
+    public bool TryGetUInt64(out ulong v)
+    {
+        if (_valueSpan.IsEmpty)
+        {
+            v = 0;
+            return false;
+        }
+        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+    }
+
     public bool TryGetFloat64(out double v)
     {
         if (_valueSpan.IsEmpty)

@@ -499,9 +499,20 @@ public ref struct JsonReader : ITokenReader
         return false;
     }
 
+    public bool TryGetUInt64(out ulong v)
+    {
+        if (_tokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt64)
+            return Utf8Parser.TryParse(_valueSpan, out v, out _);
+        v = 0;
+        return false;
+    }
+
     public bool TryGetFloat64(out double v)
     {
-        if (_tokenType is not (TokenType.Float64 or TokenType.Int32 or TokenType.Int64))
+        if (
+            _tokenType
+            is not (TokenType.Float64 or TokenType.Int32 or TokenType.Int64 or TokenType.UInt64)
+        )
         {
             v = 0;
             return false;
@@ -1227,6 +1238,10 @@ public ref struct JsonReader : ITokenReader
             _tokenType = TokenType.Float64;
         else if (Utf8Parser.TryParse(_valueSpan, out int _, out _))
             _tokenType = TokenType.Int32;
+        else if (Utf8Parser.TryParse(_valueSpan, out long _, out _))
+            _tokenType = TokenType.Int64;
+        else if (Utf8Parser.TryParse(_valueSpan, out ulong _, out _))
+            _tokenType = TokenType.UInt64;
         else
             _tokenType = TokenType.Int64;
     }
@@ -1309,6 +1324,10 @@ public ref struct JsonReader : ITokenReader
                 _tokenType = TokenType.Float64;
             else if (Utf8Parser.TryParse(_valueSpan, out int _, out _))
                 _tokenType = TokenType.Int32;
+            else if (Utf8Parser.TryParse(_valueSpan, out long _, out _))
+                _tokenType = TokenType.Int64;
+            else if (Utf8Parser.TryParse(_valueSpan, out ulong _, out _))
+                _tokenType = TokenType.UInt64;
             else
                 _tokenType = TokenType.Int64;
         }

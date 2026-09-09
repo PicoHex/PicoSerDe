@@ -495,7 +495,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
         // Collect all unique nested object types (M×N dedup: emit once, reference from parents)
         var nestedTypes = new Dictionary<string, ImmutableArray<PropertyInfo>>();
-        foreach (var type in types)
+        // Collect nested types (silently skip malformed/empty TypeInfos —
+        // e.g. unresolvable element kinds — instead of NRE-ing on the
+        // default ImmutableArray in CollectNestedTypes).
+        var validTypes = types
+            .Where(t =>
+                !string.IsNullOrEmpty(t.FullyQualifiedName) && !string.IsNullOrEmpty(t.Name)
+            )
+            .ToArray();
+        foreach (var type in validTypes)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedTypes(type, nestedTypes);
 
         // Also collect array element types (e.g. DiscoveredModel for DiscoveredModel[])
@@ -515,7 +523,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
         // Collect nested Dictionary types (e.g. Dictionary<string, Dictionary<string, Foo>>)
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
-        foreach (var type in types)
+        foreach (var type in validTypes)
             PicoSerDe.Gen.GenInfrastructure.CollectNestedDictTypes(type, nestedDictTypes);
 
         // Generate inner helpers for shared nested types
@@ -920,6 +928,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
             case "int64":
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+            case "uint32":
+            case "uint64":
             case "float32":
             case "float64":
                 sb.Append(indent);
@@ -997,6 +1011,43 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("long.TryParse(__rawBytes, out var __dictKey);");
                 break;
+
+            case "int16":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("short.TryParse(__rawBytes, out var __dictKey);");
+                break;
+            case "uint16":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("ushort.TryParse(__rawBytes, out var __dictKey);");
+                break;
+            case "sbyte":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("sbyte.TryParse(__rawBytes, out var __dictKey);");
+                break;
+            case "byte":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("byte.TryParse(__rawBytes, out var __dictKey);");
+                break;
+            case "uint32":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("uint.TryParse(__rawBytes, out var __dictKey);");
+                break;
+            case "uint64":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("ulong.TryParse(__rawBytes, out var __dictKey);");
+                break;
             case "guid":
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
@@ -1050,6 +1101,79 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "int64":
                 sb.Append(indent);
                 sb.AppendLine("reader.TryGetInt64(out var __ev);");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.AppendLine("[__dictKey] = __ev;");
+                break;
+
+            case "int16":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __ev)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.AppendLine("[__dictKey] = checked((short)__ev);");
+                break;
+            case "uint16":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __ev)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.AppendLine("[__dictKey] = checked((ushort)__ev);");
+                break;
+            case "sbyte":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __ev)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.AppendLine("[__dictKey] = checked((sbyte)__ev);");
+                break;
+            case "byte":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __ev)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.AppendLine("[__dictKey] = checked((byte)__ev);");
+                break;
+            case "uint32":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt64(out var __ev)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetUInt64(out var __ulev);");
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((long)__ulev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.AppendLine("[__dictKey] = checked((uint)__ev);");
+                break;
+            case "uint64":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetUInt64(out var __ev);");
                 sb.Append(indent);
                 sb.Append(dictVar);
                 sb.AppendLine("[__dictKey] = __ev;");
@@ -1198,7 +1322,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        else if (value is long __l)");
         sb.AppendLine("            jw.WriteNumber(__l);");
         sb.AppendLine("        else if (value is ulong __ul)");
-        sb.AppendLine("            jw.WriteNumber((decimal)__ul);");
+        sb.AppendLine("            jw.WriteNumber(__ul);");
         sb.AppendLine("        else if (value is int __i)");
         sb.AppendLine("            jw.WriteNumber(__i);");
         sb.AppendLine("        else if (value is uint __ui)");
@@ -1207,6 +1331,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            jw.WriteNumber(__sh);");
         sb.AppendLine("        else if (value is byte __by)");
         sb.AppendLine("            jw.WriteNumber(__by);");
+        sb.AppendLine("        else if (value is ushort __ush)");
+        sb.AppendLine("            jw.WriteNumber(__ush);");
+        sb.AppendLine("        else if (value is sbyte __sby)");
+        sb.AppendLine("            jw.WriteNumber(__sby);");
         sb.AppendLine("        else if (value is double __d)");
         sb.AppendLine("            jw.WriteNumber(__d);");
         sb.AppendLine("        else if (value is float __f)");
@@ -1246,6 +1374,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            return null;");
         sb.AppendLine("        if (reader.TokenType == TokenType.String)");
         sb.AppendLine("            return Encoding.UTF8.GetString(reader.GetStringRaw());");
+        sb.AppendLine("        if (reader.TokenType == TokenType.UInt64)");
+        sb.AppendLine(
+            "            throw new System.FormatException($\"Unsigned 64-bit integer at offset {reader.BytesConsumed} cannot be converted to Int64 in object-typed values\");"
+        );
         sb.AppendLine(
             "        if (reader.TokenType == TokenType.Int32 || reader.TokenType == TokenType.Int64)"
         );
@@ -1619,6 +1751,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
             case "int64":
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+            case "uint32":
+            case "uint64":
             case "float32":
             case "float64":
                 sb.Append(indent);
@@ -1829,6 +1967,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
             case "int64":
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+            case "uint32":
+            case "uint64":
             case "float32":
             case "float64":
                 sb.Append(indent);
@@ -2089,7 +2233,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     var defaultVal = cp.TypeKind switch
                     {
                         "string" => "\"\"",
-                        "int32" or "int64" or "float64" => "0",
+                        "int32"
+                        or "int64"
+                        or "int16"
+                        or "uint16"
+                        or "sbyte"
+                        or "byte"
+                        or "uint32"
+                        or "uint64"
+                        or "float64" => "0",
                         "boolean" => "false",
                         _ => "default!",
                     };
@@ -2328,6 +2480,95 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("if (!reader.TryGetInt64(out var __v))");
                 EmitThrowInvalidValue(sb, indent + "    ", prop, "a 64-bit integer");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = __v;");
+                break;
+
+            case "int16":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __v))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __v = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = checked((short)__v);");
+                break;
+            case "uint16":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __v))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __v = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = checked((ushort)__v);");
+                break;
+            case "sbyte":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __v))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __v = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = checked((sbyte)__v);");
+                break;
+            case "byte":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __v))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __v = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = checked((byte)__v);");
+                break;
+            case "uint32":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt64(out var __v))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetUInt64(out var __ulv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __v = checked((long)__ulv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.AppendLine(" = checked((uint)__v);");
+                break;
+            case "uint64":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetUInt64(out var __v))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a 64-bit unsigned integer");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __v;");
@@ -2675,6 +2916,107 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(".");
                 sb.Append(prop.Name);
                 sb.AppendLine(" = __longValue;");
+                break;
+
+            case "int16":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __intValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __intValue = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = checked((short)__intValue);");
+                break;
+            case "uint16":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __intValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __intValue = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = checked((ushort)__intValue);");
+                break;
+            case "sbyte":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __intValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __intValue = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = checked((sbyte)__intValue);");
+                break;
+            case "byte":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __intValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __intValue = checked((int)__lv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = checked((byte)__intValue);");
+                break;
+            case "uint32":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt64(out var __intValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetUInt64(out var __ulv))");
+                EmitThrowInvalidValue(sb, indent + "        ", prop, "an integer");
+                sb.Append(indent);
+                sb.AppendLine("    __intValue = checked((long)__ulv);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = checked((uint)__intValue);");
+                break;
+            case "uint64":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetUInt64(out var __ulongValue))");
+                EmitThrowInvalidValue(sb, indent + "    ", prop, "a 64-bit unsigned integer");
+                sb.Append(indent);
+                sb.Append(target);
+                sb.Append(".");
+                sb.Append(prop.Name);
+                sb.AppendLine(" = __ulongValue;");
                 break;
             case "float64":
                 sb.Append(indent);
@@ -3109,6 +3451,149 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(listVar);
                 sb.AppendLine(".Add(__elementValue);");
                 break;
+
+            case "int16":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(listVar);
+                sb.AppendLine(".Add(checked((short)__elementValue));");
+                break;
+            case "uint16":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(listVar);
+                sb.AppendLine(".Add(checked((ushort)__elementValue));");
+                break;
+            case "sbyte":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(listVar);
+                sb.AppendLine(".Add(checked((sbyte)__elementValue));");
+                break;
+            case "byte":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(listVar);
+                sb.AppendLine(".Add(checked((byte)__elementValue));");
+                break;
+            case "uint32":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt64(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetUInt64(out var __ulev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((long)__ulev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(listVar);
+                sb.AppendLine(".Add(checked((uint)__elementValue));");
+                break;
+            case "uint64":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit unsigned integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetUInt64(out var __elementValue))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit unsigned integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.Append(listVar);
+                sb.AppendLine(".Add(__elementValue);");
+                break;
             case "float32":
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.Null)");
@@ -3370,6 +3855,67 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     "    throw new System.FormatException($\"Invalid 64-bit dictionary key at offset {reader.BytesConsumed}\");"
                 );
                 break;
+
+            case "int16":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("if (!short.TryParse(__rawBytes, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid 16-bit dictionary key at offset {reader.BytesConsumed}\");"
+                );
+                break;
+            case "uint16":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("if (!ushort.TryParse(__rawBytes, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid 16-bit dictionary key at offset {reader.BytesConsumed}\");"
+                );
+                break;
+            case "sbyte":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("if (!sbyte.TryParse(__rawBytes, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid 8-bit dictionary key at offset {reader.BytesConsumed}\");"
+                );
+                break;
+            case "byte":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("if (!byte.TryParse(__rawBytes, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid 8-bit dictionary key at offset {reader.BytesConsumed}\");"
+                );
+                break;
+            case "uint32":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("if (!uint.TryParse(__rawBytes, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid 32-bit dictionary key at offset {reader.BytesConsumed}\");"
+                );
+                break;
+            case "uint64":
+                sb.Append(indent);
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                sb.Append(indent);
+                sb.AppendLine("if (!ulong.TryParse(__rawBytes, out var __dictKey))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Invalid 64-bit dictionary key at offset {reader.BytesConsumed}\");"
+                );
+                break;
             case "guid":
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
@@ -3442,6 +3988,91 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "int64":
                 sb.Append(indent);
                 sb.AppendLine("reader.TryGetInt64(out var __elementValue);");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.Append("[");
+                sb.Append(keyVar);
+                sb.AppendLine("] = __elementValue;");
+                break;
+
+            case "int16":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.Append("[");
+                sb.Append(keyVar);
+                sb.AppendLine("] = checked((short)__elementValue);");
+                break;
+            case "uint16":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.Append("[");
+                sb.Append(keyVar);
+                sb.AppendLine("] = checked((ushort)__elementValue);");
+                break;
+            case "sbyte":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.Append("[");
+                sb.Append(keyVar);
+                sb.AppendLine("] = checked((sbyte)__elementValue);");
+                break;
+            case "byte":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __elementValue)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetInt64(out var __lev);");
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.Append("[");
+                sb.Append(keyVar);
+                sb.AppendLine("] = checked((byte)__elementValue);");
+                break;
+            case "uint32":
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt64(out var __elementValue)) {");
+                sb.Append(indent);
+                sb.AppendLine("    reader.TryGetUInt64(out var __ulev);");
+                sb.Append(indent);
+                sb.AppendLine("    __elementValue = checked((long)__ulev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.Append("[");
+                sb.Append(keyVar);
+                sb.AppendLine("] = checked((uint)__elementValue);");
+                break;
+            case "uint64":
+                sb.Append(indent);
+                sb.AppendLine("reader.TryGetUInt64(out var __elementValue);");
                 sb.Append(indent);
                 sb.Append(dictVar);
                 sb.Append("[");
@@ -3696,7 +4327,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 var defaultVal = cp.TypeKind switch
                 {
                     "string" => "\"\"",
-                    "int32" or "int64" or "float64" => "0",
+                    "int32"
+                    or "int64"
+                    or "int16"
+                    or "uint16"
+                    or "sbyte"
+                    or "byte"
+                    or "uint32"
+                    or "uint64"
+                    or "float64" => "0",
                     "boolean" => "false",
                     _ => "default!",
                 };
@@ -4025,7 +4664,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     var dv = cp.TypeKind switch
                     {
                         "string" => "\"\"",
-                        "int32" or "int64" or "float64" => "0",
+                        "int32"
+                        or "int64"
+                        or "int16"
+                        or "uint16"
+                        or "sbyte"
+                        or "byte"
+                        or "uint32"
+                        or "uint64"
+                        or "float64" => "0",
                         "boolean" => "false",
                         _ => "default!",
                     };
@@ -4208,7 +4855,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     var dv = cp.TypeKind switch
                     {
                         "string" => "\"\"",
-                        "int32" or "int64" or "float64" => "0",
+                        "int32"
+                        or "int64"
+                        or "int16"
+                        or "uint16"
+                        or "sbyte"
+                        or "byte"
+                        or "uint32"
+                        or "uint64"
+                        or "float64" => "0",
                         "boolean" => "false",
                         _ => "default!",
                     };
@@ -4418,6 +5073,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "string" => "string",
             "int32" => "int",
             "int64" => "long",
+            "int16" => "short",
+            "uint16" => "ushort",
+            "sbyte" => "sbyte",
+            "byte" => "byte",
+            "uint32" => "uint",
+            "uint64" => "ulong",
             "float64" => "double",
             "boolean" => "bool",
             "datetime" => "System.DateTime",
@@ -4477,6 +5138,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "int32":
             case "int64":
+            case "int16":
+            case "uint16":
+            case "sbyte":
+            case "byte":
+            case "uint32":
+            case "uint64":
             case "float32":
             case "float64":
                 sb.Append(indent);
@@ -4591,6 +5258,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "string" => "string",
             "int32" => "int",
             "int64" => "long",
+            "int16" => "short",
+            "uint16" => "ushort",
+            "sbyte" => "sbyte",
+            "byte" => "byte",
+            "uint32" => "uint",
+            "uint64" => "ulong",
             "float32" => "float",
             "float64" => "double",
             "boolean" => "bool",
@@ -4672,6 +5345,143 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine(
                     "    throw new System.FormatException($\"Expected a 64-bit integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(__ev);");
+                break;
+
+            case "int16":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(checked((short)__ev));");
+                break;
+            case "uint16":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(checked((ushort)__ev));");
+                break;
+            case "sbyte":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(checked((sbyte)__ev));");
+                break;
+            case "byte":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt32(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetInt64(out var __lev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((int)__lev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(checked((byte)__ev));");
+                break;
+            case "uint32":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetInt64(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine("    if (!reader.TryGetUInt64(out var __ulev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "        throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    __ev = checked((long)__ulev);");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("__list.Add(checked((uint)__ev));");
+                break;
+            case "uint64":
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit unsigned integer element at offset {reader.BytesConsumed}\");"
+                );
+                sb.Append(indent);
+                sb.AppendLine("if (!reader.TryGetUInt64(out var __ev))");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit unsigned integer element at offset {reader.BytesConsumed}\");"
                 );
                 sb.Append(indent);
                 sb.AppendLine("__list.Add(__ev);");
@@ -4849,7 +5659,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         f.TypeKind switch
         {
             "string" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}));",
-            "int32" or "int64" or "float32" or "float64" or "decimal" => $"{wv}.WriteNumber({vv});",
+            "int32"
+            or "int64"
+            or "int16"
+            or "uint16"
+            or "sbyte"
+            or "byte"
+            or "uint32"
+            or "uint64"
+            or "float32"
+            or "float64"
+            or "decimal" => $"{wv}.WriteNumber({vv});",
             "boolean" => $"{wv}.WriteBoolean({vv});",
             "datetime" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString(\"O\")));",
             "dateonly" or "timeonly" or "timespan" or "guid" =>

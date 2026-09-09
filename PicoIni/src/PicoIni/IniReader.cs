@@ -182,6 +182,14 @@ public ref struct IniReader : ITokenReader
         return false;
     }
 
+    public bool TryGetUInt64(out ulong v)
+    {
+        if (_tokenType is TokenType.Int32 or TokenType.Int64 or TokenType.String)
+            return Utf8Parser.TryParse(_currentValue, out v, out _);
+        v = 0;
+        return false;
+    }
+
     public bool TryGetFloat64(out double v)
     {
         if (
