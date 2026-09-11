@@ -64,14 +64,49 @@ internal static class TypeKindResolver
                     return (null, false, null);
                 return ("list", false, null);
             }
+
+            // Extended collections (JSON only for now — other format generators do
+            // not yet emit these kinds): serialize as arrays, constructed via the
+            // concrete type on read.
+            if (format == "json")
+            {
+                var ns = ntsList.ContainingNamespace?.ToDisplayString();
+                var extKind = (ns, ntsList.Name) switch
+                {
+                    ("System.Collections.Generic", "HashSet") => "hashset",
+                    ("System.Collections.Generic", "ISet") => "hashset",
+                    ("System.Collections.Generic", "Queue") => "queue",
+                    ("System.Collections.Generic", "Stack") => "stack",
+                    ("System.Collections.Generic", "LinkedList") => "linkedlist",
+                    ("System.Collections.Immutable", "ImmutableArray") => "immutablearray",
+                    ("System", "Memory") => "memory",
+                    ("System", "ReadOnlyMemory") => "readonlymemory",
+                    _ => null,
+                };
+                if (extKind is not null)
+                {
+                    var elementType = ntsList.TypeArguments[0];
+                    var (ek, _, _) = Resolve(elementType, format);
+                    if (ek is null)
+                        return (null, false, null);
+                    return (extKind, false, null);
+                }
+            }
         }
 
-        // Dictionary<K,V>
+        // Dictionary<K,V> and extended dictionary types (JSON only)
         if (type is INamedTypeSymbol ntsDict && ntsDict.TypeArguments.Length == 2)
         {
+            var ns = ntsDict.ContainingNamespace?.ToDisplayString();
             if (
-                ntsDict.Name == "Dictionary"
-                && ntsDict.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic"
+                ns == "System.Collections.Generic"
+                && ntsDict.Name is "Dictionary" or "SortedDictionary"
+            )
+                return ("dict", false, null);
+            if (
+                format == "json"
+                && ns == "System.Collections.Concurrent"
+                && ntsDict.Name == "ConcurrentDictionary"
             )
                 return ("dict", false, null);
         }
@@ -89,6 +124,7 @@ internal static class TypeKindResolver
             SpecialType.System_Byte => "byte",
             SpecialType.System_UInt32 => "uint32",
             SpecialType.System_UInt64 => "uint64",
+            SpecialType.System_Char when format == "json" => "char",
             SpecialType.System_Double => "float64",
             // NOTE: System.Single (C# float) maps to "float64" intentionally —
             // the generated code uses double as the universal floating-point
@@ -113,6 +149,22 @@ internal static class TypeKindResolver
                     "timeonly",
                 INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace.Name: "System" } =>
                     "timespan",
+                INamedTypeSymbol { Name: "DateTimeOffset", ContainingNamespace.Name: "System" }
+                    when format == "json" => "datetimeoffset",
+                INamedTypeSymbol { Name: "Uri", ContainingNamespace.Name: "System" }
+                    when format == "json" => "uri",
+                INamedTypeSymbol { Name: "Version", ContainingNamespace.Name: "System" }
+                    when format == "json" => "version",
+                INamedTypeSymbol { Name: "Half", ContainingNamespace.Name: "System" }
+                    when format == "json" => "half",
+                INamedTypeSymbol { Name: "BigInteger", ContainingNamespace.Name: "Numerics" }
+                    when format == "json" => "biginteger",
+                INamedTypeSymbol { Name: "Int128", ContainingNamespace.Name: "System" }
+                    when format == "json" => "int128",
+                INamedTypeSymbol { Name: "UInt128", ContainingNamespace.Name: "System" }
+                    when format == "json" => "uint128",
+                INamedTypeSymbol { Name: "IntPtr", ContainingNamespace.Name: "System" }
+                    when format == "json" => "nint",
                 _ => null,
             };
         }
@@ -169,6 +221,23 @@ internal static class TypeKindResolver
             "byte" => "byte",
             "uint32" => "uint",
             "uint64" => "ulong",
+            "char" => "char",
+            "datetimeoffset" => "System.DateTimeOffset",
+            "uri" => "System.Uri",
+            "version" => "System.Version",
+            "half" => "System.Half",
+            "biginteger" => "System.Numerics.BigInteger",
+            "int128" => "System.Int128",
+            "uint128" => "System.UInt128",
+            "nint" => "nint",
+            "hashset" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "queue" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "stack" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "linkedlist" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "immutablearray" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "memory" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "readonlymemory" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            "kvp" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "float32" => "float",
             "float64" => "double",
             "boolean" => "bool",

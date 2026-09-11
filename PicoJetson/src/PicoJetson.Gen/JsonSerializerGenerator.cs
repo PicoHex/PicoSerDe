@@ -553,7 +553,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         // Must check types, nestedTypes (inner helpers), and nestedDictTypes —
         // a property like ContentBlock.Arguments is only discovered via nested type traversal.
         bool hasAnyValue =
-            types.Any(t => t.Properties.Any(p => p.ElementTypeKind == "any"))
+            validTypes.Any(t => t.Properties.Any(p => p.ElementTypeKind == "any"))
             || nestedTypes.Values.Any(props => props.Any(p => p.ElementTypeKind == "any"))
             || nestedDictTypes.Values.Any(dp => dp.ElementTypeKind == "any");
         if (hasAnyValue)
@@ -728,9 +728,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
         else
         {
-            sb.Append("        var obj = new ");
-            sb.Append(fullName);
-            sb.AppendLine("();");
+            sb.Append("        var obj = ");
+            sb.Append(ObjectConstructor(fullName));
+            sb.AppendLine(";");
         }
         sb.AppendLine(
             "        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
@@ -866,9 +866,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(fullName);
         sb.AppendLine(" Deserialize(ref JsonReader reader)");
         sb.AppendLine("    {");
-        sb.Append("        var obj = new ");
-        sb.Append(fullName);
-        sb.AppendLine("();");
+        sb.Append("        var obj = ");
+        sb.Append(ObjectConstructor(fullName));
+        sb.AppendLine(";");
         sb.AppendLine("        if (reader.TokenType == TokenType.ObjectStart)");
         sb.AppendLine("        {");
         sb.AppendLine(
@@ -985,6 +985,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 EmitAnyValueSerialize(sb, "__kvp.Value", indent);
                 break;
             default:
+                if (EmitExtendedScalarWrite(sb, dp.ElementTypeKind, "__kvp.Value", indent))
+                    break;
                 sb.Append(indent);
                 sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));");
                 break;
@@ -1284,6 +1286,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 EmitAnyValueDeserialize(sb, $"{dictVar}[__dictKey]", indent);
                 break;
             default:
+                if (ExtendedScalarReadExpr(dp.ElementTypeKind) is string __sx1)
+                {
+                    sb.Append(indent);
+                    sb.Append(dictVar);
+                    sb.AppendLine("[__dictKey] = " + __sx1 + ";");
+                    break;
+                }
                 sb.Append(indent);
                 sb.Append(dictVar);
                 sb.AppendLine("[__dictKey] = Encoding.UTF8.GetString(reader.GetStringRaw());");
@@ -1833,6 +1842,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
                 sb.Append(indent);
                 sb.AppendLine("jw.WriteStartArray();");
                 sb.Append(indent);
@@ -1842,6 +1856,34 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("{");
                 // Check for nested list: NestedProperties contains wrapper(s)
+                if (prop.NestedProperties.Length > 0 && IsNestedList(prop))
+                {
+                    EmitNestedListSerialize(
+                        sb,
+                        prop.NestedProperties[0],
+                        "__item",
+                        indent + "    "
+                    );
+                }
+                else
+                {
+                    EmitSerializeElement(sb, prop, "__item", indent + "    ");
+                }
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("jw.WriteEndArray();");
+                break;
+            case "memory":
+            case "readonlymemory":
+                sb.Append(indent);
+                sb.AppendLine("jw.WriteStartArray();");
+                sb.Append(indent);
+                sb.Append("foreach (var __item in ");
+                sb.Append(effectiveAccessor);
+                sb.AppendLine(".Span)");
+                sb.Append(indent);
+                sb.AppendLine("{");
                 if (prop.NestedProperties.Length > 0 && IsNestedList(prop))
                 {
                     EmitNestedListSerialize(
@@ -1917,6 +1959,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(");");
                 break;
             }
+            default:
+                if (EmitExtendedScalarWrite(sb, prop.TypeKind, effectiveAccessor, indent))
+                    break;
+                break;
         }
 
         // Close nullable block
@@ -2072,6 +2118,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             }
             default:
+                if (EmitExtendedScalarWrite(sb, prop.ElementTypeKind!, itemVar, indent))
+                    break;
                 sb.Append(indent);
                 sb.Append("jw.WriteString(Encoding.UTF8.GetBytes(");
                 sb.Append(itemVar);
@@ -2714,6 +2762,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             }
             case "list":
             case "array":
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
             {
                 var elemType = prop.ElementTypeName ?? "object";
                 var listVar = $"__list_{cp.Name}";
@@ -2738,16 +2793,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("    }");
                 sb.Append(indent);
                 sb.AppendLine("}");
-                sb.Append(indent);
-                sb.Append(target);
-                sb.Append(" = ");
-                if (cp.TypeKind == "array")
+                if (cp.TypeKind != "list")
                 {
-                    sb.Append(listVar);
-                    sb.AppendLine(".ToArray();");
+                    EmitCollectionConversion(
+                        sb,
+                        cp.TypeKind,
+                        listVar,
+                        target,
+                        prop.ElementTypeName ?? "object",
+                        indent
+                    );
                 }
                 else
                 {
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.Append(" = ");
                     sb.Append(listVar);
                     sb.AppendLine(";");
                 }
@@ -2761,11 +2822,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.Append("var ");
                 sb.Append(dictVar);
-                sb.Append(" = new System.Collections.Generic.Dictionary<");
-                sb.Append(keyType);
-                sb.Append(", ");
-                sb.Append(valType);
-                sb.AppendLine(">();");
+                sb.Append(" = new ");
+                sb.Append(cp.TypeFullName);
+                sb.AppendLine("();");
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ObjectStart)");
                 sb.Append(indent);
@@ -2811,6 +2870,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             }
             default:
+                if (ExtendedScalarReadExpr(cp.TypeKind) is string __sx2)
+                {
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.AppendLine(" = " + __sx2 + ";");
+                    break;
+                }
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = default!; // unsupported ctor param type: " + cp.TypeKind);
@@ -3180,6 +3246,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
                 if (prop.TypeKind == "list")
                 {
                     sb.Append(indent);
@@ -3250,15 +3323,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
                 sb.Append(indent);
                 sb.AppendLine("}");
-                if (prop.TypeKind == "array")
+                if (prop.TypeKind != "list")
                 {
-                    sb.Append(indent);
-                    sb.Append(target);
-                    sb.Append(".");
-                    sb.Append(prop.Name);
-                    sb.Append(" = __list_");
-                    sb.Append(prop.Name);
-                    sb.AppendLine(".ToArray();");
+                    EmitCollectionConversion(
+                        sb,
+                        prop.TypeKind,
+                        $"__list_{prop.Name}",
+                        $"{target}.{prop.Name}",
+                        prop.ElementTypeName ?? "object",
+                        indent
+                    );
                 }
                 break;
             case "dict":
@@ -3266,11 +3340,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(target);
                 sb.Append(".");
                 sb.Append(prop.Name);
-                sb.AppendLine(" ??= new System.Collections.Generic.Dictionary<");
-                sb.Append(prop.KeyTypeName);
-                sb.Append(", ");
-                sb.Append(prop.ElementTypeName);
-                sb.AppendLine(">();");
+                sb.Append(" ??= new ");
+                sb.Append(prop.TypeFullName);
+                sb.AppendLine("();");
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ObjectStart)");
                 sb.Append(indent);
@@ -3335,6 +3407,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(".Deserialize(ref reader);");
                 break;
             }
+            default:
+                if (ExtendedScalarReadExpr(prop.TypeKind) is string __sx3)
+                {
+                    sb.Append(indent);
+                    sb.Append(target);
+                    sb.Append(".");
+                    sb.Append(prop.Name);
+                    sb.AppendLine(" = " + __sx3 + ";");
+                }
+                break;
         }
     }
 
@@ -3755,6 +3837,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             }
             default:
+                if (ExtendedScalarReadExpr(prop.ElementTypeKind!) is string __sx4)
+                {
+                    sb.Append(indent);
+                    sb.Append(listVar);
+                    sb.AppendLine(".Add(" + __sx4 + ");");
+                    break;
+                }
                 sb.Append(indent);
                 sb.Append(listVar);
                 sb.AppendLine(".Add(Encoding.UTF8.GetString(reader.GetStringRaw()));");
@@ -4244,6 +4333,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             }
             default:
+                if (ExtendedScalarReadExpr(prop.ElementTypeKind!) is string __sx5)
+                {
+                    sb.Append(indent);
+                    sb.Append(dictVar);
+                    sb.Append("[");
+                    sb.Append(keyVar);
+                    sb.AppendLine("] = " + __sx5 + ";");
+                    break;
+                }
                 sb.Append(indent);
                 sb.Append(dictVar);
                 sb.Append("[");
@@ -4687,9 +4785,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             }
             else
             {
-                sb.Append("                var obj = new ");
-                sb.Append(dtName);
-                sb.AppendLine("();");
+                sb.Append("                var obj = ");
+                sb.Append(ObjectConstructor(dtName));
+                sb.AppendLine(";");
             }
 
             sb.AppendLine(
@@ -5066,6 +5164,148 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("}");
     }
 
+    /// <summary>
+    /// ValueTuple types cannot be constructed with 'new T()' or object initializers
+    /// (CS8181) — they use 'default(T)' plus member assignment instead.
+    /// </summary>
+    private static string ObjectConstructor(string typeName) =>
+        typeName.Contains("ValueTuple") || typeName.StartsWith("(")
+            ? $"default({typeName})"
+            : $"new {typeName}()";
+
+    /// <summary>Emits the temp-List to concrete-collection conversion for array-like kinds.</summary>
+    private static void EmitCollectionConversion(
+        StringBuilder sb,
+        string kind,
+        string listVar,
+        string assignTarget,
+        string elemType,
+        string indent
+    )
+    {
+        switch (kind)
+        {
+            case "array":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = ");
+                sb.Append(listVar);
+                sb.AppendLine(".ToArray();");
+                break;
+            case "hashset":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = new System.Collections.Generic.HashSet<");
+                sb.Append(elemType);
+                sb.Append(">(");
+                sb.Append(listVar);
+                sb.AppendLine(");");
+                break;
+            case "queue":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = new System.Collections.Generic.Queue<");
+                sb.Append(elemType);
+                sb.Append(">(");
+                sb.Append(listVar);
+                sb.AppendLine(");");
+                break;
+            case "linkedlist":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = new System.Collections.Generic.LinkedList<");
+                sb.Append(elemType);
+                sb.Append(">(");
+                sb.Append(listVar);
+                sb.AppendLine(");");
+                break;
+            case "stack":
+                sb.Append(indent);
+                sb.Append("var __stk = new System.Collections.Generic.Stack<");
+                sb.Append(elemType);
+                sb.AppendLine(">();");
+                sb.Append(indent);
+                sb.Append("for (int __i = ");
+                sb.Append(listVar);
+                sb.AppendLine(".Count - 1; __i >= 0; __i--)");
+                sb.Append(indent);
+                sb.Append("    __stk.Push(");
+                sb.Append(listVar);
+                sb.AppendLine("[__i]);");
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.AppendLine(" = __stk;");
+                break;
+            case "immutablearray":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = System.Collections.Immutable.ImmutableArray.CreateRange(");
+                sb.Append(listVar);
+                sb.AppendLine(");");
+                break;
+            case "memory":
+            case "readonlymemory":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = new System.");
+                sb.Append(kind == "memory" ? "Memory" : "ReadOnlyMemory");
+                sb.Append("<");
+                sb.Append(elemType);
+                sb.Append(">(");
+                sb.Append(listVar);
+                sb.AppendLine(".ToArray());");
+                break;
+        }
+    }
+
+    /// <summary>Emits a write statement for the extended scalar family. False when the kind is not one.</summary>
+    private static bool EmitExtendedScalarWrite(
+        StringBuilder sb,
+        string kind,
+        string accessor,
+        string indent
+    )
+    {
+        var method = kind switch
+        {
+            "datetimeoffset" => "WriteDateTimeOffset",
+            "char" => "WriteChar",
+            "uri" => "WriteUri",
+            "version" => "WriteVersion",
+            "half" => "WriteHalf",
+            "biginteger" => "WriteBigInteger",
+            "int128" => "WriteInt128",
+            "uint128" => "WriteUInt128",
+            "nint" => "WriteNInt",
+            _ => null,
+        };
+        if (method is null)
+            return false;
+        sb.Append(indent);
+        sb.Append("global::PicoJetson.TypeIo.");
+        sb.Append(method);
+        sb.Append("(ref jw, ");
+        sb.Append(accessor);
+        sb.AppendLine(");");
+        return true;
+    }
+
+    /// <summary>Read expression for the extended scalar family, or null when the kind is not one.</summary>
+    private static string? ExtendedScalarReadExpr(string kind) =>
+        kind switch
+        {
+            "datetimeoffset" => "global::PicoJetson.TypeIo.ReadDateTimeOffset(ref reader)",
+            "char" => "global::PicoJetson.TypeIo.ReadChar(ref reader)",
+            "uri" => "global::PicoJetson.TypeIo.ReadUri(ref reader)",
+            "version" => "global::PicoJetson.TypeIo.ReadVersion(ref reader)",
+            "half" => "global::PicoJetson.TypeIo.ReadHalf(ref reader)",
+            "biginteger" => "global::PicoJetson.TypeIo.ReadBigInteger(ref reader)",
+            "int128" => "global::PicoJetson.TypeIo.ReadInt128(ref reader)",
+            "uint128" => "global::PicoJetson.TypeIo.ReadUInt128(ref reader)",
+            "nint" => "global::PicoJetson.TypeIo.ReadNInt(ref reader)",
+            _ => null,
+        };
+
     /// <summary>Maps a TypeKind string to its C# type name for code generation.</summary>
     private static string ResolveCSharpTypeName(string typeKind) =>
         typeKind switch
@@ -5073,6 +5313,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "string" => "string",
             "int32" => "int",
             "int64" => "long",
+            "char" => "char",
+            "datetimeoffset" => "System.DateTimeOffset",
+            "uri" => "System.Uri",
+            "version" => "System.Version",
+            "half" => "System.Half",
+            "biginteger" => "System.Numerics.BigInteger",
+            "int128" => "System.Int128",
+            "uint128" => "System.UInt128",
+            "nint" => "nint",
             "int16" => "short",
             "uint16" => "ushort",
             "sbyte" => "sbyte",
@@ -5179,6 +5428,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             }
             default:
+                if (EmitExtendedScalarWrite(sb, elemKind, "__item", indent))
+                    break;
                 sb.Append(indent);
                 sb.AppendLine(
                     "jw.WriteString(System.Text.Encoding.UTF8.GetBytes(__item.ToString()));"
@@ -5258,6 +5509,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "string" => "string",
             "int32" => "int",
             "int64" => "long",
+            "char" => "char",
+            "datetimeoffset" => "System.DateTimeOffset",
+            "uri" => "System.Uri",
+            "version" => "System.Version",
+            "half" => "System.Half",
+            "biginteger" => "System.Numerics.BigInteger",
+            "int128" => "System.Int128",
+            "uint128" => "System.UInt128",
+            "nint" => "nint",
             "int16" => "short",
             "uint16" => "ushort",
             "sbyte" => "sbyte",
@@ -5586,6 +5846,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 break;
             }
             default:
+                if (ExtendedScalarReadExpr(elemKind) is string __sx6)
+                {
+                    sb.Append(indent);
+                    sb.AppendLine("__list.Add(" + __sx6 + ");");
+                    break;
+                }
                 sb.Append(indent);
                 sb.AppendLine(
                     "__list.Add(System.Text.Encoding.UTF8.GetString(reader.GetStringRaw()));"

@@ -180,7 +180,7 @@ public ref struct JsonWriter
     /// verbatim and produce invalid JSON output. Callers must supply valid
     /// UTF-8 (e.g. the output of <see cref="Encoding.UTF8.GetBytes(string)"/>).
     /// </summary>
-    public void WriteString(ReadOnlySpan<byte> utf8Value)
+    public void WriteString(scoped ReadOnlySpan<byte> utf8Value)
     {
         BeforeWriteValue();
         WriteQuotedString(utf8Value);
@@ -193,7 +193,7 @@ public ref struct JsonWriter
     /// <c>Utf8JsonWriter.WriteRawValue</c>; intended for pre-validated payloads
     /// such as tool input schemas.
     /// </summary>
-    public void WriteRawValue(ReadOnlySpan<byte> utf8Json)
+    public void WriteRawValue(scoped ReadOnlySpan<byte> utf8Json)
     {
         BeforeWriteValue();
         WriteRaw(utf8Json);

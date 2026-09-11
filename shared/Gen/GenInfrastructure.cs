@@ -162,7 +162,7 @@ internal static class GenInfrastructure
     /// <summary>Converts a fully qualified type name to a safe identifier (replaces . and :: with _).</summary>
     public static string SafeName(string fullName)
     {
-        return fullName
+        var cleaned = fullName
             .Replace("global::", "")
             .Replace('.', '_')
             .Replace('<', '_')
@@ -170,7 +170,19 @@ internal static class GenInfrastructure
             .Replace(',', '_')
             .Replace(' ', '_')
             .Replace('[', '_')
-            .Replace(']', '_');
+            .Replace(']', '_')
+            .Replace('(', '_')
+            .Replace(')', '_');
+        // Final pass: any remaining char that is not identifier-safe becomes '_'
+        // (guards weird type display names, e.g. ValueTuple '(int, string)').
+        var span = cleaned.ToCharArray();
+        for (var i = 0; i < span.Length; i++)
+        {
+            var c = span[i];
+            if (!char.IsLetterOrDigit(c) && c != '_')
+                span[i] = '_';
+        }
+        return new string(span);
     }
 
     /// <summary>Returns the fully qualified inner helper class name (e.g. "global::Ns.Sub_TypeJsonInner").</summary>
@@ -278,6 +290,12 @@ internal static class GenInfrastructure
                 or "byte"
                 or "uint32"
                 or "uint64"
+                or "char"
+                or "half"
+                or "biginteger"
+                or "int128"
+                or "uint128"
+                or "nint"
                 or "float32"
                 or "float64"
                 or "boolean"
@@ -297,6 +315,13 @@ internal static class GenInfrastructure
                 or "byte"
                 or "uint32"
                 or "uint64"
+                or "char"
+                or "half"
+                or "biginteger"
+                or "int128"
+                or "uint128"
+                or "nint"
+                or "datetimeoffset"
                 or "float32"
                 or "float64"
                 or "boolean"
@@ -502,6 +527,11 @@ internal static class GenInfrastructure
 
     // ── Shared core: single source of truth for property extraction ──
 
+    /// <summary>True for System.ValueTuple&lt;...&gt; (whose members are public fields).</summary>
+    private static bool IsValueTupleLike(INamedTypeSymbol type) =>
+        type.Name.StartsWith("ValueTuple")
+        && type.ContainingNamespace?.ToDisplayString() == "System";
+
     /// <summary>
     /// Extracts serializable properties from <paramref name="type"/>.
     /// Both TransformType and ExtractNestedProperties delegate here.
@@ -515,7 +545,7 @@ internal static class GenInfrastructure
         bool includeFields = false
     )
     {
-        return ExtractProperties(
+        var result = ExtractProperties(
             type,
             formatTag,
             attrs,
@@ -524,6 +554,23 @@ internal static class GenInfrastructure
             null,
             includeFields
         );
+        // Field-based fallback for System.ValueTuple<...>: tuples carry their data in
+        // public fields and have no serializable properties — extract fields so they
+        // serialize their members instead of silently emitting '{}'. Scoped to tuples
+        // on purpose: regular types must keep 'fields are not serialized by default'.
+        if (result.Count == 0 && !includeFields && IsValueTupleLike(type))
+        {
+            result = ExtractProperties(
+                type,
+                formatTag,
+                attrs,
+                includeReadOnlyProperties,
+                useCamelCase,
+                null,
+                includeFields: true
+            );
+        }
+        return result;
     }
 
     /// <summary>
@@ -639,7 +686,18 @@ internal static class GenInfrastructure
             ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
             bool elementIsNrt = false;
 
-            if (typeKind is "list" or "array")
+            if (
+                typeKind
+                is "list"
+                    or "array"
+                    or "hashset"
+                    or "queue"
+                    or "stack"
+                    or "linkedlist"
+                    or "immutablearray"
+                    or "memory"
+                    or "readonlymemory"
+            )
             {
                 ITypeSymbol? elementType;
                 if (prop.Type is IArrayTypeSymbol arrType)
