@@ -74,7 +74,8 @@ internal readonly record struct CtorParamInfo(
     string Name,
     string TypeKind,
     string TypeFullName,
-    string? DateTimeFormat = null
+    string? DateTimeFormat = null,
+    string? TypeFullNameAnnotated = null
 );
 
 /// <summary>Shared property descriptor used by all 5 format SGs.</summary>
@@ -99,7 +100,11 @@ internal readonly record struct PropertyInfo(
     bool IsNullableReference = false,
     bool IsRequired = false,
     bool ElementIsNullableReference = false,
-    string? IgnoreCondition = null
+    string? IgnoreCondition = null,
+    // Declaration-position type text (keeps "?") — null falls back to the identity
+    // form (TypeFullName / ElementTypeName). Never use for identifiers or new T().
+    string? TypeFullNameAnnotated = null,
+    string? ElementTypeNameAnnotated = null
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -643,7 +648,8 @@ internal static class GenInfrastructure
                         null,
                         fieldNested,
                         null,
-                        IsNullableReference: fnNrt
+                        IsNullableReference: fnNrt,
+                        TypeFullNameAnnotated: TypeKindResolver.DisplayType(field.Type)
                     )
                 );
                 continue;
@@ -696,6 +702,7 @@ internal static class GenInfrastructure
 
             string? elementTypeKind = null;
             string? elementTypeName = null;
+            string? elementTypeNameAnnotated = null;
             string? keyTypeKind = null;
             string? keyTypeName = null;
             ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
@@ -740,6 +747,10 @@ internal static class GenInfrastructure
                     continue;
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
+                elementTypeNameAnnotated = TypeKindResolver.MapTypeNamePreservingNullability(
+                    ek,
+                    elementType
+                );
                 elementIsNrt = elementType.NullableAnnotation == NullableAnnotation.Annotated;
                 if (elementIsNrt && ek is "any")
                     elementTypeName += "?";
@@ -788,6 +799,10 @@ internal static class GenInfrastructure
                     keyTypeName = TypeKindResolver.MapTypeName(kk, keyType);
                     elementTypeKind = vk;
                     elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
+                    elementTypeNameAnnotated = TypeKindResolver.MapTypeNamePreservingNullability(
+                        vk,
+                        valType
+                    );
                     elementIsNrt = valType.NullableAnnotation == NullableAnnotation.Annotated;
                     if (elementIsNrt && vk is "any")
                         elementTypeName += "?";
@@ -839,7 +854,9 @@ internal static class GenInfrastructure
                     IsNullableReference: isNrtNullable,
                     IsRequired: prop.IsRequired,
                     ElementIsNullableReference: elementIsNrt,
-                    IgnoreCondition: ignoreCondition
+                    IgnoreCondition: ignoreCondition,
+                    TypeFullNameAnnotated: TypeKindResolver.DisplayType(prop.Type),
+                    ElementTypeNameAnnotated: elementTypeNameAnnotated
                 )
             );
         }
@@ -1128,7 +1145,8 @@ internal static class GenInfrastructure
                     new CtorParamInfo(
                         param.Name,
                         typeKind,
-                        param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                        param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                        TypeFullNameAnnotated: TypeKindResolver.DisplayType(param.Type)
                     )
                 );
             }
@@ -1242,7 +1260,10 @@ internal static class GenInfrastructure
                             new CtorParamInfo(
                                 param.Name,
                                 typeKind,
-                                param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                                param.Type.ToDisplayString(
+                                    SymbolDisplayFormat.FullyQualifiedFormat
+                                ),
+                                TypeFullNameAnnotated: TypeKindResolver.DisplayType(param.Type)
                             )
                         );
                     }

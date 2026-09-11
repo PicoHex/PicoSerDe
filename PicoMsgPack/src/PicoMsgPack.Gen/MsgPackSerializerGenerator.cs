@@ -2835,7 +2835,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 {
                     var cp = dti.CtorParams[ci];
                     s.Append("            ");
-                    s.Append(cp.TypeFullName);
+                    s.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
                     s.Append(" __cp_");
                     s.Append(ci);
                     s.Append(" = ");

@@ -435,3 +435,47 @@ public class NestedValueDictDto
     public Dictionary<string, HashSet<int>> M { get; set; } = new();
     public int Plain { get; set; }
 }
+
+/// <summary>
+/// Regression model for the v2026.5.2 consuming-build break: the generated dict
+/// init emitted `??= new Dictionary&lt;string, object&gt;()` for a
+/// <c>Dictionary&lt;string, object?&gt;</c> property (nullable annotation lost by
+/// TypeFullName) → CS8619 in nullable-enabled consumers (PicoAgent.Domain's
+/// ContentBlock.Arguments). The init must be target-typed.
+/// </summary>
+public class AnyValueDictDto
+{
+    public string Name { get; set; } = "";
+    public Dictionary<string, object?> Arguments { get; set; } = new();
+}
+
+public class AnyValueDictInitRegressionTests
+{
+    [Test]
+    public async Task Missing_Property_Keeps_Target_Typed_Initialized_Dictionary()
+    {
+        var back = JsonSerializer.Deserialize<AnyValueDictDto>("""{"Name":"y"}"""u8);
+        await Assert.That(back!.Arguments).IsNotNull();
+        await Assert.That(back.Arguments.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task AnyValue_Dictionary_RoundTrips_Mixed_Values()
+    {
+        var dto = new AnyValueDictDto
+        {
+            Name = "x",
+            Arguments =
+            {
+                ["s"] = "text",
+                ["b"] = true,
+                ["nil"] = null,
+            },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(dto);
+        var back = JsonSerializer.Deserialize<AnyValueDictDto>(bytes);
+        await Assert.That(back!.Arguments["s"]).IsEqualTo("text");
+        await Assert.That(back.Arguments["b"]).IsEqualTo(true);
+        await Assert.That(back.Arguments["nil"]).IsNull();
+    }
+}

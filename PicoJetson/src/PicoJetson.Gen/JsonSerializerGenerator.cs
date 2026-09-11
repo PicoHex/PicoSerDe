@@ -350,7 +350,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         new CtorParamInfo(
                             param.Name,
                             typeKind,
-                            param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                            param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                            TypeFullNameAnnotated: PicoSerDe.Gen.TypeKindResolver.DisplayType(
+                                param.Type
+                            )
                         )
                     );
                 }
@@ -2277,7 +2280,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     var cp = type.CtorParams[ci];
                     // Use TypeFullName directly — MapTypeName with null type NREs
                     // for complex kinds (object, enum, list, dict).
-                    var typeName = cp.TypeFullName;
+                    var typeName = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
                     var defaultVal = cp.TypeKind switch
                     {
                         "string" => "\"\"",
@@ -2770,7 +2773,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "memory":
             case "readonlymemory":
             {
-                var elemType = prop.ElementTypeName ?? "object";
+                var elemType = prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object";
                 var listVar = $"__list_{cp.Name}";
                 sb.Append(indent);
                 sb.Append("var ");
@@ -2800,7 +2803,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         cp.TypeKind,
                         listVar,
                         target,
-                        prop.ElementTypeName ?? "object",
+                        prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object",
                         indent
                     );
                 }
@@ -2817,14 +2820,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "dict":
             {
                 var keyType = prop.KeyTypeName ?? "string";
-                var valType = prop.ElementTypeName ?? "object";
+                var valType = prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object";
                 var dictVar = $"__dict_{cp.Name}";
                 sb.Append(indent);
-                sb.Append("var ");
+                sb.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
+                sb.Append(" ");
                 sb.Append(dictVar);
-                sb.Append(" = new ");
-                sb.Append(cp.TypeFullName);
-                sb.AppendLine("();");
+                sb.AppendLine(" = new();");
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ObjectStart)");
                 sb.Append(indent);
@@ -3260,7 +3262,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(".");
                     sb.Append(prop.Name);
                     sb.Append(" = new System.Collections.Generic.List<");
-                    sb.Append(prop.ElementTypeName);
+                    sb.Append(prop.ElementTypeNameAnnotated ?? prop.ElementTypeName);
                     sb.AppendLine(">();");
                 }
                 else
@@ -3269,7 +3271,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append("var __list_");
                     sb.Append(prop.Name);
                     sb.Append(" = new System.Collections.Generic.List<");
-                    sb.Append(prop.ElementTypeName);
+                    sb.Append(prop.ElementTypeNameAnnotated ?? prop.ElementTypeName);
                     sb.AppendLine(">();");
                 }
                 sb.Append(indent);
@@ -3330,7 +3332,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         prop.TypeKind,
                         $"__list_{prop.Name}",
                         $"{target}.{prop.Name}",
-                        prop.ElementTypeName ?? "object",
+                        prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object",
                         indent
                     );
                 }
@@ -3340,9 +3342,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(target);
                 sb.Append(".");
                 sb.Append(prop.Name);
-                sb.Append(" ??= new ");
-                sb.Append(prop.TypeFullName);
-                sb.AppendLine("();");
+                // Target-typed new (not `new {TypeFullName}()`) — TypeFullName drops
+                // nullable annotations, so an explicit `Dictionary<string, object>`
+                // would trigger CS8619 against a Dictionary<string, object?> property.
+                sb.AppendLine(" ??= new();");
                 sb.Append(indent);
                 sb.AppendLine("if (reader.TokenType == TokenType.ObjectStart)");
                 sb.Append(indent);
@@ -4052,10 +4055,30 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             case "string":
                 sb.Append(indent);
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.Append("    ");
+                sb.Append(dictVar);
+                sb.Append("[");
+                sb.Append(keyVar);
+                sb.AppendLine("] = null;");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("else");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.Append("    ");
                 sb.Append(dictVar);
                 sb.Append("[");
                 sb.Append(keyVar);
                 sb.AppendLine("] = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                sb.Append(indent);
+                sb.AppendLine("}");
                 break;
             case "int32":
                 sb.Append(indent);
@@ -4343,10 +4366,30 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     break;
                 }
                 sb.Append(indent);
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.Append("    ");
+                sb.Append(dictVar);
+                sb.Append("[");
+                sb.Append(keyVar);
+                sb.AppendLine("] = null;");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("else");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.Append("    ");
                 sb.Append(dictVar);
                 sb.Append("[");
                 sb.Append(keyVar);
                 sb.AppendLine("] = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                sb.Append(indent);
+                sb.AppendLine("}");
                 break;
         }
     }
@@ -4421,7 +4464,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 var cp = type.CtorParams[ci];
                 // Use TypeFullName directly — MapTypeName with null type NREs
                 // for complex kinds (object, enum, list, dict).
-                var typeName = cp.TypeFullName;
+                var typeName = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
                 var defaultVal = cp.TypeKind switch
                 {
                     "string" => "\"\"",
@@ -4758,7 +4801,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     var cp = dti.CtorParams[ci];
                     // Use TypeFullName directly — MapTypeName with null type NREs
                     // for complex kinds (object, enum, list, dict).
-                    var tn = cp.TypeFullName;
+                    var tn = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
                     var dv = cp.TypeKind switch
                     {
                         "string" => "\"\"",
@@ -4949,7 +4992,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     var cp = dti.CtorParams[ci];
                     // Use TypeFullName directly — MapTypeName with null type NREs
                     // for complex kinds (object, enum, list, dict).
-                    var tn = cp.TypeFullName;
+                    var tn = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
                     var dv = cp.TypeKind switch
                     {
                         "string" => "\"\"",

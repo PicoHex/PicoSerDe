@@ -208,6 +208,35 @@ internal static class TypeKindResolver
         return (kind, false, null);
     }
 
+    /// <summary>Display format that keeps reference-type nullable annotations ("?").</summary>
+    public static readonly SymbolDisplayFormat FullyQualifiedWithNullability =
+        SymbolDisplayFormat.FullyQualifiedFormat.WithMiscellaneousOptions(
+            SymbolDisplayFormat.FullyQualifiedFormat.MiscellaneousOptions
+                | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier
+        );
+
+    /// <summary>
+    /// Declaration-position type text: keeps "?" annotations. Use ONLY where generated
+    /// code declares or assigns a value — never for identifiers, cache keys, new T()
+    /// or typeof(T), where annotations are invalid. Identity positions keep using
+    /// <see cref="MapTypeName"/>.
+    /// </summary>
+    public static string MapTypeNamePreservingNullability(string kind, ITypeSymbol type)
+    {
+        var name = MapTypeName(kind, type);
+        if (
+            type.NullableAnnotation == NullableAnnotation.Annotated
+            && type.IsReferenceType
+            && !name.EndsWith("?", System.StringComparison.Ordinal)
+        )
+            return name + "?";
+        return name;
+    }
+
+    /// <summary>Annotation-preserving fully-qualified display for declaration positions.</summary>
+    public static string DisplayType(ITypeSymbol type) =>
+        type.ToDisplayString(FullyQualifiedWithNullability);
+
     public static string MapTypeName(string kind, ITypeSymbol type) =>
         kind switch
         {

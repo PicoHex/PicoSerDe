@@ -6,6 +6,12 @@
     <TrimMode>full</TrimMode>
 <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
+    <!-- Compile-time guard: generated code must preserve reference-nullability
+         annotations in declaration positions (List<string?>,
+         Dictionary<string,object?>, record ctor params) — a regression fails the
+         build here, exactly like nullable-enabled consumers that promote these
+         warnings to errors. -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS8619;CS8620</WarningsAsErrors>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Features>Interceptors</Features>

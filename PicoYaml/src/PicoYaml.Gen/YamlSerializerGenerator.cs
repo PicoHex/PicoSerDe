@@ -3101,7 +3101,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 {
                     var cp = dti.CtorParams[ci];
                     s.Append("            ");
-                    s.Append(cp.TypeFullName);
+                    s.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
                     s.Append(" __cp_");
                     s.Append(ci);
                     s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
