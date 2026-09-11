@@ -532,6 +532,21 @@ internal static class GenInfrastructure
         type.Name.StartsWith("ValueTuple")
         && type.ContainingNamespace?.ToDisplayString() == "System";
 
+    /// <summary>Dictionary key kinds the format generators know how to parse.</summary>
+    private static bool IsSupportedDictKeyKind(string kind) =>
+        kind
+            is "string"
+                or "int32"
+                or "int64"
+                or "int16"
+                or "uint16"
+                or "sbyte"
+                or "byte"
+                or "uint32"
+                or "uint64"
+                or "guid"
+                or "enum";
+
     /// <summary>
     /// Extracts serializable properties from <paramref name="type"/>.
     /// Both TransformType and ExtractNestedProperties delegate here.
@@ -710,6 +725,19 @@ internal static class GenInfrastructure
                 var (ek, _, _) = TypeKindResolver.Resolve(elementType, formatTag);
                 if (ek is null)
                     continue;
+                // Extended collection kinds are not supported as nested elements yet —
+                // drop (instead of emitting element code that does not compile).
+                if (
+                    ek
+                    is "hashset"
+                        or "queue"
+                        or "stack"
+                        or "linkedlist"
+                        or "immutablearray"
+                        or "memory"
+                        or "readonlymemory"
+                )
+                    continue;
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
                 elementIsNrt = elementType.NullableAnnotation == NullableAnnotation.Annotated;
@@ -738,6 +766,23 @@ internal static class GenInfrastructure
                     var (kk, _, _) = TypeKindResolver.Resolve(keyType, formatTag);
                     var (vk, _, _) = TypeKindResolver.Resolve(valType, formatTag);
                     if (kk is null || vk is null)
+                        continue;
+                    // Generators only emit key parsing for this kind set — drop dicts
+                    // with other keys instead of emitting non-compiling code.
+                    if (!IsSupportedDictKeyKind(kk))
+                        continue;
+                    // Extended collection kinds are not supported as dict values yet —
+                    // drop (instead of emitting value code that does not compile).
+                    if (
+                        vk
+                        is "hashset"
+                            or "queue"
+                            or "stack"
+                            or "linkedlist"
+                            or "immutablearray"
+                            or "memory"
+                            or "readonlymemory"
+                    )
                         continue;
                     keyTypeKind = kk;
                     keyTypeName = TypeKindResolver.MapTypeName(kk, keyType);

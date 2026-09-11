@@ -64,7 +64,9 @@ public static class ScalarCodec
                 out var value
             )
         )
-            throw new FormatException($"Invalid DateTimeOffset value '{Encoding.UTF8.GetString(utf8)}'.");
+            throw new FormatException(
+                $"Invalid DateTimeOffset value '{Encoding.UTF8.GetString(utf8)}'."
+            );
         return value;
     }
 
@@ -106,7 +108,8 @@ public static class ScalarCodec
 
     public static Uri ParseUri(ReadOnlySpan<byte> utf8)
     {
-        Span<char> chars = stackalloc char[Math.Max(256, utf8.Length)];
+        // Large inputs use the heap to keep the stack bounded.
+        Span<char> chars = utf8.Length <= 512 ? stackalloc char[512] : new char[utf8.Length];
         var n = Decode(utf8, chars);
         if (!Uri.TryCreate(new string(chars[..n]), UriKind.RelativeOrAbsolute, out var value))
             throw new FormatException($"Invalid Uri value '{Encoding.UTF8.GetString(utf8)}'.");
@@ -153,7 +156,9 @@ public static class ScalarCodec
             throw new FormatException($"Invalid Half value '{Encoding.UTF8.GetString(utf8)}'.");
         var h = (Half)d;
         if (double.IsFinite(d) && Half.IsInfinity(h))
-            throw new FormatException($"Half value '{Encoding.UTF8.GetString(utf8)}' is out of range.");
+            throw new FormatException(
+                $"Half value '{Encoding.UTF8.GetString(utf8)}' is out of range."
+            );
         return h;
     }
 
@@ -172,20 +177,32 @@ public static class ScalarCodec
 
     public static BigInteger ParseBigInteger(ReadOnlySpan<byte> utf8)
     {
-        Span<char> chars = stackalloc char[MaxChars];
-        if (utf8.Length > MaxChars)
-            throw new FormatException("BigInteger value is too long.");
-        var n = Decode(utf8, chars);
-        if (
-            !BigInteger.TryParse(
-                chars[..n],
+        if (utf8.Length <= MaxChars)
+        {
+            Span<char> chars = stackalloc char[MaxChars];
+            var n = Decode(utf8, chars);
+            if (
+                BigInteger.TryParse(
+                    chars[..n],
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var value
+                )
+            )
+                return value;
+        }
+        else if (
+            BigInteger.TryParse(
+                Encoding.UTF8.GetString(utf8),
                 NumberStyles.Integer,
                 CultureInfo.InvariantCulture,
-                out var value
+                out var longValue
             )
         )
-            throw new FormatException($"Invalid BigInteger value '{Encoding.UTF8.GetString(utf8)}'.");
-        return value;
+        {
+            return longValue;
+        }
+        throw new FormatException($"Invalid BigInteger value '{Encoding.UTF8.GetString(utf8)}'.");
     }
 
     public static bool TryFormatInt128(Int128 value, Span<byte> dest, out int written)
@@ -259,7 +276,14 @@ public static class ScalarCodec
     {
         Span<char> chars = stackalloc char[MaxChars];
         var n = Decode(utf8, chars);
-        if (!long.TryParse(chars[..n], NumberStyles.Integer, CultureInfo.InvariantCulture, out var v))
+        if (
+            !long.TryParse(
+                chars[..n],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var v
+            )
+        )
             throw new FormatException($"Invalid nint value '{Encoding.UTF8.GetString(utf8)}'.");
         return (nint)v;
     }

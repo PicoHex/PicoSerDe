@@ -44,28 +44,42 @@ public static class TypeIo
     public static void WriteBigInteger(ref JsonWriter w, BigInteger value)
     {
         Span<byte> buf = stackalloc byte[64];
-        if (!ScalarCodec.TryFormatBigInteger(value, buf, out var n))
-            w.WriteString(Encoding.UTF8.GetBytes(value.ToString()));
-        else
+        if (ScalarCodec.TryFormatBigInteger(value, buf, out var n))
             w.WriteRawValue(buf[..n]);
+        else
+            // Values longer than the stack buffer still write as a JSON NUMBER
+            // (never a quoted string) so reads round-trip.
+            w.WriteRawValue(
+                Encoding.UTF8.GetBytes(
+                    value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                )
+            );
     }
 
     public static void WriteInt128(ref JsonWriter w, Int128 value)
     {
         Span<byte> buf = stackalloc byte[64];
-        if (!ScalarCodec.TryFormatInt128(value, buf, out var n))
-            w.WriteString(Encoding.UTF8.GetBytes(value.ToString()));
-        else
+        if (ScalarCodec.TryFormatInt128(value, buf, out var n))
             w.WriteRawValue(buf[..n]);
+        else
+            w.WriteRawValue(
+                Encoding.UTF8.GetBytes(
+                    value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                )
+            );
     }
 
     public static void WriteUInt128(ref JsonWriter w, UInt128 value)
     {
         Span<byte> buf = stackalloc byte[64];
-        if (!ScalarCodec.TryFormatUInt128(value, buf, out var n))
-            w.WriteString(Encoding.UTF8.GetBytes(value.ToString()));
-        else
+        if (ScalarCodec.TryFormatUInt128(value, buf, out var n))
             w.WriteRawValue(buf[..n]);
+        else
+            w.WriteRawValue(
+                Encoding.UTF8.GetBytes(
+                    value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                )
+            );
     }
 
     public static void WriteNInt(ref JsonWriter w, nint value) => w.WriteNumber((long)value);

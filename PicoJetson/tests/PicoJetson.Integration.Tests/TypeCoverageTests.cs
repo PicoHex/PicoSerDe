@@ -289,4 +289,149 @@ public class TypeCoverageExtraTests
         );
         await Assert.That(back!.Plain).IsEqualTo(5);
     }
+
+    [Test]
+    public async Task Audit_ExtendedScalarDictKey_DropsWithoutCompileBreak()
+    {
+        // Dictionary<DateTimeOffset, int> keys are not supported yet — the property
+        // must be dropped (no non-compiling key parsing) and other members survive.
+        var dto = new ExtKeyDictDto
+        {
+            Map = new Dictionary<DateTimeOffset, int> { [DateTimeOffset.UtcNow] = 1 },
+            Plain = 6,
+        };
+        var json = JsonSerializer.Serialize(dto);
+        await Assert.That(json).Contains("\"Plain\":6");
+        await Assert.That(json.Contains("\"Map\"")).IsFalse();
+    }
+
+    [Test]
+    public async Task Audit_NestedExtendedCollection_DropsWithoutCompileBreak()
+    {
+        // List<HashSet<int>> elements are not supported yet — dropped, no cascade.
+        var dto = new NestedCollectionDto
+        {
+            L = new List<HashSet<int>> { new HashSet<int> { 1 } },
+            Plain = 7,
+        };
+        var json = JsonSerializer.Serialize(dto);
+        await Assert.That(json).Contains("\"Plain\":7");
+        await Assert.That(json.Contains("\"L\"")).IsFalse();
+    }
+
+    [Test]
+    public async Task Audit_NestedExtendedCollectionAsDictValue_DropsWithoutCompileBreak()
+    {
+        // Dictionary<string, HashSet<int>> values are not supported yet — dropped.
+        var dto = new NestedValueDictDto
+        {
+            M = new Dictionary<string, HashSet<int>> { ["a"] = new HashSet<int> { 1 } },
+            Plain = 8,
+        };
+        var json = JsonSerializer.Serialize(dto);
+        await Assert.That(json).Contains("\"Plain\":8");
+        await Assert.That(json.Contains("\"M\"")).IsFalse();
+    }
+
+    [Test]
+    public async Task Audit_Boundaries_EmptyCollectionsAndExtremeScalars()
+    {
+        var dto = new CollectionCoverageDto
+        {
+            Set = new HashSet<int>(),
+            Q = new Queue<int>(),
+            S = new Stack<int>(),
+            L = new LinkedList<int>(),
+            Sorted = new SortedDictionary<string, int>(),
+            Concurrent = new ConcurrentDictionary<string, int>(),
+            Imm = ImmutableArray<int>.Empty,
+            Mem = new Memory<int>(Array.Empty<int>()),
+            RMem = new ReadOnlyMemory<int>(Array.Empty<int>()),
+        };
+        var back = JsonSerializer.Deserialize<CollectionCoverageDto>(
+            JsonSerializer.SerializeToUtf8Bytes(dto)
+        );
+        await Assert.That(back!.Set.Count).IsEqualTo(0);
+        await Assert.That(back.Q.Count).IsEqualTo(0);
+        await Assert.That(back.S.Count).IsEqualTo(0);
+        await Assert.That(back.L.Count).IsEqualTo(0);
+        await Assert.That(back.Sorted.Count).IsEqualTo(0);
+        await Assert.That(back.Imm.Length).IsEqualTo(0);
+        await Assert.That(back.Mem.Length).IsEqualTo(0);
+
+        var extreme = new ScalarCoverageDto
+        {
+            When = new DateTimeOffset(
+                new DateTime(1, 1, 15, 0, 0, 0, DateTimeKind.Unspecified),
+                TimeSpan.FromHours(-14)
+            ),
+            Ch = '\0',
+            I128 = Int128.MinValue,
+            U128 = UInt128.MaxValue,
+            Big = BigInteger.MinusOne,
+        };
+        var extBack = JsonSerializer.Deserialize<ScalarCoverageDto>(
+            JsonSerializer.SerializeToUtf8Bytes(extreme)
+        );
+        await Assert.That(extBack!.When).IsEqualTo(extreme.When);
+        await Assert.That(extBack.When.Offset).IsEqualTo(TimeSpan.FromHours(-14));
+        await Assert.That(extBack.Ch).IsEqualTo('\0');
+        await Assert.That(extBack.I128).IsEqualTo(Int128.MinValue);
+        await Assert.That(extBack.U128).IsEqualTo(UInt128.MaxValue);
+        await Assert.That(extBack.Big).IsEqualTo(BigInteger.MinusOne);
+    }
+
+    [Test]
+    public async Task Audit_HugeBigInteger_RoundTripsAsNumber()
+    {
+        // Beyond the 64-byte stack buffer: must stay a JSON number (never a quoted
+        // string) and parse back without a length cap.
+        var big = BigInteger.Pow(10, 99);
+        var dto = new HugeBigDto { B = big };
+        var json = JsonSerializer.Serialize(dto);
+        await Assert.That(json).Contains("\"B\":1");
+        await Assert.That(json.Contains("\"B\":\"")).IsFalse();
+        var back = JsonSerializer.Deserialize<HugeBigDto>(JsonSerializer.SerializeToUtf8Bytes(dto));
+        await Assert.That(back!.B).IsEqualTo(big);
+    }
+
+    [Test]
+    public async Task Audit_LargeUri_RoundTrips()
+    {
+        // Longer than the 512-char stack buffer → heap path must handle it.
+        var longUri = new Uri("https://example.com/" + new string('a', 1200));
+        var dto = new LargeUriDto { Link = longUri };
+        var back = JsonSerializer.Deserialize<LargeUriDto>(
+            JsonSerializer.SerializeToUtf8Bytes(dto)
+        );
+        await Assert.That(back!.Link!.AbsoluteUri.Length).IsEqualTo(longUri.AbsoluteUri.Length);
+    }
+}
+
+public class ExtKeyDictDto
+{
+    public Dictionary<DateTimeOffset, int> Map { get; set; } = new();
+    public int Plain { get; set; }
+}
+
+public class NestedCollectionDto
+{
+    public List<HashSet<int>> L { get; set; } = new();
+    public int Plain { get; set; }
+}
+
+public class HugeBigDto
+{
+    public BigInteger B { get; set; }
+}
+
+public class LargeUriDto
+{
+    public Uri? Link { get; set; }
+}
+
+public class NestedValueDictDto
+{
+    public Dictionary<string, HashSet<int>> M { get; set; } = new();
+    public int Plain { get; set; }
 }
