@@ -38,6 +38,27 @@ No attributes required.
 - **Dual-mode** reader: `ReadOnlySpan<byte>` + `ReadOnlySequence<byte>` (PipeReader)
 - Unicode escape sequences including surrogate pairs
 
+## Extended Types (JSON)
+
+Beyond primitives, collections, and nested objects, the JSON generator supports:
+
+| Family | Types | Notes |
+|--------|-------|-------|
+| Scalars | `DateTimeOffset`, `char`, `Uri`, `Version`, `Half`, `BigInteger`, `Int128`, `UInt128`, `nint` | `DateTimeOffset` keeps its UTC offset (ISO 8601 round-trip format); parsing is fail-loud |
+| Collections | `HashSet<T>`, `Queue<T>`, `Stack<T>`, `LinkedList<T>`, `ImmutableArray<T>`, `Memory<T>`, `ReadOnlyMemory<T>` | serialized as arrays; `Stack<T>` round-trips with its enumeration order preserved |
+| Dictionaries | `SortedDictionary<K,V>`, `ConcurrentDictionary<K,V>` | serialized as objects, constructed as the declared type on read |
+| Tuples | `ValueTuple<...>` (e.g. `(int, string)`) | serialized via its `Item1..ItemN` fields |
+
+Helper APIs used by generated code: `PicoSerDe.Core.ScalarCodec` (UTF-8 text codecs) and
+`PicoJetson.TypeIo` (reader/writer adapters).
+
+**Not supported yet** (members are dropped without a diagnostic — no serialization error):
+
+- `KeyValuePair<K,V>` and `Tuple<...>` members
+- extended scalars used as **dictionary keys** (e.g. `Dictionary<DateTimeOffset, int>`)
+- extended collections nested as **list elements** or **dictionary values** (e.g. `List<HashSet<int>>`)
+- all of the types above in the **INI / TOML / YAML / MessagePack** formats (JSON only for now)
+
 ## Options
 
 ```csharp
