@@ -752,8 +752,6 @@ internal static class GenInfrastructure
                     elementType
                 );
                 elementIsNrt = elementType.NullableAnnotation == NullableAnnotation.Annotated;
-                if (elementIsNrt && ek is "any")
-                    elementTypeName += "?";
                 // Recursively describe nested List<List<...<T>>> — any depth
                 if (
                     (ek is "list" or "array")
@@ -804,8 +802,6 @@ internal static class GenInfrastructure
                         valType
                     );
                     elementIsNrt = valType.NullableAnnotation == NullableAnnotation.Annotated;
-                    if (elementIsNrt && vk is "any")
-                        elementTypeName += "?";
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
                     {
                         nestedProperties = ExtractNestedProperties(vNtsObj, attrs, formatTag);

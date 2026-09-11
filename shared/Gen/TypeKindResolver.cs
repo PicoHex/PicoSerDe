@@ -266,7 +266,6 @@ internal static class TypeKindResolver
             "immutablearray" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "memory" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "readonlymemory" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            "kvp" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "float32" => "float",
             "float64" => "double",
             "boolean" => "bool",
