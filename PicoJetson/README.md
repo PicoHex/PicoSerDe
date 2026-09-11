@@ -52,6 +52,16 @@ Beyond primitives, collections, and nested objects, the JSON generator supports:
 Helper APIs used by generated code: `PicoSerDe.Core.ScalarCodec` (UTF-8 text codecs) and
 `PicoJetson.TypeIo` (reader/writer adapters).
 
+### Nullability fidelity
+
+Generated code reproduces reference-nullability annotations exactly as declared —
+`List<string?>`, `Dictionary<string, object?>`, `Dictionary<string, string?>` and
+nullable-annotated constructor parameters all round-trip, so nullable-enabled
+consumers that promote `CS8619`/`CS8620` to errors keep building. The integration
+test project enforces this at **compile time** (`<WarningsAsErrors>CS8619;CS8620</WarningsAsErrors>`).
+JSON `null` follows the documented rule everywhere: value-type targets throw,
+reference-type targets (list elements and dictionary values) yield `null`.
+
 **Not supported yet** (members are dropped without a diagnostic — no serialization error):
 
 - `KeyValuePair<K,V>` and `Tuple<...>` members
