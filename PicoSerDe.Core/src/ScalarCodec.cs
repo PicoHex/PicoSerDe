@@ -31,6 +31,20 @@ public static class ScalarCodec
         return Encoding.UTF8.GetChars(utf8, chars);
     }
 
+    /// <summary>
+    /// Guarantees the fail-loud contract for fixed-size stack buffers: an
+    /// over-long input must throw FormatException, never leak the
+    /// ArgumentException raised by Encoding.GetChars when the destination
+    /// span is too small.
+    /// </summary>
+    private static void ThrowIfTooLong(ReadOnlySpan<byte> utf8, int maxChars, string typeName)
+    {
+        if (utf8.Length > maxChars)
+            throw new FormatException(
+                $"Invalid {typeName} value '{Encoding.UTF8.GetString(utf8)}'."
+            );
+    }
+
     // ── DateTimeOffset ──
 
     /// <summary>Formats with the round-trip ("O") pattern, preserving the UTC offset.</summary>
@@ -93,6 +107,7 @@ public static class ScalarCodec
     public static char ParseChar(ReadOnlySpan<byte> utf8)
     {
         Span<char> chars = stackalloc char[4];
+        ThrowIfTooLong(utf8, 4, "char");
         var n = Decode(utf8, chars);
         if (n != 1)
             throw new FormatException(
@@ -122,6 +137,7 @@ public static class ScalarCodec
     public static Version ParseVersion(ReadOnlySpan<byte> utf8)
     {
         Span<char> chars = stackalloc char[MaxChars];
+        ThrowIfTooLong(utf8, MaxChars, "Version");
         var n = Decode(utf8, chars);
         if (!Version.TryParse(chars[..n], out var value))
             throw new FormatException($"Invalid Version value '{Encoding.UTF8.GetString(utf8)}'.");
@@ -144,6 +160,7 @@ public static class ScalarCodec
     public static Half ParseHalf(ReadOnlySpan<byte> utf8)
     {
         Span<char> chars = stackalloc char[MaxChars];
+        ThrowIfTooLong(utf8, MaxChars, "Half");
         var n = Decode(utf8, chars);
         if (
             !double.TryParse(
@@ -219,6 +236,7 @@ public static class ScalarCodec
     public static Int128 ParseInt128(ReadOnlySpan<byte> utf8)
     {
         Span<char> chars = stackalloc char[MaxChars];
+        ThrowIfTooLong(utf8, MaxChars, "Int128");
         var n = Decode(utf8, chars);
         if (
             !Int128.TryParse(
@@ -246,6 +264,7 @@ public static class ScalarCodec
     public static UInt128 ParseUInt128(ReadOnlySpan<byte> utf8)
     {
         Span<char> chars = stackalloc char[MaxChars];
+        ThrowIfTooLong(utf8, MaxChars, "UInt128");
         var n = Decode(utf8, chars);
         if (
             !UInt128.TryParse(
@@ -275,6 +294,7 @@ public static class ScalarCodec
     public static nint ParseNInt(ReadOnlySpan<byte> utf8)
     {
         Span<char> chars = stackalloc char[MaxChars];
+        ThrowIfTooLong(utf8, MaxChars, "nint");
         var n = Decode(utf8, chars);
         if (
             !long.TryParse(
