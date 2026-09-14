@@ -27,14 +27,14 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**1311 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+**1318 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
 
 | Module | Tests | Competitor | Cross-Validation |
 |--------|:-----:|:-----------|:----------------:|
 | PicoJetson | 559 | System.Text.Json | ✅ bidirectional, all 19 property types |
-| PicoToml | 140 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
+| PicoToml | 142 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
 | PicoYaml | 157 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
-| PicoIni | 146 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
+| PicoIni | 151 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
 | PicoMsgPack | 156 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
 | PicoSerDe.Core | 65 | — | — |
 | Integration (cross-format) | 88 | — | Ignore-condition matrix, anon types, round-trips |
@@ -243,6 +243,7 @@ PicoJetson tests are split into Unit / Integration / Functional projects with cl
 - **`PicoDocument` / `PicoElement`** — zero-copy JSON DOM for schema-less inspection (v2026.3.4)
 - **C# records** — primary constructor auto-detection, `init`-only support (v2026.3.3); poly+record (v2026.3.23); complex/collection ctor params (v2026.3.24)
 - **Top-level arrays** — `Serialize<T[]>()` / `Deserialize<T[]>()` with streaming (v2026.3.2)
+- **INI nested object lists** — a `List<SomeDto>` property cannot be represented by INI's flat sections and is ignored by `IniSerializer` (no compile break); scalar lists (`List<int>`, `List<string>`, ...) round-trip.
 
 ### PicoJetson JsonOptions
 
@@ -354,7 +355,7 @@ is the canonical property (`Name` is an obsolete alias).
 | linux-arm64 | ubuntu-24.04-arm |
 | osx-arm64 | macos-latest |
 
-Every push: build + test (1311 tests) + 5 benchmarks smoke + 5 AOT sample publishes.
+Every push: build + test (1318 tests) + 5 benchmarks smoke + 5 AOT sample publishes.
 Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
 Local feed: run `./scripts/release.ps1 -Version <ver>` **before** pushing the
 tag — it runs the test suite, packs all 11 packages into `artifacts/nupkg`
