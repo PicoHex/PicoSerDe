@@ -53,7 +53,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         HasNamingPolicy: false,
         HasOptionsParam: false,
         FacadeTakesOptions: true,
-        HasIndented: true
+        HasIndented: true,
+        NestedSectionMethod: "WriteTable"
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)

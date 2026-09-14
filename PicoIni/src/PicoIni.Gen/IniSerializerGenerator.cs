@@ -56,7 +56,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         HasNamingPolicy: false,
         HasOptionsParam: false,
         FacadeTakesOptions: true,
-        HasIndented: true
+        HasIndented: true,
+        NestedSectionMethod: "WriteSection"
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -1458,6 +1459,19 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine(" = __c.Read(reader.GetStringRaw());");
             return;
         }
+        var elemP = new PropertyInfo(
+            "__elem",
+            "__elem",
+            p.ElementTypeKind ?? "string",
+            p.ElementTypeName ?? "object",
+            false,
+            null,
+            null,
+            null,
+            null,
+            p.NestedProperties,
+            null
+        );
         switch (p.TypeKind)
         {
             case "string":
@@ -1738,13 +1752,18 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("    else if (__raw[__p] == ',') {");
                 s.Append(pad);
+                s.Append(pad);
+                s.AppendLine(
+                    "        var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg, __p - __seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\")).AsSpan();"
+                );
+                s.Append(pad);
                 s.Append("        ");
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(
-                    ".Add(__raw.Substring(__seg, __p - __seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\"));"
-                );
+                s.Append(".Add(");
+                EmitReadValue(s, elemP);
+                s.AppendLine(");");
                 s.Append(pad);
                 s.AppendLine("        __seg = ++__p;");
                 s.Append(pad);
@@ -1754,12 +1773,21 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("}");
                 s.Append(pad);
+                s.AppendLine("{");
+                s.Append(pad);
+                s.AppendLine(
+                    "    var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\")).AsSpan();"
+                );
+                s.Append(pad);
+                s.Append("    ");
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(
-                    ".Add(__raw.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\"));"
-                );
+                s.Append(".Add(");
+                EmitReadValue(s, elemP);
+                s.AppendLine(");");
+                s.Append(pad);
+                s.AppendLine("}");
                 break;
             case "array":
                 s.Append(pad);
@@ -1779,11 +1807,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("    else if (__raw[__p] == ',') {");
                 s.Append(pad);
+                s.AppendLine(
+                    "        var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg, __p - __seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\")).AsSpan();"
+                );
+                s.Append(pad);
                 s.Append("        __tmpList_");
                 s.Append(p.Name);
-                s.AppendLine(
-                    ".Add(__raw.Substring(__seg, __p - __seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\"));"
-                );
+                s.Append(".Add(");
+                EmitReadValue(s, elemP);
+                s.AppendLine(");");
                 s.Append(pad);
                 s.AppendLine("        __seg = ++__p;");
                 s.Append(pad);
@@ -1793,11 +1825,19 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("}");
                 s.Append(pad);
-                s.Append("__tmpList_");
-                s.Append(p.Name);
+                s.AppendLine("{");
+                s.Append(pad);
                 s.AppendLine(
-                    ".Add(__raw.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\"));"
+                    "    var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\")).AsSpan();"
                 );
+                s.Append(pad);
+                s.Append("    __tmpList_");
+                s.Append(p.Name);
+                s.Append(".Add(");
+                EmitReadValue(s, elemP);
+                s.AppendLine(");");
+                s.Append(pad);
+                s.AppendLine("}");
                 s.Append(pad);
                 s.Append(target);
                 s.Append('.');

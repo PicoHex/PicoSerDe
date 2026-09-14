@@ -43,6 +43,24 @@ public class IndentedTests
         await Assert.That(text).Contains("\nX = 1");
         await Assert.That(text).DoesNotContain("\n  X = 1");
     }
+
+    [Test]
+    public async Task AnonymousNestedObject_EmitsTable()
+    {
+        var toml = TomlSerializer.Serialize(new { Outer = new { X = 1 } });
+        await Assert.That(toml).Contains("[Outer]");
+        await Assert.That(toml).Contains("X = 1");
+    }
+
+    [Test]
+    public async Task Indented_AnonymousType_IndentsTableContents()
+    {
+        var toml = TomlSerializer.Serialize(
+            new { Outer = new { X = 1 } },
+            new TomlOptions { Indented = true }
+        );
+        await Assert.That(toml).Contains("\n  X = 1");
+    }
 }
 
 internal sealed class IndentedTomlDto

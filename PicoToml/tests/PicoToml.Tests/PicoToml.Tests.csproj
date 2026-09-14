@@ -6,6 +6,8 @@
     <TrimMode>full</TrimMode>
 <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn)</NoWarn>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);__PicoSerDe_$(AssemblyName.Replace('.','_').Replace('-','_').Replace(' ','_'))</InterceptorsNamespaces>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
 

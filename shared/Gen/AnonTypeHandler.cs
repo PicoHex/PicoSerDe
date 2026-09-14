@@ -404,6 +404,10 @@ internal static class AnonTypeHandler
                 sb.AppendLine("                if (__child != null) {");
                 if (!afc.EmbedsKeyInValue)
                     EmitAnonFieldKey(sb, wv, f, afc, ot, "                    ");
+                else if (afc.NestedSectionMethod is not null)
+                    sb.AppendLine(
+                        $"                    {wv}.{afc.NestedSectionMethod}(\"{PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(f.JsonName)}\");"
+                    );
                 if (afc.HasIndentedMaxDepth)
                 {
                     if (afc.HasOptionsParam)
@@ -686,6 +690,10 @@ internal static class AnonTypeHandler
                 sb.AppendLine($"        if (__v{vi} != null) {{");
                 if (!afc.EmbedsKeyInValue)
                     EmitAnonFieldKey(sb, wv, f, afc, ot, "            ");
+                else if (afc.NestedSectionMethod is not null)
+                    sb.AppendLine(
+                        $"            {wv}.{afc.NestedSectionMethod}(\"{PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(f.JsonName)}\");"
+                    );
                 if (afc.HasIndentedMaxDepth)
                     if (afc.HasOptionsParam)
                         sb.AppendLine(

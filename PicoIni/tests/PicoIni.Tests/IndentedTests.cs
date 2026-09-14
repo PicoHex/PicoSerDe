@@ -43,6 +43,24 @@ public class IndentedTests
         await Assert.That(text).Contains("\nX = 1");
         await Assert.That(text).DoesNotContain("\n  X = 1");
     }
+
+    [Test]
+    public async Task AnonymousNestedObject_EmitsSection()
+    {
+        var ini = IniSerializer.Serialize(new { Outer = new { X = 1 } });
+        await Assert.That(ini).Contains("[Outer]");
+        await Assert.That(ini).Contains("X = 1");
+    }
+
+    [Test]
+    public async Task Indented_AnonymousType_IndentsSectionContents()
+    {
+        var ini = IniSerializer.Serialize(
+            new { Outer = new { X = 1 } },
+            new IniOptions { Indented = true }
+        );
+        await Assert.That(ini).Contains("\n  X = 1");
+    }
 }
 
 internal sealed class IndentedIniDto

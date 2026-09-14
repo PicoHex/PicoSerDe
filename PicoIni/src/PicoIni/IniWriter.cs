@@ -29,6 +29,7 @@ public ref struct IniWriter
 
     public void WriteSection(string name)
     {
+        _inSection = true;
         WriteByte((byte)'[');
         WriteRaw(Encoding.UTF8.GetBytes(name));
         WriteByte((byte)']');

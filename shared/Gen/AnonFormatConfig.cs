@@ -11,5 +11,6 @@ internal readonly record struct AnonFormatConfig(
     bool HasNamingPolicy,
     bool HasOptionsParam,
     bool FacadeTakesOptions = false,
-    bool HasIndented = false
+    bool HasIndented = false,
+    string? NestedSectionMethod = null
 );
