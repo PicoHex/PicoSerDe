@@ -190,15 +190,23 @@ internal static class GenInfrastructure
         return new string(span);
     }
 
-    /// <summary>Returns the fully qualified inner helper class name (e.g. "global::Ns.Sub_TypeJsonInner").</summary>
     /// <summary>
     /// Per-generation assembly prefix for namespace isolation of generated helpers.
-    /// Set by each SG before invoking GenerateAll. InnerClassName prepends this
-    /// as a namespace prefix to avoid CS0436 conflicts when two assemblies reference
-    /// the same nested types.
+    /// Set by each SG before invoking GenerateAll. Backed by AsyncLocal so
+    /// concurrent generator runs in the same process (VBCSCompiler builds
+    /// projects in parallel) cannot observe each other's prefix.
+    /// InnerClassName prepends this as a namespace prefix to avoid CS0436
+    /// conflicts when two assemblies reference the same nested types.
     /// </summary>
-    public static string? AssemblyPrefix { get; set; }
+    private static readonly System.Threading.AsyncLocal<string?> _assemblyPrefix = new();
 
+    public static string? AssemblyPrefix
+    {
+        get => _assemblyPrefix.Value;
+        set => _assemblyPrefix.Value = value;
+    }
+
+    /// <summary>Returns the fully qualified inner helper class name (e.g. "global::Ns.Sub_TypeJsonInner").</summary>
     public static string InnerClassName(string suffix, string typeFullName)
     {
         // For generic type names (containing '<'), emit at global scope.
