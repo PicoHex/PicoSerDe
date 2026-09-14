@@ -5,7 +5,7 @@
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
 <IsPackable>false</IsPackable>
-    <NoWarn>$(NoWarn)</NoWarn>
+    <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <InterceptorsNamespaces>$(InterceptorsNamespaces);__PicoSerDe_$(AssemblyName.Replace('.','_').Replace('-','_').Replace(' ','_'))</InterceptorsNamespaces>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>

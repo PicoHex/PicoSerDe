@@ -51,6 +51,9 @@ public class TopLevelScalarGuardTests
             .Throws<InvalidOperationException>();
     }
 
+    private static string AssemblyPath(System.Reflection.Assembly assembly) =>
+        Path.Combine(AppContext.BaseDirectory, assembly.GetName().Name + ".dll");
+
     private static IEnumerable<MetadataReference> PlatformReferences()
     {
         var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
@@ -67,9 +70,11 @@ public class TopLevelScalarGuardTests
             )
                 yield return MetadataReference.CreateFromFile(path);
         }
-        yield return MetadataReference.CreateFromFile(typeof(JsonSerializer).Assembly.Location);
         yield return MetadataReference.CreateFromFile(
-            typeof(PicoSerDe.Core.SerializerExtensions).Assembly.Location
+            AssemblyPath(typeof(JsonSerializer).Assembly)
+        );
+        yield return MetadataReference.CreateFromFile(
+            AssemblyPath(typeof(PicoSerDe.Core.SerializerExtensions).Assembly)
         );
     }
 }

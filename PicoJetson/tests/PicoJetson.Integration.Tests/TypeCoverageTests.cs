@@ -475,7 +475,7 @@ public class AnyValueDictInitRegressionTests
         var bytes = JsonSerializer.SerializeToUtf8Bytes(dto);
         var back = JsonSerializer.Deserialize<AnyValueDictDto>(bytes);
         await Assert.That(back!.Arguments["s"]).IsEqualTo("text");
-        await Assert.That(back.Arguments["b"]).IsEqualTo(true);
+        await Assert.That((bool)back.Arguments["b"]!).IsTrue();
         await Assert.That(back.Arguments["nil"]).IsNull();
     }
 }

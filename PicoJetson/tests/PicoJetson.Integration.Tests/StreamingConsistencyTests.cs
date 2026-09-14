@@ -201,7 +201,8 @@ public class StreamingConsistencyTests
         // Contract: Deserialize is a thin wrapper over DeserializeStreaming;
         // the single property dispatch chain lives in the streaming method.
         var asm = typeof(ConsistencyBigDto).Assembly;
-        using var fs = File.OpenRead(asm.Location);
+        var asmPath = Path.Combine(AppContext.BaseDirectory, asm.GetName().Name + ".dll");
+        using var fs = File.OpenRead(asmPath);
         using var pe = new System.Reflection.PortableExecutable.PEReader(fs);
         var md = pe.GetMetadataReader();
 
