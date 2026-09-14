@@ -1611,6 +1611,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         string pad
     )
     {
+        if (PicoSerDe.Gen.GenInfrastructure.HasDeepObjectProperty(op))
+        {
+            s.Append(pad);
+            s.AppendLine(
+                "throw new System.NotSupportedException(\"TOML nested tables deeper than one level are not supported yet.\");"
+            );
+            return;
+        }
         if (op.NestedProperties.Length > 0)
         {
             var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", op.TypeFullName!);
@@ -2516,6 +2524,29 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append(pad);
                     s.AppendLine("}");
                     break;
+                case "object":
+                {
+                    if (PicoSerDe.Gen.GenInfrastructure.HasDeepObjectProperty(p))
+                    {
+                        s.Append(pad);
+                        s.AppendLine(
+                            "throw new System.NotSupportedException(\"TOML nested tables deeper than one level are not supported yet.\");"
+                        );
+                        break;
+                    }
+                    var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        "TomlInner",
+                        p.TypeFullName!
+                    );
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.Append(" = ");
+                    s.Append(sn);
+                    s.AppendLine(".Deserialize(ref r);");
+                    break;
+                }
                 default:
                     s.Append(pad);
                     s.Append(tgt);

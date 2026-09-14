@@ -376,6 +376,17 @@ internal static class GenInfrastructure
     // ── Public API (TransformType / ExtractNestedProperties) ──
     // Both delegate to the shared ExtractProperties core below.
 
+    /// <summary>True when a nested object property itself contains object-valued members
+    /// (nested tables deeper than one level), which INI/TOML cannot represent yet.
+    /// Generators emit a loud NotSupportedException instead of silently losing data.</summary>
+    public static bool HasDeepObjectProperty(PropertyInfo p) =>
+        p.TypeKind == "object"
+        && p.NestedProperties.Any(np =>
+            np.TypeKind == "object"
+            || ((np.TypeKind is "list" or "array") && np.ElementTypeKind == "object")
+            || (np.TypeKind == "dict" && np.ElementTypeKind == "object")
+        );
+
     /// <summary>
     /// True for top-level targets that resolve to a scalar kind (including
     /// Nullable&lt;T&gt;); the generators only support object, collection and
