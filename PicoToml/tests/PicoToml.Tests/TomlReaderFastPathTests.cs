@@ -72,4 +72,29 @@ public class TomlReaderFastPathTests
         var n = reader.TryReadInt32ArrayFast(buf);
         await Assert.That(n).IsEqualTo(0);
     }
+
+    [Test]
+    public async Task TryReadInt32ArrayFast_Overflow_BailsOut()
+    {
+        // Review P2-5d: no silent wraparound on out-of-range integers.
+        var toml = "arr = [99999999999]"u8.ToArray();
+        var reader = new TomlReader(toml);
+        reader.Read();
+        reader.Read();
+        var buf = new int[1];
+        var n = reader.TryReadInt32ArrayFast(buf);
+        await Assert.That(n).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task TryReadInt64ArrayFast_Overflow_BailsOut()
+    {
+        var toml = "arr = [99999999999999999999]"u8.ToArray();
+        var reader = new TomlReader(toml);
+        reader.Read();
+        reader.Read();
+        var buf = new long[1];
+        var n = reader.TryReadInt64ArrayFast(buf);
+        await Assert.That(n).IsEqualTo(0);
+    }
 }

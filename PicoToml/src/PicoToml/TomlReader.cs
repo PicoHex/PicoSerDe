@@ -1557,16 +1557,21 @@ public ref struct TomlReader : ITokenReader
             }
             if (b < (byte)'0' || b > (byte)'9')
                 return 0;
-            int v = 0;
+            long v = 0;
             do
             {
                 v = v * 10 + (b - (byte)'0');
+                // -2147483648 is a legal int32: allow one past int.MaxValue
+                // when the sign is negative. Everything else bails to the
+                // validated reader instead of silently wrapping.
+                if (v > int.MaxValue && !(neg && v == (long)int.MaxValue + 1))
+                    return 0;
                 p++;
                 if (p >= len)
                     break;
                 b = d[p];
             } while (b >= (byte)'0' && b <= (byte)'9');
-            dest[count++] = neg ? -v : v;
+            dest[count++] = (int)(neg ? -v : v);
         }
         _position = p;
         return count;
@@ -1615,7 +1620,10 @@ public ref struct TomlReader : ITokenReader
             long v = 0;
             do
             {
-                v = v * 10 + (b - (byte)'0');
+                int digit = b - (byte)'0';
+                if (v > (long.MaxValue - digit) / 10)
+                    return 0; // overflow — fall back to the validated reader
+                v = v * 10 + digit;
                 p++;
                 if (p >= len)
                     break;
