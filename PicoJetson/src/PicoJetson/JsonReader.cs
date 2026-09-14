@@ -183,6 +183,12 @@ public ref struct JsonReader : ITokenReader
     /// </summary>
     internal int LeakedBufferCount { get; private set; }
 
+    /// <summary>For testing: every buffer handed to the pool.</summary>
+    internal int TotalPoolReturns { get; private set; }
+
+    /// <summary>For testing: every buffer tracked for return at Dispose.</summary>
+    internal int TotalTrackedBuffers { get; private set; }
+
     /// <summary>Direct buffer access for optimized generated code (span mode only).</summary>
     public ReadOnlySpan<byte> RawBuffer => _isSequence ? default : _data;
 
@@ -905,7 +911,6 @@ public ref struct JsonReader : ITokenReader
                     {
                         var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
                         buf.AsSpan(0, di).CopyTo(newBuf);
-                        ArrayPool<byte>.Shared.Return(buf);
                         buf = newBuf;
                         TrackBuffer(buf);
                     }
@@ -947,7 +952,6 @@ public ref struct JsonReader : ITokenReader
                     {
                         var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
                         buf.AsSpan(0, di).CopyTo(newBuf);
-                        ArrayPool<byte>.Shared.Return(buf);
                         buf = newBuf;
                         TrackBuffer(buf);
                     }
@@ -960,7 +964,6 @@ public ref struct JsonReader : ITokenReader
                         continue;
                     var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
                     buf.AsSpan(0, di).CopyTo(newBuf);
-                    ArrayPool<byte>.Shared.Return(buf);
                     buf = newBuf;
                     TrackBuffer(buf);
                 }
@@ -1521,14 +1524,22 @@ public ref struct JsonReader : ITokenReader
     {
         if (buf is null)
             return;
-        ArrayPool<byte>.Shared.Return(buf);
+        ReturnPooled(buf);
         buf = null;
         LeakedBufferCount--;
+    }
+
+    /// <summary>Single funnel for pool returns so tests can count them.</summary>
+    private void ReturnPooled(byte[] buf)
+    {
+        ArrayPool<byte>.Shared.Return(buf);
+        TotalPoolReturns++;
     }
 
     private void TrackBuffer(byte[] buf)
     {
         LeakedBufferCount++;
+        TotalTrackedBuffers++;
         if (_bufCount > PeakTrackedBufferCount)
             PeakTrackedBufferCount = _bufCount;
         switch (_bufCount++)

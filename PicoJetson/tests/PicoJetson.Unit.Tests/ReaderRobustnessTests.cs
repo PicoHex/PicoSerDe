@@ -251,6 +251,25 @@ public class ReaderRobustnessTests
     }
 
     [Test]
+    public async Task PooledBuffers_AreReturnedExactlyOnce()
+    {
+        // A >256 byte string forces the sequence-mode buffer to grow.
+        // Every rented buffer must be returned to the pool exactly once
+        // (review P2-5e: growth returned the old buffer immediately and
+        // Dispose returned it again).
+        var content = new string('a', 600);
+        var bytes = Encoding.UTF8.GetBytes("\"" + content + "\"");
+        var seq = new ReadOnlySequence<byte>(bytes);
+        var reader = new JsonReader(seq);
+        var ok = reader.Read();
+        reader.Dispose();
+        var returns = reader.TotalPoolReturns;
+        var tracked = reader.TotalTrackedBuffers;
+        await Assert.That(ok).IsTrue();
+        await Assert.That(returns).IsEqualTo(tracked);
+    }
+
+    [Test]
     public async Task TryReadInt64ArrayFast_Overflow_BailsOut()
     {
         var reader = new JsonReader("[99999999999999999999]"u8);
