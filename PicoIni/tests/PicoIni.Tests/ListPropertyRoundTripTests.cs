@@ -38,6 +38,57 @@ public class ListPropertyRoundTripTests
         var back = IniSerializer.Deserialize<IniObjectListDto>(Encoding.UTF8.GetBytes(text));
         await Assert.That(back!.Name).IsEqualTo("x");
     }
+
+    [Test]
+    public async Task BoolList_RoundTrips()
+    {
+        var dto = new IniBoolListDto { Flags = [true, false, true] };
+        var back = IniSerializer.Deserialize<IniBoolListDto>(
+            Encoding.UTF8.GetBytes(IniSerializer.Serialize(dto))
+        );
+        await Assert.That(back!.Flags).IsEquivalentTo([true, false, true]);
+    }
+
+    [Test]
+    public async Task DateOnlyList_RoundTrips()
+    {
+        var dto = new IniDateListDto
+        {
+            Dates = [new DateOnly(2024, 1, 2), new DateOnly(2025, 6, 7)],
+        };
+        var back = IniSerializer.Deserialize<IniDateListDto>(
+            Encoding.UTF8.GetBytes(IniSerializer.Serialize(dto))
+        );
+        await Assert
+            .That(back!.Dates)
+            .IsEquivalentTo([new DateOnly(2024, 1, 2), new DateOnly(2025, 6, 7)]);
+    }
+
+    [Test]
+    public async Task TimeSpanList_RoundTrips()
+    {
+        var dto = new IniTimeSpanListDto { Durations = [TimeSpan.FromSeconds(90)] };
+        var back = IniSerializer.Deserialize<IniTimeSpanListDto>(
+            Encoding.UTF8.GetBytes(IniSerializer.Serialize(dto))
+        );
+        await Assert.That(back!.Durations).IsEquivalentTo([TimeSpan.FromSeconds(90)]);
+    }
+
+    [Test]
+    public async Task MalformedIntElement_ThrowsFormatException()
+    {
+        await Assert
+            .That(() => IniSerializer.Deserialize<IniIntListDto>("Numbers = abc"u8))
+            .Throws<FormatException>();
+    }
+
+    [Test]
+    public async Task MalformedBoolElement_ThrowsFormatException()
+    {
+        await Assert
+            .That(() => IniSerializer.Deserialize<IniBoolListDto>("Flags = maybe"u8))
+            .Throws<FormatException>();
+    }
 }
 
 internal sealed class IniIntListDto
@@ -59,4 +110,19 @@ internal sealed class IniObjectListDto
 internal sealed class IniListItem
 {
     public int X { get; set; }
+}
+
+internal sealed class IniBoolListDto
+{
+    public List<bool> Flags { get; set; } = [];
+}
+
+internal sealed class IniDateListDto
+{
+    public List<DateOnly> Dates { get; set; } = [];
+}
+
+internal sealed class IniTimeSpanListDto
+{
+    public List<TimeSpan> Durations { get; set; } = [];
 }

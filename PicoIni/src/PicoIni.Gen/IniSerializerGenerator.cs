@@ -1308,6 +1308,24 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.Append(
                         ".Select(__s => __s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")))"
                     );
+                else if (p.ElementTypeKind is "float32" or "float64" or "decimal")
+                    s.Append(
+                        ".Select(__s => __s.ToString(System.Globalization.CultureInfo.InvariantCulture)))"
+                    );
+                else if (p.ElementTypeKind == "datetime")
+                    s.Append(
+                        ".Select(__s => __s.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)))"
+                    );
+                else if (p.ElementTypeKind is "dateonly" or "timeonly")
+                    s.Append(
+                        ".Select(__s => __s.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)))"
+                    );
+                else if (p.ElementTypeKind == "timespan")
+                    s.Append(
+                        ".Select(__s => __s.ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)))"
+                    );
+                else if (p.ElementTypeKind == "boolean")
+                    s.Append(".Select(__s => __s ? \"true\" : \"false\"))");
                 else
                     s.Append(")");
                 break;
@@ -1762,7 +1780,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append('.');
                 s.Append(p.Name);
                 s.Append(".Add(");
-                EmitReadValue(s, elemP);
+                EmitReadValueStrict(s, elemP);
                 s.AppendLine(");");
                 s.Append(pad);
                 s.AppendLine("        __seg = ++__p;");
@@ -1773,7 +1791,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("}");
                 s.Append(pad);
-                s.AppendLine("{");
+                s.AppendLine("if (__seg < __raw.Length) {");
                 s.Append(pad);
                 s.AppendLine(
                     "    var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\")).AsSpan();"
@@ -1784,7 +1802,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append('.');
                 s.Append(p.Name);
                 s.Append(".Add(");
-                EmitReadValue(s, elemP);
+                EmitReadValueStrict(s, elemP);
                 s.AppendLine(");");
                 s.Append(pad);
                 s.AppendLine("}");
@@ -1814,7 +1832,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("        __tmpList_");
                 s.Append(p.Name);
                 s.Append(".Add(");
-                EmitReadValue(s, elemP);
+                EmitReadValueStrict(s, elemP);
                 s.AppendLine(");");
                 s.Append(pad);
                 s.AppendLine("        __seg = ++__p;");
@@ -1825,7 +1843,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("}");
                 s.Append(pad);
-                s.AppendLine("{");
+                s.AppendLine("if (__seg < __raw.Length) {");
                 s.Append(pad);
                 s.AppendLine(
                     "    var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg).Replace(\"\\\\\\\\\", \"\\\\\").Replace(\"\\\\,\", \",\")).AsSpan();"
@@ -1834,7 +1852,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("    __tmpList_");
                 s.Append(p.Name);
                 s.Append(".Add(");
-                EmitReadValue(s, elemP);
+                EmitReadValueStrict(s, elemP);
                 s.AppendLine(");");
                 s.Append(pad);
                 s.AppendLine("}");
@@ -2222,6 +2240,82 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             );
         else
             s.Append("Encoding.UTF8.GetString(__rv)");
+    }
+
+    /// <summary>
+    /// Strict variant used by the property list/array deserializer: malformed
+    /// elements throw FormatException instead of silently defaulting.
+    /// </summary>
+    private static void EmitReadValueStrict(StringBuilder s, PropertyInfo prop)
+    {
+        const string INV = "System.Globalization.CultureInfo.InvariantCulture";
+        switch (prop.TypeKind)
+        {
+            case "string":
+                s.Append("Encoding.UTF8.GetString(__rv)");
+                break;
+            case "int32":
+                s.Append($"int.Parse(__rv, {INV})");
+                break;
+            case "int64":
+                s.Append($"long.Parse(__rv, {INV})");
+                break;
+            case "int16":
+                s.Append($"short.Parse(__rv, {INV})");
+                break;
+            case "uint16":
+                s.Append($"ushort.Parse(__rv, {INV})");
+                break;
+            case "sbyte":
+                s.Append($"sbyte.Parse(__rv, {INV})");
+                break;
+            case "byte":
+                s.Append($"byte.Parse(__rv, {INV})");
+                break;
+            case "uint32":
+                s.Append($"uint.Parse(__rv, {INV})");
+                break;
+            case "uint64":
+                s.Append($"ulong.Parse(__rv, {INV})");
+                break;
+            case "float32":
+                s.Append($"float.Parse(__rv, System.Globalization.NumberStyles.Float, {INV})");
+                break;
+            case "float64":
+                s.Append($"double.Parse(__rv, System.Globalization.NumberStyles.Float, {INV})");
+                break;
+            case "decimal":
+                s.Append(
+                    $"decimal.Parse(Encoding.UTF8.GetString(__rv), System.Globalization.NumberStyles.Number, {INV})"
+                );
+                break;
+            case "boolean":
+                s.Append("bool.Parse(Encoding.UTF8.GetString(__rv))");
+                break;
+            case "datetime":
+                s.Append(
+                    $"System.DateTime.Parse(Encoding.UTF8.GetString(__rv), {INV}, System.Globalization.DateTimeStyles.RoundtripKind)"
+                );
+                break;
+            case "guid":
+                s.Append("System.Guid.Parse(Encoding.UTF8.GetString(__rv))");
+                break;
+            case "dateonly":
+                s.Append($"System.DateOnly.Parse(Encoding.UTF8.GetString(__rv), {INV})");
+                break;
+            case "timeonly":
+                s.Append($"System.TimeOnly.Parse(Encoding.UTF8.GetString(__rv), {INV})");
+                break;
+            case "timespan":
+                s.Append($"System.TimeSpan.Parse(Encoding.UTF8.GetString(__rv), {INV})");
+                break;
+            case "enum":
+                s.Append($"System.Enum.Parse<{prop.TypeFullName}>(Encoding.UTF8.GetString(__rv))");
+                break;
+            default:
+                s.Append("Encoding.UTF8.GetString(__rv)");
+                break;
+        }
     }
 
     private static string IniNumericCastExpr(string kind) =>
