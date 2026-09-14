@@ -43,8 +43,10 @@ public class TopLevelScalarTests
     [Test]
     public async Task MsgPack_NullableValueType_FailsLoudly()
     {
+        // Non-empty payload (nil) so the empty-payload check does not mask the
+        // no-serializer outcome this test is about.
         await Assert
-            .That(() => PicoMsgPack.MsgPackSerializer.Deserialize<Guid?>(ReadOnlySpan<byte>.Empty))
+            .That(() => PicoMsgPack.MsgPackSerializer.Deserialize<Guid?>(new byte[] { 0xC0 }))
             .Throws<InvalidOperationException>();
     }
 }

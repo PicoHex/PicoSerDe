@@ -54,7 +54,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         HasIndentedMaxDepth: false,
         KeyIsEncodedString: false,
         HasNamingPolicy: false,
-        HasOptionsParam: false
+        HasOptionsParam: false,
+        FacadeTakesOptions: true
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)

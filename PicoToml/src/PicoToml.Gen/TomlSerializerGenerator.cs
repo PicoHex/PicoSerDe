@@ -51,7 +51,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         HasIndentedMaxDepth: false,
         KeyIsEncodedString: false,
         HasNamingPolicy: false,
-        HasOptionsParam: false
+        HasOptionsParam: false,
+        FacadeTakesOptions: true
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
