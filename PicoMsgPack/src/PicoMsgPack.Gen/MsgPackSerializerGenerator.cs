@@ -2493,6 +2493,10 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(" = default!;");
                     break;
                 }
+                var __oid = c++;
+                var __oVar = $"__o{__oid}";
+                var __npVar = $"__np{__oid}";
+                var __nkVar = $"__nk{__oid}";
                 s.Append(ind);
                 s.AppendLine("if (reader.TokenType == TokenType.Null) {");
                 if (p.IsNullable)
@@ -2505,21 +2509,21 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.AppendLine("} else {");
                 s.Append(ind);
-                s.Append("    var __o = new ");
+                s.Append($"    var {__oVar} = new ");
                 s.Append(p.TypeFullName);
                 s.AppendLine("();");
                 s.Append(ind);
-                s.AppendLine("    int __np = 0; while (reader.Read()) {");
+                s.AppendLine($"    int {__npVar} = 0; while (reader.Read()) {{");
                 s.Append(ind);
                 s.AppendLine(
                     "        if (reader.TokenType == TokenType.ObjectEnd || reader.TokenType == TokenType.ArrayEnd) break;"
                 );
                 s.Append(ind);
                 s.AppendLine(
-                    "        int __nk; if (__isMap) { reader.TryGetInt32(out __nk); reader.Read(); } else { __nk = __np; }"
+                    $"        int {__nkVar}; if (__isMap) {{ reader.TryGetInt32(out {__nkVar}); reader.Read(); }} else {{ {__nkVar} = {__npVar}; }}"
                 );
                 s.Append(ind);
-                s.AppendLine("        switch (__nk) {");
+                s.AppendLine($"        switch ({__nkVar}) {{");
                 var ns = p.NestedProperties.OrderBy(n => n.IntKey ?? 0).ToImmutableArray();
                 foreach (var n in ns)
                 {
@@ -2527,20 +2531,20 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.Append("            case ");
                     s.Append(n.IntKey ?? 0);
                     s.AppendLine(":");
-                    WriteDeser(s, n, "__o", ind + "                ", ref c);
+                    WriteDeser(s, n, __oVar, ind + "                ", ref c);
                     s.Append(ind);
                     s.AppendLine("                break;");
                 }
                 s.Append(ind);
                 s.AppendLine("            default: if (__isMap) reader.TrySkip(); break; }");
                 s.Append(ind);
-                s.AppendLine("        __np++;");
+                s.AppendLine($"        {__npVar}++;");
                 s.Append(ind);
                 s.AppendLine("    }");
                 s.Append(ind);
                 s.Append("    ");
                 s.Append(t);
-                s.AppendLine(" = __o; }");
+                s.AppendLine($" = {__oVar}; }}");
                 break;
         }
     }
