@@ -600,7 +600,7 @@ public ref struct JsonReader : ITokenReader
         {
             result = result * 10 + (_data[_position] - (byte)'0');
             _position++;
-            if (result <= int.MaxValue)
+            if (result <= int.MaxValue || (neg && result == (long)int.MaxValue + 1))
                 continue;
             v = 0;
             return false;
@@ -1610,19 +1610,21 @@ public ref struct JsonReader : ITokenReader
             }
             if (b < (byte)'0' || b > (byte)'9')
                 return 0;
-            int v = 0;
+            long v = 0;
             do
             {
                 int digit = b - (byte)'0';
-                if (v > (int.MaxValue - digit) / 10)
-                    return 0; // overflow — fall back to the validated reader
                 v = v * 10 + digit;
+                // -2147483648 is a legal int32: allow one past int.MaxValue
+                // when the sign is negative.
+                if (v > int.MaxValue && !(neg && v == (long)int.MaxValue + 1))
+                    return 0; // overflow — fall back to the validated reader
                 p++;
                 if (p >= len)
                     break;
                 b = d[p];
             } while (b >= (byte)'0' && b <= (byte)'9');
-            dest[count++] = neg ? -v : v;
+            dest[count++] = (int)(neg ? -v : v);
         }
         _position = p;
         return count;

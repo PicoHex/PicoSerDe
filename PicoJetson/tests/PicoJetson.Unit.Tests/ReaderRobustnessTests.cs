@@ -230,6 +230,27 @@ public class ReaderRobustnessTests
     }
 
     [Test]
+    public async Task TryReadNextInt32Span_IntMinValue_ReturnsTrue()
+    {
+        // Review P2-5c: -2147483648 is a legal int32.
+        var reader = new JsonReader("-2147483648"u8);
+        var ok = reader.TryReadNextInt32(out var v);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(v).IsEqualTo(int.MinValue);
+    }
+
+    [Test]
+    public async Task TryReadInt32ArrayFast_IntMinValue_ReadsValue()
+    {
+        var reader = new JsonReader("[-2147483648]"u8);
+        reader.Read();
+        var buf = new int[1];
+        var n = reader.TryReadInt32ArrayFast(buf);
+        await Assert.That(n).IsEqualTo(1);
+        await Assert.That(buf[0]).IsEqualTo(int.MinValue);
+    }
+
+    [Test]
     public async Task TryReadInt64ArrayFast_Overflow_BailsOut()
     {
         var reader = new JsonReader("[99999999999999999999]"u8);
