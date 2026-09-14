@@ -746,7 +746,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(" ??= new System.Collections.Generic.Dictionary<");
                 s.Append(dicts[di].KeyTypeName ?? "string");
                 s.Append(", ");
-                s.Append(dicts[di].ElementTypeName ?? "int");
+                s.Append(dicts[di].ElementTypeNameAnnotated ?? dicts[di].ElementTypeName ?? "int");
                 s.AppendLine(">();");
                 s.Append("                    { var __dk = Encoding.UTF8.GetString(__k); ");
                 if (dicts[di].ElementTypeKind == "int32")
@@ -834,7 +834,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(" ??= new System.Collections.Generic.Dictionary<");
                 s.Append(dicts[i].KeyTypeName ?? "string");
                 s.Append(", ");
-                s.Append(dicts[i].ElementTypeName ?? "int");
+                s.Append(dicts[i].ElementTypeNameAnnotated ?? dicts[i].ElementTypeName ?? "int");
                 s.AppendLine(">();");
                 s.Append("                    __sec = ");
                 s.Append(sec.Count + i);

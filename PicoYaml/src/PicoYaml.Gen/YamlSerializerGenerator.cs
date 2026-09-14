@@ -1299,7 +1299,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "array":
                 s.Append(pad);
                 s.Append("var __tmpList = new System.Collections.Generic.List<");
-                s.Append(p.ElementTypeName ?? "object");
+                s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
                 s.AppendLine(">(16);");
                 s.Append(pad);
                 s.AppendLine("while (reader.Read() && reader.TokenType == TokenType.String) {");
@@ -1324,7 +1324,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(" ??= new System.Collections.Generic.Dictionary<");
                 s.Append(p.KeyTypeName ?? "string");
                 s.Append(", ");
-                s.Append(p.ElementTypeName ?? "int");
+                s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "int");
                 s.AppendLine(">();");
                 s.Append(pad);
                 s.AppendLine("if (reader.Read() && reader.TokenType == TokenType.ObjectStart) {");
@@ -1945,7 +1945,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 else
                 {
                     s.Append(" ?? new System.Collections.Generic.List<");
-                    s.Append(p.ElementTypeName ?? "object");
+                    s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
                     s.AppendLine(">(0))");
                 }
                 s.Append(ind);
@@ -2031,7 +2031,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(" ?? new System.Collections.Generic.Dictionary<");
             s.Append(p.KeyTypeName ?? "string");
             s.Append(", ");
-            s.Append(p.ElementTypeName ?? "object");
+            s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
             s.AppendLine(">(0))");
             s.Append(ind);
             s.AppendLine("{");
@@ -2457,7 +2457,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(pad);
             s.Append("var __tmpList = new System.Collections.Generic.List<");
-            s.Append(p.ElementTypeName ?? "object");
+            s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
             s.AppendLine(">(16);");
             if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
             {
@@ -2523,7 +2523,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(" ??= new System.Collections.Generic.Dictionary<");
             s.Append(p.KeyTypeName ?? "string");
             s.Append(", ");
-            s.Append(p.ElementTypeName ?? "int");
+            s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "int");
             s.AppendLine(">();");
             s.Append(pad);
             s.AppendLine("if (r.Read() && r.TokenType == TokenType.ObjectStart) {");

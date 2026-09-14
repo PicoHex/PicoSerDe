@@ -1610,7 +1610,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(" ??= new System.Collections.Generic.Dictionary<");
         s.Append(dp.KeyTypeName ?? "string");
         s.Append(", ");
-        s.Append(dp.ElementTypeName ?? "int");
+        s.Append(dp.ElementTypeNameAnnotated ?? dp.ElementTypeName ?? "int");
         s.AppendLine(">();");
         s.Append(pad);
         s.AppendLine("while (r.Read() && r.TokenType == TokenType.PropertyName) {");
@@ -2055,7 +2055,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.Append(pad);
             s.Append("var __tmpList = new System.Collections.Generic.List<");
-            s.Append(p.ElementTypeName ?? "object");
+            s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
             s.AppendLine(">(16);");
             // Array of tables ([[key]]) for List<ComplexObject>
             if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
@@ -2326,7 +2326,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append(" ??= new System.Collections.Generic.Dictionary<");
                     s.Append(p.KeyTypeName ?? "string");
                     s.Append(", ");
-                    s.Append(p.ElementTypeName ?? "string");
+                    s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "string");
                     s.AppendLine(">();");
                     s.Append(pad);
                     s.AppendLine("r.Read(); // skip ObjectStart from inline table");

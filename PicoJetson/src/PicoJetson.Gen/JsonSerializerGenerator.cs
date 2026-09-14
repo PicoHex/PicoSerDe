@@ -4064,7 +4064,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(dictVar);
                 sb.Append("[");
                 sb.Append(keyVar);
-                sb.AppendLine("] = null;");
+                sb.AppendLine("] = null!;");
                 sb.Append(indent);
                 sb.AppendLine("}");
                 sb.Append(indent);

@@ -8,6 +8,8 @@
     <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Generated code must be nullability-clean (review P2-1). -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS8619;CS8620;CS8625</WarningsAsErrors>
     <Features>Interceptors</Features>
     <InterceptorsNamespaces>$(InterceptorsNamespaces);__PicoSerDe_$(AssemblyName.Replace('.','_').Replace('-','_').Replace(' ','_'))</InterceptorsNamespaces>
   </PropertyGroup>

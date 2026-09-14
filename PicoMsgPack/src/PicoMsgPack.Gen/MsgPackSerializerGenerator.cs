@@ -2462,7 +2462,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" ??= new Dictionary<string, ");
-                s.Append(p.ElementTypeName);
+                s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName);
                 s.AppendLine(">(16);");
                 s.Append(ind);
                 s.AppendLine("if (reader.TokenType == TokenType.ObjectStart) {");
