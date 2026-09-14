@@ -270,6 +270,14 @@ public ref struct JsonReader : ITokenReader
 
         if (PeekByte() == (byte)',')
         {
+            // A comma may only follow a value or a closing bracket. A comma
+            // right after the document start or an opening bracket is a
+            // leading comma and is invalid JSON (review P2-5b).
+            if (
+                !IsResumed
+                && _tokenType is TokenType.None or TokenType.ObjectStart or TokenType.ArrayStart
+            )
+                throw new FormatException($"Unexpected comma at offset {BytesConsumed}");
             AdvanceByte();
             SkipWhitespace();
             // Allow trailing commas if requested

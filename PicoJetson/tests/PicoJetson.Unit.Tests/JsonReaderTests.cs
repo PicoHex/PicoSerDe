@@ -382,6 +382,53 @@ public class JsonReaderTests
         await Assert.That(Encoding.UTF8.GetString(r.GetStringRaw())).IsEqualTo("a\fb");
     }
 
+    [Test]
+    public async Task LeadingComma_AtDocumentStart_Throws()
+    {
+        var r = new JsonReader(",5"u8);
+        var threw = false;
+        try
+        {
+            r.Read();
+        }
+        catch (FormatException)
+        {
+            threw = true;
+        }
+        await Assert.That(threw).IsTrue();
+    }
+
+    [Test]
+    public async Task LeadingComma_InArray_Throws()
+    {
+        var r = new JsonReader("[,1]"u8);
+        var threw = false;
+        try
+        {
+            r.Read();
+            r.Read();
+        }
+        catch (FormatException)
+        {
+            threw = true;
+        }
+        await Assert.That(threw).IsTrue();
+    }
+
+    [Test]
+    public async Task RegularCommas_StillParse()
+    {
+        var r = new JsonReader("[1,2]"u8);
+        var b1 = r.Read();
+        var b2 = r.Read();
+        var b3 = r.Read();
+        var b4 = r.Read();
+        await Assert.That(b1).IsTrue();
+        await Assert.That(b2).IsTrue();
+        await Assert.That(b3).IsTrue();
+        await Assert.That(b4).IsTrue();
+    }
+
     // === P1-7: Error Message Tests ===
 
     [Test]
