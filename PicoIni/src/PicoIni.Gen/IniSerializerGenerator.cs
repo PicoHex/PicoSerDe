@@ -55,7 +55,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         KeyIsEncodedString: false,
         HasNamingPolicy: false,
         HasOptionsParam: false,
-        FacadeTakesOptions: true
+        FacadeTakesOptions: true,
+        HasIndented: true
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -492,11 +493,19 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append(type.Name);
         s.Append("IniSerializer : ISerializer<");
         s.Append(type.Name);
+        s.AppendLine(">, global::PicoSerDe.Core.IOptionsSerializer<");
+        s.Append(type.Name);
         s.AppendLine("> {");
         s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
         s.Append(type.Name);
-        s.AppendLine(" value) {");
-        s.AppendLine("        var iw = new IniWriter(writer);");
+        s.AppendLine(" value) => Serialize(writer, value, null);");
+        s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
+        s.Append(type.Name);
+        s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine("        var __opts = (global::PicoIni.IniOptions?)options;");
+        s.AppendLine(
+            "        var iw = new IniWriter(writer, indented: __opts?.Indented ?? false);"
+        );
 
         // Emit class-level comment if any property has one (they share the same containing type)
         var typeComment = type.Properties.Select(p => p.Comment).FirstOrDefault(c => c is not null);
@@ -987,7 +996,10 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append("    public static void Serialize(IBufferWriter<byte> writer, ");
         s.Append(type.Name);
         s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
-        s.AppendLine("        var iw = new IniWriter(writer);");
+        s.AppendLine("        var __opts = (global::PicoIni.IniOptions?)options;");
+        s.AppendLine(
+            "        var iw = new IniWriter(writer, indented: __opts?.Indented ?? false);"
+        );
 
         var top = type
             .Properties.Where(p => !PicoSerDe.Gen.GenInfrastructure.IsComplexMember(p))
@@ -1063,13 +1075,21 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append(type.Name);
         s.Append("IniSerializer : ISerializer<");
         s.Append(listFqn);
+        s.AppendLine(">, global::PicoSerDe.Core.IOptionsSerializer<");
+        s.Append(listFqn);
         s.AppendLine("> {");
         s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
         s.Append(listFqn);
-        s.AppendLine(" value) {");
+        s.AppendLine(" value) => Serialize(writer, value, null);");
+        s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
+        s.Append(listFqn);
+        s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
         if (isObj)
         {
-            s.AppendLine("        var iw = new IniWriter(writer);");
+            s.AppendLine("        var __opts = (global::PicoIni.IniOptions?)options;");
+            s.AppendLine(
+                "        var iw = new IniWriter(writer, indented: __opts?.Indented ?? false);"
+            );
             s.AppendLine("        for (int i = 0; i < value.Count; i++) {");
             s.AppendLine("            if (i > 0) iw.WriteBlankLine();");
             s.AppendLine("            iw.WriteSection(i.ToString());");
@@ -1834,11 +1854,19 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append(type.Name);
         s.Append("IniSerializer : ISerializer<");
         s.Append(type.Name);
+        s.AppendLine(">, global::PicoSerDe.Core.IOptionsSerializer<");
+        s.Append(type.Name);
         s.AppendLine("> {");
         s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
         s.Append(type.Name);
-        s.AppendLine(" value) {");
-        s.AppendLine("        var iw = new IniWriter(writer);");
+        s.AppendLine(" value) => Serialize(writer, value, null);");
+        s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
+        s.Append(type.Name);
+        s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine("        var __opts = (global::PicoIni.IniOptions?)options;");
+        s.AppendLine(
+            "        var iw = new IniWriter(writer, indented: __opts?.Indented ?? false);"
+        );
         s.Append("        iw.WriteKeyValue(\"");
         s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dpn));
         s.Append("\"u8, value switch { ");

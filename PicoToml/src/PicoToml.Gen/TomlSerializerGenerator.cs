@@ -52,7 +52,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         KeyIsEncodedString: false,
         HasNamingPolicy: false,
         HasOptionsParam: false,
-        FacadeTakesOptions: true
+        FacadeTakesOptions: true,
+        HasIndented: true
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -744,11 +745,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(t.Name);
         s.Append("_TomlSer : ISerializer<");
         s.Append(t.Name);
+        s.AppendLine(">, global::PicoSerDe.Core.IOptionsSerializer<");
+        s.Append(t.Name);
         s.AppendLine("> {");
         s.Append("    public void Serialize(IBufferWriter<byte> w, ");
         s.Append(t.Name);
-        s.AppendLine(" v) {");
-        s.AppendLine("        var tw = new TomlWriter(w);");
+        s.AppendLine(" v) => Serialize(w, v, null);");
+        s.Append("    public void Serialize(IBufferWriter<byte> w, ");
+        s.Append(t.Name);
+        s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine("        var __opts = (global::PicoToml.TomlOptions?)options;");
+        s.AppendLine("        var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);");
         foreach (var p in t.Properties)
             EmitSerializeProp(s, p, "v", "        ");
         s.AppendLine("    } }");
@@ -1077,7 +1084,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("    public static void Serialize(IBufferWriter<byte> w, ");
         s.Append(t.Name);
         s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
-        s.AppendLine("        var tw = new TomlWriter(w);");
+        s.AppendLine("        var __opts = (global::PicoToml.TomlOptions?)options;");
+        s.AppendLine("        var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);");
         foreach (var p in t.Properties)
         {
             s.Append("        tw.WriteKeyValue(\"");
@@ -1143,11 +1151,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(t.Name);
         s.Append("_TomlSer : ISerializer<");
         s.Append(listFqn);
+        s.AppendLine(">, global::PicoSerDe.Core.IOptionsSerializer<");
+        s.Append(listFqn);
         s.AppendLine("> {");
         s.Append("    public void Serialize(IBufferWriter<byte> w, ");
         s.Append(listFqn);
-        s.AppendLine(" v) {");
-        s.AppendLine("        var tw = new TomlWriter(w);");
+        s.AppendLine(" v) => Serialize(w, v, null);");
+        s.Append("    public void Serialize(IBufferWriter<byte> w, ");
+        s.Append(listFqn);
+        s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine("        var __opts = (global::PicoToml.TomlOptions?)options;");
+        s.AppendLine("        var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);");
         if (ek == "object" && elemP.NestedProperties.Length > 0)
         {
             // Array of tables: [[data]] per element
@@ -2628,11 +2642,19 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append(type.Name);
         s.Append("TomlSerializer : ISerializer<");
         s.Append(type.Name);
+        s.AppendLine(">, global::PicoSerDe.Core.IOptionsSerializer<");
+        s.Append(type.Name);
         s.AppendLine("> {");
         s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
         s.Append(type.Name);
-        s.AppendLine(" value) {");
-        s.AppendLine("        var tw = new TomlWriter(writer);");
+        s.AppendLine(" value) => Serialize(writer, value, null);");
+        s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
+        s.Append(type.Name);
+        s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine("        var __opts = (global::PicoToml.TomlOptions?)options;");
+        s.AppendLine(
+            "        var tw = new TomlWriter(writer, indented: __opts?.Indented ?? false);"
+        );
         s.Append("        tw.WriteKeyValue(\"");
         s.Append(dpnEsc);
         s.Append("\", (value switch { ");

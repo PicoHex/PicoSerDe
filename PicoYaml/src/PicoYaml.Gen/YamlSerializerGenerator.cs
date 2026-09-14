@@ -52,7 +52,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         KeyIsEncodedString: false,
         HasNamingPolicy: false,
         HasOptionsParam: false,
-        FacadeTakesOptions: true
+        FacadeTakesOptions: true,
+        HasIndented: true
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext ctx)
@@ -1310,9 +1311,37 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
                 s.AppendLine(">(16);");
                 s.Append(pad);
-                s.AppendLine("while (reader.Read() && reader.TokenType == TokenType.String) {");
+                s.AppendLine("bool __more = reader.Read();");
                 s.Append(pad);
-                s.AppendLine("    __tmpList.Add(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine("if (__more && reader.TokenType == TokenType.ObjectStart)");
+                s.Append(pad);
+                s.AppendLine("{");
+                s.Append(pad);
+                s.AppendLine(
+                    "    while ((__more = reader.Read()) && reader.TokenType == TokenType.String) {"
+                );
+                s.Append(pad);
+                s.AppendLine("        __tmpList.Add(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.Append(pad);
+                s.AppendLine("    }");
+                s.Append(pad);
+                s.AppendLine(
+                    "    if (__more) __more = reader.Read(); // skip the wrapper ObjectEnd"
+                );
+                s.Append(pad);
+                s.AppendLine("}");
+                s.Append(pad);
+                s.AppendLine("else");
+                s.Append(pad);
+                s.AppendLine("{");
+                s.Append(pad);
+                s.AppendLine("    while (__more && reader.TokenType == TokenType.String) {");
+                s.Append(pad);
+                s.AppendLine("        __tmpList.Add(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.Append(pad);
+                s.AppendLine("        __more = reader.Read();");
+                s.Append(pad);
+                s.AppendLine("    }");
                 s.Append(pad);
                 s.AppendLine("}");
                 s.Append(pad);
@@ -1502,11 +1531,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append(t.Name);
         sb.Append("_YS : ISerializer<");
         sb.Append(t.Name);
+        sb.AppendLine(">, global::PicoSerDe.Core.IOptionsSerializer<");
+        sb.Append(t.Name);
         sb.AppendLine("> {");
         sb.Append("    public void Serialize(IBufferWriter<byte> w, ");
         sb.Append(t.Name);
-        sb.AppendLine(" v) {");
-        sb.AppendLine("        var yw = new YamlWriter(w);");
+        sb.AppendLine(" v) => Serialize(w, v, null);");
+        sb.Append("    public void Serialize(IBufferWriter<byte> w, ");
+        sb.Append(t.Name);
+        sb.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
+        sb.AppendLine("        var __opts = (global::PicoYaml.YamlOptions?)options;");
+        sb.AppendLine("        var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);");
         if (t.TypeTag is { } tag && tag.Length > 0)
         {
             sb.Append("        yw.WriteTag(\"");
@@ -1750,7 +1785,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.Append("    public static void Serialize(IBufferWriter<byte> w, ");
         s.Append(t.Name);
         s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
-        s.AppendLine("        var yw = new YamlWriter(w);");
+        s.AppendLine("        var __opts = (global::PicoYaml.YamlOptions?)options;");
+        s.AppendLine("        var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);");
         s.AppendLine("        yw.WriteStartMapping();");
         foreach (var p in t.Properties)
         {
@@ -1819,11 +1855,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.Append(t.Name);
         s.Append("_YamlSer : ISerializer<");
         s.Append(listFqn);
+        s.AppendLine(">, global::PicoSerDe.Core.IOptionsSerializer<");
+        s.Append(listFqn);
         s.AppendLine("> {");
         s.Append("    public void Serialize(IBufferWriter<byte> w, ");
         s.Append(listFqn);
-        s.AppendLine(" v) {");
-        s.AppendLine("        var yw = new YamlWriter(w);");
+        s.AppendLine(" v) => Serialize(w, v, null);");
+        s.Append("    public void Serialize(IBufferWriter<byte> w, ");
+        s.Append(listFqn);
+        s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine("        var __opts = (global::PicoYaml.YamlOptions?)options;");
+        s.AppendLine("        var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);");
         s.AppendLine("        foreach (var __item in v) {");
         EmitSerializeListElement(s, elemP, "            ");
         s.AppendLine("        }");
@@ -2499,10 +2541,37 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             else
             {
                 s.Append(pad);
-                s.AppendLine("bool __more;");
+                s.AppendLine("bool __more = r.Read();");
                 s.Append(pad);
-                s.AppendLine("while ((__more = r.Read()) && r.TokenType == TokenType.String) {");
-                EmitDeserializeListElementTemp(s, p, pad + "    ");
+                s.AppendLine("if (__more && r.TokenType == TokenType.ObjectStart)");
+                s.Append(pad);
+                s.AppendLine("{");
+                s.Append(pad);
+                s.AppendLine("    // Indented block sequence: skip the ObjectStart wrapper.");
+                s.Append(pad);
+                s.AppendLine("    while ((__more = r.Read()) && r.TokenType == TokenType.String)");
+                s.Append(pad);
+                s.AppendLine("    {");
+                EmitDeserializeListElementTemp(s, p, pad + "        ");
+                s.Append(pad);
+                s.AppendLine("    }");
+                s.Append(pad);
+                s.AppendLine("    if (__more) __more = r.Read(); // skip the wrapper ObjectEnd");
+                s.Append(pad);
+                s.AppendLine("}");
+                s.Append(pad);
+                s.AppendLine("else");
+                s.Append(pad);
+                s.AppendLine("{");
+                s.Append(pad);
+                s.AppendLine("    while (__more && r.TokenType == TokenType.String)");
+                s.Append(pad);
+                s.AppendLine("    {");
+                EmitDeserializeListElementTemp(s, p, pad + "        ");
+                s.Append(pad);
+                s.AppendLine("        __more = r.Read();");
+                s.Append(pad);
+                s.AppendLine("    }");
                 s.Append(pad);
                 s.AppendLine("}");
             }
@@ -3006,11 +3075,19 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.Append(type.Name);
         s.Append("YamlSerializer : ISerializer<");
         s.Append(type.Name);
+        s.AppendLine(">, global::PicoSerDe.Core.IOptionsSerializer<");
+        s.Append(type.Name);
         s.AppendLine("> {");
         s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
         s.Append(type.Name);
-        s.AppendLine(" value) {");
-        s.AppendLine("        var yw = new YamlWriter(writer);");
+        s.AppendLine(" value) => Serialize(writer, value, null);");
+        s.Append("    public void Serialize(IBufferWriter<byte> writer, ");
+        s.Append(type.Name);
+        s.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options) {");
+        s.AppendLine("        var __opts = (global::PicoYaml.YamlOptions?)options;");
+        s.AppendLine(
+            "        var yw = new YamlWriter(writer, indented: __opts?.Indented ?? false);"
+        );
         s.AppendLine("        yw.WriteStartMapping();");
         s.Append("        yw.WritePropertyName(\"");
         s.Append(dpnEsc);

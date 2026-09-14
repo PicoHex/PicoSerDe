@@ -10,5 +10,6 @@ internal readonly record struct AnonFormatConfig(
     bool KeyIsEncodedString,
     bool HasNamingPolicy,
     bool HasOptionsParam,
-    bool FacadeTakesOptions = false
+    bool FacadeTakesOptions = false,
+    bool HasIndented = false
 );

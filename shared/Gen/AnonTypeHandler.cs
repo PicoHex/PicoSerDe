@@ -364,13 +364,21 @@ internal static class AnonTypeHandler
 
         // Format-specific writer construction
         if (info.SerializeMethodName == "Writer")
-            sb.AppendLine($"        var {wv} = new {wt}(writer);");
+            sb.AppendLine(
+                afc.HasIndented
+                    ? $"        var {wv} = new {wt}(writer, indented: options?.Indented ?? false);"
+                    : $"        var {wv} = new {wt}(writer);"
+            );
         else
         {
             sb.AppendLine("        var __buf = SerializerExtensions.RentWriter();");
             if (afc.HasIndentedMaxDepth)
                 sb.AppendLine(
                     $"        var {wv} = new {wt}(__buf, indented: options?.Indented ?? false, maxDepth: options?.MaxDepth ?? 63, options: options);"
+                );
+            else if (afc.HasIndented)
+                sb.AppendLine(
+                    $"        var {wv} = new {wt}(__buf, indented: options?.Indented ?? false);"
                 );
             else
                 sb.AppendLine($"        var {wv} = new {wt}(__buf);");
