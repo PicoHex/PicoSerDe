@@ -89,6 +89,30 @@ public class ListPropertyRoundTripTests
             .That(() => IniSerializer.Deserialize<IniBoolListDto>("Flags = maybe"u8))
             .Throws<FormatException>();
     }
+
+    [Test]
+    public async Task TopLevelObjectList_RoundTrips()
+    {
+        var dto = new List<IniListItem>
+        {
+            new() { X = 1 },
+            new() { X = 2 },
+        };
+        var text = IniSerializer.Serialize(dto);
+        var back = IniSerializer.Deserialize<List<IniListItem>>(Encoding.UTF8.GetBytes(text));
+        await Assert.That(back!.Select(i => i.X)).IsEquivalentTo([1, 2]);
+    }
+
+    [Test]
+    public async Task TopLevelObjectList_MalformedNestedValue_ThrowsFormatException()
+    {
+        var text = IniSerializer.Serialize(new List<IniListItem> { new() { X = 1 } });
+        var bad = text.Replace("X = 1", "X = abc");
+
+        await Assert
+            .That(() => IniSerializer.Deserialize<List<IniListItem>>(Encoding.UTF8.GetBytes(bad)))
+            .Throws<FormatException>();
+    }
 }
 
 internal sealed class IniIntListDto

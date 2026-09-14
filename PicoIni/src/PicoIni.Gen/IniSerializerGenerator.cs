@@ -604,6 +604,16 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"u8);");
             foreach (var np in p.NestedProperties)
             {
+                // INI sections are flat — a nested object inside a section cannot
+                // be represented. Fail loudly instead of writing "TypeName" text.
+                if (np.TypeKind == "object")
+                {
+                    s.Append(
+                        "        throw new System.NotSupportedException(\"INI sections cannot represent nested objects deeper than one level yet.\");"
+                    );
+                    s.AppendLine();
+                    continue;
+                }
                 // DefaultIgnoreCondition: INI has no null literal — null
                 // section values are always omitted.
                 bool npCheck = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
@@ -1185,7 +1195,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append("                        __cur.");
                 s.Append(np.Name);
                 s.Append(" = ");
-                EmitReadValue(s, np);
+                EmitReadValueStrict(s, np);
                 s.AppendLine(";");
                 s.AppendLine("                    }");
             }
@@ -1218,7 +1228,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             );
             s.AppendLine("                var __rv = Encoding.UTF8.GetBytes(__raw).AsSpan();");
             s.Append("                __list.Add(");
-            EmitReadValue(s, elemP);
+            EmitReadValueStrict(s, elemP);
             s.AppendLine(");");
             s.AppendLine("                __seg = ++__p;");
             s.AppendLine("            }");
@@ -1230,7 +1240,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             );
             s.AppendLine("            var __rv = Encoding.UTF8.GetBytes(__raw).AsSpan();");
             s.Append("            __list.Add(");
-            EmitReadValue(s, elemP);
+            EmitReadValueStrict(s, elemP);
             s.AppendLine(");");
             s.AppendLine("        }");
         }
