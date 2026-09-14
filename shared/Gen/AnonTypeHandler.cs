@@ -82,6 +82,13 @@ internal static class AnonTypeHandler
         ["string"] = (8, 8, true),
         ["int32"] = (4, 4, false),
         ["int64"] = (8, 8, false),
+        ["int16"] = (2, 2, false),
+        ["uint16"] = (2, 2, false),
+        ["uint32"] = (4, 4, false),
+        ["uint64"] = (8, 8, false),
+        ["sbyte"] = (1, 1, false),
+        ["byte"] = (1, 1, false),
+        ["char"] = (2, 2, false),
         ["float32"] = (4, 4, false),
         ["float64"] = (8, 8, false),
         ["boolean"] = (1, 1, false),
@@ -144,6 +151,12 @@ internal static class AnonTypeHandler
                 continue;
             if (tk is null)
                 tk = "object";
+            // Unknown kinds cannot be laid out safely — skip the whole
+            // anonymous type instead of crashing the generator with a
+            // KeyNotFoundException (a crash discards EVERY generated
+            // serializer in the compilation).
+            if (!TypeLayout.ContainsKey(tk))
+                return null;
             bool isRef = TypeLayout.TryGetValue(tk, out var l) && l.IsRef;
             string jn =
                 attrs.GetCustomName?.Invoke(p)
@@ -252,6 +265,13 @@ internal static class AnonTypeHandler
             "string" => "string",
             "int32" => "int",
             "int64" => "long",
+            "int16" => "short",
+            "uint16" => "ushort",
+            "uint32" => "uint",
+            "uint64" => "ulong",
+            "sbyte" => "sbyte",
+            "byte" => "byte",
+            "char" => "char",
             "float32" => "float",
             "float64" => "double",
             "boolean" => "bool",

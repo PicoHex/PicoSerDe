@@ -5981,6 +5981,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             or "decimal" => $"{wv}.WriteNumber({vv});",
             "boolean" => $"{wv}.WriteBoolean({vv});",
             "datetime" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString(\"O\")));",
+            "char" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString()));",
             "dateonly" or "timeonly" or "timespan" or "guid" =>
                 $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString()));",
             _ => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}?.ToString() ?? \"\"));",

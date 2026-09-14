@@ -118,4 +118,60 @@ public class AnonTypeSerializationTests
         await Assert.That(yaml).Contains("Name");
         await Assert.That(yaml).Contains("test");
     }
+
+    // Review P1-2: every integer kind must serialize from an anonymous type —
+    // a single missing kind used to crash the whole source generator
+    // (CS8785 KeyNotFoundException), silently removing ALL serializers.
+    [Test]
+    public async Task Json_AnonType_IntegerFamily_Serializes()
+    {
+        await Assert.That(PicoJetson.JsonSerializer.Serialize(new { V = 1u })).Contains("\"V\":1");
+        await Assert.That(PicoJetson.JsonSerializer.Serialize(new { V = 2ul })).Contains("\"V\":2");
+        await Assert
+            .That(PicoJetson.JsonSerializer.Serialize(new { V = (short)-3 }))
+            .Contains("\"V\":-3");
+        await Assert
+            .That(PicoJetson.JsonSerializer.Serialize(new { V = (ushort)4 }))
+            .Contains("\"V\":4");
+        await Assert
+            .That(PicoJetson.JsonSerializer.Serialize(new { V = (byte)5 }))
+            .Contains("\"V\":5");
+        await Assert
+            .That(PicoJetson.JsonSerializer.Serialize(new { V = (sbyte)-6 }))
+            .Contains("\"V\":-6");
+        await Assert
+            .That(PicoJetson.JsonSerializer.Serialize(new { V = 'x' }))
+            .Contains("\"V\":\"x\"");
+    }
+
+    [Test]
+    public async Task Ini_AnonType_WithUInt_Serializes()
+    {
+        var ini = IniSerializer.Serialize(new { V = 1u });
+        await Assert.That(ini).Contains("V");
+        await Assert.That(ini).Contains("1");
+    }
+
+    [Test]
+    public async Task Toml_AnonType_WithUInt_Serializes()
+    {
+        var toml = TomlSerializer.Serialize(new { V = 1u });
+        await Assert.That(toml).Contains("V");
+        await Assert.That(toml).Contains("1");
+    }
+
+    [Test]
+    public async Task Yaml_AnonType_WithUInt_Serializes()
+    {
+        var yaml = YamlSerializer.Serialize(new { V = 1u });
+        await Assert.That(yaml).Contains("V");
+        await Assert.That(yaml).Contains("1");
+    }
+
+    [Test]
+    public async Task MsgPack_AnonType_WithUInt_Serializes()
+    {
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(new { V = 1u });
+        await Assert.That(bytes.Length).IsGreaterThan(0);
+    }
 }
