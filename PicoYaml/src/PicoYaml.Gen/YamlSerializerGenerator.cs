@@ -716,12 +716,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "float32":
                 sb.AppendLine(
-                    "                obj[__dk] = float.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                    "                obj[__dk] = float.Parse(Encoding.UTF8.GetString(reader.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
                 );
                 break;
             case "float64":
                 sb.AppendLine(
-                    "                obj[__dk] = double.Parse(Encoding.UTF8.GetString(reader.ValueSpan));"
+                    "                obj[__dk] = double.Parse(Encoding.UTF8.GetString(reader.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
                 );
                 break;
             case "boolean":
@@ -1179,14 +1179,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = float.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(
+                    " = float.Parse(Encoding.UTF8.GetString(reader.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
+                );
                 break;
             case "float64":
                 s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.AppendLine(" = double.Parse(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(
+                    " = double.Parse(Encoding.UTF8.GetString(reader.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
+                );
                 break;
             case "boolean":
                 s.Append(pad);
@@ -2721,12 +2725,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 case "float32":
                     s.Append(pad);
                     EmitTgt();
-                    s.AppendLine(" = float.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                    s.AppendLine(
+                        " = float.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
+                    );
                     break;
                 case "float64":
                     s.Append(pad);
                     EmitTgt();
-                    s.AppendLine(" = double.Parse(Encoding.UTF8.GetString(r.ValueSpan));");
+                    s.AppendLine(
+                        " = double.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);"
+                    );
                     break;
                 case "boolean":
                     s.Append(pad);

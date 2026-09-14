@@ -82,7 +82,7 @@ public ref struct IniWriter
         WriteKey(Encoding.UTF8.GetBytes(key));
         WriteRaw(" = "u8);
         Span<byte> buf = _buffer.GetSpan(32);
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, System.Globalization.CultureInfo.InvariantCulture);
         _buffer.Advance(w);
         _bytesWritten += w;
         WriteNewLine();
@@ -93,7 +93,7 @@ public ref struct IniWriter
         WriteKey(Encoding.UTF8.GetBytes(key));
         WriteRaw(" = "u8);
         Span<byte> buf = _buffer.GetSpan(64);
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, System.Globalization.CultureInfo.InvariantCulture);
         _buffer.Advance(w);
         _bytesWritten += w;
         WriteNewLine();
@@ -274,7 +274,7 @@ public ref struct IniWriter
         WriteRaw(utf8Key);
         WriteRaw(" = "u8);
         Span<byte> buf = stackalloc byte[32];
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, System.Globalization.CultureInfo.InvariantCulture);
         _buffer.Write(buf[..w]);
         _bytesWritten += w;
         WriteNewLine();
@@ -285,7 +285,7 @@ public ref struct IniWriter
         WriteRaw(utf8Key);
         WriteRaw(" = "u8);
         Span<byte> buf = stackalloc byte[64];
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, System.Globalization.CultureInfo.InvariantCulture);
         _buffer.Write(buf[..w]);
         _bytesWritten += w;
         WriteNewLine();
