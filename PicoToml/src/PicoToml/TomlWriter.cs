@@ -9,8 +9,10 @@ public ref struct TomlWriter
     private long _arrayCommaMask;
     private int _inlineDepth;
     private long _inlineCommaMask;
+    private bool _inTable;
+    private readonly bool _indented;
 
-    public TomlWriter(IBufferWriter<byte> buffer, int maxDepth = 256)
+    public TomlWriter(IBufferWriter<byte> buffer, int maxDepth = 256, bool indented = false)
     {
         _buffer = buffer;
         _bytesWritten = 0;
@@ -19,6 +21,8 @@ public ref struct TomlWriter
         _arrayCommaMask = 0;
         _inlineDepth = 0;
         _inlineCommaMask = 0;
+        _inTable = false;
+        _indented = indented;
     }
 
     public long BytesWritten => _bytesWritten;
@@ -37,6 +41,7 @@ public ref struct TomlWriter
 
     public void WriteTable(ReadOnlySpan<byte> utf8Name)
     {
+        _inTable = true;
         WriteByte((byte)'[');
         WriteRaw(utf8Name);
         WriteByte((byte)']');
@@ -46,6 +51,7 @@ public ref struct TomlWriter
     /// <summary>Writes a TOML array-of-tables header like [[key]].</summary>
     public void WriteArrayTable(ReadOnlySpan<byte> utf8Name)
     {
+        _inTable = true;
         WriteByte((byte)'[');
         WriteByte((byte)'[');
         WriteRaw(utf8Name);
@@ -404,6 +410,8 @@ public ref struct TomlWriter
 
     private void WriteKey(ReadOnlySpan<byte> utf8)
     {
+        if (_indented && _inTable && _inlineDepth == 0)
+            WriteRaw("  "u8);
         if (_inlineDepth > 0)
             InlineBeforeValue();
         if (NeedsKeyQuoting(utf8))

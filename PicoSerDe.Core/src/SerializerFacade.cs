@@ -31,8 +31,11 @@ public static class SerializerFacade<TFormat>
     /// </summary>
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
     {
-        SerRegistry<TFormat, T>.Handler = (writer, value, _) =>
-            serializer.Serialize(writer, value);
+        // Generated option-aware serializers implement IOptionsSerializer<T> so
+        // per-call options (e.g. Indented) reach the writer without ambient state.
+        SerRegistry<TFormat, T>.Handler = serializer is IOptionsSerializer<T> aware
+            ? (writer, value, options) => aware.Serialize(writer, value, options)
+            : (writer, value, _) => serializer.Serialize(writer, value);
         DesRegistry<TFormat, T>.Deserializer = (data, _) => deserializer.Deserialize(data);
     }
 

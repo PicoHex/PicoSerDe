@@ -7,16 +7,18 @@ public ref struct YamlWriter
     private readonly int _maxDepth;
     private int _depth;
     private bool _afterKey;
+    private readonly bool _indented;
 
     public long BytesWritten => _bytesWritten;
 
-    public YamlWriter(IBufferWriter<byte> buffer, int maxDepth = 256)
+    public YamlWriter(IBufferWriter<byte> buffer, int maxDepth = 256, bool indented = false)
     {
         _buffer = buffer;
         _bytesWritten = 0;
         _maxDepth = maxDepth;
         _depth = 0;
         _afterKey = false;
+        _indented = indented;
     }
 
     public void WriteComment(string text)
@@ -223,7 +225,8 @@ public ref struct YamlWriter
             WriteNewLine();
             _afterKey = false;
         }
-        for (var i = 0; i < _depth; i++)
+        var pad = _depth + (_indented ? 1 : 0);
+        for (var i = 0; i < pad; i++)
             WriteRaw("  "u8);
         WriteRaw("- "u8);
         if (NeedsQuoting(utf8Value))
@@ -268,7 +271,8 @@ public ref struct YamlWriter
             WriteNewLine();
             _afterKey = false;
         }
-        for (var i = 0; i < _depth; i++)
+        var pad = _depth + (_indented ? 1 : 0);
+        for (var i = 0; i < pad; i++)
             WriteRaw("  "u8);
         WriteRaw("- "u8);
     }
@@ -281,16 +285,19 @@ public ref struct YamlWriter
             WriteNewLine();
             _afterKey = false;
         }
-        for (var i = 0; i < _depth; i++)
+        var pad = _depth + (_indented ? 1 : 0);
+        for (var i = 0; i < pad; i++)
             WriteRaw("  "u8);
         WriteRaw("- "u8);
         WriteNewLine();
-        _depth++;
+        // Indented sequences keep the item content one extra level deep so the
+        // mapping under a "- " item aligns past the dash.
+        _depth += _indented ? 2 : 1;
     }
 
     public void WriteEndSequenceBlock()
     {
-        _depth--;
+        _depth -= _indented ? 2 : 1;
     }
 
     /// <summary>Writes an explicit tag like !person on its own line before a block mapping.</summary>

@@ -4,11 +4,15 @@ public ref struct IniWriter
 {
     private IBufferWriter<byte> _buffer;
     private long _bytesWritten;
+    private bool _inSection;
+    private readonly bool _indented;
 
-    public IniWriter(IBufferWriter<byte> buffer)
+    public IniWriter(IBufferWriter<byte> buffer, bool indented = false)
     {
         _buffer = buffer;
         _bytesWritten = 0;
+        _inSection = false;
+        _indented = indented;
     }
 
     public long BytesWritten => _bytesWritten;
@@ -33,6 +37,7 @@ public ref struct IniWriter
 
     public void WriteSection(ReadOnlySpan<byte> utf8Name)
     {
+        _inSection = true;
         WriteByte((byte)'[');
         WriteRaw(utf8Name);
         WriteByte((byte)']');
@@ -364,6 +369,8 @@ public ref struct IniWriter
 
     private void WriteKey(ReadOnlySpan<byte> utf8Key)
     {
+        if (_indented && _inSection)
+            WriteRaw("  "u8);
         WriteRaw(utf8Key);
     }
 
