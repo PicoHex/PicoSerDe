@@ -48,7 +48,27 @@ jobs:
           mkdir -p ./artifacts/nupkg
           dotnet restore -p:UseProjectReferences=true
       - run: dotnet build --configuration Release --no-restore -p:UseProjectReferences=true
-      - run: dotnet test --configuration Release --no-build --verbosity normal
+      # TUnit on Microsoft.Testing.Platform: `dotnet test` shows flaky test
+      # discovery in this repo, so each test project is executed directly with
+      # `dotnet run` (see the tunit-runner skill).
+      - name: Run PicoSerDe.Core tests
+        run: dotnet run --project PicoSerDe.Core/tests/PicoSerDe.Core.Tests/PicoSerDe.Core.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoJetson.Unit tests
+        run: dotnet run --project PicoJetson/tests/PicoJetson.Unit.Tests/PicoJetson.Unit.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoJetson.Integration tests
+        run: dotnet run --project PicoJetson/tests/PicoJetson.Integration.Tests/PicoJetson.Integration.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoJetson.Functional tests
+        run: dotnet run --project PicoJetson/tests/PicoJetson.Functional.Tests/PicoJetson.Functional.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoIni tests
+        run: dotnet run --project PicoIni/tests/PicoIni.Tests/PicoIni.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoMsgPack tests
+        run: dotnet run --project PicoMsgPack/tests/PicoMsgPack.Tests/PicoMsgPack.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoToml tests
+        run: dotnet run --project PicoToml/tests/PicoToml.Tests/PicoToml.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoYaml tests
+        run: dotnet run --project PicoYaml/tests/PicoYaml.Tests/PicoYaml.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run cross-format integration tests
+        run: dotnet run --project tests/PicoSerDe.Integration.Tests/PicoSerDe.Integration.Tests.csproj -c Release --no-build -p:PublishAot=false
       - run: dotnet build PicoJetson/benchmarks/PicoJetson.Benchmarks/PicoJetson.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoIni/benchmarks/PicoIni.Benchmarks/PicoIni.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj -c Release --no-restore
