@@ -138,4 +138,26 @@ public class PicoDocumentValidationTests
         await Assert.That(doc.RootElement["name"].GetString()).IsEqualTo("Alice");
         await Assert.That(doc.RootElement["age"].GetInt32()).IsEqualTo(30);
     }
+
+    [Test]
+    public async Task IsValid_UnknownEscape_ReturnsFalse()
+    {
+        // Review P2-5a: \q is not a valid RFC 8259 escape sequence.
+        await Assert.That(PicoDocument.IsValid("{\"a\":\"\\q\"}"u8)).IsFalse();
+    }
+
+    [Test]
+    public async Task Parse_UnknownEscape_Throws()
+    {
+        var threw = false;
+        try
+        {
+            PicoDocument.Parse("{\"a\":\"\\q\"}"u8.ToArray());
+        }
+        catch (FormatException)
+        {
+            threw = true;
+        }
+        await Assert.That(threw).IsTrue();
+    }
 }

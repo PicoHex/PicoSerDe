@@ -921,12 +921,19 @@ public ref struct JsonReader : ITokenReader
                         case (byte)'t':
                             buf[di++] = (byte)'\t';
                             break;
+                        case (byte)'b':
+                            buf[di++] = (byte)'\b';
+                            break;
+                        case (byte)'f':
+                            buf[di++] = (byte)'\f';
+                            break;
                         case (byte)'u':
                             di = ReadUnicodeEscapeSeq(buf, di);
                             break;
                         default:
-                            buf[di++] = b;
-                            break;
+                            throw new FormatException(
+                                $"Invalid escape character '{(char)b}' at offset {_seqReader.Consumed - 1}"
+                            );
                     }
                     if (di >= buf.Length)
                     {
@@ -1157,12 +1164,19 @@ public ref struct JsonReader : ITokenReader
                         case (byte)'t':
                             decoded[di++] = (byte)'\t';
                             break;
+                        case (byte)'b':
+                            decoded[di++] = (byte)'\b';
+                            break;
+                        case (byte)'f':
+                            decoded[di++] = (byte)'\f';
+                            break;
                         case (byte)'u':
                             si = ReadUnicodeEscapeSpan(decoded, ref di, si);
                             break;
                         default:
-                            decoded[di++] = _valueSpan[si];
-                            break;
+                            throw new FormatException(
+                                $"Invalid escape character '{(char)_valueSpan[si]}' at offset {si}"
+                            );
                     }
                 }
                 else

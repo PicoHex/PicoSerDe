@@ -358,6 +358,30 @@ public class JsonReaderTests
         }
     }
 
+    [Test]
+    public async Task InvalidEscape_UnknownChar_Throws()
+    {
+        // RFC 8259 allows only " \\ / b f n r t u after a backslash.
+        var r = new JsonReader("\"\\q\""u8);
+        try
+        {
+            r.Read();
+            await Assert.That(true).IsFalse();
+        }
+        catch (FormatException)
+        {
+            await Assert.That(true).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task ValidEscape_FormFeed_IsAccepted()
+    {
+        var r = new JsonReader("\"a\\fb\""u8);
+        r.Read();
+        await Assert.That(Encoding.UTF8.GetString(r.GetStringRaw())).IsEqualTo("a\fb");
+    }
+
     // === P1-7: Error Message Tests ===
 
     [Test]
