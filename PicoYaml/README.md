@@ -14,7 +14,7 @@ are not yet supported. Flow mappings (`{key: value}`) are partially supported.
 
 ```bash
 dotnet add package PicoYaml
-dotnet add package PicoYaml.Gen
+# The source generator is embedded in PicoYaml (analyzers/dotnet/cs) — no separate .Gen reference needed
 ```
 
 ## Quick Start
@@ -98,7 +98,7 @@ AOT self-contained, .NET 10, 100K iterations:
 | Package | Description |
 |---------|-------------|
 | `PicoYaml` | Runtime library |
-| `PicoYaml.Gen` | Roslyn source generator |
+| `PicoYaml.Gen` | Roslyn source generator — embedded in the runtime package (standalone package is legacy/optional) |
 
 ## License
 

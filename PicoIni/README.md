@@ -8,7 +8,7 @@ AOT-first, reflection-free INI serializer.
 
 ```bash
 dotnet add package PicoIni
-dotnet add package PicoIni.Gen
+# The source generator is embedded in PicoIni (analyzers/dotnet/cs) — no separate .Gen reference needed
 ```
 
 ## Quick Start
@@ -105,7 +105,7 @@ while (reader.Read())
 | Package | Description |
 |---------|-------------|
 | `PicoIni` | Runtime library |
-| `PicoIni.Gen` | Roslyn source generator |
+| `PicoIni.Gen` | Roslyn source generator — embedded in the runtime package (standalone package is legacy/optional) |
 
 ## License
 

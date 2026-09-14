@@ -8,7 +8,7 @@ AOT-first, reflection-free TOML serializer.
 
 ```bash
 dotnet add package PicoToml
-dotnet add package PicoToml.Gen
+# The source generator is embedded in PicoToml (analyzers/dotnet/cs) — no separate .Gen reference needed
 ```
 
 ## Quick Start
@@ -98,7 +98,7 @@ while (reader.Read())
 | Package | Description |
 |---------|-------------|
 | `PicoToml` | Runtime library |
-| `PicoToml.Gen` | Roslyn source generator |
+| `PicoToml.Gen` | Roslyn source generator — embedded in the runtime package (standalone package is legacy/optional) |
 
 ## License
 

@@ -8,7 +8,7 @@ AOT-compatible MessagePack serializer with zero-reflection source generation.
 
 ```bash
 dotnet add package PicoMsgPack
-dotnet add package PicoMsgPack.Gen
+# The source generator is embedded in PicoMsgPack (analyzers/dotnet/cs) — no separate .Gen reference needed
 ```
 
 ## Quick Start
@@ -94,7 +94,7 @@ while (reader.Read())
 | Package | Description |
 |---------|-------------|
 | `PicoMsgPack` | Runtime library |
-| `PicoMsgPack.Gen` | Roslyn source generator |
+| `PicoMsgPack.Gen` | Roslyn source generator — embedded in the runtime package (standalone package is legacy/optional) |
 
 ## License
 

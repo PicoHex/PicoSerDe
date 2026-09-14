@@ -238,10 +238,10 @@ PicoJetson tests are split into Unit / Integration / Functional projects with cl
      │        │         │         │         │
  PicoJetson  PicoIni  PicoMsgPack PicoToml PicoYaml
    ││       ││         ││        ││       ││
-  .Gen     .Gen       .Gen      .Gen     .Gen
+  .Gen     .Gen       .Gen      .Gen     .Gen      ← embedded in each runtime nupkg
 ```
 
-- **Dual-package**: each format → runtime library (net10.0) + source generator (netstandard2.0)
+- **One-package install**: each format → runtime library (net10.0) with its source generator (netstandard2.0) **embedded** in the nupkg (`analyzers/dotnet/cs` + `build/PicoX.targets`) — a single `PackageReference` is enough; standalone `.Gen` packages are legacy/optional
 - **`ref struct`** readers/writers — stack-allocated, zero heap allocation on hot path
 - **Static `SerRegistry<TFormat, T>`** — per-format registries in PicoSerDe.Core; JIT/AOT inlineable, no dictionary lookups
 - **`file struct`** generated implementations — devirtualization without sealed class overhead
@@ -348,11 +348,13 @@ is the canonical property (`Name` is an obsolete alias).
 | Package | NuGet |
 |---------|:-----:|
 | `PicoSerDe.Core` | [![NuGet](https://img.shields.io/nuget/v/PicoSerDe.Core)](https://www.nuget.org/packages/PicoSerDe.Core) |
-| `PicoJetson` / `.Gen` | [![NuGet](https://img.shields.io/nuget/v/PicoJetson)](https://www.nuget.org/packages/PicoJetson) |
-| `PicoMsgPack` / `.Gen` | [![NuGet](https://img.shields.io/nuget/v/PicoMsgPack)](https://www.nuget.org/packages/PicoMsgPack) |
-| `PicoIni` / `.Gen` | [![NuGet](https://img.shields.io/nuget/v/PicoIni)](https://www.nuget.org/packages/PicoIni) |
-| `PicoToml` / `.Gen` | [![NuGet](https://img.shields.io/nuget/v/PicoToml)](https://www.nuget.org/packages/PicoToml) |
-| `PicoYaml` / `.Gen` | [![NuGet](https://img.shields.io/nuget/v/PicoYaml)](https://www.nuget.org/packages/PicoYaml) |
+| `PicoJetson` | [![NuGet](https://img.shields.io/nuget/v/PicoJetson)](https://www.nuget.org/packages/PicoJetson) |
+| `PicoMsgPack` | [![NuGet](https://img.shields.io/nuget/v/PicoMsgPack)](https://www.nuget.org/packages/PicoMsgPack) |
+| `PicoIni` | [![NuGet](https://img.shields.io/nuget/v/PicoIni)](https://www.nuget.org/packages/PicoIni) |
+| `PicoToml` | [![NuGet](https://img.shields.io/nuget/v/PicoToml)](https://www.nuget.org/packages/PicoToml) |
+| `PicoYaml` | [![NuGet](https://img.shields.io/nuget/v/PicoYaml)](https://www.nuget.org/packages/PicoYaml) |
+
+> Each runtime package embeds its generator (`analyzers/dotnet/cs`); the standalone `*.Gen` packages are legacy/optional — installing both would load a duplicate analyzer.
 
 ---
 

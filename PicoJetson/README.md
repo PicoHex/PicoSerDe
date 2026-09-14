@@ -8,7 +8,7 @@ AOT-first JSON serializer with SIMD-accelerated parsing and source-generated zer
 
 ```bash
 dotnet add package PicoJetson
-dotnet add package PicoJetson.Gen
+# The source generator is embedded in PicoJetson (analyzers/dotnet/cs) — no separate .Gen reference needed
 ```
 
 ## Quick Start
@@ -222,7 +222,7 @@ All `WriteNumber` overloads format with `CultureInfo.InvariantCulture` — outpu
 | Package | Description |
 |---------|-------------|
 | `PicoJetson` | Runtime library |
-| `PicoJetson.Gen` | Roslyn source generator |
+| `PicoJetson.Gen` | Roslyn source generator — embedded in the runtime package (standalone package is legacy/optional) |
 
 ## License
 
