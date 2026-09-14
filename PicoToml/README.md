@@ -56,6 +56,17 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
 [TomlDateTimeFormat("yyyy-MM-dd")]    // custom DateTime format
 ```
 
+## Options
+
+`TomlSerializer.Serialize` / `Deserialize` accept `TomlOptions`:
+
+- `Indented` — indents table contents by two spaces (default: compact)
+- `DefaultIgnoreCondition` — accepted for API uniformity; TOML has no null literal, so null values are always omitted
+
+## Limitations
+
+- Objects nested deeper than one level throw `NotSupportedException` instead of silently losing data.
+
 ## Performance
 
 AOT self-contained, .NET 10, 100K iterations:

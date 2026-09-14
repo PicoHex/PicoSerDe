@@ -9,9 +9,10 @@ Shared serialization infrastructure for the PicoSerDe framework. Provides unifie
 | Component | Description |
 |-----------|-------------|
 | `ISerializer<T>` | Unified serialization contract |
+| `IOptionsSerializer<T>` | Optional extension consumed by generated serializers to receive per-call options (e.g. `Indented`) |
 | `IDeserializer<T>` | Unified deserialization contract |
 | `TokenType` | Cross-format token enum (ObjectStart, PropertyName, Int32, String, etc.) |
-| `SimdHelpers` | SIMD-accelerated whitespace skipping (Vector128) |
+| `SimdHelpers` | SIMD-accelerated whitespace skipping (Vector512/256/128 with scalar fallback) |
 | `TextHelpers` | `IsDigit`, `Trim`, `TrimEnd`, case-insensitive byte-span `Eq` |
 | `SerializerExtensions` | `RentWriter()` (ThreadStatic pooled), `ThrowNoSerializer<T>` |
 | `DeserializerExtensions` | `Stream`, `PipeReader`, `string`, `byte[]` convenience overloads |

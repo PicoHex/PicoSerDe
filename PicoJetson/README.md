@@ -58,12 +58,13 @@ Generated code reproduces reference-nullability annotations exactly as declared 
 `List<string?>`, `Dictionary<string, object?>`, `Dictionary<string, string?>` and
 nullable-annotated constructor parameters all round-trip, so nullable-enabled
 consumers that promote `CS8619`/`CS8620` to errors keep building. The integration
-test project enforces this at **compile time** (`<WarningsAsErrors>CS8619;CS8620</WarningsAsErrors>`).
+test project enforces this at **compile time** (`<WarningsAsErrors>CS8619;CS8620;CS8625</WarningsAsErrors>`).
 JSON `null` follows the documented rule everywhere: value-type targets throw,
 reference-type targets (list elements and dictionary values) yield `null`.
 
 **Not supported yet** (members are dropped without a diagnostic — no serialization error):
 
+- **Top-level scalar / `Nullable<T>` targets** — `Serialize<Guid>(...)`, `Deserialize<int?>(...)` etc. fail loudly with `InvalidOperationException` instead of emitting an empty object
 - `KeyValuePair<K,V>` and `Tuple<...>` members
 - extended scalars used as **dictionary keys** (e.g. `Dictionary<DateTimeOffset, int>`)
 - extended collections nested as **list elements** or **dictionary values** (e.g. `List<HashSet<int>>`)

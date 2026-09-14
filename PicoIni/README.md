@@ -62,6 +62,19 @@ var ini = IniSerializer.Serialize(config);
 [IniDateTimeFormat("yyyy-MM-dd")]     // custom DateTime format
 ```
 
+## Options
+
+`IniSerializer.Serialize` / `Deserialize` accept `IniOptions`:
+
+- `Indented` — indents section contents by two spaces (default: compact)
+- `DefaultIgnoreCondition` — accepted for API uniformity; INI has no null literal, so null values are always omitted
+
+## Limitations
+
+- Nested object lists (`List<SomeDto>` as a property) cannot be represented by flat INI sections and are ignored.
+- Objects nested deeper than one level throw `NotSupportedException` instead of silently losing data.
+- List values parse strictly and culture-invariantly: malformed elements throw `FormatException`; `List<int>`, `List<bool>`, `List<DateOnly>`, `List<TimeSpan>`, etc. round-trip.
+
 ## Performance
 
 AOT self-contained, .NET 10, 100K iterations:

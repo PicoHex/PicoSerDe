@@ -1,5 +1,11 @@
 # `List<SomeDto>` Implementation Plan — Verified
 
+> **Status (2026-09-14):** 本计划描述的实现已全部落地并被测试覆盖（Top-level `List<T>` 在 5 个格式均可用）。本批审核后的边界如下：
+> - 顶层对象列表往返：JSON/YAML/TOML/INI/MsgPack 均通过测试；
+> - INI 顶层对象列表的**内层标量字段**现在严格解析（非法值抛 `FormatException`，`c2865ca`）；
+> - INI/TOML 的 **嵌套对象属性**（`SomeDto` 内再嵌对象）仅支持一层，更深抛 `NotSupportedException`；
+> - INI 的**嵌套**对象列表属性（`List<SomeDto>` 作为 DTO 成员）按文档化约定忽略（扁平 section 无法表达）。
+
 ## 1. YAML (~15 lines)
 
 **Ser**: `EmitSerializeListElement` 加 `"object"` case（已在属性级代码 line 1585 验证）:

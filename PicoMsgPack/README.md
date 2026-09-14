@@ -52,6 +52,17 @@ var user = MsgPackSerializer.Deserialize<User>(bytes);
 [MsgPackConverter(typeof(MyConv))]     // custom converter
 ```
 
+## Strictness
+
+- Empty payloads and bytes after the root value throw `FormatException`
+- Deeply nested objects (3+ levels) round-trip
+
+## Options
+
+`MsgPackSerializer.SerializeToUtf8Bytes` / `Serialize` accept `MsgPackOptions`
+(`DefaultIgnoreCondition = WhenWritingNull` omits null members); `Deserialize`
+accepts options for API uniformity.
+
 ## Performance
 
 JIT, .NET 10, 100K iterations:

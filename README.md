@@ -130,6 +130,10 @@ default values:
 
 - **Wrong-typed values throw** `FormatException` — `{"age":"abc"}` into an `int`
   property throws instead of yielding `0`
+- **Invalid string escapes throw** — RFC 8259 only allows `\" \\ \/ \b \f \n \r \t \uXXXX`;
+  unknown escapes (e.g. `\q`) are rejected instead of being silently unescaped (`\b` and `\f` are
+  now decoded correctly)
+- **Leading commas throw** — `,5` and `[,1]` are invalid JSON and are rejected
 - **Top-level `null` returns `null`** for reference-type targets (STJ semantics);
   value-type targets throw
 - **Trailing data after the document root throws**
@@ -147,6 +151,11 @@ default values:
   to the direct path (v2026.4.11+; both paths share one generated dispatch
   chain). Struct DTOs and propertyless types have no streaming delegate
   (`DeserializeFromStreamAsync<Struct>` throws `InvalidOperationException`)
+- **MsgPack rejects empty payloads and trailing bytes** — a zero-length buffer
+  or bytes after the root value throw `FormatException`
+- **INI list values parse strictly per element kind** — malformed numbers,
+  booleans, dates, etc. throw `FormatException` (never silently default to `0`/
+  `false`), and formatting/parsing is culture-invariant
 
 ### Polymorphic Deserialization (Type Discriminator)
 
@@ -243,6 +252,7 @@ PicoJetson tests are split into Unit / Integration / Functional projects with cl
 - **`PicoDocument` / `PicoElement`** — zero-copy JSON DOM for schema-less inspection (v2026.3.4)
 - **C# records** — primary constructor auto-detection, `init`-only support (v2026.3.3); poly+record (v2026.3.23); complex/collection ctor params (v2026.3.24)
 - **Top-level arrays** — `Serialize<T[]>()` / `Deserialize<T[]>()` with streaming (v2026.3.2)
+- **Top-level scalars / `Nullable<T>` are not supported** — `Serialize<Guid>(...)`, `Deserialize<int?>(...)` etc. fail loudly with `InvalidOperationException` ("no serializer registered") instead of emitting an empty object or non-compiling generated code
 - **Deep object nesting** — JSON/YAML/MsgPack round-trip objects nested 3+ levels; INI/TOML currently support a single nested level and throw `NotSupportedException` beyond that (loudly, instead of silently losing data).
 - **INI nested object lists** — a `List<SomeDto>` property cannot be represented by INI's flat sections and is ignored by `IniSerializer` (no compile break); scalar lists (`List<int>`, `List<string>`, ...) round-trip.
 

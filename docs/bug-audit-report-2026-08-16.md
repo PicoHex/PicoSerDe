@@ -178,3 +178,39 @@
 
 - 所有"实测"结论均通过 `scratch/` 下的临时控制台程序（已清理）在 `dotnet run`（Debug，`PublishAot=false`）全新建产物上验证。
 - 测试基线：`dotnet run --project <TestProject>.csproj -p:PublishAot=false` 逐个项目运行（`dotnet test` 在该仓库存在 TUnit 测试发现漂移问题，不可靠路径，详见 tunit-runner skill）。
+
+---
+
+## 修复状态更新（2026-09-14，发布 v2026.9.14）
+
+### 本报告遗留条目
+
+| 条目 | 状态 | 说明 |
+|---|---|---|
+| BUG-01 / 02 / 03（P0 越界） | ✅ 已修 | YAML/INI/TOML 的 key 扫描已按行边界停靠（在本次审核基线之前完成） |
+| BUG-04（P1 `ThreadStatic` options） | ✅ 已修 | 环境态 options 已移除，options 显式贯穿 reader/writer 与生成代码 |
+| BUG-05（P2 TOML 溢出回绕） | ⚠️ 部分修复 | fast array 路径已加溢出守卫（`ed0c0fc`）；`TryReadNextInt32Span` 仍未加守卫（未找到经公共 API 可达的调用形态） |
+| BUG-06（P2 YAML fast array 溢出） | ✅ 已修 | `7c31df5`，并复活了被禁用的 fast-path 测试（`SetRawPos`） |
+| BUG-07（P2 int.MinValue 被拒） | ✅ 已修 | `ac81dca`；`-2147483648` 现在被接受 |
+| BUG-08（P2 前导逗号） | ✅ 已修 | `388e1d7`；`,5` / `[,1]` 抛 `FormatException` |
+| BUG-09（P2 非法转义/缺值） | ✅ 已修 | `ca8d28a`；未知转义（如 `\q`）抛错，`\b`/`\f` 正确解码 |
+| BUG-10（P2 ArrayPool 双重归还） | ✅ 已修 | `76c0964`；扩容不再提前归还，`TotalPoolReturns == TotalTrackedBuffers` 测试锁定 |
+| BUG-11（P3 seq 长数字 32 字节缓冲） | ❌ 仍开放 | `JsonReader.ReadNumberSeq` 仍固定 `Rent(32)` 且无增长检查，超长数字在 sequence 模式抛 `IndexOutOfRangeException` |
+| BUG-12（P3 JSON 流式 O(n²)） | ⚠️ 部分缓解 | 流式已改为 reader 状态续传 + `partial` 结果保留（`StreamingFunc`/状态导出）；O(n²) 性能未重新测量 |
+| BUG-13（P3 构建告警） | ✅ 已修 | `76d29f8`；全量构建 **0 warning / 0 error** |
+| BUG-14（P3 ThreadStatic writer 不可重入） | 📝 已文档化 | `RentWriter` 注释保留；未改行为 |
+
+### 2026-09-14 代码审核新增修复（同批发布）
+
+- **P1**：顶层 `Nullable<T>`/标量目标不再生成不可编译代码（改为快速失败 `PICO…` 语义）；匿名类型整数族（`uint`/`byte`/`char`…）不再使生成器崩溃（原 CS8785 会毁掉整个编译的生成器输出）；INI/TOML/YAML 数值 I/O 全链路 culture-invariant。
+- **P2**：INI 列表按元素类型严格解析（int/bool/date/time/double…，非法元素抛 `FormatException`）；生成代码空性告警清零并纳入 `WarningsAsErrors=CS8619;CS8620;CS8625`；`ScalarCodec` 超长输入统一抛 `FormatException`；MsgPack 拒绝空载荷/尾随字节；JSON 非法转义与前导逗号已拒绝；TOML fast array 溢出守卫。
+- **P3**：`AssemblyPrefix` 改为 `AsyncLocal`（生成器并发隔离）；`PICO*004` 仅在真实存在匿名序列化用法时报告。
+- **新发现并修复**：MsgPack 3+ 层嵌套生成不可编译代码（唯一局部变量 + 正确接收者）；TOML/INI 3+ 层嵌套静默丢值（改为抛 `NotSupportedException`）；INI 对象元素列表不再产出不可编译代码（按文档化约定忽略）。
+- **`Indented` 选项补齐**：INI 缩进 section 内容、TOML 缩进 table 内容、YAML 缩进序列项（默认紧凑输出不变）。
+
+### 仍开放的已知限制
+
+- 顶层标量 / `Nullable<T>` 目标不支持（响亮失败）。
+- INI/TOML 仅支持一层嵌套对象（更深抛 `NotSupportedException`）；INI 嵌套对象列表被忽略。
+- YAML flow 序列（`[a, b]`）尚未支持；flow 映射（`{k: v}`）部分支持。
+- BUG-11（sequence 模式超长数字）与 BUG-12（流式性能）见上表。
