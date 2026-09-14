@@ -369,6 +369,20 @@ internal static class GenInfrastructure
     // Both delegate to the shared ExtractProperties core below.
 
     /// <summary>
+    /// True for top-level targets that resolve to a scalar kind (including
+    /// Nullable&lt;T&gt;); the generators only support object, collection and
+    /// dictionary shapes at the top level.
+    /// </summary>
+    private static bool IsTopLevelScalarTarget(INamedTypeSymbol type, string formatTag)
+    {
+        if (type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+            return true;
+
+        var (kind, _, _) = TypeKindResolver.Resolve(type, formatTag);
+        return kind is not null and not ("object" or "list" or "array" or "dict" or "bytes");
+    }
+
+    /// <summary>
     /// Convert an <see cref="INamedTypeSymbol"/> into a <see cref="TypeInfo"/> for code generation.
     /// Shared by both usage-driven and attribute-driven pipelines.
     /// </summary>
@@ -380,6 +394,15 @@ internal static class GenInfrastructure
         bool includeFields = false
     )
     {
+        // Top-level scalar / Nullable<T> targets cannot be expressed by the
+        // object emit paths: Nullable<T> produced non-compiling code
+        // (CS0721/CS0722 references to the static System.Nullable class) and
+        // scalar structs (Guid, DateOnly, ...) emitted an empty-object
+        // serializer that silently produced "{}". Skip generation here so
+        // the call site fails loudly with "no serializer registered" instead.
+        if (IsTopLevelScalarTarget(namedType, config.FormatTag))
+            return null;
+
         var ns = namedType.ContainingNamespace?.ToDisplayString() ?? "";
         if (ns == "<global namespace>")
             ns = string.Empty;
