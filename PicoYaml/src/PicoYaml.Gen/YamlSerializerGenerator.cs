@@ -117,11 +117,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 predicate: (n, _) => IsC(n),
                 transform: (cx, _) =>
                 {
-                    var comp = (CSharpCompilation)cx.SemanticModel.Compilation;
-                    if (comp.LanguageVersion < LanguageVersion.CSharp12)
-                        return null;
-                    if (!comp.Options.AllowUnsafe)
-                        return null;
+                    // Anonymous-type usage is detected regardless of capabilities; the
+                    // output callback reports the diagnostic and skips emission (review P3-1).
                     if (cx.SemanticModel.GetSymbolInfo(cx.Node).Symbol is not IMethodSymbol m)
                         return null;
                     if (m.TypeArguments.Length != 1)
@@ -139,13 +136,35 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             )
             .Where(a => a is not null);
 
-        var anonOut = anonDriven.Collect().Combine(asmName);
+        // Capability flags for the anonymous-type diagnostic: reported
+        // only when anonymous serialization is actually used (review P3-1).
+        var anonCaps = ctx.CompilationProvider.Select(
+            static (c, _) =>
+            {
+                var comp = (CSharpCompilation)c;
+                return (
+                    LangOk: comp.LanguageVersion >= LanguageVersion.CSharp12,
+                    Unsafe: comp.Options.AllowUnsafe
+                );
+            }
+        );
+
+        var anonOut = anonDriven.Collect().Combine(asmName).Combine(anonCaps);
         ctx.RegisterSourceOutput(
             anonOut,
             (spc, pair) =>
             {
-                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
-                foreach (var ai in pair.Left)
+                var anonTypes = pair.Left.Left;
+                var __asmName = pair.Left.Right;
+                var caps = pair.Right;
+                if (anonTypes.Length > 0 && !caps.LangOk)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
+                else if (anonTypes.Length > 0 && !caps.Unsafe)
+                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
+                if (anonTypes.Length == 0 || !caps.LangOk || !caps.Unsafe)
+                    return;
+                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{__asmName}";
+                foreach (var ai in anonTypes)
                 {
                     if (ai is not { } info)
                         continue;
@@ -157,18 +176,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         (f, vv, wv) => EmitYamlValue(f, vv, wv)
                     );
                 }
-            }
-        );
-
-        ctx.RegisterSourceOutput(
-            ctx.CompilationProvider,
-            (spc, comp) =>
-            {
-                var csComp = (CSharpCompilation)comp;
-                if (csComp.LanguageVersion < LanguageVersion.CSharp12)
-                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
-                else if (!csComp.Options.AllowUnsafe)
-                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
             }
         );
 
