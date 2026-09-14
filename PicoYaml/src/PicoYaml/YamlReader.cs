@@ -227,6 +227,15 @@ public ref struct YamlReader : ITokenReader
     public int Depth => _depth;
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
 
+    /// <summary>Direct position access for optimized generated code (span mode only).</summary>
+    public int RawPos => _isSequence ? -1 : _position;
+
+    /// <summary>Sets the raw span position (span mode only). Mirrors JsonReader.SetRawPos.</summary>
+    public void SetRawPos(int pos)
+    {
+        _position = pos;
+    }
+
     public readonly YamlReaderState ExportState()
     {
         var s = new YamlReaderState
@@ -2225,16 +2234,20 @@ public ref struct YamlReader : ITokenReader
             }
             if (b < (byte)'0' || b > (byte)'9')
                 return 0;
-            int v = 0;
+            long v = 0;
             do
             {
                 v = v * 10 + (b - (byte)'0');
+                // -2147483648 is a legal int32; anything beyond bails out
+                // instead of silently wrapping (review P3-3).
+                if (v > int.MaxValue && !(neg && v == (long)int.MaxValue + 1))
+                    return 0;
                 p++;
                 if (p >= len)
                     break;
                 b = d[p];
             } while (b >= (byte)'0' && b <= (byte)'9');
-            dest[count++] = neg ? -v : v;
+            dest[count++] = (int)(neg ? -v : v);
         }
         _position = p;
         return count;
@@ -2283,7 +2296,10 @@ public ref struct YamlReader : ITokenReader
             long v = 0;
             do
             {
-                v = v * 10 + (b - (byte)'0');
+                int digit = b - (byte)'0';
+                if (v > (long.MaxValue - digit) / 10)
+                    return 0; // overflow — fall back to the validated reader
+                v = v * 10 + digit;
                 p++;
                 if (p >= len)
                     break;
