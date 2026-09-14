@@ -2,11 +2,10 @@ namespace PicoYaml.Tests;
 
 public class YamlReaderFastPathTests
 {
-    // NOTE: These tests are disabled because YamlReader does not yet support
-    // YAML flow sequences ([a, b, c]) in the span read path. The fast-path
-    // methods (TryReadInt32ArrayFast etc.) exist in YamlReader but are
-    // unreachable until flow sequence parsing is implemented.
-    // See docs/beta-issues.md: "YAML Reader: Tag 指令 !type / %TAG"
+    // NOTE: These tests are disabled: YamlReader flow sequences ([a, b, c])
+    // are not reachable through the span read path, so the fast-path methods
+    // (TryReadInt32ArrayFast etc.) are currently unused. Re-enable them when
+    // flow-sequence parsing lands in the span path.
 
     // [Test]
     public async Task TryReadInt32ArrayFast_Basic()

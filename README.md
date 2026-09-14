@@ -27,17 +27,17 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**1106 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+**1286 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
 
 | Module | Tests | Competitor | Cross-Validation |
 |--------|:-----:|:-----------|:----------------:|
-| PicoJetson | 473 | System.Text.Json | ✅ bidirectional, all 19 property types |
-| PicoToml | 120 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
-| PicoYaml | 130 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
-| PicoIni | 125 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
-| PicoMsgPack | 145 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
-| PicoSerDe.Core | 42 | — | — |
-| Integration (cross-format) | 71 | — | Ignore-condition matrix, anon types, round-trips |
+| PicoJetson | 557 | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoToml | 135 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
+| PicoYaml | 148 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
+| PicoIni | 141 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
+| PicoMsgPack | 152 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
+| PicoSerDe.Core | 65 | — | — |
+| Integration (cross-format) | 88 | — | Ignore-condition matrix, anon types, round-trips |
 
 > 91 of these are strictness/robustness regression tests added in the
 > strict-deserialization hardening pass: wrong-typed input, trailing data,
@@ -294,6 +294,8 @@ Every format's options class (`JsonOptions`, `YamlOptions`, `TomlOptions`, `IniO
 
 The matrix applies to every emit path — top-level members, nested objects, collection elements, nullable collections, and polymorphic dispatch — and is locked by cross-format regression tests (`IgnoreConditionMatrixTests`).
 
+> **Honored options:** JSON and MsgPack read `DefaultIgnoreCondition` from their options objects. INI/TOML/YAML always omit nulls because those wire formats have no null literal; their `DefaultIgnoreCondition` property is currently reserved — the generated code does not read it yet, and their `Indented` flag is not implemented.
+
 Per-property control is available via the cross-format `[PicoIgnore]` attribute (PicoSerDe.Core):
 
 ```csharp
@@ -352,7 +354,7 @@ is the canonical property (`Name` is an obsolete alias).
 | linux-arm64 | ubuntu-24.04-arm |
 | osx-arm64 | macos-latest |
 
-Every push: build + test (1100+ tests) + 5 benchmarks smoke + 5 AOT sample publishes.
+Every push: build + test (1286 tests) + 5 benchmarks smoke + 5 AOT sample publishes.
 Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
 Local feed: run `./scripts/release.ps1 -Version <ver>` **before** pushing the
 tag — it runs the test suite, packs all 11 packages into `artifacts/nupkg`
