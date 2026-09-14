@@ -92,6 +92,8 @@ public static partial class MsgPackSerializer
 
     public static T? Deserialize<T>(ReadOnlySpan<byte> data)
     {
+        if (data.IsEmpty)
+            throw new FormatException("Cannot deserialize an empty MessagePack payload.");
         if (DesRegistry<MsgPackFormat, T>.Deserializer is { } d)
             return d(data, null);
         SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");

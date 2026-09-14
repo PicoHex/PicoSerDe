@@ -353,6 +353,13 @@ public ref struct MsgPackReader : ITokenReader
         {
             _depth--;
             _tokenType = _isMapStack[_depth] ? TokenType.ObjectEnd : TokenType.ArrayEnd;
+            // Span mode: once the root container closes, any remaining byte
+            // is trailing garbage (review P2-4). Sequence mode keeps the
+            // streaming semantics untouched.
+            if (_depth == 0 && !_isSequence && _position < _data.Length)
+                throw new FormatException(
+                    $"Unexpected data after the document at offset {_position}"
+                );
             return true;
         }
         if (IsAtEnd())
