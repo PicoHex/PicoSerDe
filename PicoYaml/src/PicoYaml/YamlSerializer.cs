@@ -42,17 +42,23 @@ public static partial class YamlSerializer
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer) =>
         SerializerFacade<YamlFormat>.RegisterDeserializer(deserializer);
 
-    public static byte[] SerializeToUtf8Bytes<T>(T value)
-        where T : allows ref struct => SerializerFacade<YamlFormat>.SerializeToUtf8Bytes(value);
+    public static byte[] SerializeToUtf8Bytes<T>(T value, YamlOptions? options = null)
+        where T : allows ref struct =>
+        SerializerFacade<YamlFormat>.SerializeToUtf8Bytes(value, options);
 
-    public static string Serialize<T>(T value)
-        where T : allows ref struct => SerializerFacade<YamlFormat>.Serialize(value);
+    public static string Serialize<T>(T value, YamlOptions? options = null)
+        where T : allows ref struct => SerializerFacade<YamlFormat>.Serialize(value, options);
 
-    public static void Serialize<T>(IBufferWriter<byte> writer, T value)
-        where T : allows ref struct => SerializerFacade<YamlFormat>.Serialize(writer, value);
+    public static void Serialize<T>(
+        IBufferWriter<byte> writer,
+        T value,
+        YamlOptions? options = null
+    )
+        where T : allows ref struct =>
+        SerializerFacade<YamlFormat>.Serialize(writer, value, options);
 
-    public static T? Deserialize<T>(ReadOnlySpan<byte> data) =>
-        SerializerFacade<YamlFormat>.Deserialize<T>(data);
+    public static T? Deserialize<T>(ReadOnlySpan<byte> data, YamlOptions? options = null) =>
+        SerializerFacade<YamlFormat>.Deserialize<T>(data, options);
 
     public static async ValueTask<T> DeserializeFromStreamAsync<T>(
         Stream stream,

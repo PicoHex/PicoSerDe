@@ -42,17 +42,23 @@ public static partial class TomlSerializer
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer) =>
         SerializerFacade<TomlFormat>.RegisterDeserializer(deserializer);
 
-    public static byte[] SerializeToUtf8Bytes<T>(T value)
-        where T : allows ref struct => SerializerFacade<TomlFormat>.SerializeToUtf8Bytes(value);
+    public static byte[] SerializeToUtf8Bytes<T>(T value, TomlOptions? options = null)
+        where T : allows ref struct =>
+        SerializerFacade<TomlFormat>.SerializeToUtf8Bytes(value, options);
 
-    public static string Serialize<T>(T value)
-        where T : allows ref struct => SerializerFacade<TomlFormat>.Serialize(value);
+    public static string Serialize<T>(T value, TomlOptions? options = null)
+        where T : allows ref struct => SerializerFacade<TomlFormat>.Serialize(value, options);
 
-    public static void Serialize<T>(IBufferWriter<byte> writer, T value)
-        where T : allows ref struct => SerializerFacade<TomlFormat>.Serialize(writer, value);
+    public static void Serialize<T>(
+        IBufferWriter<byte> writer,
+        T value,
+        TomlOptions? options = null
+    )
+        where T : allows ref struct =>
+        SerializerFacade<TomlFormat>.Serialize(writer, value, options);
 
-    public static T? Deserialize<T>(ReadOnlySpan<byte> data) =>
-        SerializerFacade<TomlFormat>.Deserialize<T>(data);
+    public static T? Deserialize<T>(ReadOnlySpan<byte> data, TomlOptions? options = null) =>
+        SerializerFacade<TomlFormat>.Deserialize<T>(data, options);
 
     public static async ValueTask<T> DeserializeFromStreamAsync<T>(
         Stream stream,

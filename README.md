@@ -294,7 +294,7 @@ Every format's options class (`JsonOptions`, `YamlOptions`, `TomlOptions`, `IniO
 
 The matrix applies to every emit path — top-level members, nested objects, collection elements, nullable collections, and polymorphic dispatch — and is locked by cross-format regression tests (`IgnoreConditionMatrixTests`).
 
-> **Honored options:** JSON and MsgPack read `DefaultIgnoreCondition` from their options objects. INI/TOML/YAML always omit nulls because those wire formats have no null literal; their `DefaultIgnoreCondition` property is currently reserved — the generated code does not read it yet, and their `Indented` flag is not implemented.
+> **Honored options:** JSON and MsgPack read `DefaultIgnoreCondition` from their options objects. INI/TOML/YAML always omit nulls because those wire formats have no null literal; their `DefaultIgnoreCondition` property is accepted by the public API but the generated code treats nulls as always omitted, and their `Indented` flag is not implemented.
 
 Per-property control is available via the cross-format `[PicoIgnore]` attribute (PicoSerDe.Core):
 

@@ -42,17 +42,19 @@ public static partial class IniSerializer
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer) =>
         SerializerFacade<IniFormat>.RegisterDeserializer(deserializer);
 
-    public static byte[] SerializeToUtf8Bytes<T>(T value)
-        where T : allows ref struct => SerializerFacade<IniFormat>.SerializeToUtf8Bytes(value);
+    public static byte[] SerializeToUtf8Bytes<T>(T value, IniOptions? options = null)
+        where T : allows ref struct =>
+        SerializerFacade<IniFormat>.SerializeToUtf8Bytes(value, options);
 
-    public static string Serialize<T>(T value)
-        where T : allows ref struct => SerializerFacade<IniFormat>.Serialize(value);
+    public static string Serialize<T>(T value, IniOptions? options = null)
+        where T : allows ref struct => SerializerFacade<IniFormat>.Serialize(value, options);
 
-    public static void Serialize<T>(IBufferWriter<byte> writer, T value)
-        where T : allows ref struct => SerializerFacade<IniFormat>.Serialize(writer, value);
+    public static void Serialize<T>(IBufferWriter<byte> writer, T value, IniOptions? options = null)
+        where T : allows ref struct =>
+        SerializerFacade<IniFormat>.Serialize(writer, value, options);
 
-    public static T? Deserialize<T>(ReadOnlySpan<byte> data) =>
-        SerializerFacade<IniFormat>.Deserialize<T>(data);
+    public static T? Deserialize<T>(ReadOnlySpan<byte> data, IniOptions? options = null) =>
+        SerializerFacade<IniFormat>.Deserialize<T>(data, options);
 
     public static async ValueTask<T> DeserializeFromStreamAsync<T>(
         Stream stream,

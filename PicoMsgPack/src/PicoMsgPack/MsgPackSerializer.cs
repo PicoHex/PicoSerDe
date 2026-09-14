@@ -90,12 +90,12 @@ public static partial class MsgPackSerializer
         where T : allows ref struct =>
         SerializerFacade<MsgPackFormat>.Serialize(writer, value, options);
 
-    public static T? Deserialize<T>(ReadOnlySpan<byte> data)
+    public static T? Deserialize<T>(ReadOnlySpan<byte> data, MsgPackOptions? options = null)
     {
         if (data.IsEmpty)
             throw new FormatException("Cannot deserialize an empty MessagePack payload.");
         if (DesRegistry<MsgPackFormat, T>.Deserializer is { } d)
-            return d(data, null);
+            return d(data, options);
         SerializerExtensions.ThrowNoSerializer<T>("PicoMsgPack.Gen");
         return default;
     }
