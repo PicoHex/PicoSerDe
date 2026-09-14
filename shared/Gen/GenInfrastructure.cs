@@ -776,6 +776,11 @@ internal static class GenInfrastructure
                         or "readonlymemory"
                 )
                     continue;
+                // INI cannot represent a nested object list (its sections are
+                // flat) — drop the property instead of emitting non-compiling
+                // or garbage round-trip code (review follow-up).
+                if (formatTag == "ini" && ek == "object")
+                    continue;
                 elementTypeKind = ek;
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
                 elementTypeNameAnnotated = TypeKindResolver.MapTypeNamePreservingNullability(
