@@ -81,6 +81,9 @@ public class AttributeTests
         await Assert.That(((IniSectionAttribute)attr[0]).Name).IsEqualTo("ServerConfig");
     }
 
+    // These tests deliberately exercise the obsolete Name alias to keep the
+    // backward-compatibility contract covered.
+#pragma warning disable CS0618
     [Test]
     public async Task IniKeyAttribute_HasName()
     {
@@ -96,6 +99,7 @@ public class AttributeTests
         await Assert.That(attr).Count().IsEqualTo(1);
         await Assert.That(((IniKeyAttribute)attr[0]).Name).IsEqualTo("host_name");
     }
+#pragma warning restore CS0618
 
     [Test]
     public async Task IniIgnoreAttribute_CanBeAppliedToProperty()

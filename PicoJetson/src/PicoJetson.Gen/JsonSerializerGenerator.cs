@@ -995,7 +995,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 EmitAnyValueSerialize(sb, "__kvp.Value", indent);
                 break;
             default:
-                if (EmitExtendedScalarWrite(sb, dp.ElementTypeKind, "__kvp.Value", indent))
+                if (
+                    dp.ElementTypeKind is not null
+                    && EmitExtendedScalarWrite(sb, dp.ElementTypeKind, "__kvp.Value", indent)
+                )
                     break;
                 sb.Append(indent);
                 sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));");
@@ -1296,7 +1299,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 EmitAnyValueDeserialize(sb, $"{dictVar}[__dictKey]", indent);
                 break;
             default:
-                if (ExtendedScalarReadExpr(dp.ElementTypeKind) is string __sx1)
+                if (
+                    dp.ElementTypeKind is not null
+                    && ExtendedScalarReadExpr(dp.ElementTypeKind) is string __sx1
+                )
                 {
                     sb.Append(indent);
                     sb.Append(dictVar);

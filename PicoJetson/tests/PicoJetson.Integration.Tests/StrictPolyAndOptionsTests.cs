@@ -191,13 +191,13 @@ namespace PicoJetson.Tests
             var jsonA = JsonSerializer.Serialize(a);
             var backA = JsonSerializer.Deserialize<PolyNsA.Base>(Encoding.UTF8.GetBytes(jsonA));
             await Assert.That(backA).IsTypeOf<PolyNsA.Entry>();
-            await Assert.That(backA.V).IsEqualTo(1);
+            await Assert.That(backA!.V).IsEqualTo(1);
 
             PolyNsB.Base b = new PolyNsB.Entry { V = 2 };
             var jsonB = JsonSerializer.Serialize(b);
             var backB = JsonSerializer.Deserialize<PolyNsB.Base>(Encoding.UTF8.GetBytes(jsonB));
             await Assert.That(backB).IsTypeOf<PolyNsB.Entry>();
-            await Assert.That(backB.V).IsEqualTo(2);
+            await Assert.That(backB!.V).IsEqualTo(2);
         }
 
         // ── M3 ──

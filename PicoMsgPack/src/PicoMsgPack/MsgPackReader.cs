@@ -341,8 +341,6 @@ public ref struct MsgPackReader : ITokenReader
                 };
                 return total > int.MaxValue ? -1 : (int)total;
             }
-            default:
-                return 1; // unknown tag — let Read() produce the proper error
         }
     }
 
@@ -591,8 +589,6 @@ public ref struct MsgPackReader : ITokenReader
                             $"Unknown MsgPack byte 0x{b:X2} at offset {BytesConsumed}"
                         );
                 }
-
-                break;
         }
     }
 
