@@ -13,7 +13,7 @@
     <PackageVersion Include="TUnit" Version="1.65.38" />
 
     <!-- Benchmarking -->
-    <PackageVersion Include="PicoBench" Version="2026.2.5" />
+    <PackageVersion Include="PicoBench" Version="2026.2.6" />
 
     <!-- Source generators (Roslyn) -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
