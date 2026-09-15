@@ -7,10 +7,10 @@
 
   <ItemGroup>
     <!-- Build infrastructure -->
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.400" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.401" />
 
     <!-- Testing -->
-    <PackageVersion Include="TUnit" Version="1.65.38" />
+    <PackageVersion Include="TUnit" Version="1.67.0" />
 
     <!-- Benchmarking -->
     <PackageVersion Include="PicoBench" Version="2026.2.6" />
