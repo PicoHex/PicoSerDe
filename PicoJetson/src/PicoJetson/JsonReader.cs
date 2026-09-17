@@ -215,6 +215,23 @@ public ref struct JsonReader : ITokenReader
         _position = pos;
     }
 
+    /// <summary>
+    /// Rewinds the reader to an earlier position within the same buffer
+    /// (the value previously returned by <see cref="BytesConsumed"/>).
+    /// Used by generated streaming delegates to re-read a unit (property,
+    /// array element) that could not be completed at the buffer end.
+    /// </summary>
+    public void RewindTo(long consumedOffset)
+    {
+        if (consumedOffset < 0 || consumedOffset > BytesConsumed)
+            throw new ArgumentOutOfRangeException(nameof(consumedOffset));
+        if (_isSequence)
+            _seqReader.Rewind(_seqReader.Consumed - consumedOffset);
+        else
+            _position = (int)consumedOffset;
+        Rewound = true;
+    }
+
     public bool Read()
     {
         _needsMoreData = false;
