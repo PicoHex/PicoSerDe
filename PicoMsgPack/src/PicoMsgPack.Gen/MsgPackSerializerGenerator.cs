@@ -2912,7 +2912,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 var innerElem = p.NestedProperties[0];
                 var lv = c++;
                 var vn = $"__nl{lv}";
-                var innerListType = innerElem.ElementTypeName ?? innerElem.TypeFullName ?? "object";
+                var innerListType =
+                    innerElem.ElementTypeNameAnnotated
+                    ?? innerElem.ElementTypeName
+                    ?? innerElem.TypeFullName
+                    ?? "object";
                 s.Append(ind);
                 s.Append("var ");
                 s.Append(vn);

@@ -1407,12 +1407,25 @@ internal static class GenInfrastructure
             IsNullable: false,
             ElementTypeKind: innerKind,
             ElementTypeName: innerTypeName,
+            ElementTypeNameAnnotated: TypeKindResolver.MapTypeNamePreservingNullability(
+                innerKind,
+                innerType
+            ),
             KeyTypeKind: null,
             KeyTypeName: null,
             NestedProperties: innerNested,
             ConverterTypeFullName: null,
             IsRecursiveRef: innerRecursive,
-            ElementTypeFullName: innerFullName
+            ElementTypeFullName: innerFullName,
+            // The innermost element's nullability must survive the chain so
+            // nullable elements (List<List<int?>>) get their null handling.
+            ElementIsNullableReference: innerType.NullableAnnotation
+                == NullableAnnotation.Annotated,
+            ElementIsNullableValue: innerType
+                is INamedTypeSymbol
+                {
+                    OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
+                }
         );
 
         return ImmutableArray.Create(wrapper);

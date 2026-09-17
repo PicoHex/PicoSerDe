@@ -5397,13 +5397,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         StringBuilder sb,
         PropertyInfo prop,
         string itemVar,
-        string indent
+        string indent,
+        int nestLevel = 0
     )
     {
+        // Unique loop variable per level: reusing one name triggers CS0136 for
+        // List<List<List<T>>>.
+        var loopVar = nestLevel == 0 ? "__inner" : $"__inner_{nestLevel}";
         sb.Append(indent);
         sb.AppendLine("jw.WriteStartArray();");
         sb.Append(indent);
-        sb.Append("foreach (var __inner in ");
+        sb.Append("foreach (var ");
+        sb.Append(loopVar);
+        sb.Append(" in ");
         sb.Append(itemVar);
         sb.AppendLine(")");
         sb.Append(indent);
@@ -5412,12 +5418,18 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         if (IsNestedList(prop))
         {
             // Another level of nesting
-            EmitNestedListSerialize(sb, prop.NestedProperties[0], "__inner", indent + "    ");
+            EmitNestedListSerialize(
+                sb,
+                prop.NestedProperties[0],
+                loopVar,
+                indent + "    ",
+                nestLevel + 1
+            );
         }
         else
         {
             // Base case: emit element directly
-            EmitSerializeElement(sb, prop, "__inner", indent + "    ");
+            EmitSerializeElement(sb, prop, loopVar, indent + "    ");
         }
 
         sb.Append(indent);
@@ -5444,10 +5456,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     {
         // For nested lists, use ElementTypeName (e.g. "System.Collections.Generic.List<int>");
         // for primitives, resolve from TypeKind (e.g. "int32" → "int").
+        // The innermost element keeps its nullability annotation (int? → "int?"),
+        // so the nested list declaration matches the property type.
         var innerTypeName =
-            prop.TypeKind is "list" or "array" ? (prop.ElementTypeName ?? "object")
+            prop.TypeKind is "list" or "array"
+                ? (prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object")
             : prop.TypeKind == "object" ? (prop.ElementTypeName ?? prop.TypeFullName ?? "object")
-            : ResolveCSharpTypeName(prop.TypeKind);
+            : (
+                prop.ElementTypeNameAnnotated
+                ?? prop.ElementTypeName
+                ?? ResolveCSharpTypeName(prop.TypeKind)
+            );
         var innerVar = nestLevel == 0 ? $"__inner_{propName}" : $"__inner_{propName}_{nestLevel}";
 
         sb.Append(indent);

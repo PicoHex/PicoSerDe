@@ -262,3 +262,16 @@
   - MsgPack：poly 反序列化复杂/集合成员改用 `WriteDeser`。
 - 附带修复：`dti.CtorParams` 为 default `ImmutableArray` 时访问 `.Length` 抛 NRE（生成器整体失败 CS8785）——所有新增循环加 `IsDefaultOrEmpty` 守卫。
 - 测试：`PolyCollectionMemberTests`（JSON/TOML/YAML/MsgPack × 列表+字典）4/4；全量 1501 tests / 0 failed。
+
+### Code review 复审（2026-09-18，批次 `122143a..c406436`）
+
+对抗性探针（不依赖既有测试）发现并处理：
+
+| 编号 | 严重度 | 结论 | 说明 / 证据 |
+|---|---|---|---|
+| RV-01 | P1 | ✅ 已修 | REC-05 只覆盖了单层可空元素：`List<List<int?>>` 的内层声明为 `List<int>`（CS1503）且 null 分支写入非可空 int（CS1503）。修复：`BuildNestedListElement` 的包装对象补齐 `ElementTypeNameAnnotated` 与 `ElementIsNullableReference/Value`；JSON `EmitNestedListDeserialize` 最内层改用注解名。回归：`EdgeCaseRegressionTests.Json_NullableScalarAndValueElements_AllKinds`（含 `List<Guid?>`/`DateTime?`/`bool?`/`HashSet<string?>`） |
+| RV-02 | P1 | ✅ 已修 | `List<List<List<T>>>` 三层嵌套时 JSON 序列化器每层复用 `__inner` → CS0136（构建失败）。修复：`EmitNestedListSerialize` 增加 nestLevel 后缀。回归：`Json_ThreeLevelNestedListOfObjects`、`MsgPack_ThreeLevelNestedListOfObjects` |
+| RV-03 | P1 | ❌ **预存在**（非本批引入） | **字段级对象数组不受支持**：`TObject[]` 成员在 TOML（CS0019/CS8619/CS1061/CS8978）与 YAML（CS0019）生成不可编译代码；`List<TObject[]>` 在 JSON CS1503。已在基线 `ecaa69d` worktree 复现同一错误（`PicoToml.Gen/..._BaseArrPlain_..._TomlSerializer.g.cs(45,25)` 等），与本次改动无关 |
+| RV-04 | P1 | ❌ **预存在** | `Dictionary<string, List<T>>` 生成不可编译代码（JSON CS0029/CS8625：把 list 值按 string 读取）。基线 `ecaa69d` 同样失败（`..._BaseDictList_..._JsonSerializer.g.cs(97/101)`） |
+
+RV-03/RV-04 建议单开修复（形态族：字段级数组、字典值为集合），修复策略与 REC-01 相同（提取期支持或 `PICOSERDE004` 诊断式丢弃）。
