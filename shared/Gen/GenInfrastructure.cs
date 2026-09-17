@@ -33,6 +33,8 @@ internal readonly record struct TypeInfo(
     bool IsTopLevelList = false,
     // Members skipped because they are recursive/self-referencing for this
     // format (TOML/YAML/INI); surfaced as PICOSERDE003 by GenerateAll.
+    // True for abstract classes (a polymorphic base that cannot be instantiated).
+    bool IsAbstract = false,
     ImmutableArray<string> SkippedRecursiveMembers = default,
     // Members skipped because this format cannot represent them at all
     // (e.g. nested lists in TOML/YAML/INI); surfaced as PICOSERDE004.
@@ -48,6 +50,7 @@ internal readonly record struct TypeInfo(
         && TypeTag == other.TypeTag
         && IsRefLikeType == other.IsRefLikeType
         && IsValueType == other.IsValueType
+        && IsAbstract == other.IsAbstract
         && IsTopLevelList == other.IsTopLevelList
         && DiscriminatorPropertyName == other.DiscriminatorPropertyName
         && DerivedTypes.SequenceEqual(other.DerivedTypes)
@@ -64,6 +67,7 @@ internal readonly record struct TypeInfo(
         foreach (var cp in CtorParams)
             hash = (hash * 397) ^ cp.GetHashCode();
         hash = (hash * 397) ^ IsTopLevelList.GetHashCode();
+        hash = (hash * 397) ^ IsAbstract.GetHashCode();
         hash = (hash * 397) ^ (DiscriminatorPropertyName?.GetHashCode() ?? 0);
         foreach (var dt in DerivedTypes)
             hash = (hash * 397) ^ dt.GetHashCode();
@@ -535,6 +539,30 @@ internal static class GenInfrastructure
     /// </summary>
     public static bool IsComplexMember(PropertyInfo p) => p.TypeKind is "object" or "dict";
 
+    /// <summary>
+    /// Discriminator used when a *concrete* polymorphic base instance is
+    /// serialized (there is no matching derived case otherwise, which produced
+    /// malformed output such as <c>{"$type":}</c>). Collision-safe against the
+    /// declared derived discriminators; abstract bases have no instances and
+    /// therefore no case.
+    /// </summary>
+    public static string? BaseDiscriminator(TypeInfo type)
+    {
+        if (type.IsValueType || type.DerivedTypes.IsDefaultOrEmpty)
+            return null;
+        // Abstract bases cannot be instantiated.
+        if (type.IsAbstract)
+            return null;
+        var candidate = type.Name;
+        if (type.DerivedTypes.Any(d => d.TypeDiscriminator == candidate))
+        {
+            candidate = (type.FullyQualifiedName ?? type.Name).Replace("global::", "");
+            if (type.DerivedTypes.Any(d => d.TypeDiscriminator == candidate))
+                candidate = candidate + "_" + StableHash(candidate);
+        }
+        return candidate;
+    }
+
     public static string ShortName(string fullName)
     {
         var name = fullName.Replace("global::", "");
@@ -630,6 +658,7 @@ internal static class GenInfrastructure
             properties.ToImmutableArray(),
             IsRefLikeType: namedType.IsRefLikeType,
             IsValueType: namedType.IsValueType,
+            IsAbstract: namedType.IsAbstract,
             SkippedRecursiveMembers: skippedRecursive.ToImmutableArray(),
             SkippedUnsupportedMembers: skippedUnsupported.ToImmutableArray()
         );

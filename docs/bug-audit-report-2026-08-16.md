@@ -233,7 +233,7 @@
 |---|---|---|---|
 | POLY-01 | P1 | **多态派生类型的复杂成员被丢弃**：原为 MsgPack/TOML/YAML/INI 的 poly 派生链排除 `IsComplexMember`。✅ **已修**（`343199c` MsgPack；`e329d63` TOML/YAML）：MsgPack poly 派生 ser 发全成员 + de 用 inner helper 读对象成员；YAML 走共享 `EmitSerialize`/`EmitDeserializeInline`；TOML ser 用 `EmitSerializeProp` 写 `[Section]`、de 改为根循环形状（ObjectStart/TablePath → `TomlInner`/`TomlDictInner`）。INI 保持"忽略（文档化）"。 | `tests/PicoSerDe.Integration.Tests/PolyInheritanceTests.cs`（MsgPack 断言已收窄并注释）；生成代码：`PicoMsgPack.Gen/..._PolyPerson_*_MsgPackSerializer.g.cs` 仅派发 `Id`/`Name` |
 | POLY-02 | P1 | ✅ **已修**：多态感知的内层 helper（`GenPolyInner`）——多态类型的生成的 ser/de 改为 `internal` 跨文件可达（`{UniqueName}JsonPolySer/JsonPolyDes`、`{...}MsgPackPolySer/MsgPackPolyDes`），递归 helper 路由到 discriminator 分派；poly core 改为"调用方已定位到对象起始"约定并加 chunk 守卫；JSON poly 流式派生分支加 per-member 快照 + `NeedMoreData` 回退（嵌套多态值跨块安全）。 | 复现：`[PicoDerivedType(typeof(Leaf),"leaf")] abstract class Node { public Node? Next; }` → `_JsonInner.g.cs`/`_MsgPackInner.g.cs` CS0144；具体基类变体：嵌套 `Next` 反序列化后 `IsTypeOf<Leaf>()` 失败 |
-| POLY-03 | P2 | **具体多态基类实例**：poly 序列化器仅对 `[PicoDerivedType]` 分支写 discriminator，运行时类型为具体基类而无匹配分支时输出 `{"$type":}`（畸形 JSON）；STJ 语义为"基类型实例不写 discriminator"。 | `JsonSerializer.Serialize(person)`（静态类型 = 具体基类，实例 = 基类）→ 反序列化报 `Unknown type discriminator: $type` |
+| POLY-03 | P2 | ✅ **已修**（`9c29ee3` 之后）：新增共享 `GenInfrastructure.BaseDiscriminator`（具体基类合成 discriminator=类型名，冲突时回退 FQN/hash；抽象基类无实例→不生成），5 个格式的 poly 序列化/反序列化把基类作为一个 case 追加在派生类型之后——基类实例现在输出 `$type = "ConcBasePerson"` 并可往返（原为 `{"$type":}` / `$type = ""`）。测试 `PolyConcreteBaseTests` 6/6（JSON/MsgPack/TOML/YAML/INI + 派生分派回归）。 | `JsonSerializer.Serialize(person)`（静态类型 = 具体基类，实例 = 基类）→ 反序列化报 `Unknown type discriminator: $type` |
 
 ### Code review（2026-09-17 提交 `ecaa69d` 复审）
 

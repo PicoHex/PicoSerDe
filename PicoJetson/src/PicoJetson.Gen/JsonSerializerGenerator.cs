@@ -4913,6 +4913,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     )
     {
         var dpn = type.DiscriminatorPropertyName ?? "$type";
+        // Concrete bases get a synthesized discriminator so a base-typed
+        // instance serializes as a valid object (and round-trips).
+        var __baseDisc = PicoSerDe.Gen.GenInfrastructure.BaseDiscriminator(type);
+        var __cases = __baseDisc is null
+            ? type.DerivedTypes
+            : type.DerivedTypes.Add(
+                new PicoSerDe.Gen.DerivedTypeInfo(type.FullyQualifiedName!, __baseDisc)
+            );
 
         sb.Append("    internal static class ");
         sb.Append(PolyClassPrefix(type));
@@ -4942,7 +4950,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            switch (value)");
         sb.AppendLine("            {");
 
-        foreach (var dt in type.DerivedTypes)
+        foreach (var dt in __cases)
         {
             var dtProps = derivedLookup.TryGetValue(dt.FullyQualifiedName, out var dti)
                 ? dti.Properties
@@ -5019,6 +5027,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         );
         sb.AppendLine("        {");
         var dpn = type.DiscriminatorPropertyName ?? "$type";
+        // Concrete bases get a synthesized discriminator so a base-typed
+        // instance serializes as a valid object (and round-trips).
+        var __baseDisc = PicoSerDe.Gen.GenInfrastructure.BaseDiscriminator(type);
+        var __cases = __baseDisc is null
+            ? type.DerivedTypes
+            : type.DerivedTypes.Add(
+                new PicoSerDe.Gen.DerivedTypeInfo(type.FullyQualifiedName!, __baseDisc)
+            );
 
         // Convention: the caller positioned the reader at the object start.
         if (!type.IsValueType)
@@ -5039,9 +5055,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         );
         sb.AppendLine("            var __disc = reader.GetStringRaw();");
 
-        for (int i = 0; i < type.DerivedTypes.Length; i++)
+        for (int i = 0; i < __cases.Length; i++)
         {
-            var dt = type.DerivedTypes[i];
+            var dt = __cases[i];
             var keyword = i == 0 ? "if" : "else if";
             var dti = derivedLookup.TryGetValue(dt.FullyQualifiedName, out var found)
                 ? found
@@ -5181,6 +5197,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine();
 
         var dpn = type.DiscriminatorPropertyName ?? "$type";
+        // Concrete bases get a synthesized discriminator so a base-typed
+        // instance serializes as a valid object (and round-trips).
+        var __baseDisc = PicoSerDe.Gen.GenInfrastructure.BaseDiscriminator(type);
+        var __cases = __baseDisc is null
+            ? type.DerivedTypes
+            : type.DerivedTypes.Add(
+                new PicoSerDe.Gen.DerivedTypeInfo(type.FullyQualifiedName!, __baseDisc)
+            );
 
         // ObjectStart read runs on the first invocation only.
         sb.AppendLine("        if (!reader.IsResumed)");
@@ -5218,9 +5242,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        }");
         sb.AppendLine();
 
-        for (int i = 0; i < type.DerivedTypes.Length; i++)
+        for (int i = 0; i < __cases.Length; i++)
         {
-            var dt = type.DerivedTypes[i];
+            var dt = __cases[i];
             var keyword = i == 0 ? "if" : "else if";
             var dti = derivedLookup.TryGetValue(dt.FullyQualifiedName, out var found)
                 ? found

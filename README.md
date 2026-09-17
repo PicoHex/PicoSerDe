@@ -255,7 +255,10 @@ unbounded nesting, so the recursive member is skipped and the source generator
 reports `PICOSERDE003` (never silent). Data-level object graph cycles fail
 loudly instead of overflowing the stack.
 
-**Polymorphic hierarchies** keep nested object/dict members *and* collection
+**Polymorphic hierarchies**: a concrete polymorphic base instance serializes
+with a synthesized discriminator (the base type name, collision-safe) so base
+instances round-trip as the base type; derived instances keep their declared
+discriminator. They also keep nested object/dict members *and* collection
 members (`List<T>`, `Dictionary<string,T>`) of derived types in JSON, MsgPack,
 TOML and YAML (previously dropped or non-compiling in the discriminator
 branches); INI ignores nested members because its format is flat.
