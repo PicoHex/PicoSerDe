@@ -54,6 +54,29 @@ public class RecursiveDiagnosticTests
     }
 
     [Test]
+    public async Task RecursiveMember_IsReportedOnceForAllUsages()
+    {
+        const string source = """
+            using PicoToml;
+
+            public class TreeNode
+            {
+                public int Value { get; set; }
+                public TreeNode? Child { get; set; }
+            }
+
+            public static class Probe
+            {
+                public static byte[] A() => TomlSerializer.Serialize(new TreeNode { Value = 1 });
+                public static TreeNode? B(byte[] d) => TomlSerializer.Deserialize<TreeNode>(d);
+            }
+            """;
+
+        var ids = RunGenerator(source).Where(id => id == "PICOSERDE003").ToList();
+        await Assert.That(ids.Count).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task RecursiveMember_IsReported()
     {
         const string source = """

@@ -184,14 +184,18 @@ internal static class GenInfrastructure
         IEnumerable<TypeInfo> typeInfos
     )
     {
+        // A type discovered from several usage sites produces one TypeInfo per
+        // pipeline entry, each carrying the same skip: report every member once.
+        var reported = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in typeInfos)
         {
             if (t.SkippedRecursiveMembers.IsDefaultOrEmpty)
                 continue;
             foreach (var member in t.SkippedRecursiveMembers)
-                spc.ReportDiagnostic(
-                    Diagnostic.Create(RecursiveMemberSkippedWarning, null, member)
-                );
+                if (reported.Add(member))
+                    spc.ReportDiagnostic(
+                        Diagnostic.Create(RecursiveMemberSkippedWarning, null, member)
+                    );
         }
     }
 

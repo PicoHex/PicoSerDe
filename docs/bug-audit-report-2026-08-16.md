@@ -234,3 +234,13 @@
 | POLY-01 | P1 | **多态派生类型的复杂成员被丢弃**：MsgPack/TOML/YAML/INI 的 poly 派生反序列化链与 poly 序列化 `dtProps` 过滤均 `continue`/排除 `IsComplexMember`（对象/嵌套成员），嵌套对象在 poly 层级中静默丢失（JSON 正常）。 | `tests/PicoSerDe.Integration.Tests/PolyInheritanceTests.cs`（MsgPack 断言已收窄并注释）；生成代码：`PicoMsgPack.Gen/..._PolyPerson_*_MsgPackSerializer.g.cs` 仅派发 `Id`/`Name` |
 | POLY-02 | P1 | **递归 × 多态**：递归环目标为多态类型时，播种的内层 helper 生成 `new T()`（抽象基类直接编译失败）且不按 discriminator 路由——嵌套的派生值退化为基类型。需要"多态感知的内层 helper"（在既有 reader 上读 discriminator 后内联派生类型）才能正确修复，含流式续传语义。 | 复现：`[PicoDerivedType(typeof(Leaf),"leaf")] abstract class Node { public Node? Next; }` → `_JsonInner.g.cs`/`_MsgPackInner.g.cs` CS0144；具体基类变体：嵌套 `Next` 反序列化后 `IsTypeOf<Leaf>()` 失败 |
 | POLY-03 | P2 | **具体多态基类实例**：poly 序列化器仅对 `[PicoDerivedType]` 分支写 discriminator，运行时类型为具体基类而无匹配分支时输出 `{"$type":}`（畸形 JSON）；STJ 语义为"基类型实例不写 discriminator"。 | `JsonSerializer.Serialize(person)`（静态类型 = 具体基类，实例 = 基类）→ 反序列化报 `Unknown type discriminator: $type` |
+
+### Code review（2026-09-17 提交 `ecaa69d` 复审）
+
+| 编号 | 严重度 | 结论 | 说明 / 证据 |
+|---|---|---|---|
+| REC-01 | P1（**预存在**，非本提交引入） | 开放 | `List<List<TObject>>`（嵌套列表的对象元素）生成不可编译代码：CS0234 缺 `...JsonInner` + CS1503 `List<object>` → `List<T>` 不匹配。已在父提交 `ecaa69d~1` 用 git worktree 复现同一错误，故非本批回归；此外**非递归**变体（`List<List<DeepLeaf>>`）同样失败，说明与递归无关，属嵌套列表的对象元素路径既有缺陷 |
+| REC-02 | P3（本次复审已修） | ✅ 已修 | `PICOSERDE003` 对同一类型多用途场景重复报告（driver 计数=2）。`ReportSkippedRecursiveMembers` 增加按成员去重；新增常驻 driver 测试 `RecursiveMember_IsReportedOnceForAllUsages` |
+| REC-03 | P3（文档） | ✅ 已修 | README "no whole-document buffering" 措辞收紧为"按 token 释放已消费字节，仅保留当前 token/member 窗口" |
+| REC-05 | P1（**预存在**，复审发现） | 开放 | **可空元素类型不受支持**：`List<int?>` / `List<string?>` 生成不可编译代码（JSON CS1503/CS0029；MsgPack CS1503/CS0019/CS8619，均在 `WarningsAsErrors` 内）；`List<TObject?>` / `Dictionary<string,TObject?>` JSON 缺 null 检查（CS8604，运行时空元素走 `SerializeCustom`/inner helper）而 MsgPack 为 CS8619。README 声称 "null elements are allowed for reference-type elements" 对带 `?` 注解的元素类型未兑现（`ElementIsNullableReference` 在元素 ser/de 路径未被使用）。证据：复审临时探针生成的 `ScalarNullHolder_*_JsonSerializer.g.cs` / `_MsgPackSerializer.g.cs`（探针已删除，未入库） |
+| REC-04 | 无问题 | 通过 | 复审独立验证：可空元素递归（`List<T?>`/`Dictionary<string,T?>`）、TOML/YAML/INI 截断/畸形流的同步-流式一致性（14 个常驻用例，比对字段值而非仅 null 性）、`UniqueName`/`ChainKeyword`/IntKey 重编号回归 |

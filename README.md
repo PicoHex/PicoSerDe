@@ -214,8 +214,10 @@ if (doc.RootElement["age"].TryGetInt32(out int age))
 
 ### Streaming (incremental, chunked)
 
-`DeserializeFromStreamAsync<T>(stream, options, ct)` reads a stream incrementally —
-no whole-document buffering. JSON/TOML/YAML/INI accept an options argument
+`DeserializeFromStreamAsync<T>(stream, options, ct)` reads a stream incrementally:
+consumed bytes are released as tokens complete and only the current
+token/member window is retained, so the document is never buffered wholesale
+before parsing. JSON/TOML/YAML/INI accept an options argument
 (`JsonOptions`/`TomlOptions`/`YamlOptions`/`IniOptions`); MsgPack takes
 `(stream, ct)` because it has no options type.
 

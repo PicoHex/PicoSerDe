@@ -26,6 +26,13 @@ public class DictNode
     public Dictionary<string, DictNode> Children { get; set; } = new();
 }
 
+public class ElemNode
+{
+    public string Name { get; set; } = "";
+    public List<ElemNode> Items { get; set; } = new();
+    public Dictionary<string, ElemNode> Map { get; set; } = new();
+}
+
 public class ListNode
 {
     public string Name { get; set; } = "";
@@ -149,6 +156,23 @@ public class RecursiveTypeTests
 
         await Assert.That(back!.Name).IsEqualTo("root");
         await Assert.That(back.Items[0].Name).IsEqualTo("child");
+    }
+
+    [Test]
+    public async Task Json_ListAndDictElement_RecursiveRef_RoundTrips()
+    {
+        var root = new ElemNode
+        {
+            Name = "r",
+            Items = new List<ElemNode> { new ElemNode { Name = "i" } },
+            Map = new Dictionary<string, ElemNode> { ["m"] = new ElemNode { Name = "mm" } },
+        };
+
+        var json = JsonSerializer.Serialize(root);
+        var back = JsonSerializer.Deserialize<ElemNode>(Encoding.UTF8.GetBytes(json));
+
+        await Assert.That(back!.Items[0]!.Name).IsEqualTo("i");
+        await Assert.That(back.Map["m"]!.Name).IsEqualTo("mm");
     }
 
     [Test]
