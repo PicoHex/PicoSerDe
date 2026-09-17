@@ -54,7 +54,11 @@ public sealed class GeneratorHintNameTests
     {
         // Single unique type → still uses FQN, not short name
         var hintName = GenerateHintName("global::MyApp.MyType", "_JsonSerializer.g.cs");
-        await Assert.That(hintName).IsEqualTo("MyApp_MyType_JsonSerializer.g.cs");
+        await Assert
+            .That(hintName)
+            .IsEqualTo(
+                $"{PicoSerDe.Gen.GenInfrastructure.UniqueName("MyApp.MyType")}_JsonSerializer.g.cs"
+            );
     }
 
     [Test]
@@ -65,8 +69,16 @@ public sealed class GeneratorHintNameTests
         var hint1 = GenerateHintName("global::Ns1.SharedName", "_JsonSerializer.g.cs");
         var hint2 = GenerateHintName("global::Ns2.SharedName", "_JsonSerializer.g.cs");
 
-        await Assert.That(hint1).IsEqualTo("Ns1_SharedName_JsonSerializer.g.cs");
-        await Assert.That(hint2).IsEqualTo("Ns2_SharedName_JsonSerializer.g.cs");
+        await Assert
+            .That(hint1)
+            .IsEqualTo(
+                $"{PicoSerDe.Gen.GenInfrastructure.UniqueName("Ns1.SharedName")}_JsonSerializer.g.cs"
+            );
+        await Assert
+            .That(hint2)
+            .IsEqualTo(
+                $"{PicoSerDe.Gen.GenInfrastructure.UniqueName("Ns2.SharedName")}_JsonSerializer.g.cs"
+            );
         await Assert.That(hint1).IsNotEqualTo(hint2);
     }
 
@@ -83,9 +95,21 @@ public sealed class GeneratorHintNameTests
 
         await Assert.That(hints.Distinct().Count()).IsEqualTo(3);
         // None uses short name — all are FQN-based
-        await Assert.That(hints[0]).IsEqualTo("Ns1_Data_JsonSerializer.g.cs");
-        await Assert.That(hints[1]).IsEqualTo("Ns2_Data_JsonSerializer.g.cs");
-        await Assert.That(hints[2]).IsEqualTo("Ns3_Data_JsonSerializer.g.cs");
+        await Assert
+            .That(hints[0])
+            .IsEqualTo(
+                $"{PicoSerDe.Gen.GenInfrastructure.UniqueName("Ns1.Data")}_JsonSerializer.g.cs"
+            );
+        await Assert
+            .That(hints[1])
+            .IsEqualTo(
+                $"{PicoSerDe.Gen.GenInfrastructure.UniqueName("Ns2.Data")}_JsonSerializer.g.cs"
+            );
+        await Assert
+            .That(hints[2])
+            .IsEqualTo(
+                $"{PicoSerDe.Gen.GenInfrastructure.UniqueName("Ns3.Data")}_JsonSerializer.g.cs"
+            );
     }
 
     [Test]
@@ -93,7 +117,11 @@ public sealed class GeneratorHintNameTests
     {
         // Type with no namespace (global::) should not produce a leading underscore
         var hintName = GenerateHintName("global::GlobalType", "_JsonSerializer.g.cs");
-        await Assert.That(hintName).IsEqualTo("GlobalType_JsonSerializer.g.cs");
+        await Assert
+            .That(hintName)
+            .IsEqualTo(
+                $"{PicoSerDe.Gen.GenInfrastructure.UniqueName("GlobalType")}_JsonSerializer.g.cs"
+            );
     }
 
     [Test]
@@ -105,7 +133,9 @@ public sealed class GeneratorHintNameTests
         );
         await Assert
             .That(hintName)
-            .IsEqualTo("MyCompany_MyApp_Core_Models_UserProfile_JsonSerializer.g.cs");
+            .IsEqualTo(
+                $"{PicoSerDe.Gen.GenInfrastructure.UniqueName("MyCompany.MyApp.Core.Models.UserProfile")}_JsonSerializer.g.cs"
+            );
     }
 
     // ── HintName generator helper (mirrors the new FQN-only logic in GenerateAll) ──
@@ -116,8 +146,7 @@ public sealed class GeneratorHintNameTests
     /// </summary>
     private static string GenerateHintName(string fullyQualifiedName, string suffix)
     {
-        var cleanFq = (fullyQualifiedName ?? "").Replace("global::", "");
-        var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanFq);
+        var safeFq = PicoSerDe.Gen.GenInfrastructure.UniqueName(fullyQualifiedName);
         return $"{safeFq}{suffix}";
     }
 }

@@ -19,12 +19,19 @@ public static partial class MsgPackSerializer
         internal static StreamingFunc<T>? Func;
     }
 
+    /// <summary>
+    /// Registers the streaming deserializer delegate emitted by the source
+    /// generator (also callable by hand-written code).
+    /// </summary>
+    /// <param name="func">Resumable per-chunk deserialization step.</param>
+    /// <typeparam name="T">DTO type; must be non-nullable (<c>notnull</c>).</typeparam>
     public static void RegisterStreaming<T>(StreamingFunc<T> func)
         where T : notnull
     {
         StreamingCache<T>.Func = func;
     }
 
+    /// <summary>True when a streaming deserializer has been registered for T.</summary>
     public static bool HasStreamingDelegate<T>() => StreamingCache<T>.Func is not null;
 
     /// <summary>Register a delegate-based serializer (SG primary path).</summary>

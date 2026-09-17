@@ -435,6 +435,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
+        // Recursive members cannot be represented by INI sections: surface the
+        // per-format skip as the shared PICOSERDE003 diagnostic.
+        PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, types);
         // Merge duplicate FQNs, preferring poly entries (same as JSON SG)
         var typeMap = new Dictionary<string, TypeInfo>();
         foreach (var t in types)
@@ -458,7 +461,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             var t = kv.Value;
             if (string.IsNullOrEmpty(t.Name))
                 continue;
-            var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(t.FullyQualifiedName ?? "");
+            var safeFq = PicoSerDe.Gen.GenInfrastructure.UniqueName(t.FullyQualifiedName ?? "");
             var hintName = $"{safeFq}_IniSerializer.g.cs";
             string code;
             if (t.IsRefLikeType)
@@ -2102,12 +2105,13 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine("                if (reader.TokenType == TokenType.PropertyName) {");
             s.AppendLine("                    var __k = reader.GetStringRaw();");
             s.AppendLine("                    reader.ReadValue();");
+            var first = true;
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
                 if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
-                var kw2 = pi == 0 ? "if" : "else if";
+                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 s.Append("                    ");
                 s.Append(kw2);

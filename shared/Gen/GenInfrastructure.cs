@@ -30,7 +30,10 @@ internal readonly record struct TypeInfo(
     ImmutableArray<PropertyInfo> ArrayElementNestedProps = default,
     // True when this TypeInfo represents a top-level List<T> (not T[]).
     // Deserialization returns List<T> directly instead of calling .ToArray().
-    bool IsTopLevelList = false
+    bool IsTopLevelList = false,
+    // Members skipped because they are recursive/self-referencing for this
+    // format (TOML/YAML/INI); surfaced as PICOSERDE003 by GenerateAll.
+    ImmutableArray<string> SkippedRecursiveMembers = default
 )
 {
     public bool Equals(TypeInfo other) =>
@@ -44,7 +47,8 @@ internal readonly record struct TypeInfo(
         && IsValueType == other.IsValueType
         && IsTopLevelList == other.IsTopLevelList
         && DiscriminatorPropertyName == other.DiscriminatorPropertyName
-        && DerivedTypes.SequenceEqual(other.DerivedTypes);
+        && DerivedTypes.SequenceEqual(other.DerivedTypes)
+        && SkippedRecursiveMembers.SequenceEqual(other.SkippedRecursiveMembers);
 
     public override int GetHashCode()
     {
@@ -59,6 +63,8 @@ internal readonly record struct TypeInfo(
         hash = (hash * 397) ^ (DiscriminatorPropertyName?.GetHashCode() ?? 0);
         foreach (var dt in DerivedTypes)
             hash = (hash * 397) ^ dt.GetHashCode();
+        foreach (var m in SkippedRecursiveMembers)
+            hash = (hash * 397) ^ m.GetHashCode();
         return hash;
     }
 }
@@ -108,7 +114,11 @@ internal readonly record struct PropertyInfo(
     // True when this member points back into the type currently being extracted
     // (recursive/cyclic type hierarchy). NestedProperties are empty; the emitter
     // references the target type's own generated helper instead.
-    bool IsRecursiveRef = false
+    bool IsRecursiveRef = false,
+    // Fully-qualified name of the element/value type for container kinds
+    // (list/array/dict). For an IsRecursiveRef container this is the actual
+    // cycle target used to seed the helper (TypeFullName is only the container).
+    string? ElementTypeFullName = null
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -149,6 +159,54 @@ internal static class GenInfrastructure
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
     );
+
+    /// <summary>
+    /// A recursive/self-referencing member cannot be represented by the
+    /// section-based formats (TOML/YAML/INI); the member is skipped and this
+    /// shared diagnostic makes the skip visible (never silent).
+    /// </summary>
+    private static readonly DiagnosticDescriptor RecursiveMemberSkippedWarning = new(
+        id: "PICOSERDE003",
+        title: "Recursive member skipped by this format",
+        messageFormat: "Member '{0}' is recursive/self-referencing and cannot be represented by this format — it will be ignored",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// Reports PICOSERDE003 for every recursive member skipped during
+    /// extraction. Called by the TOML/YAML/INI generators from GenerateAll
+    /// (JSON/MsgPack support recursion and never record skips).
+    /// </summary>
+    public static void ReportSkippedRecursiveMembers(
+        SourceProductionContext spc,
+        IEnumerable<TypeInfo> typeInfos
+    )
+    {
+        foreach (var t in typeInfos)
+        {
+            if (t.SkippedRecursiveMembers.IsDefaultOrEmpty)
+                continue;
+            foreach (var member in t.SkippedRecursiveMembers)
+                spc.ReportDiagnostic(
+                    Diagnostic.Create(RecursiveMemberSkippedWarning, null, member)
+                );
+        }
+    }
+
+    /// <summary>
+    /// Leading keyword of an if/else-if dispatch chain: "if" for the first
+    /// emitted branch, "else if" afterwards. Track with a boolean, never with
+    /// the loop index — an index-based check emits a dangling "else if" when an
+    /// earlier iteration was skipped (e.g. complex/recursive members).
+    /// </summary>
+    public static string ChainKeyword(ref bool first)
+    {
+        var keyword = first ? "if" : "else if";
+        first = false;
+        return keyword;
+    }
 
     /// <summary>Reports a skipped type whose generated file name collided.</summary>
     public static void ReportHintNameCollision(
@@ -249,13 +307,45 @@ internal static class GenInfrastructure
     }
 
     /// <summary>Returns the fully qualified inner helper class name (e.g. "global::Ns.Sub_TypeJsonInner").</summary>
+    /// <summary>
+    /// Collision-free generated identifier for a type: <see cref="SafeName"/> plus
+    /// a stable FNV-1a 64-bit hash of the normalized fully-qualified name.
+    /// Distinct FQNs can normalize to the same SafeName ('.' → '_'), so every
+    /// generated file/class name must use this instead of SafeName.
+    /// The input is normalized (global:: stripped) so declaration and reference
+    /// sites always derive the same name from the same type.
+    /// </summary>
+    public static string UniqueName(string fullName)
+    {
+        var normalized = (fullName ?? "").Replace("global::", "");
+        return SafeName(normalized) + "_" + StableHash(normalized);
+    }
+
+    /// <summary>
+    /// Deterministic, culture-invariant FNV-1a 64-bit hash as 16 hex chars.
+    /// Stable across processes and builds (safe for generated names).
+    /// </summary>
+    public static string StableHash(string value)
+    {
+        unchecked
+        {
+            ulong hash = 14695981039346656037UL;
+            foreach (var c in value)
+            {
+                hash ^= c;
+                hash *= 1099511628211UL;
+            }
+            return hash.ToString("x16", System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+
     public static string InnerClassName(string suffix, string typeFullName)
     {
         // For generic type names (containing '<'), emit at global scope.
         if (typeFullName.Contains('<'))
-            return $"global::{SafeName(typeFullName)}{suffix}";
+            return $"global::{UniqueName(typeFullName)}{suffix}";
 
-        var safeName = SafeName(typeFullName);
+        var safeName = UniqueName(typeFullName);
         // With an assembly prefix, the inner class lives directly under the
         // prefix namespace (flat). Without one, it lives in the type's own
         // namespace — the legacy layout still emitted by the non-JSON
@@ -469,6 +559,7 @@ internal static class GenInfrastructure
             ns = string.Empty;
 
         var useCamelCase = attrs.HasCamelCase(namedType);
+        var skippedRecursive = new List<string>();
         var properties = ExtractProperties(
             namedType,
             config.FormatTag,
@@ -476,7 +567,8 @@ internal static class GenInfrastructure
             includeReadOnlyProperties,
             useCamelCase,
             visiting: new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default) { namedType },
-            includeFields: includeFields
+            includeFields: includeFields,
+            skippedRecursive: skippedRecursive
         );
 
         return new TypeInfo(
@@ -485,7 +577,8 @@ internal static class GenInfrastructure
             namedType.Name,
             properties.ToImmutableArray(),
             IsRefLikeType: namedType.IsRefLikeType,
-            IsValueType: namedType.IsValueType
+            IsValueType: namedType.IsValueType,
+            SkippedRecursiveMembers: skippedRecursive.ToImmutableArray()
         );
     }
 
@@ -611,7 +704,8 @@ internal static class GenInfrastructure
         INamedTypeSymbol type,
         AttributeHelpers attrs,
         string formatTag,
-        HashSet<INamedTypeSymbol>? visiting
+        HashSet<INamedTypeSymbol>? visiting,
+        List<string>? skippedRecursive = null
     )
     {
         var useCamelCase = attrs.HasCamelCase(type);
@@ -624,7 +718,8 @@ internal static class GenInfrastructure
             includeReadOnlyProperties: includeFields,
             useCamelCase,
             includeFields: includeFields,
-            visiting: visiting
+            visiting: visiting,
+            skippedRecursive: skippedRecursive
         );
         return properties.ToImmutableArray();
     }
@@ -640,7 +735,8 @@ internal static class GenInfrastructure
         AttributeHelpers attrs,
         string formatTag,
         HashSet<INamedTypeSymbol>? visiting,
-        out bool isRecursiveRef
+        out bool isRecursiveRef,
+        List<string>? skippedRecursive = null
     )
     {
         isRecursiveRef = false;
@@ -651,7 +747,7 @@ internal static class GenInfrastructure
         }
         try
         {
-            return ExtractNestedProperties(type, attrs, formatTag, visiting);
+            return ExtractNestedProperties(type, attrs, formatTag, visiting, skippedRecursive);
         }
         finally
         {
@@ -692,7 +788,8 @@ internal static class GenInfrastructure
         bool includeReadOnlyProperties,
         bool useCamelCase,
         bool includeFields = false,
-        HashSet<INamedTypeSymbol>? visiting = null
+        HashSet<INamedTypeSymbol>? visiting = null,
+        List<string>? skippedRecursive = null
     )
     {
         var result = ExtractProperties(
@@ -703,7 +800,8 @@ internal static class GenInfrastructure
             useCamelCase,
             null,
             includeFields,
-            visiting
+            visiting,
+            skippedRecursive
         );
         // Field-based fallback for System.ValueTuple<...>: tuples carry their data in
         // public fields and have no serializable properties — extract fields so they
@@ -719,7 +817,8 @@ internal static class GenInfrastructure
                 useCamelCase,
                 null,
                 includeFields: true,
-                visiting: visiting
+                visiting: visiting,
+                skippedRecursive: skippedRecursive
             );
         }
         return result;
@@ -737,7 +836,8 @@ internal static class GenInfrastructure
         bool useCamelCase,
         List<Diagnostic>? diagnostics,
         bool includeFields = false,
-        HashSet<INamedTypeSymbol>? visiting = null
+        HashSet<INamedTypeSymbol>? visiting = null,
+        List<string>? skippedRecursive = null
     )
     {
         var list = new List<PropertyInfo>();
@@ -771,7 +871,8 @@ internal static class GenInfrastructure
                         attrs,
                         formatTag,
                         visiting,
-                        out fieldRecursive
+                        out fieldRecursive,
+                        skippedRecursive
                     );
                 }
 
@@ -857,6 +958,7 @@ internal static class GenInfrastructure
             string? elementTypeKind = null;
             string? elementTypeName = null;
             string? elementTypeNameAnnotated = null;
+            string? elementTypeFullName = null;
             string? keyTypeKind = null;
             string? keyTypeName = null;
             ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
@@ -906,6 +1008,9 @@ internal static class GenInfrastructure
                 if (formatTag == "ini" && ek == "object")
                     continue;
                 elementTypeKind = ek;
+                elementTypeFullName = elementType.ToDisplayString(
+                    SymbolDisplayFormat.FullyQualifiedFormat
+                );
                 elementTypeName = TypeKindResolver.MapTypeName(ek, elementType);
                 elementTypeNameAnnotated = TypeKindResolver.MapTypeNamePreservingNullability(
                     ek,
@@ -933,7 +1038,8 @@ internal static class GenInfrastructure
                         attrs,
                         formatTag,
                         visiting,
-                        out recursiveRef
+                        out recursiveRef,
+                        skippedRecursive
                     );
                 }
             }
@@ -967,6 +1073,9 @@ internal static class GenInfrastructure
                     keyTypeKind = kk;
                     keyTypeName = TypeKindResolver.MapTypeName(kk, keyType);
                     elementTypeKind = vk;
+                    elementTypeFullName = valType.ToDisplayString(
+                        SymbolDisplayFormat.FullyQualifiedFormat
+                    );
                     elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
                     elementTypeNameAnnotated = TypeKindResolver.MapTypeNamePreservingNullability(
                         vk,
@@ -980,7 +1089,8 @@ internal static class GenInfrastructure
                             attrs,
                             formatTag,
                             visiting,
-                            out recursiveRef
+                            out recursiveRef,
+                            skippedRecursive
                         );
                     }
                     else if (
@@ -1010,15 +1120,18 @@ internal static class GenInfrastructure
                     attrs,
                     formatTag,
                     visiting,
-                    out recursiveRef
+                    out recursiveRef,
+                    skippedRecursive
                 );
             }
 
             if (recursiveRef && formatTag is not ("json" or "msgpack"))
             {
-                // TOML/YAML/INI cannot represent arbitrarily deep nesting;
-                // drop the recursive member with a diagnostic instead of
-                // emitting non-compiling or silently-empty code.
+                // TOML/YAML/INI cannot represent arbitrarily deep nesting; drop
+                // the recursive member and record it so GenerateAll surfaces a
+                // shared PICOSERDE003 diagnostic (never silently).
+                var skipped = $"{type.ToDisplayString()}.{prop.Name}";
+                skippedRecursive?.Add(skipped);
                 diagnostics?.Add(
                     Diagnostic.Create(
                         UnsupportedTypeWarning,
@@ -1057,7 +1170,8 @@ internal static class GenInfrastructure
                     IgnoreCondition: ignoreCondition,
                     TypeFullNameAnnotated: TypeKindResolver.DisplayType(prop.Type),
                     ElementTypeNameAnnotated: elementTypeNameAnnotated,
-                    IsRecursiveRef: recursiveRef
+                    IsRecursiveRef: recursiveRef,
+                    ElementTypeFullName: elementTypeFullName
                 )
             );
         }
@@ -1129,7 +1243,8 @@ internal static class GenInfrastructure
         INamedTypeSymbol dictType,
         string formatTag,
         AttributeHelpers attrs,
-        HashSet<INamedTypeSymbol>? visiting = null
+        HashSet<INamedTypeSymbol>? visiting = null,
+        List<string>? skippedRecursive = null
     )
     {
         if (dictType.TypeArguments.Length != 2)
@@ -1150,6 +1265,7 @@ internal static class GenInfrastructure
         ImmutableArray<PropertyInfo> innerNested = ImmutableArray<PropertyInfo>.Empty;
         var dictFullName = dictType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
+        bool isRecursiveDictValue = false;
         if (iv is "object" && innerValType is INamedTypeSymbol ivNtsObj)
         {
             innerNested = ExtractNestedPropertiesGuarded(
@@ -1157,7 +1273,8 @@ internal static class GenInfrastructure
                 attrs,
                 formatTag,
                 visiting,
-                out _
+                out isRecursiveDictValue,
+                skippedRecursive
             );
         }
         else if (
@@ -1166,7 +1283,13 @@ internal static class GenInfrastructure
             && ivNtsDict.TypeArguments.Length == 2
         )
         {
-            innerNested = BuildNestedDictElement(ivNtsDict, formatTag, attrs, visiting);
+            innerNested = BuildNestedDictElement(
+                ivNtsDict,
+                formatTag,
+                attrs,
+                visiting,
+                skippedRecursive
+            );
         }
 
         var wrapper = new PropertyInfo(
@@ -1180,7 +1303,11 @@ internal static class GenInfrastructure
             KeyTypeKind: ik,
             KeyTypeName: innerKeyTypeName,
             NestedProperties: innerNested,
-            ConverterTypeFullName: null
+            ConverterTypeFullName: null,
+            IsRecursiveRef: isRecursiveDictValue,
+            ElementTypeFullName: innerValType.ToDisplayString(
+                SymbolDisplayFormat.FullyQualifiedFormat
+            )
         );
 
         return ImmutableArray.Create(wrapper);
@@ -1340,10 +1467,59 @@ internal static class GenInfrastructure
                 return;
             foreach (var p in props)
             {
-                if (p.IsRecursiveRef && !string.IsNullOrEmpty(p.TypeFullName))
-                    targets.Add(p.TypeFullName!);
+                if (p.IsRecursiveRef)
+                {
+                    var target = p.TypeKind is "list" or "array" or "dict" or "hashset"
+                        ? p.ElementTypeFullName
+                        : p.TypeFullName;
+                    if (!string.IsNullOrEmpty(target))
+                        targets.Add(target!);
+                }
                 Walk(p.NestedProperties);
             }
+        }
+    }
+
+    /// <summary>
+    /// Seeds the helpers of recursive cycle targets from their real (merged)
+    /// top-level property set. Prefers a polymorphic entry and, among equals,
+    /// the entry with the most properties, so a recursive polymorphic type gets
+    /// the same helper shape it would get as a root type.
+    /// </summary>
+    public static void SeedRecursiveTargets(
+        IReadOnlyList<TypeInfo> validTypes,
+        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes
+    )
+    {
+        var targets = new HashSet<string>();
+        CollectRecursiveRefTargets(
+            validTypes.Select(t => t.Properties).Concat(nestedTypes.Values),
+            targets
+        );
+        if (targets.Count == 0)
+            return;
+
+        foreach (var target in targets)
+        {
+            TypeInfo? best = null;
+            foreach (var t in validTypes)
+            {
+                if (t.FullyQualifiedName != target)
+                    continue;
+                if (
+                    best is null
+                    || (
+                        !t.DerivedTypes.IsDefaultOrEmpty && best.Value.DerivedTypes.IsDefaultOrEmpty
+                    )
+                    || (
+                        t.DerivedTypes.IsDefaultOrEmpty == best.Value.DerivedTypes.IsDefaultOrEmpty
+                        && t.Properties.Length > best.Value.Properties.Length
+                    )
+                )
+                    best = t;
+            }
+            if (best is { } chosen)
+                nestedTypes[target] = chosen.Properties;
         }
     }
 
@@ -1534,6 +1710,17 @@ internal static class GenInfrastructure
                 if (SymbolEqualityComparer.Default.Equals(current, baseType))
                     break;
                 current = current.BaseType;
+            }
+
+            // The base extraction restarted its auto-key counter at 0, so the
+            // merged list can hold duplicate keys (MsgPack field ids). Renumber
+            // positionally in merged order; the emitters order by IntKey, so
+            // serializer and deserializer stay in agreement.
+            if (mergedProps.Any(p => p.IntKey is not null))
+            {
+                for (int mi = 0; mi < mergedProps.Length; mi++)
+                    if (mergedProps[mi].IntKey is not null)
+                        mergedProps = mergedProps.SetItem(mi, mergedProps[mi] with { IntKey = mi });
             }
 
             ti = ti.Value with { Properties = mergedProps };

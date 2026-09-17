@@ -416,7 +416,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         return new TypeInfo(
             FullyQualifiedName: arrFqn,
             Namespace: "",
-            Name: $"Array_{PicoSerDe.Gen.GenInfrastructure.SafeName(arrFqn)}",
+            Name: $"Array_{PicoSerDe.Gen.GenInfrastructure.UniqueName(arrFqn)}",
             Properties: ImmutableArray<PropertyInfo>.Empty,
             ArrayElementKind: ek,
             ArrayElementName: elemFqn,
@@ -535,25 +535,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             }
         }
 
-        // Recursive references: the cycle target's helper must be generated from
-        // its real top-level property set (cycle-safe extraction stopped at the
-        // recursive member), otherwise the helper would emit an empty object.
-        var recursiveTargets = new HashSet<string>();
-        PicoSerDe.Gen.GenInfrastructure.CollectRecursiveRefTargets(
-            validTypes.Select(t => t.Properties).Concat(nestedTypes.Values),
-            recursiveTargets
-        );
-        foreach (var target in recursiveTargets)
-        {
-            foreach (var t in validTypes)
-            {
-                if (t.FullyQualifiedName == target)
-                {
-                    nestedTypes[target] = t.Properties;
-                    break;
-                }
-            }
-        }
+        // Recursive references: seed the cycle targets' helpers from their real
+        // (merged) property sets, and surface per-format skips as PICOSERDE003.
+        PicoSerDe.Gen.GenInfrastructure.SeedRecursiveTargets(validTypes, nestedTypes);
+        PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
 
         // Collect nested Dictionary types (e.g. Dictionary<string, Dictionary<string, Foo>>)
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
@@ -566,7 +551,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var fullName = kv.Key;
             var props = kv.Value;
             var cleanName = fullName.Replace("global::", "");
-            var safeName = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanName);
+            var safeName = PicoSerDe.Gen.GenInfrastructure.UniqueName(cleanName);
             var hintName = $"{safeName}_JsonInner.g.cs";
             if (!hintNames.Add(hintName))
             {
@@ -608,7 +593,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var fullName = kv.Key;
             var dictProp = kv.Value;
             var cleanName = fullName.Replace("global::", "");
-            var safeName = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanName);
+            var safeName = PicoSerDe.Gen.GenInfrastructure.UniqueName(cleanName);
             var hintName = $"{safeName}_JsonDictInner.g.cs";
             if (hintNames.Add(hintName))
                 spc.AddSource(
@@ -659,7 +644,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             }
 
             // Always use FQN-based hintName — zero collision risk (same strategy as Inner Helpers)
-            var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(type.FullyQualifiedName ?? "");
+            var safeFq = PicoSerDe.Gen.GenInfrastructure.UniqueName(type.FullyQualifiedName ?? "");
             var mainHintName = $"{safeFq}_JsonSerializer.g.cs";
 
             var source = GenerateTypeCode(type, typeMap);
@@ -4936,10 +4921,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("                {");
             sb.AppendLine("                    var __n = reader.GetStringRaw();");
             sb.AppendLine("                    reader.Read();");
+            var first = true;
             for (int pi = 0; pi < dtProps.Length; pi++)
             {
                 var prop = dtProps[pi];
-                var kw2 = pi == 0 ? "if" : "else if";
+                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
                 sb.Append("                    ");
                 sb.Append(kw2);
                 sb.Append(" (TextHelpers.Eq(__n, \"");
@@ -5129,10 +5115,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 "                if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
             );
 
+            var first = true;
             for (int pi = 0; pi < dtProps.Length; pi++)
             {
                 var prop = dtProps[pi];
-                var kw2 = pi == 0 ? "if" : "else if";
+                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
                 sb.Append("                ");
                 sb.Append(kw2);
                 sb.Append(" (TextHelpers.Eq(propNameSpan, \"");

@@ -418,25 +418,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             }
         }
 
-        // Recursive references: the cycle target's helper must be generated from
-        // its real top-level property set (cycle-safe extraction stopped at the
-        // recursive member), otherwise the helper would emit an empty object.
-        var recursiveTargets = new HashSet<string>();
-        PicoSerDe.Gen.GenInfrastructure.CollectRecursiveRefTargets(
-            validTypes.Select(t => t.Properties).Concat(nestedTypes.Values),
-            recursiveTargets
-        );
-        foreach (var target in recursiveTargets)
-        {
-            foreach (var t in validTypes)
-            {
-                if (t.FullyQualifiedName == target)
-                {
-                    nestedTypes[target] = t.Properties;
-                    break;
-                }
-            }
-        }
+        // Recursive references: seed the cycle targets' helpers from their real
+        // (merged) property sets, and surface per-format skips as PICOSERDE003.
+        PicoSerDe.Gen.GenInfrastructure.SeedRecursiveTargets(validTypes, nestedTypes);
+        PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
 
         // Collect nested Dictionary types
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
@@ -448,7 +433,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             var fullName = kv.Key;
             var props = kv.Value;
             var cleanName = fullName.Replace("global::", "");
-            var sn = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanName);
+            var sn = PicoSerDe.Gen.GenInfrastructure.UniqueName(cleanName);
             var hintName = $"{sn}_YamlInner.g.cs";
             if (!hintNames.Add(hintName))
                 continue;
@@ -463,7 +448,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         {
             var fullName = kv.Key;
             var dictProp = kv.Value;
-            var sn = PicoSerDe.Gen.GenInfrastructure.SafeName(fullName);
+            var sn = PicoSerDe.Gen.GenInfrastructure.UniqueName(fullName);
             var hintName = $"{sn}_YamlDictInner.g.cs";
             if (hintNames.Add(hintName))
                 spc.AddSource(
@@ -491,7 +476,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             var t = kv.Value;
             if (string.IsNullOrEmpty(t.Name))
                 continue;
-            var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(t.FullyQualifiedName ?? "");
+            var safeFq = PicoSerDe.Gen.GenInfrastructure.UniqueName(t.FullyQualifiedName ?? "");
             var hintName = $"{safeFq}_Yaml.g.cs";
             string code;
             if (t.IsRefLikeType)
@@ -1771,7 +1756,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        if (!r.IsResumed) {");
         sb.AppendLine("            r.Mark();");
         sb.AppendLine(
-            "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : (r.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput);"
+            "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
         );
         sb.AppendLine("        }");
         sb.AppendLine("        while (true) {");
@@ -3273,12 +3258,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             );
             s.AppendLine("                var __k = reader.KeySpan;");
             s.AppendLine("                var __v = reader.ValueSpan;");
+            var first = true;
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
                 if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
-                var kw2 = pi == 0 ? "if" : "else if";
+                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 s.Append("                ");
                 s.Append(kw2);

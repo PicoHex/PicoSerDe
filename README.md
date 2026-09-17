@@ -212,6 +212,47 @@ if (doc.RootElement["age"].TryGetInt32(out int age))
 
 `Serialize<T[]>(...)` / `Deserialize<T[]>(...)` and streaming `DeserializeFromStreamAsync<T[]>(stream)` work directly.
 
+### Streaming (incremental, chunked)
+
+`DeserializeFromStreamAsync<T>(stream, options, ct)` reads a stream incrementally —
+no whole-document buffering. JSON/TOML/YAML/INI accept an options argument
+(`JsonOptions`/`TomlOptions`/`YamlOptions`/`IniOptions`); MsgPack takes
+`(stream, ct)` because it has no options type.
+
+```csharp
+await using var stream = File.OpenRead("config.toml");
+var config = await TomlSerializer.DeserializeFromStreamAsync<ServerConfig>(stream);
+```
+
+The generated delegate returns a `ReadStatus`:
+
+| Status | Meaning |
+| --- | --- |
+| `Success` | The value is complete |
+| `NeedMoreData` | The current chunk ends inside a token/section; the runner refills and resumes from the reader's mark |
+| `EndOfInput` | The document contains no value — the runner throws `FormatException` |
+
+**Empty-stream semantics** match the synchronous path: TOML/YAML/INI treat an
+empty stream as an empty object; JSON throws `FormatException` ("the document
+contains no value").
+
+**Recursive DTOs**: JSON and MsgPack support self- and mutually-referencing
+types (cycle-safe extraction + seeded helpers). TOML/YAML/INI cannot express
+unbounded nesting, so the recursive member is skipped and the source generator
+reports `PICOSERDE003` (never silent). Data-level object graph cycles fail
+loudly instead of overflowing the stack.
+
+**Diagnostics** (warnings, emitted by all five generators):
+`PICOSERDE002` — two distinct types produced the same generated file name
+(main hint); internal helper names get a stable hash suffix (`UniqueName`).
+`PICOSERDE003` — a recursive member was skipped by a section-based format.
+
+**Custom/advanced registration** (scripts or hand-written serializers):
+`JsonSerializer.RegisterStreaming<T>(StreamingFunc<JsonReader, T> func)` with
+`where T : notnull`; `HasStreamingDelegate<T>()` reports whether a delegate is
+registered. The source generator emits this registration in a
+`ModuleInitializer` for every discovered type.
+
 ### Three-Layer Test Structure
 
 PicoJetson tests are split into Unit / Integration / Functional projects with clear boundaries.

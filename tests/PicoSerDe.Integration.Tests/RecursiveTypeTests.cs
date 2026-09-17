@@ -20,6 +20,18 @@ public class MutualB
     public MutualA? A { get; set; }
 }
 
+public class DictNode
+{
+    public string Name { get; set; } = "";
+    public Dictionary<string, DictNode> Children { get; set; } = new();
+}
+
+public class ListNode
+{
+    public string Name { get; set; } = "";
+    public List<ListNode> Items { get; set; } = new();
+}
+
 /// <summary>
 /// Recursive DTO support: self-referencing and mutually-referencing types must
 /// compile and round-trip. A data-level object graph cycle must fail loudly
@@ -78,6 +90,65 @@ public class RecursiveTypeTests
         await Assert.That(YamlSerializer.Serialize(node)).Contains("Value");
         await Assert.That(IniSerializer.Serialize(node)).Contains("Value");
         await Assert.That(MsgPackSerializer.SerializeToUtf8Bytes(node).Length).IsGreaterThan(0);
+    }
+
+    [Test]
+    public async Task Json_RecursiveDictValue_RoundTrips()
+    {
+        var root = new DictNode
+        {
+            Name = "root",
+            Children = new Dictionary<string, DictNode>
+            {
+                ["a"] = new DictNode
+                {
+                    Name = "a",
+                    Children = new Dictionary<string, DictNode>
+                    {
+                        ["b"] = new DictNode { Name = "b" },
+                    },
+                },
+            },
+        };
+
+        var json = JsonSerializer.Serialize(root);
+        var back = JsonSerializer.Deserialize<DictNode>(Encoding.UTF8.GetBytes(json));
+
+        await Assert.That(back!.Name).IsEqualTo("root");
+        await Assert.That(back.Children["a"].Name).IsEqualTo("a");
+        await Assert.That(back.Children["a"].Children["b"].Name).IsEqualTo("b");
+    }
+
+    [Test]
+    public async Task MsgPack_RecursiveDictValue_RoundTrips()
+    {
+        var root = new DictNode
+        {
+            Name = "root",
+            Children = new Dictionary<string, DictNode> { ["a"] = new DictNode { Name = "a" } },
+        };
+
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(root);
+        var back = MsgPackSerializer.Deserialize<DictNode>(bytes);
+
+        await Assert.That(back!.Name).IsEqualTo("root");
+        await Assert.That(back.Children["a"].Name).IsEqualTo("a");
+    }
+
+    [Test]
+    public async Task Json_RecursiveListElement_RoundTrips()
+    {
+        var root = new ListNode
+        {
+            Name = "root",
+            Items = new List<ListNode> { new ListNode { Name = "child" } },
+        };
+
+        var json = JsonSerializer.Serialize(root);
+        var back = JsonSerializer.Deserialize<ListNode>(Encoding.UTF8.GetBytes(json));
+
+        await Assert.That(back!.Name).IsEqualTo("root");
+        await Assert.That(back.Items[0].Name).IsEqualTo("child");
     }
 
     [Test]

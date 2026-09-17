@@ -16,4 +16,13 @@ namespace CollisionNs
     {
         public int W { get; set; }
     }
+
+    // Both colliding types appear as nested members: the generated inner-helper
+    // class names for them must also be unique.
+    [PicoSerializable]
+    public class SubHolder
+    {
+        public Sub.Inner? A { get; set; }
+        public Sub_Inner? B { get; set; }
+    }
 }

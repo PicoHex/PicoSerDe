@@ -214,3 +214,23 @@
 - INI/TOML 仅支持一层嵌套对象（更深抛 `NotSupportedException`）；INI 嵌套对象列表被忽略。
 - YAML flow 序列（`[a, b]`）尚未支持；flow 映射（`{k: v}`）部分支持。
 - BUG-11（sequence 模式超长数字）与 BUG-12（流式性能）见上表。
+
+## 修复状态更新（2026-09-17，流式根因批 + code review 遗留项）
+
+### 本轮已修复
+
+- **递归 DTO**：环形安全提取 + 环目标 helper 播种（JSON/MsgPack 完整支持；TOML/YAML/INI 提取期跳过成员并报 `PICOSERDE003`）。
+- **类型级递归引用的环目标**：容器成员（`List<T>`/`Dictionary<K,V>`/数组）的环目标由容器类型修正为**元素/值类型**（`PropertyInfo.ElementTypeFullName`），避免 helper 以容器 FQN 播种而丢失成员。
+- **生成器文件名冲突**：`GenInfrastructure.UniqueName`（`SafeName` + FNV-1a 稳定 16 hex 后缀）用于全部 helper/主 hint 名；主 hint 冲突仍报 `PICOSERDE002`。
+- **TOML 内层 helper 边界**：section 制且无 `ObjectEnd`：内层 helper 跨同 section 的点号键 `ObjectStart`（`TablePath` 相同）继续、遇其他 section 停止；修复"兄弟 section 被吞"与"点号键丢值"两类缺陷。
+- **多态继承（共享修复）**：`GenInfrastructure.ChainKeyword(ref bool first)` 取代 `pi == 0 ? "if" : "else if"`（跳过复杂成员时会产出悬空 `else if`，编译失败）；poly 合并继承属性后按合并顺序重编 `IntKey`（MsgPack 字段 id 去重，原先基类/派生类各自从 0 开始导致重复 `case 0`）。
+- **空流语义**：TOML/YAML/INI 空流返回空对象（与同步路径一致）；JSON 空流抛 `FormatException`（"the document contains no value"），`StreamingRunner` 对 `EndOfInput` 给出明确消息。
+- **契约/诊断**：`ITransactionalTokenReader` + `IncompleteInputException` 提炼至 Core（IVT 移除无使用的 PicoMsgPack）；BOM 与分块边界统一；`PICOSERDE003` 由 TOML/YAML/INI 生成器在 `GenerateAll` 报告。
+
+### 本轮新发现（开放）
+
+| 编号 | 严重度 | 说明 | 证据 |
+|---|---|---|---|
+| POLY-01 | P1 | **多态派生类型的复杂成员被丢弃**：MsgPack/TOML/YAML/INI 的 poly 派生反序列化链与 poly 序列化 `dtProps` 过滤均 `continue`/排除 `IsComplexMember`（对象/嵌套成员），嵌套对象在 poly 层级中静默丢失（JSON 正常）。 | `tests/PicoSerDe.Integration.Tests/PolyInheritanceTests.cs`（MsgPack 断言已收窄并注释）；生成代码：`PicoMsgPack.Gen/..._PolyPerson_*_MsgPackSerializer.g.cs` 仅派发 `Id`/`Name` |
+| POLY-02 | P1 | **递归 × 多态**：递归环目标为多态类型时，播种的内层 helper 生成 `new T()`（抽象基类直接编译失败）且不按 discriminator 路由——嵌套的派生值退化为基类型。需要"多态感知的内层 helper"（在既有 reader 上读 discriminator 后内联派生类型）才能正确修复，含流式续传语义。 | 复现：`[PicoDerivedType(typeof(Leaf),"leaf")] abstract class Node { public Node? Next; }` → `_JsonInner.g.cs`/`_MsgPackInner.g.cs` CS0144；具体基类变体：嵌套 `Next` 反序列化后 `IsTypeOf<Leaf>()` 失败 |
+| POLY-03 | P2 | **具体多态基类实例**：poly 序列化器仅对 `[PicoDerivedType]` 分支写 discriminator，运行时类型为具体基类而无匹配分支时输出 `{"$type":}`（畸形 JSON）；STJ 语义为"基类型实例不写 discriminator"。 | `JsonSerializer.Serialize(person)`（静态类型 = 具体基类，实例 = 基类）→ 反序列化报 `Unknown type discriminator: $type` |

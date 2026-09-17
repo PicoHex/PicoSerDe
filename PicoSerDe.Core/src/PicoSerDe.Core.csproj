@@ -25,7 +25,6 @@
     <InternalsVisibleTo Include="PicoToml" />
     <InternalsVisibleTo Include="PicoYaml" />
     <InternalsVisibleTo Include="PicoIni" />
-    <InternalsVisibleTo Include="PicoMsgPack" />
   </ItemGroup>
 
 </Project>

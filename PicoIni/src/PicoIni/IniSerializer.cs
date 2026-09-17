@@ -18,9 +18,16 @@ public static partial class IniSerializer
         internal static StreamingFunc<IniReader, T>? Func;
     }
 
+    /// <summary>
+    /// Registers the streaming deserializer delegate emitted by the source
+    /// generator (also callable by hand-written code).
+    /// </summary>
+    /// <param name="func">Resumable per-chunk deserialization step.</param>
+    /// <typeparam name="T">DTO type; must be non-nullable (<c>notnull</c>).</typeparam>
     public static void RegisterStreaming<T>(StreamingFunc<IniReader, T> func)
         where T : notnull => StreamingCache<T>.Func = func;
 
+    /// <summary>True when a streaming deserializer has been registered for T.</summary>
     public static bool HasStreamingDelegate<T>()
         where T : notnull => StreamingCache<T>.Func is not null;
 

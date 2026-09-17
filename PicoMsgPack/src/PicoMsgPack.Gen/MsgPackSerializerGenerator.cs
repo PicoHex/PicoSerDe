@@ -403,25 +403,10 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             }
         }
 
-        // Recursive references: the cycle target's helper must be generated from
-        // its real top-level property set (cycle-safe extraction stopped at the
-        // recursive member), otherwise the helper would emit an empty object.
-        var recursiveTargets = new HashSet<string>();
-        PicoSerDe.Gen.GenInfrastructure.CollectRecursiveRefTargets(
-            validTypes.Select(t => t.Properties).Concat(nestedTypes.Values),
-            recursiveTargets
-        );
-        foreach (var target in recursiveTargets)
-        {
-            foreach (var t in validTypes)
-            {
-                if (t.FullyQualifiedName == target)
-                {
-                    nestedTypes[target] = t.Properties;
-                    break;
-                }
-            }
-        }
+        // Recursive references: seed the cycle targets' helpers from their real
+        // (merged) property sets, and surface per-format skips as PICOSERDE003.
+        PicoSerDe.Gen.GenInfrastructure.SeedRecursiveTargets(validTypes, nestedTypes);
+        PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
 
         var hintNames = new HashSet<string>();
         foreach (var kv in nestedDictTypes)
@@ -429,7 +414,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             var fullName = kv.Key;
             var dictProp = kv.Value;
             var cleanName = fullName.Replace("global::", "");
-            var sn = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanName);
+            var sn = PicoSerDe.Gen.GenInfrastructure.UniqueName(cleanName);
             var hintName = $"{sn}_MsgPackDictInner.g.cs";
             if (hintNames.Add(hintName))
                 spc.AddSource(
@@ -443,7 +428,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         {
             var fullName = kv.Key;
             var props = kv.Value;
-            var sn = PicoSerDe.Gen.GenInfrastructure.SafeName(fullName);
+            var sn = PicoSerDe.Gen.GenInfrastructure.UniqueName(fullName);
             var hintName = $"{sn}_MsgPackInner.g.cs";
             if (hintNames.Add(hintName))
                 spc.AddSource(
@@ -471,7 +456,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             var t = kv.Value;
             if (string.IsNullOrEmpty(t.Name))
                 continue;
-            var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(t.FullyQualifiedName ?? "");
+            var safeFq = PicoSerDe.Gen.GenInfrastructure.UniqueName(t.FullyQualifiedName ?? "");
             var hintName = $"{safeFq}_MsgPackSerializer.g.cs";
             string code;
             if (t.IsRefLikeType)
@@ -2913,12 +2898,13 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             );
             s.AppendLine("                var __k = reader.GetStringRaw();");
             s.AppendLine("                reader.Read();");
+            var first = true;
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
                 if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
-                var kw2 = pi == 0 ? "if" : "else if";
+                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
                 s.Append("                ");
                 s.Append(kw2);
                 s.Append(" (MemoryExtensions.SequenceEqual(__k, \"");

@@ -4,12 +4,16 @@ namespace PicoSerDe.Core;
 /// Streaming deserialization delegate over a format reader. The partially
 /// built result from the previous chunk is passed back in via
 /// <paramref name="partial"/> so state survives chunk boundaries.
+/// <para>
+/// The delegate returns <see cref="ReadStatus.Success"/> when the value is
+/// complete, <see cref="ReadStatus.NeedMoreData"/> when the current chunk ends
+/// inside a token/section (the runner refills and resumes from the reader's
+/// mark), or <see cref="ReadStatus.EndOfInput"/> when the document holds no
+/// value. <typeparamref name="T"/> is constrained to <c>notnull</c> because the
+/// partial/result parameters model absence with <c>T?</c>.
+/// </para>
 /// </summary>
-public delegate ReadStatus StreamingFunc<TReader, T>(
-    ref TReader reader,
-    T? partial,
-    out T? result
-)
+public delegate ReadStatus StreamingFunc<TReader, T>(ref TReader reader, T? partial, out T? result)
     where TReader : allows ref struct
     where T : notnull;
 
@@ -78,6 +82,10 @@ public static class StreamingRunner
                 pipe.AdvanceTo(advanceTo, r.Buffer.End);
                 continue;
             }
+            if (status == ReadStatus.EndOfInput)
+                throw new FormatException(
+                    "Unexpected end of input: the document contains no value."
+                );
             throw new FormatException($"Unexpected parser state: {status}.");
         }
     }

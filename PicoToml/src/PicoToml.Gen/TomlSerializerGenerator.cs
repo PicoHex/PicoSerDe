@@ -406,25 +406,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             }
         }
 
-        // Recursive references: the cycle target's helper must be generated from
-        // its real top-level property set (cycle-safe extraction stopped at the
-        // recursive member), otherwise the helper would emit an empty object.
-        var recursiveTargets = new HashSet<string>();
-        PicoSerDe.Gen.GenInfrastructure.CollectRecursiveRefTargets(
-            validTypes.Select(t => t.Properties).Concat(nestedTypes.Values),
-            recursiveTargets
-        );
-        foreach (var target in recursiveTargets)
-        {
-            foreach (var t in validTypes)
-            {
-                if (t.FullyQualifiedName == target)
-                {
-                    nestedTypes[target] = t.Properties;
-                    break;
-                }
-            }
-        }
+        // Recursive references: seed the cycle targets' helpers from their real
+        // (merged) property sets, and surface per-format skips as PICOSERDE003.
+        PicoSerDe.Gen.GenInfrastructure.SeedRecursiveTargets(validTypes, nestedTypes);
+        PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
 
         // Collect nested Dictionary types
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
@@ -436,7 +421,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             var fullName = kv.Key;
             var props = kv.Value;
-            var safeName = PicoSerDe.Gen.GenInfrastructure.SafeName(fullName);
+            var safeName = PicoSerDe.Gen.GenInfrastructure.UniqueName(fullName);
             var hintName = $"{safeName}_TomlInner.g.cs";
             if (!hintNames.Add(hintName))
                 continue;
@@ -451,7 +436,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             var fullName = kv.Key;
             var dictProp = kv.Value;
-            var safeName = PicoSerDe.Gen.GenInfrastructure.SafeName(fullName);
+            var safeName = PicoSerDe.Gen.GenInfrastructure.UniqueName(fullName);
             var hintName = $"{safeName}_TomlDictInner.g.cs";
             if (hintNames.Add(hintName))
                 spc.AddSource(
@@ -479,7 +464,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             var t = kv.Value;
             if (string.IsNullOrEmpty(t.Name))
                 continue;
-            var safeFq = PicoSerDe.Gen.GenInfrastructure.SafeName(t.FullyQualifiedName ?? "");
+            var safeFq = PicoSerDe.Gen.GenInfrastructure.UniqueName(t.FullyQualifiedName ?? "");
             var hintName = $"{safeFq}_TomlSerializer.g.cs";
             string code;
             if (t.IsRefLikeType)
@@ -536,7 +521,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("        var o = new ");
         s.Append(clean);
         s.AppendLine("();");
-        s.AppendLine("        while (r.Read() && r.TokenType != TokenType.ObjectEnd) {");
+        // TOML is section-based and never emits ObjectEnd. Dotted-key lines
+        // re-emit ObjectStart with the *same* TablePath, so an inner helper
+        // continues across PropertyName and same-section ObjectStart tokens, and
+        // stops at the first token of another section (or EOF) — otherwise it
+        // swallows every following [section].
+        s.AppendLine("        var __section = r.TablePath;");
+        s.AppendLine(
+            "        while (r.Read() && (r.TokenType == TokenType.PropertyName || (r.TokenType == TokenType.ObjectStart && TextHelpers.Eq(r.TablePath, __section)))) {"
+        );
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
         var sorted = props.OrderBy(x => x.JsonName).ToImmutableArray();
@@ -1065,7 +1058,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        result = o;");
         s.AppendLine("        if (!r.IsResumed) {");
         s.AppendLine(
-            "            r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; } return r.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput; }"
+            "            r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; } return ReadStatus.Success; }"
         );
         s.AppendLine("        }");
         s.AppendLine("        while (true) {");
@@ -2951,12 +2944,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 "            while (reader.Read() && reader.TokenType == TokenType.PropertyName) {"
             );
             s.AppendLine("                var __k = reader.KeySpan;");
+            var first = true;
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
                 if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
                     continue;
-                var kw2 = pi == 0 ? "if" : "else if";
+                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 s.Append("                ");
                 s.Append(kw2);

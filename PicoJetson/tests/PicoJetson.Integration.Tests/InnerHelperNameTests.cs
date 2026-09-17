@@ -56,9 +56,8 @@ public sealed class InnerHelperNameTests
         // Helper files of the non-JSON generators declare 'namespace PicoMsgPack.Tests;'
         // so the reference must carry that namespace — a bare short name only resolves
         // from files that happen to live in the same namespace.
-        await Assert
-            .That(name)
-            .IsEqualTo("PicoMsgPack.Tests.PicoMsgPack_Tests_AddressMsgPackInner");
+        var safe = PicoSerDe.Gen.GenInfrastructure.UniqueName("PicoMsgPack.Tests.Address");
+        await Assert.That(name).IsEqualTo($"PicoMsgPack.Tests.{safe}MsgPackInner");
     }
 
     [Test]
@@ -72,7 +71,8 @@ public sealed class InnerHelperNameTests
                     "PicoMsgPack.Tests.Address"
                 )
         );
-        await Assert.That(name).IsEqualTo("__PicoSerDe_MyAsm.PicoMsgPack_Tests_AddressJsonInner");
+        var safe = PicoSerDe.Gen.GenInfrastructure.UniqueName("PicoMsgPack.Tests.Address");
+        await Assert.That(name).IsEqualTo($"__PicoSerDe_MyAsm.{safe}JsonInner");
     }
 
     [Test]
@@ -82,7 +82,9 @@ public sealed class InnerHelperNameTests
             null,
             () => PicoSerDe.Gen.GenInfrastructure.InnerClassName("JsonInner", "SoloType")
         );
-        await Assert.That(name).IsEqualTo("SoloTypeJsonInner");
+        await Assert
+            .That(name)
+            .IsEqualTo($"{PicoSerDe.Gen.GenInfrastructure.UniqueName("SoloType")}JsonInner");
     }
 
     [Test]
