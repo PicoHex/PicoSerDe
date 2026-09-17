@@ -298,183 +298,228 @@ public static partial class JsonSerializer
         }
         else
         {
-            // ── Array mode: bracket-counting value extraction ──
-            var readBuf = new byte[4096];
-            var accum = new List<byte>(4096);
-            bool sawOpeningBracket = false;
-            int depth = 0;
-            int valueStart = -1;
+            await foreach (var item in ArrayModeImpl<T>(stream, options, ct))
+                yield return item;
+        }
+    }
 
-            while (true)
+    /// <summary>
+    /// Array-mode streaming (topLevelValues: false): parses a top-level JSON
+    /// array incrementally and yields each element as soon as it is complete.
+    /// Only the unconsumed bytes are retained (the buffer is compacted on every
+    /// read), so memory stays bounded by the largest in-flight element.
+    /// </summary>
+    private static async IAsyncEnumerable<T?> ArrayModeImpl<T>(
+        Stream stream,
+        JsonOptions? options,
+        [EnumeratorCancellation] CancellationToken ct
+    )
+    {
+        if (DesRegistry<JsonFormat, T>.Deserializer is not { } deserializer)
+        {
+            SerializerExtensions.ThrowNoSerializer<T>("PicoJetson.Gen");
+            yield break;
+        }
+
+        var buffer = new byte[8192];
+        int head = 0;
+        int count = 0;
+        bool done = false;
+        bool sawOpen = false;
+        bool expectValue = true; // true right after '[' or ','
+        bool anyElement = false;
+
+        while (true)
+        {
+            if (!sawOpen)
             {
-                ct.ThrowIfCancellationRequested();
-                int bytesRead = await stream.ReadAsync(readBuf, ct);
-                if (bytesRead == 0)
+                while (head < count && buffer[head] <= 32)
+                    head++;
+                if (head >= count)
                 {
-                    if (!sawOpeningBracket)
-                        throw new FormatException("Expected '[' at start of JSON array stream.");
-                    if (depth > 0)
-                        throw new FormatException("Unexpected end of stream inside JSON array.");
-                    yield break;
-                }
-
-                accum.AddRange(readBuf.AsSpan(0, bytesRead));
-
-                int i = 0;
-                while (i < accum.Count)
-                {
-                    byte b = accum[i];
-
-                    if (!sawOpeningBracket)
-                    {
-                        switch (b)
-                        {
-                            case (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r':
-                                i++;
-                                continue;
-                            case (byte)'[':
-                                sawOpeningBracket = true;
-                                depth = 1;
-                                i++;
-                                continue;
-                            default:
-                                throw new FormatException(
-                                    "Expected '[' at start of JSON array stream."
-                                );
-                        }
-                    }
-
-                    switch (b)
-                    {
-                        case (byte)'"':
-                        {
-                            if (depth == 1 && valueStart < 0)
-                                valueStart = i;
-                            i++;
-                            while (i < accum.Count)
-                            {
-                                if (accum[i] == (byte)'\\')
-                                {
-                                    i += 2;
-                                    continue;
-                                }
-                                if (accum[i] == (byte)'"')
-                                {
-                                    i++;
-                                    break;
-                                }
-                                i++;
-                            }
-                            continue;
-                        }
-                        case (byte)'{' or (byte)'[':
-                        {
-                            if (depth == 1 && valueStart < 0)
-                                valueStart = i;
-                            depth++;
-                            i++;
-                            continue;
-                        }
-                        case (byte)'}' or (byte)']':
-                        {
-                            depth--;
-                            switch (depth)
-                            {
-                                case 0 when b != (byte)']':
-                                    throw new FormatException(
-                                        "Unexpected '}' inside JSON array stream."
-                                    );
-                                case 0:
-                                {
-                                    if (valueStart < 0)
-                                        yield break;
-                                    var valBytes = accum
-                                        .GetRange(valueStart, i - valueStart)
-                                        .ToArray();
-                                    var trimmed = TrimArrayElement(valBytes);
-                                    if (trimmed.Length > 0)
-                                        yield return deserializer(trimmed, options);
-                                    yield break;
-                                }
-                                case 1:
-                                {
-                                    // A nested container element just completed.
-                                    if (valueStart >= 0)
-                                    {
-                                        var valBytes = accum
-                                            .GetRange(valueStart, i + 1 - valueStart)
-                                            .ToArray();
-                                        yield return deserializer(valBytes, options);
-                                    }
-                                    valueStart = -1;
-                                    int consumed = i + 1;
-                                    while (consumed < accum.Count && accum[consumed] <= 32)
-                                        consumed++;
-                                    if (consumed < accum.Count && accum[consumed] == (byte)',')
-                                        consumed++;
-                                    accum.RemoveRange(0, consumed);
-                                    i = 0;
-                                    continue;
-                                }
-                                default:
-                                    i++;
-                                    continue;
-                            }
-                        }
-                    }
-
-                    // Primitive element boundaries at depth 1.
-                    if (depth == 1)
-                    {
-                        if (b == (byte)',')
-                        {
-                            if (valueStart >= 0)
-                            {
-                                var valBytes = TrimArrayElement(
-                                    accum.GetRange(valueStart, i - valueStart).ToArray()
-                                );
-                                if (valBytes.Length > 0)
-                                    yield return deserializer(valBytes, options);
-                                valueStart = -1;
-                                accum.RemoveRange(0, i + 1);
-                                i = 0;
-                                continue;
-                            }
-                            accum.RemoveRange(0, i + 1);
-                            i = 0;
-                            continue;
-                        }
-                        if (valueStart < 0 && b > 32)
-                            valueStart = i;
-                    }
-
-                    i++;
-                }
-
-                if (valueStart >= 0 || depth != 1)
+                    if (done)
+                        throw new FormatException(
+                            "Expected '[' at the start of a JSON array stream."
+                        );
+                    (head, count, done) = await FillAsync(stream, buffer, head, count, done, ct);
                     continue;
-                int trim = 0;
-                while (trim < accum.Count && accum[trim] <= 32)
-                    trim++;
-                if (trim < accum.Count && accum[trim] == (byte)',')
-                    trim++;
-                if (trim > 0)
-                    accum.RemoveRange(0, trim);
+                }
+                if (buffer[head] != (byte)'[')
+                    throw new FormatException("Expected '[' at the start of a JSON array stream.");
+                head++;
+                sawOpen = true;
+            }
+
+            var items = new List<T?>();
+            bool completed = false;
+            int newHead = ParseArrayElements(
+                buffer,
+                head,
+                count,
+                done,
+                options,
+                deserializer,
+                ref expectValue,
+                ref anyElement,
+                items,
+                out completed
+            );
+            bool progressed = newHead != head;
+            head = newHead;
+            foreach (var item in items)
+                yield return item;
+            if (completed)
+                yield break;
+            if (done)
+                throw new FormatException("Unexpected end of stream inside JSON array.");
+            if (!progressed && items.Count == 0)
+                (head, count, done) = await FillAsync(stream, buffer, head, count, done, ct);
+        }
+    }
+
+    /// <summary>
+    /// Compacts the unconsumed prefix, grows the buffer when full and reads the
+    /// next block. Returns the updated (head, count, done) triple.
+    /// </summary>
+    private static async ValueTask<(int Head, int Count, bool Done)> FillAsync(
+        Stream stream,
+        byte[] buffer,
+        int head,
+        int count,
+        bool done,
+        CancellationToken ct
+    )
+    {
+        if (head > 0)
+        {
+            int remaining = count - head;
+            if (remaining > 0)
+                Buffer.BlockCopy(buffer, head, buffer, 0, remaining);
+            head = 0;
+            count = remaining;
+        }
+        if (count == buffer.Length)
+        {
+            var bigger = new byte[buffer.Length * 2];
+            Buffer.BlockCopy(buffer, 0, bigger, 0, count);
+            buffer = bigger;
+        }
+        int read = await stream.ReadAsync(buffer.AsMemory(count), ct);
+        if (read == 0)
+            done = true;
+        else
+            count += read;
+        return (head, count, done);
+    }
+
+    /// <summary>
+    /// Parses as many complete array elements as the buffer allows. Element
+    /// boundaries (comma / closing bracket) are enforced here; each element
+    /// value is parsed by JsonReader and passed to the registered deserializer
+    /// as raw bytes.
+    /// </summary>
+    private static int ParseArrayElements<T>(
+        byte[] buffer,
+        int head,
+        int count,
+        bool isFinal,
+        JsonOptions? options,
+        DeserializeDelegate<T> deserializer,
+        ref bool expectValue,
+        ref bool anyElement,
+        List<T?> items,
+        out bool completed
+    )
+    {
+        completed = false;
+        int pos = head;
+        int maxDepth = options?.MaxDepth ?? 256;
+
+        while (true)
+        {
+            while (pos < count && buffer[pos] <= 32)
+                pos++;
+            if (pos >= count)
+                return pos;
+
+            byte b = buffer[pos];
+            if (b == (byte)']')
+            {
+                if (expectValue && anyElement && options?.AllowTrailingCommas != true)
+                    throw new FormatException("Trailing comma before closing bracket");
+                completed = true;
+                return pos + 1;
+            }
+            if (b == (byte)',')
+            {
+                if (expectValue)
+                    throw new FormatException($"Unexpected comma at offset {pos}");
+                expectValue = true;
+                pos++;
+                continue;
+            }
+            if (!expectValue)
+                throw new FormatException($"Missing comma between array elements at offset {pos}");
+
+            var reader = new JsonReader(
+                buffer.AsSpan(pos, count - pos),
+                maxDepth,
+                isFinal,
+                options
+            );
+            try
+            {
+                bool readOk;
+                try
+                {
+                    readOk = reader.Read();
+                }
+                catch (Exception ex) when (IsIncomplete(ex, isFinal))
+                {
+                    return pos;
+                }
+                if (!readOk)
+                {
+                    if (!isFinal && reader.NeedsMoreData)
+                        return pos;
+                    throw new FormatException(
+                        $"Unexpected end of JSON array element at offset {pos}"
+                    );
+                }
+
+                bool skipOk;
+                try
+                {
+                    skipOk = reader.TrySkip();
+                }
+                catch (Exception ex) when (IsIncomplete(ex, isFinal))
+                {
+                    return pos;
+                }
+                if (!skipOk)
+                {
+                    if (!isFinal)
+                        return pos;
+                    throw new FormatException($"Malformed JSON array element at offset {pos}");
+                }
+
+                int len = (int)reader.BytesConsumed;
+                var element = buffer.AsSpan(pos, len).ToArray();
+                items.Add(deserializer(element, options));
+                pos += len;
+                anyElement = true;
+                expectValue = false;
+            }
+            finally
+            {
+                reader.Dispose();
             }
         }
     }
 
-    /// <summary>Trims ASCII whitespace from both ends of a raw array-element slice.</summary>
-    private static byte[] TrimArrayElement(byte[] data)
-    {
-        int st = 0,
-            e = data.Length;
-        while (st < e && data[st] <= 32)
-            st++;
-        while (e > st && data[e - 1] <= 32)
-            e--;
-        if (st == 0 && e == data.Length)
-            return data;
-        return data.AsSpan(st, e - st).ToArray();
-    }
+    /// <summary>True when the exception signals a truncated element that more
+    /// data may complete (only meaningful while the stream is not finished).</summary>
+    private static bool IsIncomplete(Exception ex, bool isFinal) =>
+        !isFinal
+        && ex is FormatException or IndexOutOfRangeException or ArgumentOutOfRangeException;
 }
