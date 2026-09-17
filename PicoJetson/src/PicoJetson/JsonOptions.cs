@@ -183,7 +183,4 @@ public class JsonOptions : SerOptions
     /// <summary>How unmapped properties are handled during deserialization. Default: Skip.</summary>
     public JsonUnmappedMemberHandling UnmappedMemberHandling { get; set; } =
         JsonUnmappedMemberHandling.Skip;
-
-    /// <summary>Thread-local current options, used by SG-generated code and reader/writer.</summary>
-    /// <remarks>Public so SG-generated code in consumer assemblies can access it.
 }
