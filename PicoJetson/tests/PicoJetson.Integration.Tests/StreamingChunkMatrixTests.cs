@@ -149,6 +149,28 @@ public class StreamingChunkMatrixTests
     }
 
     [Test]
+    [Timeout(30_000)]
+    [Arguments(1)]
+    [Arguments(3)]
+    [Arguments(8)]
+    [Arguments(4096)]
+    public async Task Json_Stream_ObjectArray_MatchesSync(int chunk, CancellationToken ct)
+    {
+        var rows = new[]
+        {
+            new StreamRow { Id = 1, Name = "a" },
+            new StreamRow { Id = 2, Name = "bb" },
+            new StreamRow { Id = 3, Name = "ccc" },
+        };
+        var json = JsonSerializer.Serialize(rows);
+        using var s = new ChunkedReadStream(Encoding.UTF8.GetBytes(json), chunk);
+        var back = await JsonSerializer.DeserializeFromStreamAsync<StreamRow[]>(s, null, ct);
+        await Assert
+            .That(back!.Select(r => r.Id + ":" + r.Name))
+            .IsEquivalentTo(rows.Select(r => r.Id + ":" + r.Name));
+    }
+
+    [Test]
     [Timeout(60_000)]
     public async Task Json_Stream_RealFileStream_2000Rows(CancellationToken ct)
     {

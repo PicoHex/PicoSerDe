@@ -525,7 +525,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 && !type.ArrayElementNestedProps.IsDefaultOrEmpty
             )
             {
-                var elemFqn = type.ArrayElementName!.Replace("global::", "");
+                // Key must match CollectNestedTypes' convention (raw FQN with
+                // global::) so a type used both as a DTO property and as a
+                // top-level array element shares one helper instead of producing
+                // a duplicate hintName.
+                var elemFqn = type.ArrayElementName!;
                 if (!nestedTypes.ContainsKey(elemFqn))
                     nestedTypes[elemFqn] = type.ArrayElementNestedProps;
             }
@@ -545,6 +549,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var safeName = PicoSerDe.Gen.GenInfrastructure.SafeName(cleanName);
             var hintName = $"{safeName}_JsonInner.g.cs";
             if (!hintNames.Add(hintName))
+            {
                 spc.ReportDiagnostic(
                     Diagnostic.Create(
                         HintNameTrace,
@@ -552,6 +557,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         $"DUPLICATE inner hintName: '{hintName}' (fullName='{fullName}')"
                     )
                 );
+                // Never call AddSource twice — that throws and would drop every
+                // generated source in the compilation.
+                continue;
+            }
             spc.AddSource(
                 hintName,
                 SourceText.From(GenerateInnerHelper(cleanName, safeName, props), Encoding.UTF8)
@@ -634,6 +643,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             var mainHintName = $"{safeFq}_JsonSerializer.g.cs";
 
             var source = GenerateTypeCode(type, typeMap);
+            if (!hintNames.Add(mainHintName))
+            {
+                spc.ReportDiagnostic(
+                    Diagnostic.Create(
+                        HintNameTrace,
+                        null,
+                        $"DUPLICATE main hintName: '{mainHintName}' (fq='{type.FullyQualifiedName}')"
+                    )
+                );
+                continue;
+            }
             spc.AddSource(mainHintName, SourceText.From(source, Encoding.UTF8));
         }
     }
@@ -6002,11 +6022,24 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("        while (true)");
         sb.AppendLine("        {");
+        sb.AppendLine("            long __snap = reader.BytesConsumed;");
         sb.AppendLine(
-            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
+            "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : throw new System.FormatException($\"Unexpected end of JSON array at offset {reader.BytesConsumed}\");"
         );
         sb.AppendLine("            if (reader.TokenType == TokenType.ArrayEnd) break;");
+        sb.AppendLine("            int __before = __list.Count;");
         EmitArrayElementDeserialize(sb, elemKind, elemTypeName, "            ");
+        // The element read may bail on a chunk boundary (nested helper or
+        // collection element). Discard the partial element, rewind to its
+        // start and ask for more data — the resume re-reads it from scratch.
+        sb.AppendLine("            if (reader.NeedsMoreData)");
+        sb.AppendLine("            {");
+        sb.AppendLine(
+            "                if (__list.Count > __before) __list.RemoveRange(__before, __list.Count - __before);"
+        );
+        sb.AppendLine("                reader.RewindTo(__snap);");
+        sb.AppendLine("                return ReadStatus.NeedMoreData;");
+        sb.AppendLine("            }");
         sb.AppendLine("        }");
         if (isList)
         {

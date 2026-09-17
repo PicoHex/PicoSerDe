@@ -409,7 +409,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 && !t.ArrayElementNestedProps.IsDefaultOrEmpty
             )
             {
-                var elemFqn = t.ArrayElementName!.Replace("global::", "");
+                // Raw FQN keeps this key identical to CollectNestedTypes' so a
+                // type used both as a DTO property and as a top-level array
+                // element shares one helper.
+                var elemFqn = t.ArrayElementName!;
                 if (!nestedTypes.ContainsKey(elemFqn))
                     nestedTypes[elemFqn] = t.ArrayElementNestedProps;
             }
