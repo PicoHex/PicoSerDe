@@ -104,7 +104,11 @@ internal readonly record struct PropertyInfo(
     // Declaration-position type text (keeps "?") — null falls back to the identity
     // form (TypeFullName / ElementTypeName). Never use for identifiers or new T().
     string? TypeFullNameAnnotated = null,
-    string? ElementTypeNameAnnotated = null
+    string? ElementTypeNameAnnotated = null,
+    // True when this member points back into the type currently being extracted
+    // (recursive/cyclic type hierarchy). NestedProperties are empty; the emitter
+    // references the target type's own generated helper instead.
+    bool IsRecursiveRef = false
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -440,6 +444,7 @@ internal static class GenInfrastructure
             attrs,
             includeReadOnlyProperties,
             useCamelCase,
+            visiting: new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default) { namedType },
             includeFields: includeFields
         );
 
@@ -563,6 +568,19 @@ internal static class GenInfrastructure
         INamedTypeSymbol type,
         AttributeHelpers attrs,
         string formatTag
+    ) =>
+        ExtractNestedProperties(
+            type,
+            attrs,
+            formatTag,
+            new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default) { type }
+        );
+
+    private static ImmutableArray<PropertyInfo> ExtractNestedProperties(
+        INamedTypeSymbol type,
+        AttributeHelpers attrs,
+        string formatTag,
+        HashSet<INamedTypeSymbol>? visiting
     )
     {
         var useCamelCase = attrs.HasCamelCase(type);
@@ -574,9 +592,40 @@ internal static class GenInfrastructure
             attrs,
             includeReadOnlyProperties: includeFields,
             useCamelCase,
-            includeFields: includeFields
+            includeFields: includeFields,
+            visiting: visiting
         );
         return properties.ToImmutableArray();
+    }
+
+    /// <summary>
+    /// Cycle-safe nested extraction: when <paramref name="type"/> is already on
+    /// the extraction stack, returns an empty property set and sets
+    /// <paramref name="isRecursiveRef"/>. The emitter then references the target
+    /// type's own generated helper (built from its real top-level properties).
+    /// </summary>
+    private static ImmutableArray<PropertyInfo> ExtractNestedPropertiesGuarded(
+        INamedTypeSymbol type,
+        AttributeHelpers attrs,
+        string formatTag,
+        HashSet<INamedTypeSymbol>? visiting,
+        out bool isRecursiveRef
+    )
+    {
+        isRecursiveRef = false;
+        if (visiting is not null && !visiting.Add(type))
+        {
+            isRecursiveRef = true;
+            return ImmutableArray<PropertyInfo>.Empty;
+        }
+        try
+        {
+            return ExtractNestedProperties(type, attrs, formatTag, visiting);
+        }
+        finally
+        {
+            visiting?.Remove(type);
+        }
     }
 
     // ── Shared core: single source of truth for property extraction ──
@@ -611,7 +660,8 @@ internal static class GenInfrastructure
         AttributeHelpers attrs,
         bool includeReadOnlyProperties,
         bool useCamelCase,
-        bool includeFields = false
+        bool includeFields = false,
+        HashSet<INamedTypeSymbol>? visiting = null
     )
     {
         var result = ExtractProperties(
@@ -621,7 +671,8 @@ internal static class GenInfrastructure
             includeReadOnlyProperties,
             useCamelCase,
             null,
-            includeFields
+            includeFields,
+            visiting
         );
         // Field-based fallback for System.ValueTuple<...>: tuples carry their data in
         // public fields and have no serializable properties — extract fields so they
@@ -636,7 +687,8 @@ internal static class GenInfrastructure
                 includeReadOnlyProperties,
                 useCamelCase,
                 null,
-                includeFields: true
+                includeFields: true,
+                visiting: visiting
             );
         }
         return result;
@@ -653,7 +705,8 @@ internal static class GenInfrastructure
         bool includeReadOnlyProperties,
         bool useCamelCase,
         List<Diagnostic>? diagnostics,
-        bool includeFields = false
+        bool includeFields = false,
+        HashSet<INamedTypeSymbol>? visiting = null
     )
     {
         var list = new List<PropertyInfo>();
@@ -679,9 +732,29 @@ internal static class GenInfrastructure
                 }
 
                 ImmutableArray<PropertyInfo> fieldNested = ImmutableArray<PropertyInfo>.Empty;
+                bool fieldRecursive = false;
                 if (fk is "object" && field.Type is INamedTypeSymbol fieldObjNts)
                 {
-                    fieldNested = ExtractNestedProperties(fieldObjNts, attrs, formatTag);
+                    fieldNested = ExtractNestedPropertiesGuarded(
+                        fieldObjNts,
+                        attrs,
+                        formatTag,
+                        visiting,
+                        out fieldRecursive
+                    );
+                }
+
+                if (fieldRecursive && formatTag is not ("json" or "msgpack"))
+                {
+                    diagnostics?.Add(
+                        Diagnostic.Create(
+                            UnsupportedTypeWarning,
+                            field.Locations.FirstOrDefault(),
+                            field.Type.ToDisplayString(),
+                            field.Name
+                        )
+                    );
+                    continue;
                 }
 
                 list.Add(
@@ -698,7 +771,8 @@ internal static class GenInfrastructure
                         fieldNested,
                         null,
                         IsNullableReference: fnNrt,
-                        TypeFullNameAnnotated: TypeKindResolver.DisplayType(field.Type)
+                        TypeFullNameAnnotated: TypeKindResolver.DisplayType(field.Type),
+                        IsRecursiveRef: fieldRecursive
                     )
                 );
                 continue;
@@ -755,6 +829,7 @@ internal static class GenInfrastructure
             string? keyTypeKind = null;
             string? keyTypeName = null;
             ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
+            bool recursiveRef = false;
             bool elementIsNrt = false;
 
             if (
@@ -813,11 +888,22 @@ internal static class GenInfrastructure
                     && ntsNested.TypeArguments.Length == 1
                 )
                 {
-                    nestedProperties = BuildNestedListElement(ntsNested, formatTag, attrs);
+                    nestedProperties = BuildNestedListElement(
+                        ntsNested,
+                        formatTag,
+                        attrs,
+                        visiting
+                    );
                 }
                 else if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
                 {
-                    nestedProperties = ExtractNestedProperties(eNtsObj, attrs, formatTag);
+                    nestedProperties = ExtractNestedPropertiesGuarded(
+                        eNtsObj,
+                        attrs,
+                        formatTag,
+                        visiting,
+                        out recursiveRef
+                    );
                 }
             }
             else if (typeKind is "dict")
@@ -858,7 +944,13 @@ internal static class GenInfrastructure
                     elementIsNrt = valType.NullableAnnotation == NullableAnnotation.Annotated;
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
                     {
-                        nestedProperties = ExtractNestedProperties(vNtsObj, attrs, formatTag);
+                        nestedProperties = ExtractNestedPropertiesGuarded(
+                            vNtsObj,
+                            attrs,
+                            formatTag,
+                            visiting,
+                            out recursiveRef
+                        );
                     }
                     else if (
                         vk is "dict"
@@ -867,7 +959,12 @@ internal static class GenInfrastructure
                     )
                     {
                         // Nested Dictionary<K2,V2> — resolve inner dict's K/V and wrap as synthetic PropertyInfo
-                        nestedProperties = BuildNestedDictElement(vNtsDict, formatTag, attrs);
+                        nestedProperties = BuildNestedDictElement(
+                            vNtsDict,
+                            formatTag,
+                            attrs,
+                            visiting
+                        );
                     }
                 }
                 else
@@ -877,7 +974,29 @@ internal static class GenInfrastructure
             }
             else if (typeKind is "object" && prop.Type is INamedTypeSymbol objNts)
             {
-                nestedProperties = ExtractNestedProperties(objNts, attrs, formatTag);
+                nestedProperties = ExtractNestedPropertiesGuarded(
+                    objNts,
+                    attrs,
+                    formatTag,
+                    visiting,
+                    out recursiveRef
+                );
+            }
+
+            if (recursiveRef && formatTag is not ("json" or "msgpack"))
+            {
+                // TOML/YAML/INI cannot represent arbitrarily deep nesting;
+                // drop the recursive member with a diagnostic instead of
+                // emitting non-compiling or silently-empty code.
+                diagnostics?.Add(
+                    Diagnostic.Create(
+                        UnsupportedTypeWarning,
+                        prop.Locations.FirstOrDefault(),
+                        prop.Type.ToDisplayString(),
+                        prop.Name
+                    )
+                );
+                continue;
             }
 
             list.Add(
@@ -906,7 +1025,8 @@ internal static class GenInfrastructure
                     ElementIsNullableReference: elementIsNrt,
                     IgnoreCondition: ignoreCondition,
                     TypeFullNameAnnotated: TypeKindResolver.DisplayType(prop.Type),
-                    ElementTypeNameAnnotated: elementTypeNameAnnotated
+                    ElementTypeNameAnnotated: elementTypeNameAnnotated,
+                    IsRecursiveRef: recursiveRef
                 )
             );
         }
@@ -921,7 +1041,8 @@ internal static class GenInfrastructure
     private static ImmutableArray<PropertyInfo> BuildNestedListElement(
         INamedTypeSymbol listType,
         string formatTag,
-        AttributeHelpers attrs
+        AttributeHelpers attrs,
+        HashSet<INamedTypeSymbol>? visiting = null
     )
     {
         // listType is a List<T> or similar — extract T
@@ -944,7 +1065,7 @@ internal static class GenInfrastructure
             && ntsInner.TypeArguments.Length == 1
         )
         {
-            innerNested = BuildNestedListElement(ntsInner, formatTag, attrs);
+            innerNested = BuildNestedListElement(ntsInner, formatTag, attrs, visiting);
         }
 
         var wrapper = new PropertyInfo(
@@ -976,7 +1097,8 @@ internal static class GenInfrastructure
     private static ImmutableArray<PropertyInfo> BuildNestedDictElement(
         INamedTypeSymbol dictType,
         string formatTag,
-        AttributeHelpers attrs
+        AttributeHelpers attrs,
+        HashSet<INamedTypeSymbol>? visiting = null
     )
     {
         if (dictType.TypeArguments.Length != 2)
@@ -999,7 +1121,13 @@ internal static class GenInfrastructure
 
         if (iv is "object" && innerValType is INamedTypeSymbol ivNtsObj)
         {
-            innerNested = ExtractNestedProperties(ivNtsObj, attrs, formatTag);
+            innerNested = ExtractNestedPropertiesGuarded(
+                ivNtsObj,
+                attrs,
+                formatTag,
+                visiting,
+                out _
+            );
         }
         else if (
             iv is "dict"
@@ -1007,7 +1135,7 @@ internal static class GenInfrastructure
             && ivNtsDict.TypeArguments.Length == 2
         )
         {
-            innerNested = BuildNestedDictElement(ivNtsDict, formatTag, attrs);
+            innerNested = BuildNestedDictElement(ivNtsDict, formatTag, attrs, visiting);
         }
 
         var wrapper = new PropertyInfo(
@@ -1135,6 +1263,10 @@ internal static class GenInfrastructure
 
         foreach (var np in props)
         {
+            // Recursive references have no extracted nested properties; their
+            // helper is seeded from the target type's real property set instead.
+            if (np.IsRecursiveRef)
+                continue;
             if (np.TypeKind == "object" && !string.IsNullOrEmpty(np.TypeFullName))
                 AddNestedType(np.TypeFullName, np.NestedProperties, nestedTypes);
             if (
@@ -1154,6 +1286,32 @@ internal static class GenInfrastructure
             {
                 foreach (var dnp in np.NestedProperties)
                     AddNestedTypeFromDict(dnp, nestedTypes);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Collects the target type names of every recursive-reference member found
+    /// in the given property sets. GenerateAll uses this to seed those targets'
+    /// helpers from their real (non-recursive) top-level property set.
+    /// </summary>
+    public static void CollectRecursiveRefTargets(
+        IEnumerable<ImmutableArray<PropertyInfo>> propertySets,
+        HashSet<string> targets
+    )
+    {
+        foreach (var props in propertySets)
+            Walk(props);
+
+        void Walk(ImmutableArray<PropertyInfo> props)
+        {
+            if (props.IsDefaultOrEmpty)
+                return;
+            foreach (var p in props)
+            {
+                if (p.IsRecursiveRef && !string.IsNullOrEmpty(p.TypeFullName))
+                    targets.Add(p.TypeFullName!);
+                Walk(p.NestedProperties);
             }
         }
     }

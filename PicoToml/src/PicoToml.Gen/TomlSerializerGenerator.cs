@@ -406,6 +406,26 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             }
         }
 
+        // Recursive references: the cycle target's helper must be generated from
+        // its real top-level property set (cycle-safe extraction stopped at the
+        // recursive member), otherwise the helper would emit an empty object.
+        var recursiveTargets = new HashSet<string>();
+        PicoSerDe.Gen.GenInfrastructure.CollectRecursiveRefTargets(
+            validTypes.Select(t => t.Properties).Concat(nestedTypes.Values),
+            recursiveTargets
+        );
+        foreach (var target in recursiveTargets)
+        {
+            foreach (var t in validTypes)
+            {
+                if (t.FullyQualifiedName == target)
+                {
+                    nestedTypes[target] = t.Properties;
+                    break;
+                }
+            }
+        }
+
         // Collect nested Dictionary types
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();
         foreach (var t in validTypes)
