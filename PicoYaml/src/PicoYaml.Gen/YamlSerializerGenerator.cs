@@ -3174,46 +3174,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"u8);");
             foreach (var prop in dti.Properties)
             {
-                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
-                {
-                    // Nested object/dict members use the shared member emitter
-                    // (previously dropped from the polymorphic branch).
-                    EmitSerialize(s, prop, "__v", "                ");
-                    continue;
-                }
-                var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
-                // DefaultIgnoreCondition: same guard as the other YAML emit paths
-                var acc = $"__v.{prop.Name}";
-                bool guard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
-                    s,
-                    prop,
-                    acc,
-                    "                "
-                );
-                s.Append("                yw.WritePropertyName(\"");
-                s.Append(pn);
-                s.AppendLine("\"u8);");
-                if (guard)
-                {
-                    // Never + null → property name only ('key:' == YAML null)
-                    s.Append("                if (");
-                    s.Append(acc);
-                    s.AppendLine(" != null)");
-                    s.Append("                    ");
-                    WriteYamlValue(
-                        s,
-                        prop,
-                        prop.IsNullable && !prop.IsNullableReference ? acc + "!.Value" : acc
-                    );
-                    s.AppendLine();
-                    s.AppendLine("                }");
-                }
-                else
-                {
-                    s.Append("                ");
-                    WriteYamlValue(s, prop, acc);
-                    s.AppendLine();
-                }
+                // Shared member emitter: scalars, nested objects/dicts and
+                // object collections (the poly branch previously handled
+                // scalars only).
+                EmitSerialize(s, prop, "__v", "                ");
             }
             s.AppendLine("                break;");
         }
@@ -3232,11 +3196,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.Append("    public ");
         s.Append(type.Name);
         s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
-        s.AppendLine("        var reader = new YamlReader(data);");
-        s.AppendLine("        reader.Read(); // mapping start");
-        s.AppendLine("        reader.Read(); // discriminator key");
-        s.AppendLine("        var __discVal = reader.ValueSpan;");
-        s.Append("        if (!MemoryExtensions.SequenceEqual(reader.KeySpan, \"");
+        // The shared member emitter expects `r` as the reader variable.
+        s.AppendLine("        var r = new YamlReader(data);");
+        s.AppendLine("        r.Read(); // mapping start");
+        s.AppendLine("        r.Read(); // discriminator key");
+        s.AppendLine("        var __discVal = r.ValueSpan;");
+        s.Append("        if (!MemoryExtensions.SequenceEqual(r.KeySpan, \"");
         s.Append(dpnEsc);
         s.AppendLine("\"u8))");
         s.Append("            throw new FormatException(\"Expected discriminator '");
@@ -3278,15 +3243,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("();");
             }
 
-            s.AppendLine(
-                "            while (reader.Read() && reader.TokenType == TokenType.PropertyName) {"
-            );
-            s.AppendLine("                var __k = reader.KeySpan;");
-            s.AppendLine("                var __v = reader.ValueSpan;");
+            // Plain-path loop shape: `EmitDeserialize` advances the reader
+            // itself, so the loop must not read at the top.
+            s.AppendLine("            r.Read();");
+            s.AppendLine("            while (true) {");
+            s.AppendLine("                if (r.TokenType == TokenType.PropertyName) {");
+            s.AppendLine("                var __k = r.KeySpan;");
+            var __polyCtorMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (!dti.CtorParams.IsDefaultOrEmpty)
+                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                    if (!string.IsNullOrEmpty(dti.CtorParams[ci].Name))
+                        __polyCtorMap[dti.CtorParams[ci].Name!] = ci;
             var first = true;
-            for (int pi = 0; pi < dti.Properties.Length; pi++)
+            foreach (var prop in dti.Properties)
             {
-                var prop = dti.Properties[pi];
+                if (hasCtor && !__polyCtorMap.ContainsKey(prop.Name))
+                    continue;
                 var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 s.Append("                ");
@@ -3294,80 +3266,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(" (MemoryExtensions.SequenceEqual(__k, \"");
                 s.Append(pn);
                 s.AppendLine("\"u8)) {");
-                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
-                {
-                    var __cmIdx = -1;
-                    if (hasCtor)
-                    {
-                        for (int ci = 0; ci < dti.CtorParams.Length; ci++)
-                            if (
-                                string.Equals(
-                                    dti.CtorParams[ci].Name,
-                                    prop.Name,
-                                    StringComparison.OrdinalIgnoreCase
-                                )
-                            )
-                            {
-                                __cmIdx = ci;
-                                break;
-                            }
-                    }
-                    if (__cmIdx >= 0 && prop.TypeKind == "object")
-                    {
-                        // Ctor parameter: read the nested object directly.
-                        var __cmSn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
-                            "YamlInner",
-                            prop.TypeFullName!
-                        );
-                        s.Append("                    __cp_");
-                        s.Append(__cmIdx);
-                        s.Append(" = ");
-                        s.Append(__cmSn);
-                        s.AppendLine(".Deserialize(ref reader);");
-                    }
-                    else if (__cmIdx < 0)
-                    {
-                        // Non-ctor members reuse the shared inline property read
-                        // (nested objects/lists/dicts).
-                        EmitDeserializeInline(s, prop, "obj", "                    ");
-                    }
-                    s.AppendLine("                }");
-                    continue;
-                }
-                if (hasCtor)
-                {
-                    int matchIdx = -1;
-                    for (int ci = 0; ci < dti.CtorParams.Length; ci++)
-                        if (
-                            string.Equals(
-                                dti.CtorParams[ci].Name,
-                                prop.Name,
-                                StringComparison.OrdinalIgnoreCase
-                            )
-                        )
-                        {
-                            matchIdx = ci;
-                            break;
-                        }
-                    if (matchIdx >= 0)
-                    {
-                        s.Append("                    __cp_");
-                        s.Append(matchIdx);
-                        s.Append(" = ");
-                        ReadYamlValue(s, prop);
-                        s.AppendLine(";");
-                    }
-                }
-                else
-                {
-                    s.Append("                    obj.");
-                    s.Append(prop.Name);
-                    s.Append(" = ");
-                    ReadYamlValue(s, prop);
-                    s.AppendLine(";");
-                }
+                // Shared member read (scalars, collections, nested objects)
+                // with ctor-parameter redirection.
+                EmitDeserialize(s, prop, "obj", "                    ", ctorMap: __polyCtorMap);
                 s.AppendLine("                }");
             }
+            s.AppendLine("                    continue;");
+            s.AppendLine("                }");
+            s.AppendLine("                if (!r.Read()) break;");
             s.AppendLine("            }");
             if (hasCtor)
             {

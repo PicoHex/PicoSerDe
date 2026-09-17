@@ -255,9 +255,10 @@ unbounded nesting, so the recursive member is skipped and the source generator
 reports `PICOSERDE003` (never silent). Data-level object graph cycles fail
 loudly instead of overflowing the stack.
 
-**Polymorphic hierarchies** keep nested object/dict members of derived types in
-MsgPack, TOML and YAML (previously dropped from the discriminator branches);
-INI ignores them because its format is flat.
+**Polymorphic hierarchies** keep nested object/dict members *and* collection
+members (`List<T>`, `Dictionary<string,T>`) of derived types in JSON, MsgPack,
+TOML and YAML (previously dropped or non-compiling in the discriminator
+branches); INI ignores nested members because its format is flat.
 
 **Diagnostics** (warnings, emitted by all five generators):
 `PICOSERDE002` — two distinct types produced the same generated file name

@@ -3219,10 +3219,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                     s.AppendLine("                }");
                     continue;
                 }
-                s.Append("                    ");
+                // Shared property read: scalars, collections and nested objects
+                // (the poly branch previously used a scalar-only read that
+                // produced `default` for collections).
+                var matchIdx = -1;
                 if (hasCtor)
                 {
-                    int matchIdx = -1;
                     for (int ci = 0; ci < dti.CtorParams.Length; ci++)
                         if (
                             string.Equals(
@@ -3235,23 +3237,20 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                             matchIdx = ci;
                             break;
                         }
-                    if (matchIdx >= 0)
+                    if (matchIdx < 0)
                     {
-                        s.Append("__cp_");
-                        s.Append(matchIdx);
-                        s.Append(" = ");
-                        EmitMpReadValue(s, prop);
-                        s.AppendLine(";");
+                        s.AppendLine("                }");
+                        continue;
                     }
                 }
-                else
-                {
-                    s.Append("obj.");
-                    s.Append(prop.Name);
-                    s.Append(" = ");
-                    EmitMpReadValue(s, prop);
-                    s.AppendLine(";");
-                }
+                WriteDeser(
+                    s,
+                    prop,
+                    matchIdx >= 0 ? $"__cp_{matchIdx}" : "obj",
+                    "                    ",
+                    ref c,
+                    ctorAssign: matchIdx >= 0
+                );
                 s.AppendLine("                }");
             }
             s.AppendLine("            }");

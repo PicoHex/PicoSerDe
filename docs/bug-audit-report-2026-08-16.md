@@ -252,3 +252,13 @@
 - 附带修复：YAML 全部成员被丢弃时发射器产生悬挂 `else`（空分发链）——已加 `Properties.Length == 0` 守卫（同步与流式发电器）。
 - **POLY-01/POLY-02（2026-09-18 完成）**：poly 派生类型保留嵌套对象成员（MsgPack/TOML/YAML，INI 文档化忽略）；递归 × 多态：抽象基类的递归成员编译通过，嵌套派生值保持运行时类型（JSON 同步+流式跨块、MsgPack），具体基类同样正确。
 - **新增修复（同批）**：MsgPack 普通递归对象成员（`TreeNode.Child` 这类 `IsRecursiveRef` 成员）此前序列化为 `null`、反序列化 `default!` —— 现走播种 helper（`RecursiveTypeTests.MsgPack_SelfRecursiveObjectMember_RoundTrips` 锁定）。
+
+### POLY-01 同族补修（poly 派生类型的集合成员，2026-09-18）
+
+- 现象：poly 派生类型的 `List<TObject>` / `Dictionary<string,TObject>` 成员生成不可编译代码（TOML CS1503/CS0234、YAML CS1503/CS8604、MsgPack CS8625）或静默丢值。
+- 修复（全走共享发射器，不再手写标量分支）：
+  - TOML：poly 序列化改用 `EmitSerializeProp`（全覆盖标量/对象/字典/对象列表/`[[key]]`）；poly 反序列化改为根循环形状——`PropertyName` 分支用 `EmitPropertyDispatch`、`ObjectStart` 分支用 `EmitNestedObjectRead`/`EmitDictRead`、新增 `ArrayStart` 分支用 `EmitPropertyDispatch` 读表元素（reader 变量统一为共享发射器约定的 `r`）。
+  - YAML：poly 序列化改用 `EmitSerialize`；poly 反序列化改用 `EmitDeserialize`（含 ctorMap），循环采用普通路径形状（成员发射器自行推进 reader，循环顶部不重复 Read），reader 统一为 `r`。
+  - MsgPack：poly 反序列化复杂/集合成员改用 `WriteDeser`。
+- 附带修复：`dti.CtorParams` 为 default `ImmutableArray` 时访问 `.Length` 抛 NRE（生成器整体失败 CS8785）——所有新增循环加 `IsDefaultOrEmpty` 守卫。
+- 测试：`PolyCollectionMemberTests`（JSON/TOML/YAML/MsgPack × 列表+字典）4/4；全量 1501 tests / 0 failed。
