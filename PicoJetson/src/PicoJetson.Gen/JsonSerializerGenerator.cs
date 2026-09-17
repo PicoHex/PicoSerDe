@@ -2022,7 +2022,55 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// Emits one collection element. Nullable elements get a null check first:
+    /// nullable value types are unwrapped with <c>.Value</c> for the core
+    /// emission, nullable reference elements write JSON null.
+    /// </summary>
     private static void EmitSerializeElement(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string itemVar,
+        string indent
+    )
+    {
+        if (prop.ElementIsNullableValue)
+        {
+            sb.Append(indent);
+            sb.Append("if (");
+            sb.Append(itemVar);
+            sb.AppendLine(" == null)");
+            sb.Append(indent);
+            sb.AppendLine("    jw.WriteNull();");
+            sb.Append(indent);
+            sb.AppendLine("else {");
+            EmitSerializeElementCore(sb, prop, itemVar + ".Value", indent + "    ");
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        if (
+            prop.ElementTypeKind is "object" or "dict"
+            || (prop.ElementIsNullableReference && prop.ElementTypeKind is not "string")
+        )
+        {
+            sb.Append(indent);
+            sb.Append("if (");
+            sb.Append(itemVar);
+            sb.AppendLine(" == null)");
+            sb.Append(indent);
+            sb.AppendLine("    jw.WriteNull();");
+            sb.Append(indent);
+            sb.AppendLine("else {");
+            EmitSerializeElementCore(sb, prop, itemVar, indent + "    ");
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitSerializeElementCore(sb, prop, itemVar, indent);
+    }
+
+    private static void EmitSerializeElementCore(
         StringBuilder sb,
         PropertyInfo prop,
         string itemVar,
@@ -3501,7 +3549,40 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(");");
     }
 
+    /// <summary>
+    /// Reads one collection element. Nullable elements accept a JSON null
+    /// element (stored as null) before the typed read runs.
+    /// </summary>
     private static void EmitDeserializeElementAdd(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string listVar,
+        string indent,
+        int nestLevel
+    )
+    {
+        if (
+            prop.ElementIsNullableValue
+            || prop.ElementTypeKind is "object" or "dict"
+            || (prop.ElementIsNullableReference && prop.ElementTypeKind != "string")
+        )
+        {
+            sb.Append(indent);
+            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+            sb.Append(indent);
+            sb.Append(listVar);
+            sb.AppendLine(".Add(null!);");
+            sb.Append(indent);
+            sb.AppendLine("else {");
+            EmitDeserializeElementAddCore(sb, prop, listVar, indent + "    ", nestLevel);
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitDeserializeElementAddCore(sb, prop, listVar, indent, nestLevel);
+    }
+
+    private static void EmitDeserializeElementAddCore(
         StringBuilder sb,
         PropertyInfo prop,
         string listVar,

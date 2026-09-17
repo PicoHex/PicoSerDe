@@ -1705,6 +1705,39 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
     static void WriteSerElem(StringBuilder s, PropertyInfo p, string a, string ind, ref int c)
     {
+        // Nullable elements: write null, and unwrap nullable value types for
+        // the typed core emission (List<int?> must not pass int? to WriteInt32).
+        if (p.ElementIsNullableValue)
+        {
+            s.Append(ind);
+            s.Append("if (");
+            s.Append(a);
+            s.AppendLine(" == null) mw.WriteNull();");
+            s.Append(ind);
+            s.AppendLine("else {");
+            WriteSerElemCore(s, p, a + ".Value", ind + "    ", ref c);
+            s.Append(ind);
+            s.AppendLine("}");
+            return;
+        }
+        if (p.ElementIsNullableReference || p.ElementTypeKind is "object" or "dict")
+        {
+            s.Append(ind);
+            s.Append("if (");
+            s.Append(a);
+            s.AppendLine(" == null) mw.WriteNull();");
+            s.Append(ind);
+            s.AppendLine("else {");
+            WriteSerElemCore(s, p, a, ind + "    ", ref c);
+            s.Append(ind);
+            s.AppendLine("}");
+            return;
+        }
+        WriteSerElemCore(s, p, a, ind, ref c);
+    }
+
+    static void WriteSerElemCore(StringBuilder s, PropertyInfo p, string a, string ind, ref int c)
+    {
         switch (p.ElementTypeKind)
         {
             case "string":
@@ -2481,7 +2514,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" ??= new List<");
-                s.Append(p.ElementTypeName);
+                s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName);
                 s.AppendLine(">(16);");
                 s.Append(ind);
                 s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
@@ -2496,7 +2529,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             case "array":
                 s.Append(ind);
                 s.Append("var __l = new List<");
-                s.Append(p.ElementTypeName);
+                s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName);
                 s.AppendLine(">(16);");
                 s.Append(ind);
                 s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
@@ -2611,6 +2644,38 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         };
 
     static void ReadDeserElem(
+        StringBuilder s,
+        PropertyInfo p,
+        string target,
+        string op,
+        string ind,
+        ref int c
+    )
+    {
+        // Nullable elements accept a nil element before the typed read runs.
+        if (
+            p.ElementIsNullableValue
+            || p.ElementTypeKind is "object" or "dict"
+            || (p.ElementIsNullableReference && p.ElementTypeKind != "any")
+        )
+        {
+            s.Append(ind);
+            s.AppendLine("if (reader.TokenType == TokenType.Null)");
+            s.Append(ind);
+            s.Append(target);
+            s.Append(op);
+            s.AppendLine("(default!);");
+            s.Append(ind);
+            s.AppendLine("else {");
+            ReadDeserElemCore(s, p, target, op, ind + "    ", ref c);
+            s.Append(ind);
+            s.AppendLine("}");
+            return;
+        }
+        ReadDeserElemCore(s, p, target, op, ind, ref c);
+    }
+
+    static void ReadDeserElemCore(
         StringBuilder s,
         PropertyInfo p,
         string target,

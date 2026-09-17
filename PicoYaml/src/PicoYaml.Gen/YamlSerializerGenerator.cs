@@ -1641,23 +1641,31 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("                continue;");
         sb.AppendLine("            }");
         sb.AppendLine("            var k = r.KeySpan;");
-        for (int i = 0; i < t.Properties.Length; i++)
+        if (t.Properties.Length == 0)
         {
-            var p = t.Properties[i];
-            sb.Append("            ");
-            sb.Append(i == 0 ? "if" : "else if");
-            sb.Append(" (TextHelpers.Eq(k, \"");
-            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            sb.AppendLine("\"u8)) {");
-            EmitDeserialize(sb, p, "o", "                ", ctorMap: ylCtorMap);
+            // Every member was dropped as unrepresentable: skip unknown values.
+            sb.AppendLine("            if (!r.Read()) break;");
+        }
+        else
+        {
+            for (int i = 0; i < t.Properties.Length; i++)
+            {
+                var p = t.Properties[i];
+                sb.Append("            ");
+                sb.Append(i == 0 ? "if" : "else if");
+                sb.Append(" (TextHelpers.Eq(k, \"");
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                sb.AppendLine("\"u8)) {");
+                EmitDeserialize(sb, p, "o", "                ", ctorMap: ylCtorMap);
+                sb.AppendLine("            }");
+            }
+            sb.AppendLine("            else {");
+            sb.AppendLine(
+                "                // Unknown property — skip its value to avoid infinite loop"
+            );
+            sb.AppendLine("                if (!r.Read()) break;");
             sb.AppendLine("            }");
         }
-        sb.AppendLine("            else {");
-        sb.AppendLine(
-            "                // Unknown property — skip its value to avoid infinite loop"
-        );
-        sb.AppendLine("                if (!r.Read()) break;");
-        sb.AppendLine("            }");
         sb.AppendLine("        }");
         if (ylHasCtor)
         {
@@ -1769,29 +1777,40 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("                continue;");
         sb.AppendLine("            }");
         sb.AppendLine("            var k = r.KeySpan;");
-        for (int i = 0; i < t.Properties.Length; i++)
+        if (t.Properties.Length == 0)
         {
-            var p = t.Properties[i];
-            sb.Append("            ");
-            sb.Append(i == 0 ? "if" : "else if");
-            sb.Append(" (TextHelpers.Eq(k, \"");
-            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            sb.AppendLine("\"u8)) {");
-            EmitDeserialize(sb, p, "o", "                ", ctorMap: ctorMap);
-            // A member dispatch (e.g. a nested-object helper) may stop on a
-            // chunk boundary without breaking the loop; rewind to the member.
-            sb.AppendLine("                if (r.NeedsMoreData) {");
-            sb.AppendLine("                    r.RewindToMark();");
-            sb.AppendLine("                    return ReadStatus.NeedMoreData;");
-            sb.AppendLine("                }");
+            // Every member was dropped as unrepresentable: skip unknown values.
+            sb.AppendLine("            r.Mark();");
+            sb.AppendLine(
+                "            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
+            );
+        }
+        else
+        {
+            for (int i = 0; i < t.Properties.Length; i++)
+            {
+                var p = t.Properties[i];
+                sb.Append("            ");
+                sb.Append(i == 0 ? "if" : "else if");
+                sb.Append(" (TextHelpers.Eq(k, \"");
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                sb.AppendLine("\"u8)) {");
+                EmitDeserialize(sb, p, "o", "                ", ctorMap: ctorMap);
+                // A member dispatch (e.g. a nested-object helper) may stop on a
+                // chunk boundary without breaking the loop; rewind to the member.
+                sb.AppendLine("                if (r.NeedsMoreData) {");
+                sb.AppendLine("                    r.RewindToMark();");
+                sb.AppendLine("                    return ReadStatus.NeedMoreData;");
+                sb.AppendLine("                }");
+                sb.AppendLine("            }");
+            }
+            sb.AppendLine("            else {");
+            sb.AppendLine("                r.Mark();");
+            sb.AppendLine(
+                "                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
+            );
             sb.AppendLine("            }");
         }
-        sb.AppendLine("            else {");
-        sb.AppendLine("                r.Mark();");
-        sb.AppendLine(
-            "                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
-        );
-        sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine("        // Reached via a container read that hit the buffer end.");
         sb.AppendLine(

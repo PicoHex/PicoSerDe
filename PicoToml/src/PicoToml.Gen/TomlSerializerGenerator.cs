@@ -2126,6 +2126,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
     private static void EmitSerializeListElement(StringBuilder s, PropertyInfo p, string indent)
     {
+        // TOML has no null type: null scalar elements are skipped (YAML does the
+        // same), so a nullable string element needs a guard before the writer.
+        if (p.ElementIsNullableReference && p.ElementTypeKind is "string")
+        {
+            s.Append(indent);
+            s.AppendLine("if (__item != null)");
+            s.Append(indent);
+            s.AppendLine("    tw.WriteArrayValue(__item);");
+            return;
+        }
         switch (p.ElementTypeKind)
         {
             case "string":

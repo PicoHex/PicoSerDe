@@ -124,7 +124,9 @@ internal readonly record struct PropertyInfo(
     // Fully-qualified name of the element/value type for container kinds
     // (list/array/dict). For an IsRecursiveRef container this is the actual
     // cycle target used to seed the helper (TypeFullName is only the container).
-    string? ElementTypeFullName = null
+    string? ElementTypeFullName = null,
+    // True when the element/value type is a nullable value type (List<int?>).
+    bool ElementIsNullableValue = false
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -1025,6 +1027,7 @@ internal static class GenInfrastructure
             string? elementTypeName = null;
             string? elementTypeNameAnnotated = null;
             string? elementTypeFullName = null;
+            bool elementIsNullableValue = false;
             string? keyTypeKind = null;
             string? keyTypeName = null;
             ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
@@ -1058,7 +1061,25 @@ internal static class GenInfrastructure
                 // Section-based formats cannot represent a nested list at all;
                 // drop the member with a shared PICOSERDE004 diagnostic instead
                 // of emitting non-compiling or lossy element code.
-                if (formatTag is "toml" or "yaml" or "ini" && ek is "list" or "array")
+                // Section-based formats cannot express nested lists or nullable
+                // value-type elements. TOML/YAML additionally cannot express null
+                // object/dict elements (they skip null *scalars*); INI has no null
+                // representation at all, so every nullable element is dropped.
+                var elementIsNullableValueType =
+                    elementType is INamedTypeSymbol
+                    {
+                        OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
+                    };
+                var elementIsAnnotated =
+                    elementType.NullableAnnotation == NullableAnnotation.Annotated;
+                if (
+                    formatTag is "toml" or "yaml" or "ini"
+                    && (
+                        ek is "list" or "array"
+                        || elementIsNullableValueType
+                        || elementIsAnnotated && (formatTag == "ini" || ek is "object" or "dict")
+                    )
+                )
                 {
                     skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                     continue;
@@ -1091,6 +1112,12 @@ internal static class GenInfrastructure
                     elementType
                 );
                 elementIsNrt = elementType.NullableAnnotation == NullableAnnotation.Annotated;
+                elementIsNullableValue =
+                    elementType
+                        is INamedTypeSymbol
+                        {
+                            OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
+                        };
                 // Recursively describe nested List<List<...<T>>> — any depth
                 if (
                     (ek is "list" or "array")
@@ -1134,6 +1161,26 @@ internal static class GenInfrastructure
                     // with other keys instead of emitting non-compiling code.
                     if (!IsSupportedDictKeyKind(kk))
                         continue;
+                    // Same rule for dict values.
+                    var valueIsNullableValue =
+                        valType is INamedTypeSymbol
+                        {
+                            OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
+                        };
+                    var valueIsAnnotated =
+                        valType.NullableAnnotation == NullableAnnotation.Annotated;
+                    if (
+                        formatTag is "toml" or "yaml" or "ini"
+                        && (
+                            valueIsNullableValue
+                            || valueIsAnnotated && (formatTag == "ini" || vk is "object" or "dict")
+                            || formatTag == "ini" && vk is "object" or "dict"
+                        )
+                    )
+                    {
+                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                        continue;
+                    }
                     // Extended collection kinds are not supported as dict values yet —
                     // drop (instead of emitting value code that does not compile).
                     if (
@@ -1153,6 +1200,12 @@ internal static class GenInfrastructure
                     elementTypeFullName = valType.ToDisplayString(
                         SymbolDisplayFormat.FullyQualifiedFormat
                     );
+                    elementIsNullableValue =
+                        valType
+                            is INamedTypeSymbol
+                            {
+                                OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
+                            };
                     elementTypeName = TypeKindResolver.MapTypeName(vk, valType);
                     elementTypeNameAnnotated = TypeKindResolver.MapTypeNamePreservingNullability(
                         vk,
@@ -1250,7 +1303,8 @@ internal static class GenInfrastructure
                     TypeFullNameAnnotated: TypeKindResolver.DisplayType(prop.Type),
                     ElementTypeNameAnnotated: elementTypeNameAnnotated,
                     IsRecursiveRef: recursiveRef,
-                    ElementTypeFullName: elementTypeFullName
+                    ElementTypeFullName: elementTypeFullName,
+                    ElementIsNullableValue: elementIsNullableValue
                 )
             );
         }

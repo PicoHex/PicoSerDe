@@ -224,10 +224,17 @@ internal static class TypeKindResolver
     public static string MapTypeNamePreservingNullability(string kind, ITypeSymbol type)
     {
         var name = MapTypeName(kind, type);
+        // Nullable value types (int?, Guid?, ...) and annotated reference types
+        // keep their '?' so collection declarations stay exact.
         if (
-            type.NullableAnnotation == NullableAnnotation.Annotated
-            && type.IsReferenceType
-            && !name.EndsWith("?", System.StringComparison.Ordinal)
+            (
+                (type.NullableAnnotation == NullableAnnotation.Annotated && type.IsReferenceType)
+                || type
+                    is INamedTypeSymbol
+                    {
+                        OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
+                    }
+            ) && !name.EndsWith("?", System.StringComparison.Ordinal)
         )
             return name + "?";
         return name;

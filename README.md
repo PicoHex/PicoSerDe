@@ -212,6 +212,15 @@ if (doc.RootElement["age"].TryGetInt32(out int age))
 
 `Serialize<T[]>(...)` / `Deserialize<T[]>(...)` and streaming `DeserializeFromStreamAsync<T[]>(stream)` work directly.
 
+### Nullable Elements
+
+`List<int?>`, `List<string?>`, `List<TObject?>`, `Dictionary<string, TObject?>`
+and nested lists of objects round-trip in JSON and MsgPack, including null
+elements. TOML and YAML have no null type: null *scalar* elements are skipped
+on write, while shapes they cannot express (`List<int?>`, nullable object/dict
+elements, nested lists) are dropped with the `PICOSERDE004` warning. INI cannot
+represent any nullable element and drops those members the same way.
+
 ### Streaming (incremental, chunked)
 
 `DeserializeFromStreamAsync<T>(stream, options, ct)` reads a stream incrementally:
@@ -248,6 +257,8 @@ loudly instead of overflowing the stack.
 `PICOSERDE002` — two distinct types produced the same generated file name
 (main hint); internal helper names get a stable hash suffix (`UniqueName`).
 `PICOSERDE003` — a recursive member was skipped by a section-based format.
+`PICOSERDE004` — a member shape the format cannot represent (nested list,
+nullable value-type element, null object element) was skipped.
 
 **Custom/advanced registration** (scripts or hand-written serializers):
 `JsonSerializer.RegisterStreaming<T>(StreamingFunc<JsonReader, T> func)` with

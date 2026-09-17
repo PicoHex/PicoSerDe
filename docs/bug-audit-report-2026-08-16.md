@@ -239,8 +239,14 @@
 
 | 编号 | 严重度 | 结论 | 说明 / 证据 |
 |---|---|---|---|
-| REC-01 | P1（**预存在**，非本提交引入） | 开放 | `List<List<TObject>>`（嵌套列表的对象元素）生成不可编译代码：CS0234 缺 `...JsonInner` + CS1503 `List<object>` → `List<T>` 不匹配。已在父提交 `ecaa69d~1` 用 git worktree 复现同一错误，故非本批回归；此外**非递归**变体（`List<List<DeepLeaf>>`）同样失败，说明与递归无关，属嵌套列表的对象元素路径既有缺陷 |
+| REC-01 | P1（预存在，非原批次引入） | ✅ 已修（`5242089`） | `List<List<TObject>>`（嵌套列表的对象元素）生成不可编译代码：CS0234 缺 `...JsonInner` + CS1503 `List<object>` → `List<T>` 不匹配。已在父提交 `ecaa69d~1` 用 git worktree 复现同一错误，故非本批回归；此外**非递归**变体（`List<List<DeepLeaf>>`）同样失败，说明与递归无关，属嵌套列表的对象元素路径既有缺陷 |
 | REC-02 | P3（本次复审已修） | ✅ 已修 | `PICOSERDE003` 对同一类型多用途场景重复报告（driver 计数=2）。`ReportSkippedRecursiveMembers` 增加按成员去重；新增常驻 driver 测试 `RecursiveMember_IsReportedOnceForAllUsages` |
 | REC-03 | P3（文档） | ✅ 已修 | README "no whole-document buffering" 措辞收紧为"按 token 释放已消费字节，仅保留当前 token/member 窗口" |
-| REC-05 | P1（**预存在**，复审发现） | 开放 | **可空元素类型不受支持**：`List<int?>` / `List<string?>` 生成不可编译代码（JSON CS1503/CS0029；MsgPack CS1503/CS0019/CS8619，均在 `WarningsAsErrors` 内）；`List<TObject?>` / `Dictionary<string,TObject?>` JSON 缺 null 检查（CS8604，运行时空元素走 `SerializeCustom`/inner helper）而 MsgPack 为 CS8619。README 声称 "null elements are allowed for reference-type elements" 对带 `?` 注解的元素类型未兑现（`ElementIsNullableReference` 在元素 ser/de 路径未被使用）。证据：复审临时探针生成的 `ScalarNullHolder_*_JsonSerializer.g.cs` / `_MsgPackSerializer.g.cs`（探针已删除，未入库） |
+| REC-05 | P1（预存在，复审发现） | ✅ 已修（见下） | **可空元素类型不受支持**：`List<int?>` / `List<string?>` 生成不可编译代码（JSON CS1503/CS0029；MsgPack CS1503/CS0019/CS8619，均在 `WarningsAsErrors` 内）；`List<TObject?>` / `Dictionary<string,TObject?>` JSON 缺 null 检查（CS8604，运行时空元素走 `SerializeCustom`/inner helper）而 MsgPack 为 CS8619。README 声称 "null elements are allowed for reference-type elements" 对带 `?` 注解的元素类型未兑现（`ElementIsNullableReference` 在元素 ser/de 路径未被使用）。证据：复审临时探针生成的 `ScalarNullHolder_*_JsonSerializer.g.cs` / `_MsgPackSerializer.g.cs`（探针已删除，未入库） |
 | REC-04 | 无问题 | 通过 | 复审独立验证：可空元素递归（`List<T?>`/`Dictionary<string,T?>`）、TOML/YAML/INI 截断/畸形流的同步-流式一致性（14 个常驻用例，比对字段值而非仅 null 性）、`UniqueName`/`ChainKeyword`/IntKey 重编号回归 |
+
+### REC-01 / REC-05 修复记录（2026-09-18）
+
+- **REC-01**：`BuildNestedListElement` 现在提取最内层对象元素成员并标记环引用；`CollectNestedTypes` 沿嵌套列表链注册最内层对象 helper（`AddNestedTypeFromListChain`）；JSON 内层列表用元素类型声明；MsgPack 新增真正的嵌套 list/array 读写（原来写 `ToString()`、读 `default!`，属静默损坏）。TOML/YAML/INI 在提取阶段以 **PICOSERDE004** 诊断式丢弃嵌套列表成员（原来生成不可编译代码）。
+- **REC-05**：`MapTypeNamePreservingNullability` 为 `Nullable<T>` 保留 `?`；新增 `PropertyInfo.ElementIsNullableValue`；JSON/MsgPack 的元素读写对可空元素发 null 检查（值类型解包 `.Value`、引用类型写 null/读 null），TObject 元素同样获得 null 检查（原来 CS8604/运行时 NRE）。TOML/YAML 保留"可空标量元素跳过 null"的既有语义（TOML 数组写出补 null 守卫）；三者对无法表达的形态（`List<int?>`、可空对象/字典元素、嵌套列表）统一 PICOSERDE004 丢弃；INI 丢弃一切可空元素成员。
+- 附带修复：YAML 全部成员被丢弃时发射器产生悬挂 `else`（空分发链）——已加 `Properties.Length == 0` 守卫（同步与流式发电器）。
