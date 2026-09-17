@@ -166,8 +166,8 @@ public ref struct TomlReader : ITokenReader
         _maxDepth = state.MaxDepth;
         _depth = state.Depth;
         _needsMoreData = false;
-        // A resumed reader never sits at byte 0 of the stream.
-        _bomChecked = true;
+        // Only a genuinely resumed reader has already passed the BOM.
+        _bomChecked = state.BytesConsumed > 0 || state.Depth > 0;
         _inArray = state.InArray;
         _arrayDepth = state.ArrayDepth;
         _arrayStartEmitted = state.ArrayStartEmitted;

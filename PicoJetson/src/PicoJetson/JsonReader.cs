@@ -61,6 +61,9 @@ public ref struct JsonReader : ITokenReader
     // RewindTo or by constructing a reader for the next chunk.
     private bool _incomplete;
 
+    // True once any token was produced (drives the streaming resume decision).
+    private bool _tokenProduced;
+
     // One-time UTF-8 BOM resolution (sequence mode). Span mode resolves it in
     // the constructor and sets this to true.
     private bool _bomChecked;
@@ -96,7 +99,10 @@ public ref struct JsonReader : ITokenReader
         {
             Depth = _depth,
             MaxDepth = _maxDepth,
-            BytesConsumed = _seqReader.Consumed,
+            // Only count bytes once a token was produced: a chunk that only
+            // advanced past the BOM/whitespace must not look like a resumed
+            // document (the generated ReadStart guard would skip the root token).
+            BytesConsumed = _tokenProduced ? _seqReader.Consumed : 0,
             Position = _seqReader.Position,
             Aux = StreamState,
             Rewound = Rewound,
@@ -123,11 +129,12 @@ public ref struct JsonReader : ITokenReader
         _needsMoreData = false;
         _incomplete = false;
         IsResumed = state.BytesConsumed > 0 || state.Depth > 0;
+        _tokenProduced = IsResumed;
         StreamState = state.Aux;
         Rewound = state.Rewound;
-        // A resumed reader never sits at byte 0 of the stream: the BOM (if any)
-        // was already resolved before the state was exported.
-        _bomChecked = true;
+        // Only a genuinely resumed reader has already passed the BOM; the very
+        // first chunk arrives with a default state (BytesConsumed == 0, Depth == 0).
+        _bomChecked = state.BytesConsumed > 0 || state.Depth > 0;
     }
 
     public JsonReader(
@@ -251,6 +258,8 @@ public ref struct JsonReader : ITokenReader
             return false;
         }
         bool ok = ReadCore();
+        if (ok)
+            _tokenProduced = true;
         if (!ok && _needsMoreData)
             _incomplete = true;
         return ok;

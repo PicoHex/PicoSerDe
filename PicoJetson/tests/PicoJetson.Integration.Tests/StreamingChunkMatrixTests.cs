@@ -201,6 +201,40 @@ public class StreamingChunkMatrixTests
     }
 
     [Test]
+    [Timeout(30_000)]
+    [Arguments(1)]
+    [Arguments(3)]
+    [Arguments(8)]
+    public async Task Json_Stream_UnknownPropertyAcrossChunks_IsSkipped(
+        int chunk,
+        CancellationToken ct
+    )
+    {
+        // The skipped-value path must also rewind when the unknown value
+        // straddles a chunk boundary.
+        var json = "{\"Unknown\":{\"a\":\"" + new string('u', 200) + "\"},\"Tail\":\"END\"}";
+        using var s = new ChunkedReadStream(Encoding.UTF8.GetBytes(json), chunk);
+        var back = await JsonSerializer.DeserializeFromStreamAsync<StreamDoc>(s, null, ct);
+        await Assert.That(back!.Tail).IsEqualTo("END");
+    }
+
+    [Test]
+    [Timeout(30_000)]
+    [Arguments(1)]
+    [Arguments(2)]
+    [Arguments(3)]
+    public async Task Json_Stream_BomSplitAcrossChunks_Parses(int chunk, CancellationToken ct)
+    {
+        var bytes = Encoding
+            .UTF8.GetPreamble()
+            .Concat(Encoding.UTF8.GetBytes("{\"Tail\":\"END\"}"))
+            .ToArray();
+        using var s = new ChunkedReadStream(bytes, chunk);
+        var back = await JsonSerializer.DeserializeFromStreamAsync<StreamDoc>(s, null, ct);
+        await Assert.That(back!.Tail).IsEqualTo("END");
+    }
+
+    [Test]
     [Timeout(60_000)]
     public async Task Json_Stream_RealFileStream_2000Rows(CancellationToken ct)
     {

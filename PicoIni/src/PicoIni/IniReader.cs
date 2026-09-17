@@ -120,8 +120,8 @@ public ref struct IniReader : ITokenReader
     {
         _depth = state.Depth;
         _needsMoreData = false;
-        // A resumed reader never sits at byte 0 of the stream.
-        _bomChecked = true;
+        // Only a genuinely resumed reader has already passed the BOM.
+        _bomChecked = state.BytesConsumed > 0 || state.Depth > 0;
         _inSection = state.InSection;
         _hasPendingValue = state.HasPendingValue;
         _hasPendingSectionStart = state.HasPendingSectionStart;
