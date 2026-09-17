@@ -341,7 +341,14 @@ public static partial class JsonSerializer
                         throw new FormatException(
                             "Expected '[' at the start of a JSON array stream."
                         );
-                    (head, count, done) = await FillAsync(stream, buffer, head, count, done, ct);
+                    (buffer, head, count, done) = await FillAsync(
+                        stream,
+                        buffer,
+                        head,
+                        count,
+                        done,
+                        ct
+                    );
                     continue;
                 }
                 if (buffer[head] != (byte)'[')
@@ -373,7 +380,14 @@ public static partial class JsonSerializer
             if (done)
                 throw new FormatException("Unexpected end of stream inside JSON array.");
             if (!progressed && items.Count == 0)
-                (head, count, done) = await FillAsync(stream, buffer, head, count, done, ct);
+                (buffer, head, count, done) = await FillAsync(
+                    stream,
+                    buffer,
+                    head,
+                    count,
+                    done,
+                    ct
+                );
         }
     }
 
@@ -381,7 +395,7 @@ public static partial class JsonSerializer
     /// Compacts the unconsumed prefix, grows the buffer when full and reads the
     /// next block. Returns the updated (head, count, done) triple.
     /// </summary>
-    private static async ValueTask<(int Head, int Count, bool Done)> FillAsync(
+    private static async ValueTask<(byte[] Buffer, int Head, int Count, bool Done)> FillAsync(
         Stream stream,
         byte[] buffer,
         int head,
@@ -409,7 +423,7 @@ public static partial class JsonSerializer
             done = true;
         else
             count += read;
-        return (head, count, done);
+        return (buffer, head, count, done);
     }
 
     /// <summary>

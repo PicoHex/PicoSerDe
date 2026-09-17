@@ -16,6 +16,13 @@ public class StreamInner
 
 public record StreamRec(int Id, string Name, StreamInner? Nested);
 
+public class StreamRequired
+{
+    public required string A { get; set; }
+    public required int B { get; set; }
+    public string Tail { get; set; } = "";
+}
+
 public class StreamDoc
 {
     public string Scalar { get; set; } = "";
@@ -168,6 +175,29 @@ public class StreamingChunkMatrixTests
         await Assert
             .That(back!.Select(r => r.Id + ":" + r.Name))
             .IsEquivalentTo(rows.Select(r => r.Id + ":" + r.Name));
+    }
+
+    [Test]
+    [Timeout(30_000)]
+    [Arguments(1)]
+    [Arguments(3)]
+    [Arguments(8)]
+    public async Task Json_Stream_RequiredProperties_AcrossChunks(int chunk, CancellationToken ct)
+    {
+        // Required-property flags must survive chunk resumes: a flag lost at a
+        // boundary would raise a false "Missing required property" error.
+        var doc = new StreamRequired
+        {
+            A = "first",
+            B = 42,
+            Tail = "END",
+        };
+        var json = JsonSerializer.Serialize(doc);
+        using var s = new ChunkedReadStream(Encoding.UTF8.GetBytes(json), chunk);
+        var back = await JsonSerializer.DeserializeFromStreamAsync<StreamRequired>(s, null, ct);
+        await Assert.That(back!.A).IsEqualTo("first");
+        await Assert.That(back.B).IsEqualTo(42);
+        await Assert.That(back.Tail).IsEqualTo("END");
     }
 
     [Test]
