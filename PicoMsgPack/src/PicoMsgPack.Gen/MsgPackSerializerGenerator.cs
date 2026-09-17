@@ -2927,9 +2927,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.AppendLine("            {");
             // Map count covers only this runtime type's members (+1 discriminator);
             // nullable members skipped under WhenWritingNull decrement it.
-            var dtProps = dti
-                .Properties.Where(p => !PicoSerDe.Gen.GenInfrastructure.IsComplexMember(p))
-                .ToImmutableArray();
+            var dtProps = dti.Properties;
             var skips = EmitObjectHeaderWithSkips(
                 s,
                 dtProps,
@@ -3043,14 +3041,73 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
-                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
-                    continue;
                 var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
                 s.Append("                ");
                 s.Append(kw2);
                 s.Append(" (MemoryExtensions.SequenceEqual(__k, \"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
                 s.AppendLine("\"u8)) {");
+                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
+                {
+                    // Nested object/dict members use the shared property read so
+                    // polymorphic output keeps them (previously dropped).
+                    var __cmIdx = -1;
+                    if (hasCtor)
+                    {
+                        for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                            if (
+                                string.Equals(
+                                    dti.CtorParams[ci].Name,
+                                    prop.Name,
+                                    StringComparison.OrdinalIgnoreCase
+                                )
+                            )
+                            {
+                                __cmIdx = ci;
+                                break;
+                            }
+                    }
+                    var __cmTarget = __cmIdx >= 0 ? $"__cp_{__cmIdx}" : $"obj.{prop.Name}";
+                    if (prop.TypeKind == "object")
+                    {
+                        // The property-level object read relies on the outer
+                        // __isMap flag; the poly loop has none, so use the
+                        // generated inner helper (it detects map/array itself).
+                        var __cmHelper = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                            "MsgPackInner",
+                            prop.TypeFullName!
+                        );
+                        s.Append("                    ");
+                        if (prop.IsNullable)
+                        {
+                            s.Append("if (reader.TokenType == TokenType.Null) ");
+                            s.Append(__cmTarget);
+                            s.AppendLine(" = null;");
+                            s.Append("                    else ");
+                        }
+                        else
+                        {
+                            s.Append("if (reader.TokenType != TokenType.Null) ");
+                        }
+                        s.Append(__cmTarget);
+                        s.Append(" = ");
+                        s.Append(__cmHelper);
+                        s.AppendLine(".Deserialize(ref reader);");
+                    }
+                    else
+                    {
+                        WriteDeser(
+                            s,
+                            prop,
+                            __cmIdx >= 0 ? $"__cp_{__cmIdx}" : "obj",
+                            "                    ",
+                            ref c,
+                            ctorAssign: __cmIdx >= 0
+                        );
+                    }
+                    s.AppendLine("                }");
+                    continue;
+                }
                 s.Append("                    ");
                 if (hasCtor)
                 {

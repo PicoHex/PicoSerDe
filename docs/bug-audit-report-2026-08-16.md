@@ -231,7 +231,7 @@
 
 | 编号 | 严重度 | 说明 | 证据 |
 |---|---|---|---|
-| POLY-01 | P1 | **多态派生类型的复杂成员被丢弃**：MsgPack/TOML/YAML/INI 的 poly 派生反序列化链与 poly 序列化 `dtProps` 过滤均 `continue`/排除 `IsComplexMember`（对象/嵌套成员），嵌套对象在 poly 层级中静默丢失（JSON 正常）。 | `tests/PicoSerDe.Integration.Tests/PolyInheritanceTests.cs`（MsgPack 断言已收窄并注释）；生成代码：`PicoMsgPack.Gen/..._PolyPerson_*_MsgPackSerializer.g.cs` 仅派发 `Id`/`Name` |
+| POLY-01 | P1 | **多态派生类型的复杂成员被丢弃**：原为 MsgPack/TOML/YAML/INI 的 poly 派生链排除 `IsComplexMember`。**MsgPack 已修**（`PolyInheritanceTests.MsgPack_*` 断言 `Address.City` 恢复，poly 派生 ser 全成员 + de 走 inner helper）；**TOML/YAML 仍开放**（poly 派生 de 循环为 `PropertyName`-only，缺根循环的 ObjectStart/TablePath 段分发；TOML ser 也需改用 `EmitSerializeProp` 以写 `[Address]` 段）；INI 保持"忽略（文档化）"。 | `tests/PicoSerDe.Integration.Tests/PolyInheritanceTests.cs`（MsgPack 断言已收窄并注释）；生成代码：`PicoMsgPack.Gen/..._PolyPerson_*_MsgPackSerializer.g.cs` 仅派发 `Id`/`Name` |
 | POLY-02 | P1 | **递归 × 多态**：递归环目标为多态类型时，播种的内层 helper 生成 `new T()`（抽象基类直接编译失败）且不按 discriminator 路由——嵌套的派生值退化为基类型。需要"多态感知的内层 helper"（在既有 reader 上读 discriminator 后内联派生类型）才能正确修复，含流式续传语义。 | 复现：`[PicoDerivedType(typeof(Leaf),"leaf")] abstract class Node { public Node? Next; }` → `_JsonInner.g.cs`/`_MsgPackInner.g.cs` CS0144；具体基类变体：嵌套 `Next` 反序列化后 `IsTypeOf<Leaf>()` 失败 |
 | POLY-03 | P2 | **具体多态基类实例**：poly 序列化器仅对 `[PicoDerivedType]` 分支写 discriminator，运行时类型为具体基类而无匹配分支时输出 `{"$type":}`（畸形 JSON）；STJ 语义为"基类型实例不写 discriminator"。 | `JsonSerializer.Serialize(person)`（静态类型 = 具体基类，实例 = 基类）→ 反序列化报 `Unknown type discriminator: $type` |
 

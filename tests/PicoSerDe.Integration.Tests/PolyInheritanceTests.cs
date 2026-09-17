@@ -68,8 +68,6 @@ public class PolyInheritanceTests
         // fails when the poly merge leaves duplicate auto field ids.
         await Assert.That(employee.Id).IsEqualTo(7);
         await Assert.That(employee.Name).IsEqualTo("Ada");
-        // NOTE: complex members in poly derived types are dropped by the current
-        // MsgPack/TOML/YAML/INI emitters (`IsComplexMember` skip) — tracked as an
-        // open finding in docs/bug-audit-report-2026-08-16.md.
+        await Assert.That(employee.Address.City).IsEqualTo("Cambridge");
     }
 }
