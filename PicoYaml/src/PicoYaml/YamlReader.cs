@@ -171,15 +171,19 @@ public ref struct YamlReader : ITokenReader
     private readonly bool _isFinalBlock;
     private bool _needsMoreData;
 
+    // One-time UTF-8 BOM resolution (sequence mode).
+    private bool _bomChecked;
+
     public bool NeedsMoreData => _needsMoreData;
 
     public YamlReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
     {
-        _data = data;
+        _data = TextHelpers.SkipBom(data);
         _position = 0;
         _seqReader = default;
         _isSequence = false;
         _isFinalBlock = isFinalBlock;
+        _bomChecked = true;
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
@@ -204,6 +208,7 @@ public ref struct YamlReader : ITokenReader
         _seqReader = new SequenceReader<byte>(data);
         _isSequence = true;
         _isFinalBlock = isFinalBlock;
+        _bomChecked = false;
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
@@ -263,6 +268,8 @@ public ref struct YamlReader : ITokenReader
         _depth = state.Depth;
         _maxDepth = state.MaxDepth;
         _needsMoreData = false;
+        // A resumed reader never sits at byte 0 of the stream.
+        _bomChecked = true;
         _stackCount = state.StackCount;
         _inFlow = state.InFlow;
         _flowStartEmitted = state.FlowStartEmitted;
@@ -277,6 +284,19 @@ public ref struct YamlReader : ITokenReader
     public bool Read()
     {
         _needsMoreData = false;
+        if (!_bomChecked)
+        {
+            if (_isSequence)
+            {
+                TextHelpers.SkipBomSeq(ref _seqReader, _isFinalBlock, out var bomNeedsMore);
+                if (bomNeedsMore)
+                {
+                    _needsMoreData = true;
+                    return false;
+                }
+            }
+            _bomChecked = true;
+        }
         var result = ReadImpl();
         if (!result)
             _needsMoreData = !_isFinalBlock;

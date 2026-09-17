@@ -57,6 +57,10 @@ public ref struct JsonReader : ITokenReader
     private readonly bool _isFinalBlock;
     private bool _needsMoreData;
 
+    // One-time UTF-8 BOM resolution (sequence mode). Span mode resolves it in
+    // the constructor and sets this to true.
+    private bool _bomChecked;
+
     // Per-instance options (comment/number handling, ...). No ambient state.
     private readonly JsonOptions? _options;
 
@@ -116,6 +120,9 @@ public ref struct JsonReader : ITokenReader
         IsResumed = state.BytesConsumed > 0 || state.Depth > 0;
         StreamState = state.Aux;
         Rewound = state.Rewound;
+        // A resumed reader never sits at byte 0 of the stream: the BOM (if any)
+        // was already resolved before the state was exported.
+        _bomChecked = true;
     }
 
     public JsonReader(
@@ -125,10 +132,11 @@ public ref struct JsonReader : ITokenReader
         JsonOptions? options = null
     )
     {
-        _data = data;
+        _data = TextHelpers.SkipBom(data);
         _position = 0;
         _seqReader = default;
         _isSequence = false;
+        _bomChecked = true;
         _isFinalBlock = isFinalBlock;
         _needsMoreData = false;
         _tokenType = TokenType.None;
@@ -154,6 +162,7 @@ public ref struct JsonReader : ITokenReader
         _isSequence = true;
         _isFinalBlock = isFinalBlock;
         _options = options;
+        _bomChecked = false;
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _depth = 0;
@@ -210,6 +219,19 @@ public ref struct JsonReader : ITokenReader
     {
         _needsMoreData = false;
         Rewound = false;
+        if (!_bomChecked)
+        {
+            if (_isSequence)
+            {
+                TextHelpers.SkipBomSeq(ref _seqReader, _isFinalBlock, out var bomNeedsMore);
+                if (bomNeedsMore)
+                {
+                    _needsMoreData = true;
+                    return false;
+                }
+            }
+            _bomChecked = true;
+        }
         SkipWhitespace();
         Retry:
         if (IsAtEnd())

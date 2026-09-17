@@ -68,15 +68,19 @@ public ref struct TomlReader : ITokenReader
     private readonly bool _isFinalBlock;
     private bool _needsMoreData;
 
+    // One-time UTF-8 BOM resolution (sequence mode).
+    private bool _bomChecked;
+
     public bool NeedsMoreData => _needsMoreData;
 
     public TomlReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
     {
-        _data = data;
+        _data = SkipBom(data);
         _position = 0;
         _seqReader = default;
         _isSequence = false;
         _isFinalBlock = isFinalBlock;
+        _bomChecked = true;
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
@@ -106,6 +110,7 @@ public ref struct TomlReader : ITokenReader
         _seqReader = new SequenceReader<byte>(data);
         _isSequence = true;
         _isFinalBlock = isFinalBlock;
+        _bomChecked = false;
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
@@ -161,6 +166,8 @@ public ref struct TomlReader : ITokenReader
         _maxDepth = state.MaxDepth;
         _depth = state.Depth;
         _needsMoreData = false;
+        // A resumed reader never sits at byte 0 of the stream.
+        _bomChecked = true;
         _inArray = state.InArray;
         _arrayDepth = state.ArrayDepth;
         _arrayStartEmitted = state.ArrayStartEmitted;
@@ -174,6 +181,19 @@ public ref struct TomlReader : ITokenReader
     public bool Read()
     {
         _needsMoreData = false;
+        if (!_bomChecked)
+        {
+            if (_isSequence)
+            {
+                SkipBomSeq(ref _seqReader, _isFinalBlock, out var bomNeedsMore);
+                if (bomNeedsMore)
+                {
+                    _needsMoreData = true;
+                    return false;
+                }
+            }
+            _bomChecked = true;
+        }
         var result = _isSequence ? ReadSeq() : ReadSpan();
         if (!result)
             _needsMoreData = !_isFinalBlock;

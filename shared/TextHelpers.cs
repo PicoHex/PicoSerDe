@@ -37,6 +37,55 @@ public static class TextHelpers
         return position;
     }
 
+    // ── UTF-8 BOM ──
+
+    /// <summary>Length of the UTF-8 BOM (EF BB BF).</summary>
+    public const int BomLength = 3;
+
+    /// <summary>Returns the data without a leading UTF-8 BOM (span mode).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ReadOnlySpan<byte> SkipBom(ReadOnlySpan<byte> data) =>
+        data.Length >= BomLength && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF
+            ? data[BomLength..]
+            : data;
+
+    /// <summary>True when the sequence starts with a UTF-8 BOM.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsBomAtStart(ref SequenceReader<byte> reader) =>
+        reader.TryPeek(0, out var b0)
+        && reader.TryPeek(1, out var b1)
+        && reader.TryPeek(2, out var b2)
+        && b0 == 0xEF
+        && b1 == 0xBB
+        && b2 == 0xBF;
+
+    /// <summary>
+    /// One-time BOM handling for sequence-mode readers. Returns true when a BOM
+    /// was skipped. When fewer than 3 bytes are buffered and the block is not
+    /// final, <paramref name="needsMoreData"/> is set so the BOM can be
+    /// resolved once more data arrives (BOM split across chunks).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool SkipBomSeq(
+        ref SequenceReader<byte> reader,
+        bool isFinalBlock,
+        out bool needsMoreData
+    )
+    {
+        needsMoreData = false;
+        if (IsBomAtStart(ref reader))
+        {
+            reader.Advance(BomLength);
+            return true;
+        }
+        if (reader.Remaining < BomLength && !isFinalBlock)
+        {
+            needsMoreData = true;
+            return false;
+        }
+        return false;
+    }
+
     /// <summary>Case-insensitive byte-span equality (used by SG deserializers for property name matching).</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool Eq(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b, bool caseSensitive = false)

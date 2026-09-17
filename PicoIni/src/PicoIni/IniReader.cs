@@ -48,16 +48,20 @@ public ref struct IniReader : ITokenReader
     private readonly bool _isFinalBlock;
     private bool _needsMoreData;
 
+    // One-time UTF-8 BOM resolution (sequence mode).
+    private bool _bomChecked;
+
     public bool NeedsMoreData => _needsMoreData;
     public int Depth => _depth;
 
     public IniReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
     {
-        _data = data;
+        _data = SkipBom(data);
         _position = 0;
         _seqReader = default;
         _isSequence = false;
         _isFinalBlock = isFinalBlock;
+        _bomChecked = true;
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _currentValue = default;
@@ -80,6 +84,7 @@ public ref struct IniReader : ITokenReader
         _seqReader = new SequenceReader<byte>(data);
         _isSequence = true;
         _isFinalBlock = isFinalBlock;
+        _bomChecked = false;
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _currentValue = default;
@@ -115,6 +120,8 @@ public ref struct IniReader : ITokenReader
     {
         _depth = state.Depth;
         _needsMoreData = false;
+        // A resumed reader never sits at byte 0 of the stream.
+        _bomChecked = true;
         _inSection = state.InSection;
         _hasPendingValue = state.HasPendingValue;
         _hasPendingSectionStart = state.HasPendingSectionStart;
@@ -137,6 +144,19 @@ public ref struct IniReader : ITokenReader
     public bool Read()
     {
         _needsMoreData = false;
+        if (!_bomChecked)
+        {
+            if (_isSequence)
+            {
+                SkipBomSeq(ref _seqReader, _isFinalBlock, out var bomNeedsMore);
+                if (bomNeedsMore)
+                {
+                    _needsMoreData = true;
+                    return false;
+                }
+            }
+            _bomChecked = true;
+        }
         // Emit pending section start (from section transition)
         if (_hasPendingSectionStart)
         {
