@@ -14,7 +14,7 @@ public struct YamlReaderState
     internal bool DocStartPending;
 }
 
-public ref struct YamlReader : ITokenReader
+public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
 {
     // Span mode fields
     private ReadOnlySpan<byte> _data;
@@ -186,6 +186,101 @@ public ref struct YamlReader : ITokenReader
     private int _realLength;
     private int _tokenStart;
 
+    // Transactional storage: parser state snapshots for Mark/RewindToMark.
+    // The indent stack is copied into a reader-owned buffer; token spans are
+    // cleared on rollback (see ITransactionalTokenReader).
+    private ParserMark _mark;
+    private ParserMark _readMark;
+    private int[]? _markIndentStack;
+
+    private struct ParserMark
+    {
+        public int Position;
+        public TokenType TokenType;
+        public int Depth;
+        public int StackCount;
+        public bool InFlow;
+        public bool FlowStartEmitted;
+        public bool DocStartPending;
+        public int ReplayAnchorIdx;
+        public int ReplayIndex;
+        public int ReplayPairCount;
+        public int CurPairCount;
+        public int AnchorCount;
+        public int A0Pairs;
+        public int A1Pairs;
+        public int A2Pairs;
+        public int A3Pairs;
+        public int TokenCount;
+        public string? PendingAnchorName;
+        public string? PendingMappingAnchor;
+        public string? NextAnchorName;
+    }
+
+    private void SaveMark(ref ParserMark m)
+    {
+        m.Position = _position;
+        m.TokenType = _tokenType;
+        m.Depth = _depth;
+        m.StackCount = _stackCount;
+        m.InFlow = _inFlow;
+        m.FlowStartEmitted = _flowStartEmitted;
+        m.DocStartPending = _docStartPending;
+        m.ReplayAnchorIdx = _replayAnchorIdx;
+        m.ReplayIndex = _replayIndex;
+        m.ReplayPairCount = _replayPairCount;
+        m.CurPairCount = _curPairCount;
+        m.AnchorCount = _anchorCount;
+        m.A0Pairs = _a0pairs;
+        m.A1Pairs = _a1pairs;
+        m.A2Pairs = _a2pairs;
+        m.A3Pairs = _a3pairs;
+        m.TokenCount = _tokenCount;
+        m.PendingAnchorName = _pendingAnchorName;
+        m.PendingMappingAnchor = _pendingMappingAnchor;
+        m.NextAnchorName = _nextAnchorName;
+        if (_stackCount > 0)
+        {
+            _markIndentStack ??= new int[64];
+            Array.Copy(_indentStack, _markIndentStack, _stackCount);
+        }
+    }
+
+    private void RestoreMark(in ParserMark m)
+    {
+        _position = m.Position;
+        _tokenType = m.TokenType;
+        _depth = m.Depth;
+        _stackCount = m.StackCount;
+        _inFlow = m.InFlow;
+        _flowStartEmitted = m.FlowStartEmitted;
+        _docStartPending = m.DocStartPending;
+        _replayAnchorIdx = m.ReplayAnchorIdx;
+        _replayIndex = m.ReplayIndex;
+        _replayPairCount = m.ReplayPairCount;
+        _curPairCount = m.CurPairCount;
+        _anchorCount = m.AnchorCount;
+        _a0pairs = m.A0Pairs;
+        _a1pairs = m.A1Pairs;
+        _a2pairs = m.A2Pairs;
+        _a3pairs = m.A3Pairs;
+        _tokenCount = m.TokenCount;
+        _pendingAnchorName = m.PendingAnchorName;
+        _pendingMappingAnchor = m.PendingMappingAnchor;
+        _nextAnchorName = m.NextAnchorName;
+        if (m.StackCount > 0 && _markIndentStack is not null)
+            Array.Copy(_markIndentStack, _indentStack, m.StackCount);
+        _keySpan = default;
+        _valueSpan = default;
+        _needsMoreData = false;
+    }
+
+    /// <inheritdoc />
+    public void Mark() => SaveMark(ref _mark);
+
+    /// <inheritdoc />
+    public void RewindToMark() => RestoreMark(in _mark);
+
     public bool NeedsMoreData => _needsMoreData;
 
     /// <summary>Start offset of the token most recently produced by <see cref="Read"/>.</summary>
@@ -298,7 +393,10 @@ public ref struct YamlReader : ITokenReader
         : this(data, isFinalBlock)
     {
         _depth = state.Depth;
-        _maxDepth = state.MaxDepth;
+        // A default state (first chunk) carries MaxDepth == 0; keep the
+        // constructor default in that case.
+        if (state.MaxDepth > 0)
+            _maxDepth = state.MaxDepth;
         _needsMoreData = false;
         // Only a genuinely resumed reader has already passed the BOM.
         _bomChecked = state.BytesConsumed > 0 || state.Depth > 0;
@@ -318,6 +416,7 @@ public ref struct YamlReader : ITokenReader
     {
         _tokenStart = _position;
         _needsMoreData = false;
+        SaveMark(ref _readMark);
         if (!_bomChecked)
         {
             if (_normalizedSequence)
@@ -357,7 +456,7 @@ public ref struct YamlReader : ITokenReader
                 {
                     // Never consume an incomplete token: the next attempt (with
                     // more data) restarts exactly at this token.
-                    _position = __tokenStart;
+                    RestoreMark(in _readMark);
                     _needsMoreData = !_isFinalBlock;
                     return false;
                 }
@@ -384,7 +483,7 @@ public ref struct YamlReader : ITokenReader
                             or ArgumentOutOfRangeException
                 )
             {
-                _position = __tokenStart;
+                RestoreMark(in _readMark);
                 _needsMoreData = true;
                 return false;
             }
@@ -399,6 +498,7 @@ public ref struct YamlReader : ITokenReader
         catch (IncompleteInputException)
         {
             // Non-final span reads must report NeedsMoreData, never throw.
+            RestoreMark(in _readMark);
             _needsMoreData = true;
             return false;
         }

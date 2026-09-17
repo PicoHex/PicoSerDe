@@ -737,10 +737,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    } }");
         s.AppendLine();
 
-        // Streaming for INI is document-oriented: DeserializeFromStreamAsync
-        // buffers the payload and uses the synchronous parser (always correct).
-        // The incremental delegate is intentionally not registered until the
-        // parser exposes a formal incomplete-input signal.
+        // Streaming: property-level resume (ctor types fall back to buffering).
+        if (!hasCtor)
+            EmitIniStreaming(s, type, top, sec, dicts);
         s.AppendLine();
 
         // Registration
@@ -756,7 +755,16 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append("IniSerializer(), new ");
         s.Append(type.Name);
         s.AppendLine("IniDeserializer());");
-        s.AppendLine("        // Streaming: document-oriented (no delegate registration)");
+        if (hasCtor)
+            s.AppendLine("        // Streaming deserializer skipped for constructor types");
+        else
+        {
+            s.Append("        IniSerializer.RegisterStreaming<");
+            s.Append(type.Name);
+            s.Append(">(");
+            s.Append(type.Name);
+            s.AppendLine("IniStreaming.DeserializeStreaming);");
+        }
         s.AppendLine("    } }");
         return s.ToString();
     }
@@ -784,7 +792,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         bool streaming
     )
     {
-        s.AppendLine("        while (reader.Read()) {");
+        if (streaming)
+        {
+            s.AppendLine("        while (true) {");
+            s.AppendLine("            reader.Mark();");
+            s.AppendLine("            if (!reader.Read()) break;");
+        }
+        else
+            s.AppendLine("        while (reader.Read()) {");
         s.AppendLine("            if (reader.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var __k = reader.GetStringRaw();");
         s.AppendLine("                reader.ReadValue(); // fast path: consume pending value");
@@ -894,8 +909,6 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         {
             s.AppendLine("            else if (reader.TokenType == TokenType.ObjectStart) {");
             s.AppendLine("                __sec = -1;");
-            if (streaming)
-                s.AppendLine("                __secSnap = __snap;");
 
             for (int i = 0; i < sec.Count; i++)
             {
@@ -982,24 +995,16 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine(";");
         s.AppendLine("        result = obj;");
         if (sec.Count > 0 || dicts.Count > 0)
-        {
             s.AppendLine("        int __sec = -1;");
-            s.AppendLine("        long __secSnap = 0;");
-        }
-        s.AppendLine("        while (true) {");
-        s.AppendLine("            long __snap = reader.TokenStart;");
-        // Reuse the sync loop emission with the streaming snapshot enabled.
+        // Reuse the sync loop emission with per-read marks; every NeedMoreData
+        // return rewinds to the last mark (a member or section header start).
         EmitIniWhileLoop(s, type, hasCtor: false, top, sec, dicts, streaming: true);
-        s.AppendLine("            if (reader.NeedsMoreData) {");
-        if (sec.Count > 0 || dicts.Count > 0)
-        {
-            s.AppendLine("                if (__sec >= 0) reader.RewindTo(__secSnap);");
-        }
-        s.AppendLine("                return ReadStatus.NeedMoreData;");
-        s.AppendLine("            }");
-        s.AppendLine("            result = obj;");
-        s.AppendLine("            return ReadStatus.Success;");
+        s.AppendLine("        if (reader.NeedsMoreData) {");
+        s.AppendLine("            reader.RewindToMark();");
+        s.AppendLine("            return ReadStatus.NeedMoreData;");
         s.AppendLine("        }");
+        s.AppendLine("        result = obj;");
+        s.AppendLine("        return ReadStatus.Success;");
         s.AppendLine("    }");
         s.AppendLine("}");
     }
@@ -1788,7 +1793,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.Append(" ??= new System.Collections.Generic.List<");
+                s.Append(" = new System.Collections.Generic.List<");
                 s.Append(p.ElementTypeName);
                 s.AppendLine(">(16);");
                 s.Append(pad);

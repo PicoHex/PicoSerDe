@@ -1683,11 +1683,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    } }");
         sb.AppendLine();
 
-        // Streaming for YAML is document-oriented: DeserializeFromStreamAsync
-        // buffers the payload and uses the synchronous parser (always correct).
-        // Incremental resume needs the block-mapping indent stack carried
-        // through the delegate (follow-up); the explicit incomplete signal is
-        // already in place in the reader.
+        // Streaming: property-level resume reusing the synchronous dispatch
+        // (ctor types fall back to buffering).
+        if (!ylHasCtor)
+            EmitYamlStreaming(sb, t, ylCtorMap);
         sb.AppendLine();
 
         sb.Append("file static class ");
@@ -1699,7 +1698,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append("_YS(), new ");
         sb.Append(t.Name);
         sb.AppendLine("_YD());");
-        sb.AppendLine("            // Streaming: document-oriented (no delegate registration)");
+        if (ylHasCtor)
+            sb.AppendLine("            // Streaming skipped for constructor type");
+        else
+        {
+            sb.Append("YamlSerializer.RegisterStreaming<");
+            sb.Append(t.Name);
+            sb.Append(">(");
+            sb.Append(t.Name);
+            sb.AppendLine("_YamlStreaming.DeserializeStreaming);");
+        }
         sb.AppendLine("    } }");
         return sb.ToString();
     }
@@ -1752,20 +1760,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(";");
         sb.AppendLine("        result = o;");
         sb.AppendLine("        if (!r.IsResumed) {");
+        sb.AppendLine("            r.Mark();");
         sb.AppendLine(
             "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : (r.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput);"
         );
         sb.AppendLine("        }");
-        sb.AppendLine("        long __snap = 0;");
         sb.AppendLine("        while (true) {");
         sb.AppendLine("            if (r.TokenType != TokenType.PropertyName) {");
+        sb.AppendLine("                r.Mark();");
         sb.AppendLine(
             "                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
         );
         sb.AppendLine("                continue;");
         sb.AppendLine("            }");
-        sb.AppendLine("            __snap = r.TokenStart;");
-        sb.AppendLine("            var k = r.KeySpan;");
+                sb.AppendLine("            var k = r.KeySpan;");
         for (int i = 0; i < t.Properties.Length; i++)
         {
             var p = t.Properties[i];
@@ -1775,19 +1783,28 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             sb.AppendLine("\"u8)) {");
             EmitDeserialize(sb, p, "o", "                ", ctorMap: ctorMap);
+            // A member dispatch (e.g. a nested-object helper) may stop on a
+            // chunk boundary without breaking the loop; rewind to the member.
+            sb.AppendLine("                if (r.NeedsMoreData) {");
+            sb.AppendLine("                    r.RewindToMark();");
+            sb.AppendLine("                    return ReadStatus.NeedMoreData;");
+            sb.AppendLine("                }");
             sb.AppendLine("            }");
         }
         sb.AppendLine("            else {");
+        sb.AppendLine("                r.Mark();");
         sb.AppendLine(
             "                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
         );
         sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine("        // Reached via a container read that hit the buffer end.");
+        sb.AppendLine("#pragma warning disable CS0162 // generated: branch shape decides reachability");
         sb.AppendLine("        if (r.NeedsMoreData) {");
-        sb.AppendLine("            r.RewindTo(__snap);");
+        sb.AppendLine("            r.RewindToMark();");
         sb.AppendLine("            return ReadStatus.NeedMoreData;");
         sb.AppendLine("        }");
+        sb.AppendLine("#pragma warning restore CS0162");
         sb.AppendLine("        result = o;");
         sb.AppendLine("        return ReadStatus.Success;");
         sb.AppendLine("    }");

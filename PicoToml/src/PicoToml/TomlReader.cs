@@ -17,7 +17,7 @@ public struct TomlReaderState
     internal bool DottedActive;
 }
 
-public ref struct TomlReader : ITokenReader
+public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
 {
     // Span mode fields
     private ReadOnlySpan<byte> _data;
@@ -82,6 +82,96 @@ public ref struct TomlReader : ITokenReader
     // True length of the copied chunk (the parse buffer never exceeds it).
     private int _realLength;
     private int _tokenStart;
+
+    // Transactional storage: parser state snapshots for Mark/RewindToMark and
+    // for the internal per-Read transaction. Token spans are cleared on
+    // rollback (callers must re-read; see ITransactionalTokenReader).
+    private ParserMark _mark;
+
+    private struct ParserMark
+    {
+        public int Position;
+        public TokenType TokenType;
+        public int Depth;
+        public int ArrayDepth;
+        public int InlineTableDepth;
+        public int DottedPartCount;
+        public int DottedPartIndex;
+        public bool IsArrayTable;
+        public bool InArray;
+        public bool ArrayStartEmitted;
+        public bool InInlineTable;
+        public bool InlineStartEmitted;
+        public bool DottedActive;
+        public int DottedO0;
+        public int DottedL0;
+        public int DottedO1;
+        public int DottedL1;
+        public int DottedO2;
+        public int DottedL2;
+        public int DottedO3;
+        public int DottedL3;
+    }
+
+    private void SaveMark(ref ParserMark m)
+    {
+        m.Position = _position;
+        m.TokenType = _tokenType;
+        m.Depth = _depth;
+        m.ArrayDepth = _arrayDepth;
+        m.InlineTableDepth = _inlineTableDepth;
+        m.DottedPartCount = _dottedPartCount;
+        m.DottedPartIndex = _dottedPartIndex;
+        m.IsArrayTable = _isArrayTable;
+        m.InArray = _inArray;
+        m.ArrayStartEmitted = _arrayStartEmitted;
+        m.InInlineTable = _inInlineTable;
+        m.InlineStartEmitted = _inlineStartEmitted;
+        m.DottedActive = _dottedActive;
+        m.DottedO0 = _dottedO0;
+        m.DottedL0 = _dottedL0;
+        m.DottedO1 = _dottedO1;
+        m.DottedL1 = _dottedL1;
+        m.DottedO2 = _dottedO2;
+        m.DottedL2 = _dottedL2;
+        m.DottedO3 = _dottedO3;
+        m.DottedL3 = _dottedL3;
+    }
+
+    private void RestoreMark(in ParserMark m)
+    {
+        _position = m.Position;
+        _tokenType = m.TokenType;
+        _depth = m.Depth;
+        _arrayDepth = m.ArrayDepth;
+        _inlineTableDepth = m.InlineTableDepth;
+        _dottedPartCount = m.DottedPartCount;
+        _dottedPartIndex = m.DottedPartIndex;
+        _isArrayTable = m.IsArrayTable;
+        _inArray = m.InArray;
+        _arrayStartEmitted = m.ArrayStartEmitted;
+        _inInlineTable = m.InInlineTable;
+        _inlineStartEmitted = m.InlineStartEmitted;
+        _dottedActive = m.DottedActive;
+        _dottedO0 = m.DottedO0;
+        _dottedL0 = m.DottedL0;
+        _dottedO1 = m.DottedO1;
+        _dottedL1 = m.DottedL1;
+        _dottedO2 = m.DottedO2;
+        _dottedL2 = m.DottedL2;
+        _dottedO3 = m.DottedO3;
+        _dottedL3 = m.DottedL3;
+        _keySpan = default;
+        _valueSpan = default;
+        _tablePath = default;
+        _needsMoreData = false;
+    }
+
+    /// <inheritdoc />
+    public void Mark() => SaveMark(ref _mark);
+
+    /// <inheritdoc />
+    public void RewindToMark() => RestoreMark(in _mark);
 
     public bool NeedsMoreData => _needsMoreData;
 
@@ -195,7 +285,10 @@ public ref struct TomlReader : ITokenReader
     public TomlReader(ReadOnlySequence<byte> data, bool isFinalBlock, TomlReaderState state)
         : this(data, isFinalBlock)
     {
-        _maxDepth = state.MaxDepth;
+        // A default state (first chunk) carries MaxDepth == 0; keep the
+        // constructor default in that case.
+        if (state.MaxDepth > 0)
+            _maxDepth = state.MaxDepth;
         _depth = state.Depth;
         _needsMoreData = false;
         // Only a genuinely resumed reader has already passed the BOM.

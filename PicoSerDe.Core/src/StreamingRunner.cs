@@ -78,7 +78,7 @@ public static class StreamingRunner
                 pipe.AdvanceTo(advanceTo, r.Buffer.End);
                 continue;
             }
-            throw new FormatException("Unexpected parser state.");
+            throw new FormatException($"Unexpected parser state: {status}.");
         }
     }
 }

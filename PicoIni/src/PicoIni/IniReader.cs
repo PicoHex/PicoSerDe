@@ -9,9 +9,10 @@ public struct IniReaderState
     internal bool HasPendingSectionStart;
     internal long BytesConsumed;
     internal SequencePosition Position;
+    public byte[]? SectionNameBytes;
 }
 
-public ref struct IniReader : ITokenReader
+public ref struct IniReader : ITokenReader, ITransactionalTokenReader
 {
     private ReadOnlySpan<byte> _data;
     private int _position;
@@ -62,6 +63,53 @@ public ref struct IniReader : ITokenReader
     // True length of the copied chunk (the parse buffer never exceeds it).
     private int _realLength;
     private int _tokenStart;
+
+    // Transactional storage: parser state snapshot for Mark/RewindToMark.
+    // Token spans are cleared on rollback (see ITransactionalTokenReader).
+    private ParserMark _mark;
+    private byte[]? _sectionNameBytes;
+    private int _sectionContentStart;
+    private bool _resumeSectionStart;
+
+    private struct ParserMark
+    {
+        public int Position;
+        public TokenType TokenType;
+        public int Depth;
+        public bool InSection;
+        public bool HasPendingValue;
+        public bool HasPendingSectionStart;
+    }
+
+    private void SaveMark(ref ParserMark m)
+    {
+        m.Position = _position;
+        m.TokenType = _tokenType;
+        m.Depth = _depth;
+        m.InSection = _inSection;
+        m.HasPendingValue = _hasPendingValue;
+        m.HasPendingSectionStart = _hasPendingSectionStart;
+    }
+
+    private void RestoreMark(in ParserMark m)
+    {
+        _position = m.Position;
+        _tokenType = m.TokenType;
+        _depth = m.Depth;
+        _inSection = m.InSection;
+        _hasPendingValue = m.HasPendingValue;
+        _hasPendingSectionStart = m.HasPendingSectionStart;
+        _currentValue = default;
+        _pendingValue = default;
+        _pendingSectionName = default;
+        _needsMoreData = false;
+    }
+
+    /// <inheritdoc />
+    public void Mark() => SaveMark(ref _mark);
+
+    /// <inheritdoc />
+    public void RewindToMark() => RestoreMark(in _mark);
 
     public bool NeedsMoreData => _needsMoreData;
 
@@ -139,9 +187,18 @@ public ref struct IniReader : ITokenReader
             InSection = _inSection,
             HasPendingValue = _hasPendingValue,
             HasPendingSectionStart = _hasPendingSectionStart,
+            SectionNameBytes = _inSection ? _sectionNameBytes : null,
             BytesConsumed = _normalizedSequence ? _position : _seqReader.Consumed,
+            // Inside a section the resume position is the section content start:
+            // the state ctor re-emits the ObjectStart and the section is re-read
+            // from its first key (idempotent assignments).
             Position = _normalizedSequence
-                ? _sourceSequence.GetPosition(Math.Min(_dataOffset + _position, _realLength))
+                ? _sourceSequence.GetPosition(
+                    Math.Min(
+                        _dataOffset + (_inSection ? _sectionContentStart : _position),
+                        _realLength
+                    )
+                )
                 : _seqReader.Position,
         };
     }
@@ -155,9 +212,22 @@ public ref struct IniReader : ITokenReader
         // Only a genuinely resumed reader has already passed the BOM.
         _bomChecked = state.BytesConsumed > 0 || state.Depth > 0;
         IsResumed = state.BytesConsumed > 0 || state.Depth > 0;
+        // Resume inside a section: re-emit its ObjectStart so the streaming
+        // delegate can rebuild its section context without rewinding.
+        _sectionNameBytes = state.SectionNameBytes;
         _inSection = state.InSection;
         _hasPendingValue = state.HasPendingValue;
         _hasPendingSectionStart = state.HasPendingSectionStart;
+        if (_inSection && _sectionNameBytes is not null)
+        {
+            _pendingSectionName = _sectionNameBytes;
+            _hasPendingSectionStart = true;
+            // The ObjectStart was already counted before the export; re-emit it
+            // without incrementing the depth again. The buffer starts at the
+            // section content start on resume.
+            _resumeSectionStart = true;
+            _sectionContentStart = 0;
+        }
     }
 
     public TokenType TokenType => _tokenType;
@@ -207,17 +277,24 @@ public ref struct IniReader : ITokenReader
             else
                 _bomChecked = true;
         }
-        // Emit pending section start (from section transition)
+        // Emit pending section start (from section transition or resume)
         if (_hasPendingSectionStart)
         {
             _currentValue = _pendingSectionName;
             _hasPendingSectionStart = false;
             _tokenType = TokenType.ObjectStart;
             _inSection = true;
-            if (++_depth > _maxDepth)
+            if (_resumeSectionStart)
+            {
+                // Re-emission after resume: the depth was already restored.
+                _resumeSectionStart = false;
+            }
+            else if (++_depth > _maxDepth)
+            {
                 throw new FormatException(
                     $"Maximum depth of {_maxDepth} exceeded at offset {BytesConsumed}"
                 );
+            }
             return true;
         }
 
@@ -258,7 +335,8 @@ public ref struct IniReader : ITokenReader
             catch (Exception ex)
                 when (!_isFinalBlock
                     && ex
-                        is FormatException
+                        is IncompleteInputException
+                            or FormatException
                             or IndexOutOfRangeException
                             or ArgumentOutOfRangeException
                 )
@@ -458,10 +536,14 @@ public ref struct IniReader : ITokenReader
             _inSection = false;
             _depth--;
             _pendingSectionName = ReadSectionNameSpan();
+            _sectionNameBytes = _pendingSectionName.ToArray();
+            _sectionContentStart = _position;
             _hasPendingSectionStart = true;
             return true;
         }
         _currentValue = ReadSectionNameSpan();
+        _sectionNameBytes = _currentValue.ToArray();
+        _sectionContentStart = _position;
         _inSection = true;
         if (++_depth > _maxDepth)
             throw new FormatException(
@@ -477,6 +559,8 @@ public ref struct IniReader : ITokenReader
         var start = _position;
         while (_position < _data.Length && _data[_position] != (byte)']')
             _position++;
+        if (_position >= _data.Length && !_isFinalBlock)
+            throw new IncompleteInputException();
         if (_position >= _data.Length)
             throw new FormatException("Unterminated section at end of input");
         var name = _data[start.._position];

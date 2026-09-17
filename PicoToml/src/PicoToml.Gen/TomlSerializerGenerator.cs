@@ -1056,11 +1056,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("        result = o;");
         s.AppendLine("        if (!r.IsResumed) {");
         s.AppendLine(
-            "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : (r.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput);"
+            "            r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; } return r.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput; }"
         );
         s.AppendLine("        }");
         s.AppendLine("        while (true) {");
-        s.AppendLine("            long __snap = r.TokenStart;");
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
         var simpleProps = t
@@ -1083,10 +1082,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             ctorMap
         );
         s.AppendLine(
-            "                if (r.NeedsMoreData) { r.RewindTo(__snap); return ReadStatus.NeedMoreData; }"
+            "                if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }"
         );
         s.AppendLine(
-            "                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
+            "                r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }"
         );
         s.AppendLine("                continue;");
         s.AppendLine("            }");
@@ -1117,7 +1116,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("                }");
             }
             s.AppendLine(
-                "                if (r.NeedsMoreData) { r.RewindTo(__snap); return ReadStatus.NeedMoreData; }"
+                "                if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }"
             );
             s.AppendLine("                continue;");
             s.AppendLine("            }");
@@ -1171,7 +1170,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(".RemoveRange(__cnt, o.");
                 s.Append(ap.Name);
                 s.AppendLine(".Count - __cnt);");
-                s.AppendLine("                            r.RewindTo(__snap);");
+                s.AppendLine("                            r.RewindToMark();");
                 s.AppendLine("                            return ReadStatus.NeedMoreData;");
                 s.AppendLine("                        }");
                 s.Append("                        o.");
@@ -1195,7 +1194,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("            }");
         }
         s.AppendLine(
-            "            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
+            "            r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }"
         );
         s.AppendLine("        }");
         s.AppendLine("    }");

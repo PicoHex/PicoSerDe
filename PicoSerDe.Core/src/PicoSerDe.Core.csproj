@@ -19,4 +19,13 @@
   <ItemGroup>
     <Compile Include="..\..\shared\TextHelpers.cs" Link="TextHelpers.cs" />
   </ItemGroup>
+  <!-- Shared internal signal for the built-in chunked readers -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="PicoJetson" />
+    <InternalsVisibleTo Include="PicoToml" />
+    <InternalsVisibleTo Include="PicoYaml" />
+    <InternalsVisibleTo Include="PicoIni" />
+    <InternalsVisibleTo Include="PicoMsgPack" />
+  </ItemGroup>
+
 </Project>

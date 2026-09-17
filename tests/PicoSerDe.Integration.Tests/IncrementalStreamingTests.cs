@@ -5,14 +5,10 @@ using PicoYaml;
 namespace PicoSerDe.Integration.Tests;
 
 /// <summary>
-/// Streaming registration contract per format:
-/// - TOML parses incrementally (explicit incomplete signal + member-level
-///   resume); the chunk matrix runs on the incremental path.
-/// - YAML/INI currently stream document-oriented: the payload is buffered and
-///   the synchronous parser runs (results are identical to the sync path).
-/// Incremental resume for YAML/INI needs the block/section state carried
-/// through the generated delegate (follow-up); these assertions lock the
-/// current contract so the switch to incremental is explicit.
+/// All text formats stream incrementally: the generated partial delegates are
+/// registered, so the chunk matrix runs on the incremental path (member-level
+/// Mark/RewindToMark + a transactional Read, both from
+/// PicoSerDe.Core.ITransactionalTokenReader).
 /// </summary>
 public class IncrementalStreamingTests
 {
@@ -23,14 +19,14 @@ public class IncrementalStreamingTests
     }
 
     [Test]
-    public async Task Yaml_StreamsDocumentOriented()
+    public async Task Yaml_HasStreamingDelegate_IsTrue()
     {
-        await Assert.That(YamlSerializer.HasStreamingDelegate<SkDoc>()).IsFalse();
+        await Assert.That(YamlSerializer.HasStreamingDelegate<SkDoc>()).IsTrue();
     }
 
     [Test]
-    public async Task Ini_StreamsDocumentOriented()
+    public async Task Ini_HasStreamingDelegate_IsTrue()
     {
-        await Assert.That(IniSerializer.HasStreamingDelegate<SkDoc>()).IsFalse();
+        await Assert.That(IniSerializer.HasStreamingDelegate<SkDoc>()).IsTrue();
     }
 }

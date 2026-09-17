@@ -24,7 +24,7 @@ public struct JsonReaderState
     internal SequencePosition Position;
 }
 
-public ref struct JsonReader : ITokenReader
+public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
 {
     // Span mode fields
     private ReadOnlySpan<byte> _data;
@@ -63,6 +63,62 @@ public ref struct JsonReader : ITokenReader
 
     // True once any token was produced (drives the streaming resume decision).
     private bool _tokenProduced;
+
+    // Start offset of the token most recently produced by Read().
+    private long _tokenStart;
+
+    // Transactional storage: parser state snapshot for Mark/RewindToMark and
+    // the internal per-Read transaction. Token spans are cleared on rollback
+    // (see ITransactionalTokenReader).
+    private ParserMark _mark;
+
+    private struct ParserMark
+    {
+        public int Position;
+        public long SeqConsumed;
+        public TokenType TokenType;
+        public int Depth;
+        public int TokenValueStart;
+        public int TokenValueEnd;
+        public long PropertyNameStart;
+        public bool Rewound;
+    }
+
+    private void SaveMark(ref ParserMark m)
+    {
+        m.Position = _position;
+        m.SeqConsumed = _seqReader.Consumed;
+        m.TokenType = _tokenType;
+        m.Depth = _depth;
+        m.TokenValueStart = _tokenValueStart;
+        m.TokenValueEnd = _tokenValueEnd;
+        m.PropertyNameStart = _propertyNameStart;
+        m.Rewound = Rewound;
+    }
+
+    private void RestoreMark(in ParserMark m)
+    {
+        _position = m.Position;
+        _seqReader = new SequenceReader<byte>(_seqReader.Sequence);
+        _seqReader.Advance(m.SeqConsumed);
+        _tokenType = m.TokenType;
+        _depth = m.Depth;
+        _tokenValueStart = m.TokenValueStart;
+        _tokenValueEnd = m.TokenValueEnd;
+        _propertyNameStart = m.PropertyNameStart;
+        Rewound = m.Rewound;
+        _valueSpan = default;
+        _needsMoreData = false;
+    }
+
+    /// <inheritdoc />
+    public long TokenStart => _tokenStart;
+
+    /// <inheritdoc />
+    public void Mark() => SaveMark(ref _mark);
+
+    /// <inheritdoc />
+    public void RewindToMark() => RestoreMark(in _mark);
 
     // One-time UTF-8 BOM resolution (sequence mode). Span mode resolves it in
     // the constructor and sets this to true.
@@ -257,6 +313,7 @@ public ref struct JsonReader : ITokenReader
             _needsMoreData = true;
             return false;
         }
+        _tokenStart = BytesConsumed;
         bool ok = ReadCore();
         if (ok)
             _tokenProduced = true;
