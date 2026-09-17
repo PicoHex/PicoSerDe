@@ -850,6 +850,22 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("();");
             }
         }
+        // Arrays of tables are collected into a list first (arrays have no Add).
+        var tomlArrayObjProps = t
+            .Properties.Where(x =>
+                x.TypeKind == "array"
+                && x.ElementTypeKind == "object"
+                && x.NestedProperties.Length > 0
+            )
+            .ToArray();
+        foreach (var ap in tomlArrayObjProps)
+        {
+            s.Append("        System.Collections.Generic.List<");
+            s.Append(ap.ElementTypeName ?? "object");
+            s.Append(">? __arr_");
+            s.Append(ap.Name);
+            s.AppendLine(" = null;");
+        }
         s.AppendLine("        r.Read();");
         s.AppendLine("        while (true) {");
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
@@ -945,14 +961,29 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     "                                "
                 );
                 s.AppendLine("                        }");
-                s.AppendLine(
-                    "                        o."
-                        + ap.Name
-                        + " ??= new System.Collections.Generic.List<"
-                        + (ap.ElementTypeName ?? "object")
-                        + ">();"
-                );
-                s.AppendLine("                        o." + ap.Name + ".Add(__item);");
+                if (ap.TypeKind == "array")
+                {
+                    // Arrays materialize from the collected elements.
+                    s.AppendLine(
+                        "                        __arr_"
+                            + ap.Name
+                            + " ??= new System.Collections.Generic.List<"
+                            + (ap.ElementTypeName ?? "object")
+                            + ">();"
+                    );
+                    s.AppendLine("                        __arr_" + ap.Name + ".Add(__item);");
+                }
+                else
+                {
+                    s.AppendLine(
+                        "                        o."
+                            + ap.Name
+                            + " ??= new System.Collections.Generic.List<"
+                            + (ap.ElementTypeName ?? "object")
+                            + ">();"
+                    );
+                    s.AppendLine("                        o." + ap.Name + ".Add(__item);");
+                }
                 s.AppendLine(
                     "                        if (r.TokenType != TokenType.ArrayStart) break;"
                 );
@@ -969,6 +1000,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
         s.AppendLine("            if (!r.Read()) break;");
         s.AppendLine("        }");
+        foreach (var ap in tomlArrayObjProps)
+        {
+            s.Append("        if (__arr_");
+            s.Append(ap.Name);
+            s.Append(" is not null) o.");
+            s.Append(ap.Name);
+            s.Append(" = __arr_");
+            s.Append(ap.Name);
+            s.AppendLine(".ToArray();");
+        }
         if (hasCtor)
         {
             s.Append("        return new ");
@@ -989,7 +1030,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine();
 
         // Streaming: property-level resume (ctor types fall back to buffering).
-        if (!hasCtor)
+        // Types with arrays of tables are skipped: the resume strategy mutates
+        // the collection in place and arrays have no Add/Count. Callers get the
+        // explicit "no streaming deserializer registered" error instead of
+        // non-compiling code; sync deserialization handles the array.
+        var tomlHasArrayOfTables = t.Properties.Any(x =>
+            x.TypeKind == "array" && x.ElementTypeKind == "object" && x.NestedProperties.Length > 0
+        );
+        if (!hasCtor && !tomlHasArrayOfTables)
             EmitTomlStreaming(s, t, ctorMap);
         s.AppendLine();
 
@@ -1003,8 +1051,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("_TomlSer(), new ");
         s.Append(t.Name);
         s.AppendLine("_TomlDes());");
-        if (hasCtor)
-            s.AppendLine("            // Streaming skipped for constructor type");
+        if (hasCtor || tomlHasArrayOfTables)
+            s.AppendLine(
+                "            // Streaming skipped for this type (ctor / arrays of tables)"
+            );
         else
         {
             s.Append("TomlSerializer.RegisterStreaming<");

@@ -212,6 +212,17 @@ if (doc.RootElement["age"].TryGetInt32(out int age))
 
 `Serialize<T[]>(...)` / `Deserialize<T[]>(...)` and streaming `DeserializeFromStreamAsync<T[]>(stream)` work directly.
 
+### Arrays and Dictionaries
+
+Field-level object arrays (`TObject[]`, `List<TObject[]>`, `TObject[][]`) round-trip
+in JSON, MsgPack, TOML and YAML (INI drops object collections because its format
+is flat). TOML arrays of tables have no chunk-resume strategy, so their streaming
+delegate is not registered — `DeserializeFromStreamAsync` then buffers the stream
+and uses the synchronous path (correct, just not incremental). Dictionaries accept
+scalar, object and nested-dictionary values; a **collection** dict value
+(`Dictionary<string, List<T>>`) is dropped with `PICOSERDE004` instead of
+generating broken code.
+
 ### Nullable Elements
 
 `List<int?>`, `List<string?>`, `List<TObject?>`, `Dictionary<string, TObject?>`

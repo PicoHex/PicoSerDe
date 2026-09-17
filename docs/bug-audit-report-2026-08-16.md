@@ -271,7 +271,14 @@
 |---|---|---|---|
 | RV-01 | P1 | ✅ 已修 | REC-05 只覆盖了单层可空元素：`List<List<int?>>` 的内层声明为 `List<int>`（CS1503）且 null 分支写入非可空 int（CS1503）。修复：`BuildNestedListElement` 的包装对象补齐 `ElementTypeNameAnnotated` 与 `ElementIsNullableReference/Value`；JSON `EmitNestedListDeserialize` 最内层改用注解名。回归：`EdgeCaseRegressionTests.Json_NullableScalarAndValueElements_AllKinds`（含 `List<Guid?>`/`DateTime?`/`bool?`/`HashSet<string?>`） |
 | RV-02 | P1 | ✅ 已修 | `List<List<List<T>>>` 三层嵌套时 JSON 序列化器每层复用 `__inner` → CS0136（构建失败）。修复：`EmitNestedListSerialize` 增加 nestLevel 后缀。回归：`Json_ThreeLevelNestedListOfObjects`、`MsgPack_ThreeLevelNestedListOfObjects` |
-| RV-03 | P1 | ❌ **预存在**（非本批引入） | **字段级对象数组不受支持**：`TObject[]` 成员在 TOML（CS0019/CS8619/CS1061/CS8978）与 YAML（CS0019）生成不可编译代码；`List<TObject[]>` 在 JSON CS1503。已在基线 `ecaa69d` worktree 复现同一错误（`PicoToml.Gen/..._BaseArrPlain_..._TomlSerializer.g.cs(45,25)` 等），与本次改动无关 |
-| RV-04 | P1 | ❌ **预存在** | `Dictionary<string, List<T>>` 生成不可编译代码（JSON CS0029/CS8625：把 list 值按 string 读取）。基线 `ecaa69d` 同样失败（`..._BaseDictList_..._JsonSerializer.g.cs(97/101)`） |
+| RV-03 | P1 | ✅ **已修**（TDD） | **字段级对象数组不受支持**：`TObject[]` 成员在 TOML（CS0019/CS8619/CS1061/CS8978）与 YAML（CS0019）生成不可编译代码；`List<TObject[]>` 在 JSON CS1503。已在基线 `ecaa69d` worktree 复现同一错误（`PicoToml.Gen/..._BaseArrPlain_..._TomlSerializer.g.cs(45,25)` 等），与本次改动无关 |
+| RV-04 | P1 | ✅ **已修**（诊断式，TDD） | `Dictionary<string, List<T>>` 生成不可编译代码（JSON CS0029/CS8625：把 list 值按 string 读取）。基线 `ecaa69d` 同样失败（`..._BaseDictList_..._JsonSerializer.g.cs(97/101)`） |
 
 RV-03/RV-04 建议单开修复（形态族：字段级数组、字典值为集合），修复策略与 REC-01 相同（提取期支持或 `PICOSERDE004` 诊断式丢弃）。
+
+### RV-03 / RV-04 修复记录（2026-09-18）
+
+- **RV-03 字段级对象数组（已支持）**：提取期 `BuildNestedListElement` 泛化为可接收数组元素（`T[]`/`T[][]`），JSON 嵌套列表反序列化在"父集合是数组"时 `.ToArray()` 物化；YAML 序列化器对数组用 `Array.Empty<T>()` 兜底（原来用 `List<T>` → CS0019）；TOML 同步路径用累加列表 + `ToArray()` 物化，并跳过该类型的流式委托（`TomlSerializer` 有缓冲回退，语义仍正确，仅不再增量）。INI 仍按文档丢弃对象集合。
+  - 测试：`ArraySupportTests` 4/4（JSON/MsgPack/TOML/YAML 数组字段往返、JSON `List<T[]>`+`T[][]`、TOML 流式回退、INI 丢弃）。
+- **RV-04 字典值集合（诊断式跳过）**：`Dictionary<string, List<T>>` 在 JSON/TOML/YAML 生成不可编译代码、MsgPack 静默丢值；现于提取期以 **PICOSERDE004** 丢弃（嵌套字典 `Dictionary<string, Dictionary<...>>` 仍走原 helper 路径保持支持）。
+  - 测试：`DictValueCollectionTests` 5/5（五格式成员被丢弃且不产出 key）+ TOML driver `DictValueListMember_IsReported`。

@@ -97,6 +97,27 @@ public class RecursiveDiagnosticTests
     }
 
     [Test]
+    public async Task DictValueListMember_IsReported()
+    {
+        const string source = """
+            using PicoToml;
+
+            public class Holder
+            {
+                public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> Map { get; set; } = new();
+            }
+
+            public static class Probe
+            {
+                public static byte[] Run() => TomlSerializer.Serialize(new Holder());
+            }
+            """;
+
+        var ids = RunGenerator(source);
+        await Assert.That(ids).Contains("PICOSERDE004");
+    }
+
+    [Test]
     public async Task RecursiveMember_IsReported()
     {
         const string source = """

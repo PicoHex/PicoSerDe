@@ -3454,7 +3454,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         listAcc,
                         prop.Name,
                         indent + "    ",
-                        0
+                        0,
+                        prop.ElementTypeKind == "array"
                     );
                 }
                 else if (
@@ -5451,7 +5452,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string parentListAcc,
         string propName,
         string indent,
-        int nestLevel
+        int nestLevel,
+        bool parentElementIsArray = false
     )
     {
         // For nested lists, use ElementTypeName (e.g. "System.Collections.Generic.List<int>");
@@ -5493,7 +5495,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 innerVar,
                 propName,
                 indent + "        ",
-                nestLevel + 1
+                nestLevel + 1,
+                prop.ElementTypeKind == "array"
             );
         }
         else
@@ -5515,7 +5518,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("    ");
         sb.Append(parentListAcc);
         sb.Append(".Add(");
-        sb.Append(innerVar);
+        sb.Append(parentElementIsArray ? innerVar + ".ToArray()" : innerVar);
         sb.AppendLine(");");
         sb.Append(indent);
         sb.AppendLine("}");

@@ -2028,9 +2028,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(target);
                 s.Append('.');
                 s.Append(p.Name);
-                s.Append(" ?? new System.Collections.Generic.List<");
-                s.Append(elemTypeName);
-                s.AppendLine(">(0))");
+                s.Append(
+                    p.TypeKind == "array"
+                        ? $" ?? System.Array.Empty<{elemTypeName}>()"
+                        : " ?? new System.Collections.Generic.List<"
+                );
+                if (p.TypeKind == "array")
+                    s.AppendLine(")");
+                else
+                {
+                    s.Append(elemTypeName);
+                    s.AppendLine(">(0))");
+                }
                 s.Append(ind);
                 s.AppendLine("{");
                 s.Append(ind);

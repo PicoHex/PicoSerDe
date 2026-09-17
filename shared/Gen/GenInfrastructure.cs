@@ -1150,12 +1150,13 @@ internal static class GenInfrastructure
                 // Recursively describe nested List<List<...<T>>> — any depth
                 if (
                     (ek is "list" or "array")
-                    && elementType is INamedTypeSymbol ntsNested
-                    && ntsNested.TypeArguments.Length == 1
+                    && elementType
+                        is INamedTypeSymbol { TypeArguments.Length: 1 }
+                            or IArrayTypeSymbol
                 )
                 {
                     nestedProperties = BuildNestedListElement(
-                        ntsNested,
+                        elementType,
                         formatTag,
                         attrs,
                         visiting,
@@ -1190,6 +1191,16 @@ internal static class GenInfrastructure
                     // with other keys instead of emitting non-compiling code.
                     if (!IsSupportedDictKeyKind(kk))
                         continue;
+                    // Dict values that are collections are not representable by
+                    // the generated dict emitters yet (they silently produced
+                    // non-compiling or lossy code); drop them with the shared
+                    // PICOSERDE004 diagnostic instead. Nested dicts have their
+                    // own helper path and stay supported.
+                    if (vk is "list" or "array")
+                    {
+                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                        continue;
+                    }
                     // Same rule for dict values.
                     var valueIsNullableValue =
                         valType is INamedTypeSymbol
@@ -1346,7 +1357,7 @@ internal static class GenInfrastructure
     /// The innermost element has its actual TypeKind; each wrapper has TypeKind="list".
     /// </summary>
     private static ImmutableArray<PropertyInfo> BuildNestedListElement(
-        INamedTypeSymbol listType,
+        ITypeSymbol listType,
         string formatTag,
         AttributeHelpers attrs,
         HashSet<INamedTypeSymbol>? visiting = null,
@@ -1354,11 +1365,15 @@ internal static class GenInfrastructure
         List<string>? skippedUnsupported = null
     )
     {
-        // listType is a List<T> or similar — extract T
-        if (listType.TypeArguments.Length != 1)
+        // List<T>/T[]/T[][] — extract the element type T (or the inner array).
+        var innerType = listType switch
+        {
+            IArrayTypeSymbol arr => arr.ElementType,
+            INamedTypeSymbol nts when nts.TypeArguments.Length == 1 => nts.TypeArguments[0],
+            _ => null,
+        };
+        if (innerType is null)
             return ImmutableArray<PropertyInfo>.Empty;
-
-        var innerType = listType.TypeArguments[0];
         var (innerKind, _, _) = TypeKindResolver.Resolve(innerType, formatTag);
         if (innerKind is null)
             return ImmutableArray<PropertyInfo>.Empty;
@@ -1372,13 +1387,12 @@ internal static class GenInfrastructure
         // needs its members extracted so the generated inner helper is not
         // empty (and so a recursion back into the current type is detected).
         if (
-            (innerKind is "list" or "array")
-            && innerType is INamedTypeSymbol ntsInner
-            && ntsInner.TypeArguments.Length == 1
+            innerKind is "list" or "array"
+            && innerType is INamedTypeSymbol { TypeArguments.Length: 1 } or IArrayTypeSymbol
         )
         {
             innerNested = BuildNestedListElement(
-                ntsInner,
+                innerType,
                 formatTag,
                 attrs,
                 visiting,
