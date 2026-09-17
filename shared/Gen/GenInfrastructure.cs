@@ -151,7 +151,14 @@ internal static class GenInfrastructure
             _ => null,
         };
 
-        return methodName is "Serialize" or "SerializeToUtf8Bytes" or "Deserialize";
+        return methodName
+            is "Serialize"
+                or "SerializeToUtf8Bytes"
+                or "Deserialize"
+                or "SerializeLines"
+                or "DeserializeLines"
+                or "DeserializeFromStreamAsync"
+                or "DeserializeAsyncEnumerable";
     }
 
     /// <summary>
