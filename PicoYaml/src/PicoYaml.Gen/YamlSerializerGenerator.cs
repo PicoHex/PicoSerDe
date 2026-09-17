@@ -1683,81 +1683,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    } }");
         sb.AppendLine();
 
-        // Streaming (scalar properties only, skip nested objects/dicts)
-        if (ylHasCtor)
-        { /* skip streaming */
-        }
-        else
-        {
-            sb.Append("file static class ");
-            sb.Append(t.Name);
-            sb.AppendLine("_YamlStreaming {");
-            sb.AppendLine(
-                "    internal static ReadStatus DeserializeStreaming(ref YamlReader r, out "
-                    + t.Name
-                    + "? result) {"
-            );
-            sb.AppendLine("        result = default;");
-            var ysReq = t.Properties.Where(p => p.IsRequired).ToArray();
-            if (ysReq.Length > 0)
-            {
-                sb.Append("        var o = new ");
-                sb.Append(t.Name);
-                sb.AppendLine(" {");
-                foreach (var rp in ysReq)
-                {
-                    sb.Append("            ");
-                    sb.Append(rp.Name);
-                    sb.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            sb.Append("\"\"");
-                            break;
-                        default:
-                            sb.Append("default");
-                            break;
-                    }
-                    sb.AppendLine(",");
-                }
-                sb.Append("        };");
-            }
-            else
-            {
-                sb.Append("        var o = new ");
-                sb.Append(t.Name);
-                sb.AppendLine("();");
-            }
-            sb.AppendLine("        while (true) {");
-            sb.AppendLine(
-                "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
-            );
-            sb.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
-            sb.AppendLine("            var __k = r.KeySpan;");
-            int yi = 0;
-            foreach (var p in t.Properties.Where(p => p.TypeKind is not "object" and not "dict"))
-            {
-                var kw = yi++ == 0 ? "if" : "else if";
-                sb.Append("            ");
-                sb.Append(kw);
-                sb.Append(" (TextHelpers.Eq(__k, \"");
-                sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-                sb.AppendLine("\"u8)) {");
-                EmitDeserialize(sb, p, "o", "                ");
-                sb.AppendLine("            }");
-            }
-            if (yi > 0)
-            {
-                sb.AppendLine(
-                    "            else { if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; } }"
-                );
-            }
-            sb.AppendLine("        }");
-            sb.AppendLine("        result = o;");
-            sb.AppendLine("        return ReadStatus.Success;");
-            sb.AppendLine("    }");
-            sb.AppendLine("}");
-        } // end skip-streaming else
+        // Streaming for YAML is document-oriented: DeserializeFromStreamAsync
+        // buffers the payload and uses the synchronous parser (always correct).
+        // The incremental delegate is intentionally not registered until the
+        // parser exposes a formal incomplete-input signal.
         sb.AppendLine();
 
         sb.Append("file static class ");
@@ -1769,21 +1698,91 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.Append("_YS(), new ");
         sb.Append(t.Name);
         sb.AppendLine("_YD());");
-        if (ylHasCtor)
-            sb.AppendLine("            // Streaming skipped for constructor type");
-        else
-        {
-            sb.Append("YamlSerializer.RegisterStreaming<");
-            sb.Append(t.Name);
-            sb.Append(">(");
-            sb.Append(t.Name);
-            sb.AppendLine("_YamlStreaming.DeserializeStreaming);");
-        }
+        sb.AppendLine("            // Streaming: document-oriented (no delegate registration)");
         sb.AppendLine("    } }");
         return sb.ToString();
     }
 
     /// <summary>Ref struct serializer — static class + delegate registration.</summary>
+    /// <summary>
+    /// Emits the streaming deserializer: the synchronous dispatch wrapped in a
+    /// snapshot/rewind guard, so an incomplete chunk resumes at the member
+    /// start with previously parsed members carried by <c>partial</c>.
+    /// </summary>
+    private static void EmitYamlStreaming(
+        StringBuilder sb,
+        TypeInfo t,
+        Dictionary<string, int>? ctorMap
+    )
+    {
+        var ysReq = t.Properties.Where(p => p.IsRequired).ToArray();
+        sb.Append("file static class ");
+        sb.Append(t.Name);
+        sb.AppendLine("_YamlStreaming {");
+        sb.Append("    internal static ReadStatus DeserializeStreaming(ref YamlReader r, ");
+        sb.Append(t.Name);
+        sb.AppendLine("? partial, out ");
+        sb.Append(t.Name);
+        sb.AppendLine("? result) {");
+        sb.Append("        var o = partial ?? new ");
+        sb.Append(t.Name);
+        if (ysReq.Length > 0)
+        {
+            sb.Append(" { ");
+            foreach (var rp in ysReq)
+            {
+                sb.Append(rp.Name);
+                sb.Append(" = ");
+                sb.Append(rp.TypeKind == "string" ? "\"\"" : "default");
+                sb.Append(", ");
+            }
+            sb.Append("}");
+        }
+        else
+        {
+            sb.Append("()");
+        }
+        sb.AppendLine(";");
+        sb.AppendLine("        result = o;");
+        sb.AppendLine("        if (!r.IsResumed) {");
+        sb.AppendLine(
+            "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : (r.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput);"
+        );
+        sb.AppendLine("        }");
+        sb.AppendLine("        while (true) {");
+        sb.AppendLine("            long __snap = r.TokenStart;");
+        sb.AppendLine("            while (true) {");
+        sb.AppendLine("                if (r.TokenType != TokenType.PropertyName) {");
+        sb.AppendLine("                    if (!r.Read()) break;");
+        sb.AppendLine("                    continue;");
+        sb.AppendLine("                }");
+        sb.AppendLine("                var k = r.KeySpan;");
+        for (int i = 0; i < t.Properties.Length; i++)
+        {
+            var p = t.Properties[i];
+            sb.Append("                ");
+            sb.Append(i == 0 ? "if" : "else if");
+            sb.Append(" (TextHelpers.Eq(k, \"");
+            sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+            sb.AppendLine("\"u8)) {");
+            EmitDeserialize(sb, p, "o", "                    ", ctorMap: ctorMap);
+            sb.AppendLine("                }");
+        }
+        sb.AppendLine("                else {");
+        sb.AppendLine("                    if (!r.Read()) break;");
+        sb.AppendLine("                }");
+        sb.AppendLine("            }");
+        sb.AppendLine("            if (r.NeedsMoreData) {");
+        sb.AppendLine("                r.RewindTo(__snap);");
+        sb.AppendLine("                return ReadStatus.NeedMoreData;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            result = o;");
+        sb.AppendLine("            return ReadStatus.Success;");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+    }
+
     private static string GenRefStruct(TypeInfo t)
     {
         var s = new StringBuilder();

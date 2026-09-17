@@ -51,7 +51,25 @@ public ref struct IniReader : ITokenReader
     // One-time UTF-8 BOM resolution (sequence mode).
     private bool _bomChecked;
 
+    // Sequence-mode normalization: the incoming chunk is copied into a
+    // contiguous buffer and parsed with span semantics; unconsumed bytes are
+    // retained by the serializer through ExportState.Position.
+    private ReadOnlySequence<byte> _sourceSequence;
+    private bool _normalizedSequence;
+    private byte[]? _chunkCopy;
+    private int _dataOffset;
+
+    // True length of the copied chunk (the parse buffer never exceeds it).
+    private int _realLength;
+    private int _tokenStart;
+
     public bool NeedsMoreData => _needsMoreData;
+
+    /// <summary>Start offset of the token most recently produced by <see cref="Read"/>.</summary>
+    public long TokenStart => _tokenStart;
+
+    /// <summary>True when this reader resumes a previously exported state.</summary>
+    public bool IsResumed { get; private set; }
     public int Depth => _depth;
 
     public IniReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
@@ -81,10 +99,22 @@ public ref struct IniReader : ITokenReader
     {
         _data = default;
         _position = 0;
-        _seqReader = new SequenceReader<byte>(data);
-        _isSequence = true;
+        _seqReader = default;
+        _isSequence = false;
+        _normalizedSequence = true;
+        _sourceSequence = data;
+        _chunkCopy = null;
+        _dataOffset = 0;
         _isFinalBlock = isFinalBlock;
         _bomChecked = false;
+        if (!data.IsEmpty)
+        {
+            int len = (int)data.Length;
+            _realLength = len;
+            _chunkCopy = ArrayPool<byte>.Shared.Rent(len);
+            data.CopyTo(_chunkCopy);
+            _data = _chunkCopy.AsSpan(0, len);
+        }
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _currentValue = default;
@@ -109,8 +139,10 @@ public ref struct IniReader : ITokenReader
             InSection = _inSection,
             HasPendingValue = _hasPendingValue,
             HasPendingSectionStart = _hasPendingSectionStart,
-            BytesConsumed = _seqReader.Consumed,
-            Position = _seqReader.Position,
+            BytesConsumed = _normalizedSequence ? _position : _seqReader.Consumed,
+            Position = _normalizedSequence
+                ? _sourceSequence.GetPosition(Math.Min(_dataOffset + _position, _realLength))
+                : _seqReader.Position,
         };
     }
 
@@ -122,6 +154,7 @@ public ref struct IniReader : ITokenReader
         _needsMoreData = false;
         // Only a genuinely resumed reader has already passed the BOM.
         _bomChecked = state.BytesConsumed > 0 || state.Depth > 0;
+        IsResumed = state.BytesConsumed > 0 || state.Depth > 0;
         _inSection = state.InSection;
         _hasPendingValue = state.HasPendingValue;
         _hasPendingSectionStart = state.HasPendingSectionStart;
@@ -143,10 +176,25 @@ public ref struct IniReader : ITokenReader
 
     public bool Read()
     {
+        _tokenStart = _position;
         _needsMoreData = false;
         if (!_bomChecked)
         {
-            if (_isSequence)
+            if (_normalizedSequence)
+            {
+                if (IsBomAtStart(_data))
+                {
+                    _dataOffset += BomLength;
+                    _data = _data[BomLength..];
+                }
+                else if (_data.Length < BomLength && !_isFinalBlock)
+                {
+                    _needsMoreData = true;
+                    return false;
+                }
+                _bomChecked = true;
+            }
+            else if (_isSequence)
             {
                 SkipBomSeq(ref _seqReader, _isFinalBlock, out var bomNeedsMore);
                 if (bomNeedsMore)
@@ -154,8 +202,10 @@ public ref struct IniReader : ITokenReader
                     _needsMoreData = true;
                     return false;
                 }
+                _bomChecked = true;
             }
-            _bomChecked = true;
+            else
+                _bomChecked = true;
         }
         // Emit pending section start (from section transition)
         if (_hasPendingSectionStart)
@@ -172,6 +222,9 @@ public ref struct IniReader : ITokenReader
         }
 
         // Emit pending value from previous PropertyName read
+        Console.Error.WriteLine(
+            $"[INI] read pos={_position} real={_realLength} norm={_normalizedSequence} pending={_hasPendingValue} tok={_tokenType}"
+        );
         if (_hasPendingValue)
         {
             _currentValue = _pendingValue;
@@ -181,7 +234,53 @@ public ref struct IniReader : ITokenReader
             return true;
         }
 
+        if (_normalizedSequence)
+        {
+            int __tokenStart = _position;
+            try
+            {
+                var normalized = ReadSpan();
+                if (!normalized)
+                {
+                    // Never consume an incomplete token: the next attempt (with
+                    // more data) restarts exactly at this token.
+                    _position = __tokenStart;
+                    _needsMoreData = !_isFinalBlock;
+                    return false;
+                }
+                // A token that reaches the sentinel may continue in the next
+                // chunk; defer it instead of consuming a possibly partial value.
+                if (!_isFinalBlock && _position >= _realLength)
+                {
+                    _position = __tokenStart;
+                    _needsMoreData = true;
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+                when (!_isFinalBlock
+                    && ex
+                        is FormatException
+                            or IndexOutOfRangeException
+                            or ArgumentOutOfRangeException
+                )
+            {
+                _position = __tokenStart;
+                _needsMoreData = true;
+                return false;
+            }
+        }
         return _isSequence ? ReadSeq() : ReadSpan();
+    }
+
+    /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>
+    public void RewindTo(long consumedOffset)
+    {
+        if (consumedOffset < 0 || consumedOffset > _position)
+            throw new ArgumentOutOfRangeException(nameof(consumedOffset));
+        _position = (int)consumedOffset;
+        _needsMoreData = false;
     }
 
     // ── Lazy type accessors (accept String token, parse on demand) ──
@@ -250,6 +349,11 @@ public ref struct IniReader : ITokenReader
 
     public void Dispose()
     {
+        if (_chunkCopy is not null)
+        {
+            ArrayPool<byte>.Shared.Return(_chunkCopy);
+            _chunkCopy = null;
+        }
         ReturnBuf(ref _rb0);
         ReturnBuf(ref _rb1);
         ReturnBuf(ref _rb2);

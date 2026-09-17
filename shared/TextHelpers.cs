@@ -59,6 +59,11 @@ public static class TextHelpers
         && b1 == 0xBB
         && b2 == 0xBF;
 
+    /// <summary>True when the span starts with a UTF-8 BOM.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsBomAtStart(ReadOnlySpan<byte> data) =>
+        data.Length >= BomLength && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF;
+
     /// <summary>
     /// One-time BOM handling for sequence-mode readers. Returns true when a BOM
     /// was skipped. When fewer than 3 bytes are buffered and the block is not

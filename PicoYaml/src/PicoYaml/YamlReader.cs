@@ -174,7 +174,25 @@ public ref struct YamlReader : ITokenReader
     // One-time UTF-8 BOM resolution (sequence mode).
     private bool _bomChecked;
 
+    // Sequence-mode normalization: the incoming chunk is copied into a
+    // contiguous buffer and parsed with span semantics; unconsumed bytes are
+    // retained by the serializer through ExportState.Position.
+    private ReadOnlySequence<byte> _sourceSequence;
+    private bool _normalizedSequence;
+    private byte[]? _chunkCopy;
+    private int _dataOffset;
+
+    // True length of the copied chunk (the parse buffer never exceeds it).
+    private int _realLength;
+    private int _tokenStart;
+
     public bool NeedsMoreData => _needsMoreData;
+
+    /// <summary>Start offset of the token most recently produced by <see cref="Read"/>.</summary>
+    public long TokenStart => _tokenStart;
+
+    /// <summary>True when this reader resumes a previously exported state.</summary>
+    public bool IsResumed { get; private set; }
 
     public YamlReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
     {
@@ -205,10 +223,22 @@ public ref struct YamlReader : ITokenReader
     {
         _data = default;
         _position = 0;
-        _seqReader = new SequenceReader<byte>(data);
-        _isSequence = true;
+        _seqReader = default;
+        _isSequence = false;
+        _normalizedSequence = true;
+        _sourceSequence = data;
+        _chunkCopy = null;
+        _dataOffset = 0;
         _isFinalBlock = isFinalBlock;
         _bomChecked = false;
+        if (!data.IsEmpty)
+        {
+            int len = (int)data.Length;
+            _realLength = len;
+            _chunkCopy = ArrayPool<byte>.Shared.Rent(len);
+            data.CopyTo(_chunkCopy);
+            _data = _chunkCopy.AsSpan(0, len);
+        }
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
@@ -247,8 +277,10 @@ public ref struct YamlReader : ITokenReader
         {
             Depth = _depth,
             MaxDepth = _maxDepth,
-            BytesConsumed = _seqReader.Consumed,
-            Position = _seqReader.Position,
+            BytesConsumed = _normalizedSequence ? _position : _seqReader.Consumed,
+            Position = _normalizedSequence
+                ? _sourceSequence.GetPosition(Math.Min(_dataOffset + _position, _realLength))
+                : _seqReader.Position,
             StackCount = _stackCount,
             InFlow = _inFlow,
             FlowStartEmitted = _flowStartEmitted,
@@ -270,6 +302,7 @@ public ref struct YamlReader : ITokenReader
         _needsMoreData = false;
         // Only a genuinely resumed reader has already passed the BOM.
         _bomChecked = state.BytesConsumed > 0 || state.Depth > 0;
+        IsResumed = state.BytesConsumed > 0 || state.Depth > 0;
         _stackCount = state.StackCount;
         _inFlow = state.InFlow;
         _flowStartEmitted = state.FlowStartEmitted;
@@ -283,10 +316,25 @@ public ref struct YamlReader : ITokenReader
 
     public bool Read()
     {
+        _tokenStart = _position;
         _needsMoreData = false;
         if (!_bomChecked)
         {
-            if (_isSequence)
+            if (_normalizedSequence)
+            {
+                if (TextHelpers.IsBomAtStart(_data))
+                {
+                    _dataOffset += TextHelpers.BomLength;
+                    _data = _data[TextHelpers.BomLength..];
+                }
+                else if (_data.Length < TextHelpers.BomLength && !_isFinalBlock)
+                {
+                    _needsMoreData = true;
+                    return false;
+                }
+                _bomChecked = true;
+            }
+            else if (_isSequence)
             {
                 TextHelpers.SkipBomSeq(ref _seqReader, _isFinalBlock, out var bomNeedsMore);
                 if (bomNeedsMore)
@@ -294,13 +342,65 @@ public ref struct YamlReader : ITokenReader
                     _needsMoreData = true;
                     return false;
                 }
+                _bomChecked = true;
             }
-            _bomChecked = true;
+            else
+                _bomChecked = true;
+        }
+        if (_normalizedSequence)
+        {
+            int __tokenStart = _position;
+            try
+            {
+                var normalized = ReadImpl();
+                if (!normalized)
+                {
+                    // Never consume an incomplete token: the next attempt (with
+                    // more data) restarts exactly at this token.
+                    _position = __tokenStart;
+                    _needsMoreData = !_isFinalBlock;
+                    return false;
+                }
+                // A token that reaches the sentinel may continue in the next
+                // chunk; defer it instead of consuming a possibly partial value.
+                if (
+                    !_isFinalBlock
+                    && _position >= _realLength
+                    && (_inFlow || _data.Length == 0 || _data[_data.Length - 1] != (byte)10)
+                )
+                {
+                    _position = __tokenStart;
+                    _needsMoreData = true;
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+                when (!_isFinalBlock
+                    && ex
+                        is FormatException
+                            or IndexOutOfRangeException
+                            or ArgumentOutOfRangeException
+                )
+            {
+                _position = __tokenStart;
+                _needsMoreData = true;
+                return false;
+            }
         }
         var result = ReadImpl();
         if (!result)
             _needsMoreData = !_isFinalBlock;
         return result;
+    }
+
+    /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>
+    public void RewindTo(long consumedOffset)
+    {
+        if (consumedOffset < 0 || consumedOffset > _position)
+            throw new ArgumentOutOfRangeException(nameof(consumedOffset));
+        _position = (int)consumedOffset;
+        _needsMoreData = false;
     }
 
     private bool ReadImpl()
@@ -424,6 +524,11 @@ public ref struct YamlReader : ITokenReader
 
     public void Dispose()
     {
+        if (_chunkCopy is not null)
+        {
+            ArrayPool<byte>.Shared.Return(_chunkCopy);
+            _chunkCopy = null;
+        }
         ReturnBuf(ref _rb0);
         ReturnBuf(ref _rb1);
         ReturnBuf(ref _rb2);

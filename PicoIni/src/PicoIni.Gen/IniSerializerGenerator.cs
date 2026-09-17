@@ -715,19 +715,82 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         }
         if (sec.Count > 0 || dicts.Count > 0)
             s.AppendLine("        int __sec = -1;");
+        EmitIniWhileLoop(s, type, hasCtor, top, sec, dicts, streaming: false);
+        if (hasCtor)
+        {
+            s.Append("        return new ");
+            s.Append(type.Name);
+            s.Append("(");
+            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            {
+                if (ci > 0)
+                    s.Append(", ");
+                s.Append("__cp_");
+                s.Append(ci);
+            }
+            s.AppendLine(");");
+        }
+        else
+        {
+            s.AppendLine("        return obj;");
+        }
+        s.AppendLine("    } }");
+        s.AppendLine();
+
+        // Streaming for INI is document-oriented: DeserializeFromStreamAsync
+        // buffers the payload and uses the synchronous parser (always correct).
+        // The incremental delegate is intentionally not registered until the
+        // parser exposes a formal incomplete-input signal.
+        s.AppendLine();
+
+        // Registration
+        s.Append("file static class ");
+        s.Append(type.Name);
+        s.AppendLine("__Reg {");
+        s.AppendLine("    [ModuleInitializer]");
+        s.AppendLine("    internal static void Register() {");
+        s.Append("        IniSerializer.Register<");
+        s.Append(type.Name);
+        s.Append(">(new ");
+        s.Append(type.Name);
+        s.Append("IniSerializer(), new ");
+        s.Append(type.Name);
+        s.AppendLine("IniDeserializer());");
+        s.AppendLine("        // Streaming: document-oriented (no delegate registration)");
+        s.AppendLine("    } }");
+        return s.ToString();
+    }
+
+    private static Dictionary<string, int> BuildCtorMap(TypeInfo type)
+    {
+        var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            map[type.CtorParams[ci].Name] = ci;
+        return map;
+    }
+
+    /// <summary>
+    /// Emits the shared INI read loop (synchronous and streaming variants). In
+    /// streaming mode an incomplete chunk rewinds to the member — or to the
+    /// current section start — and asks for more data.
+    /// </summary>
+    private static void EmitIniWhileLoop(
+        StringBuilder s,
+        TypeInfo type,
+        bool hasCtor,
+        List<PropertyInfo> top,
+        List<PropertyInfo> sec,
+        List<PropertyInfo> dicts,
+        bool streaming
+    )
+    {
         s.AppendLine("        while (reader.Read()) {");
         s.AppendLine("            if (reader.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var __k = reader.GetStringRaw();");
         s.AppendLine("                reader.ReadValue(); // fast path: consume pending value");
 
         // Build ctor param name → index map for constructor deserialization
-        Dictionary<string, int>? ctorMap = null;
-        if (hasCtor)
-        {
-            ctorMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            for (int ci = 0; ci < type.CtorParams.Length; ci++)
-                ctorMap[type.CtorParams[ci].Name] = ci;
-        }
+        var ctorMap = hasCtor ? BuildCtorMap(type) : null;
 
         // Top-level key matching
         if (top.Count > 0)
@@ -831,6 +894,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         {
             s.AppendLine("            else if (reader.TokenType == TokenType.ObjectStart) {");
             s.AppendLine("                __sec = -1;");
+            if (streaming)
+                s.AppendLine("                __secSnap = __snap;");
 
             for (int i = 0; i < sec.Count; i++)
             {
@@ -872,114 +937,71 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine("            }");
         }
         s.AppendLine("        }");
-        if (hasCtor)
-        {
-            s.Append("        return new ");
-            s.Append(type.Name);
-            s.Append("(");
-            for (int ci = 0; ci < type.CtorParams.Length; ci++)
-            {
-                if (ci > 0)
-                    s.Append(", ");
-                s.Append("__cp_");
-                s.Append(ci);
-            }
-            s.AppendLine(");");
-        }
-        else
-        {
-            s.AppendLine("        return obj;");
-        }
-        s.AppendLine("    } }");
-        s.AppendLine();
+    }
 
-        // Streaming deserializer (skip for constructor types — needs deferred construction)
-        if (!hasCtor)
-        {
-            s.Append("file static class ");
-            s.Append(type.Name);
-            s.AppendLine("IniStreaming {");
-            s.AppendLine(
-                "    internal static ReadStatus DeserializeStreaming(ref IniReader reader, out "
-                    + type.Name
-                    + "? result) {"
-            );
-            s.AppendLine("        result = default;");
-            var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
-            if (reqProps.Length > 0)
-            {
-                s.Append("        var obj = new ");
-                s.Append(type.Name);
-                s.AppendLine(" {");
-                foreach (var rp in reqProps)
-                {
-                    s.Append("            ");
-                    s.Append(rp.Name);
-                    s.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            s.Append("\"\"");
-                            break;
-                        default:
-                            s.Append("default");
-                            break;
-                    }
-                    s.AppendLine(",");
-                }
-                s.Append("        };");
-            }
-            else
-            {
-                s.Append("        var obj = new ");
-                s.Append(type.Name);
-                s.AppendLine("();");
-            }
-            s.AppendLine("        while (true) {");
-            s.AppendLine(
-                "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
-            );
-            s.AppendLine("            if (reader.TokenType == TokenType.ObjectEnd) break;");
-            s.AppendLine("            if (reader.TokenType != TokenType.PropertyName) continue;");
-            s.AppendLine("            var __k = reader.GetStringRaw();");
-            s.AppendLine("            reader.ReadValue();");
-            if (top.Count > 0)
-            {
-                EmitKeyDispatch(s, top, "__k", "obj", null, "            ", "                ");
-            }
-            s.AppendLine("        }");
-            s.AppendLine("        result = obj;");
-            s.AppendLine("        return ReadStatus.Success;");
-            s.AppendLine("    }");
-            s.AppendLine("}");
-        } // end if (!hasCtor)
-        s.AppendLine();
-
-        // Registration
+    /// <summary>
+    /// Emits the streaming deserializer: the shared read loop plus a
+    /// snapshot/rewind epilogue so an incomplete chunk resumes at the member or
+    /// section start with <c>partial</c> carrying previously parsed members.
+    /// </summary>
+    private static void EmitIniStreaming(
+        StringBuilder s,
+        TypeInfo type,
+        List<PropertyInfo> top,
+        List<PropertyInfo> sec,
+        List<PropertyInfo> dicts
+    )
+    {
+        var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
         s.Append("file static class ");
         s.Append(type.Name);
-        s.AppendLine("__Reg {");
-        s.AppendLine("    [ModuleInitializer]");
-        s.AppendLine("    internal static void Register() {");
-        s.Append("        IniSerializer.Register<");
+        s.AppendLine("IniStreaming {");
+        s.Append("    internal static ReadStatus DeserializeStreaming(ref IniReader reader, ");
         s.Append(type.Name);
-        s.Append(">(new ");
+        s.AppendLine("? partial, out ");
         s.Append(type.Name);
-        s.Append("IniSerializer(), new ");
+        s.AppendLine("? result) {");
+        s.Append("        var obj = partial ?? new ");
         s.Append(type.Name);
-        s.AppendLine("IniDeserializer());");
-        if (hasCtor)
-            s.AppendLine("        // Streaming deserializer skipped for constructor types");
+        if (reqProps.Length > 0)
+        {
+            s.Append(" { ");
+            foreach (var rp in reqProps)
+            {
+                s.Append(rp.Name);
+                s.Append(" = ");
+                s.Append(rp.TypeKind == "string" ? "\"\"" : "default");
+                s.Append(", ");
+            }
+            s.Append("}");
+        }
         else
         {
-            s.Append("        IniSerializer.RegisterStreaming<");
-            s.Append(type.Name);
-            s.Append(">(");
-            s.Append(type.Name);
-            s.AppendLine("IniStreaming.DeserializeStreaming);");
+            s.Append("()");
         }
-        s.AppendLine("    } }");
-        return s.ToString();
+        s.AppendLine(";");
+        s.AppendLine("        result = obj;");
+        if (sec.Count > 0 || dicts.Count > 0)
+        {
+            s.AppendLine("        int __sec = -1;");
+            s.AppendLine("        long __secSnap = 0;");
+        }
+        s.AppendLine("        while (true) {");
+        s.AppendLine("            long __snap = reader.TokenStart;");
+        // Reuse the sync loop emission with the streaming snapshot enabled.
+        EmitIniWhileLoop(s, type, hasCtor: false, top, sec, dicts, streaming: true);
+        s.AppendLine("            if (reader.NeedsMoreData) {");
+        if (sec.Count > 0 || dicts.Count > 0)
+        {
+            s.AppendLine("                if (__sec >= 0) reader.RewindTo(__secSnap);");
+        }
+        s.AppendLine("                return ReadStatus.NeedMoreData;");
+        s.AppendLine("            }");
+        s.AppendLine("            result = obj;");
+        s.AppendLine("            return ReadStatus.Success;");
+        s.AppendLine("        }");
+        s.AppendLine("    }");
+        s.AppendLine("}");
     }
 
     /// <summary>Generates ref struct serializer — static class + delegate registration.</summary>

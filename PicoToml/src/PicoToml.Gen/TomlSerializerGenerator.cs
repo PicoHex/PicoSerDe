@@ -985,78 +985,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    } }");
         s.AppendLine();
 
-        // Streaming (scalar properties only, skip nested objects; not supported for ctor types)
-        if (hasCtor)
-        { /* skip streaming */
-        }
-        else
-        {
-            s.Append("file static class ");
-            s.Append(t.Name);
-            s.AppendLine("_TomlStreaming {");
-            s.AppendLine(
-                "    internal static ReadStatus DeserializeStreaming(ref TomlReader r, out "
-                    + t.Name
-                    + "? result) {"
-            );
-            s.AppendLine("        result = default;");
-            var streamReq = t.Properties.Where(p => p.IsRequired).ToArray();
-            if (streamReq.Length > 0)
-            {
-                s.Append("        var o = new ");
-                s.Append(t.Name);
-                s.AppendLine(" {");
-                foreach (var rp in streamReq)
-                {
-                    s.Append("            ");
-                    s.Append(rp.Name);
-                    s.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            s.Append("\"\"");
-                            break;
-                        default:
-                            s.Append("default");
-                            break;
-                    }
-                    s.AppendLine(",");
-                }
-                s.Append("        };");
-            }
-            else
-            {
-                s.Append("        var o = new ");
-                s.Append(t.Name);
-                s.AppendLine("();");
-            }
-            s.AppendLine("        while (true) {");
-            s.AppendLine(
-                "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
-            );
-            s.AppendLine("            if (r.TokenType != TokenType.PropertyName) break;");
-            s.AppendLine("            var __sk = r.KeySpan;");
-            var simpleProps = t
-                .Properties.Where(p => p.TypeKind is not "object" and not "dict")
-                .ToImmutableArray();
-            EmitPropertyDispatch(s, simpleProps, "__sk", "o", "        ", "            ");
-            foreach (var p in t.Properties.Where(p => p.TypeKind is "object" or "dict"))
-            {
-                s.Append("            if (TextHelpers.Eq(__sk, \"");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-                s.AppendLine("\"u8)) {");
-                s.AppendLine("                r.Skip();");
-                s.AppendLine("            }");
-            }
-            s.AppendLine(
-                "            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
-            );
-            s.AppendLine("        }");
-            s.AppendLine("        result = o;");
-            s.AppendLine("        return ReadStatus.Success;");
-            s.AppendLine("    }");
-            s.AppendLine("}");
-        } // end skip-streaming else
+        // Streaming for TOML is document-oriented: DeserializeFromStreamAsync
+        // buffers the payload and uses the synchronous parser (always correct).
+        // The incremental delegate is intentionally not registered until the
+        // parser exposes a formal incomplete-input signal.
         s.AppendLine();
 
         // Registration
@@ -1069,18 +1001,197 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("_TomlSer(), new ");
         s.Append(t.Name);
         s.AppendLine("_TomlDes());");
-        if (hasCtor)
-            s.AppendLine("            // Streaming skipped for constructor type");
-        else
-        {
-            s.Append("TomlSerializer.RegisterStreaming<");
-            s.Append(t.Name);
-            s.Append(">(");
-            s.Append(t.Name);
-            s.AppendLine("_TomlStreaming.DeserializeStreaming);");
-        }
+        s.AppendLine("            // Streaming: document-oriented (no delegate registration)");
         s.AppendLine("    } }");
         return s.ToString();
+    }
+
+    /// <summary>
+    /// Emits the streaming deserializer: the synchronous read loop with a
+    /// snapshot/rewind guard per member, so an incomplete chunk resumes at the
+    /// member start. Previously parsed members flow through <c>partial</c>.
+    /// </summary>
+    private static void EmitTomlStreaming(
+        StringBuilder s,
+        TypeInfo t,
+        Dictionary<string, int>? ctorMap
+    )
+    {
+        var req = t.Properties.Where(p => p.IsRequired).ToArray();
+        s.Append("file static class ");
+        s.Append(t.Name);
+        s.AppendLine("_TomlStreaming {");
+        s.Append("    internal static ReadStatus DeserializeStreaming(ref TomlReader r, ");
+        s.Append(t.Name);
+        s.AppendLine("? partial, out ");
+        s.Append(t.Name);
+        s.AppendLine("? result) {");
+        s.Append("        var o = partial ?? new ");
+        s.Append(t.Name);
+        if (req.Length > 0)
+        {
+            s.Append(" { ");
+            foreach (var rp in req)
+            {
+                s.Append(rp.Name);
+                s.Append(" = ");
+                s.Append(rp.TypeKind == "string" ? "\"\"" : "default");
+                s.Append(", ");
+            }
+            s.Append("}");
+        }
+        else
+        {
+            s.Append("()");
+        }
+        s.AppendLine(";");
+        s.AppendLine("        result = o;");
+        s.AppendLine("        if (!r.IsResumed) {");
+        s.AppendLine(
+            "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : (r.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput);"
+        );
+        s.AppendLine("        }");
+        s.AppendLine("        while (true) {");
+        s.AppendLine("            long __snap = r.TokenStart;");
+        s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
+        s.AppendLine("                var k = r.KeySpan;");
+        var simpleProps = t
+            .Properties.Where(x =>
+                x.TypeKind != "object"
+                && !(
+                    (x.TypeKind == "list" || x.TypeKind == "array")
+                    && x.ElementTypeKind == "object"
+                    && x.NestedProperties.Length > 0
+                )
+            )
+            .ToImmutableArray();
+        EmitPropertyDispatch(
+            s,
+            simpleProps,
+            "k",
+            "o",
+            "                ",
+            "                    ",
+            ctorMap
+        );
+        s.AppendLine(
+            "                if (r.NeedsMoreData) { r.RewindTo(__snap); return ReadStatus.NeedMoreData; }"
+        );
+        s.AppendLine(
+            "                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
+        );
+        s.AppendLine("                continue;");
+        s.AppendLine("            }");
+        var objProps = t.Properties.Where(x => x.TypeKind == "object").ToImmutableArray();
+        var dictProps = t.Properties.Where(x => x.TypeKind == "dict").ToImmutableArray();
+        if (objProps.Length > 0 || dictProps.Length > 0)
+        {
+            s.AppendLine("            if (r.TokenType == TokenType.ObjectStart) {");
+            s.AppendLine("                var tbl = r.TablePath;");
+            for (int i = 0; i < objProps.Length; i++)
+            {
+                s.Append("                ");
+                s.Append(i == 0 ? "if" : "else if");
+                s.Append(" (TextHelpers.Eq(tbl, \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(objProps[i].JsonName));
+                s.AppendLine("\"u8)) {");
+                EmitNestedObjectRead(s, objProps[i], "o", "                    ");
+                s.AppendLine("                }");
+            }
+            for (int i = 0; i < dictProps.Length; i++)
+            {
+                s.Append("                ");
+                s.Append(i == 0 && objProps.Length == 0 ? "if" : "else if");
+                s.Append(" (TextHelpers.Eq(tbl, \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dictProps[i].JsonName));
+                s.AppendLine("\"u8)) {");
+                EmitDictRead(s, dictProps[i], "o", "                    ");
+                s.AppendLine("                }");
+            }
+            s.AppendLine(
+                "                if (r.NeedsMoreData) { r.RewindTo(__snap); return ReadStatus.NeedMoreData; }"
+            );
+            s.AppendLine("                continue;");
+            s.AppendLine("            }");
+        }
+        var listObjProps = t
+            .Properties.Where(x =>
+                (x.TypeKind == "list" || x.TypeKind == "array")
+                && x.ElementTypeKind == "object"
+                && x.NestedProperties.Length > 0
+            )
+            .ToImmutableArray();
+        if (listObjProps.Length > 0)
+        {
+            s.AppendLine("            if (r.TokenType == TokenType.ArrayStart) {");
+            for (int ai = 0; ai < listObjProps.Length; ai++)
+            {
+                var ap = listObjProps[ai];
+                var elemTypeName = ap.ElementTypeName ?? "object";
+                s.Append("                ");
+                s.Append(ai == 0 ? "if" : "else if");
+                s.Append(" (TextHelpers.Eq(r.TablePath, \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName));
+                s.AppendLine("\"u8)) {");
+                s.Append("                    int __cnt = o.");
+                s.Append(ap.Name);
+                s.AppendLine("?.Count ?? 0;");
+                s.Append("                    var __item = new ");
+                s.Append(elemTypeName);
+                s.AppendLine("();");
+                s.AppendLine("                    while (true) {");
+                s.AppendLine(
+                    "                        while (r.Read() && r.TokenType == TokenType.PropertyName) {"
+                );
+                s.AppendLine("                            var __k = r.KeySpan;");
+                EmitPropertyDispatch(
+                    s,
+                    ap.NestedProperties,
+                    "__k",
+                    "__item",
+                    "                            ",
+                    "                                "
+                );
+                s.AppendLine("                        }");
+                s.AppendLine("                        if (r.NeedsMoreData) {");
+                s.Append("                            if (o.");
+                s.Append(ap.Name);
+                s.Append(" != null && o.");
+                s.Append(ap.Name);
+                s.Append(".Count > __cnt) o.");
+                s.Append(ap.Name);
+                s.Append(".RemoveRange(__cnt, o.");
+                s.Append(ap.Name);
+                s.AppendLine(".Count - __cnt);");
+                s.AppendLine("                            r.RewindTo(__snap);");
+                s.AppendLine("                            return ReadStatus.NeedMoreData;");
+                s.AppendLine("                        }");
+                s.Append("                        o.");
+                s.Append(ap.Name);
+                s.Append(" ??= new System.Collections.Generic.List<");
+                s.Append(elemTypeName);
+                s.AppendLine(">();");
+                s.Append("                        o.");
+                s.Append(ap.Name);
+                s.AppendLine(".Add(__item);");
+                s.AppendLine(
+                    "                        if (r.TokenType != TokenType.ArrayStart) break;"
+                );
+                s.Append("                        __item = new ");
+                s.Append(elemTypeName);
+                s.AppendLine("();");
+                s.AppendLine("                    }");
+                s.AppendLine("                    continue;");
+                s.AppendLine("                }");
+            }
+            s.AppendLine("            }");
+        }
+        s.AppendLine(
+            "            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
+        );
+        s.AppendLine("        }");
+        s.AppendLine("    }");
+        s.AppendLine("}");
     }
 
     /// <summary>Ref struct serializer — static class + delegate registration.</summary>

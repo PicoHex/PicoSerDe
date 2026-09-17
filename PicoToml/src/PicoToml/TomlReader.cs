@@ -71,7 +71,25 @@ public ref struct TomlReader : ITokenReader
     // One-time UTF-8 BOM resolution (sequence mode).
     private bool _bomChecked;
 
+    // Sequence-mode normalization: the incoming chunk is copied into a
+    // contiguous buffer and parsed with span semantics. Unconsumed bytes are
+    // retained by the serializer through ExportState.Position.
+    private ReadOnlySequence<byte> _sourceSequence;
+    private bool _normalizedSequence;
+    private byte[]? _chunkCopy;
+    private int _dataOffset;
+
+    // True length of the copied chunk (the parse buffer never exceeds it).
+    private int _realLength;
+    private int _tokenStart;
+
     public bool NeedsMoreData => _needsMoreData;
+
+    /// <summary>Start offset of the token most recently produced by <see cref="Read"/>.</summary>
+    public long TokenStart => _tokenStart;
+
+    /// <summary>True when this reader resumes a previously exported state.</summary>
+    public bool IsResumed { get; private set; }
 
     public TomlReader(ReadOnlySpan<byte> data, bool isFinalBlock = true)
     {
@@ -107,10 +125,22 @@ public ref struct TomlReader : ITokenReader
     {
         _data = default;
         _position = 0;
-        _seqReader = new SequenceReader<byte>(data);
-        _isSequence = true;
+        _seqReader = default;
+        _isSequence = false;
+        _normalizedSequence = true;
+        _sourceSequence = data;
+        _chunkCopy = null;
+        _dataOffset = 0;
         _isFinalBlock = isFinalBlock;
         _bomChecked = false;
+        if (!data.IsEmpty)
+        {
+            int len = (int)data.Length;
+            _realLength = len;
+            _chunkCopy = ArrayPool<byte>.Shared.Rent(len);
+            data.CopyTo(_chunkCopy);
+            _data = _chunkCopy.AsSpan(0, len);
+        }
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _keySpan = default;
@@ -147,8 +177,10 @@ public ref struct TomlReader : ITokenReader
         {
             Depth = _depth,
             MaxDepth = _maxDepth,
-            BytesConsumed = _seqReader.Consumed,
-            Position = _seqReader.Position,
+            BytesConsumed = _normalizedSequence ? _position : _seqReader.Consumed,
+            Position = _normalizedSequence
+                ? _sourceSequence.GetPosition(Math.Min(_dataOffset + _position, _realLength))
+                : _seqReader.Position,
             InArray = _inArray,
             ArrayDepth = _arrayDepth,
             ArrayStartEmitted = _arrayStartEmitted,
@@ -168,6 +200,7 @@ public ref struct TomlReader : ITokenReader
         _needsMoreData = false;
         // Only a genuinely resumed reader has already passed the BOM.
         _bomChecked = state.BytesConsumed > 0 || state.Depth > 0;
+        IsResumed = state.BytesConsumed > 0 || state.Depth > 0;
         _inArray = state.InArray;
         _arrayDepth = state.ArrayDepth;
         _arrayStartEmitted = state.ArrayStartEmitted;
@@ -180,10 +213,26 @@ public ref struct TomlReader : ITokenReader
 
     public bool Read()
     {
+        _tokenStart = _position;
         _needsMoreData = false;
         if (!_bomChecked)
         {
-            if (_isSequence)
+            if (_normalizedSequence)
+            {
+                if (IsBomAtStart(_data))
+                {
+                    _dataOffset += BomLength;
+                    _data = _data[BomLength..];
+                }
+                else if (_data.Length < BomLength && !_isFinalBlock)
+                {
+                    // May be a BOM split across chunks; retain from position 0.
+                    _needsMoreData = true;
+                    return false;
+                }
+                _bomChecked = true;
+            }
+            else if (_isSequence)
             {
                 SkipBomSeq(ref _seqReader, _isFinalBlock, out var bomNeedsMore);
                 if (bomNeedsMore)
@@ -191,13 +240,73 @@ public ref struct TomlReader : ITokenReader
                     _needsMoreData = true;
                     return false;
                 }
+                _bomChecked = true;
             }
-            _bomChecked = true;
+            else
+                _bomChecked = true;
+        }
+        if (_normalizedSequence)
+        {
+            int __tokenStart = _position;
+            try
+            {
+                var normalized = ReadSpan();
+                if (!normalized)
+                {
+                    // Never consume an incomplete token: the next attempt (with
+                    // more data) restarts exactly at this token.
+                    _position = __tokenStart;
+                    _needsMoreData = !_isFinalBlock;
+                    return false;
+                }
+                // A token ending at a non-final buffer end may continue in the
+                // next chunk (no trailing newline, or an open multi-line
+                // construct); defer it instead of consuming a partial value.
+                if (
+                    !_isFinalBlock
+                    && _position >= _data.Length
+                    && (
+                        _inArray
+                        || _arrayDepth > 0
+                        || _inInlineTable
+                        || _inlineTableDepth > 0
+                        || _data.Length == 0
+                        || _data[_data.Length - 1] != (byte)10
+                    )
+                )
+                {
+                    _position = __tokenStart;
+                    _needsMoreData = true;
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+                when (!_isFinalBlock
+                    && ex
+                        is FormatException
+                            or IndexOutOfRangeException
+                            or ArgumentOutOfRangeException
+                )
+            {
+                _position = __tokenStart;
+                _needsMoreData = true;
+                return false;
+            }
         }
         var result = _isSequence ? ReadSeq() : ReadSpan();
         if (!result)
             _needsMoreData = !_isFinalBlock;
         return result;
+    }
+
+    /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>
+    public void RewindTo(long consumedOffset)
+    {
+        if (consumedOffset < 0 || consumedOffset > _position)
+            throw new ArgumentOutOfRangeException(nameof(consumedOffset));
+        _position = (int)consumedOffset;
+        _needsMoreData = false;
     }
 
     public bool TryGetInt32(out int v)
@@ -388,6 +497,11 @@ public ref struct TomlReader : ITokenReader
 
     public void Dispose()
     {
+        if (_chunkCopy is not null)
+        {
+            ArrayPool<byte>.Shared.Return(_chunkCopy);
+            _chunkCopy = null;
+        }
         ReturnBuf(ref _rb0);
         ReturnBuf(ref _rb1);
         ReturnBuf(ref _rb2);
