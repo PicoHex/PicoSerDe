@@ -985,10 +985,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    } }");
         s.AppendLine();
 
-        // Streaming for TOML is document-oriented: DeserializeFromStreamAsync
-        // buffers the payload and uses the synchronous parser (always correct).
-        // The incremental delegate is intentionally not registered until the
-        // parser exposes a formal incomplete-input signal.
+        // Streaming: property-level resume (ctor types fall back to buffering).
+        if (!hasCtor)
+            EmitTomlStreaming(s, t, ctorMap);
         s.AppendLine();
 
         // Registration
@@ -1001,7 +1000,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("_TomlSer(), new ");
         s.Append(t.Name);
         s.AppendLine("_TomlDes());");
-        s.AppendLine("            // Streaming: document-oriented (no delegate registration)");
+        if (hasCtor)
+            s.AppendLine("            // Streaming skipped for constructor type");
+        else
+        {
+            s.Append("TomlSerializer.RegisterStreaming<");
+            s.Append(t.Name);
+            s.Append(">(");
+            s.Append(t.Name);
+            s.AppendLine("_TomlStreaming.DeserializeStreaming);");
+        }
         s.AppendLine("    } }");
         return s.ToString();
     }

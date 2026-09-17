@@ -284,7 +284,8 @@ public ref struct TomlReader : ITokenReader
             catch (Exception ex)
                 when (!_isFinalBlock
                     && ex
-                        is FormatException
+                        is IncompleteInputException
+                            or FormatException
                             or IndexOutOfRangeException
                             or ArgumentOutOfRangeException
                 )
@@ -294,10 +295,19 @@ public ref struct TomlReader : ITokenReader
                 return false;
             }
         }
-        var result = _isSequence ? ReadSeq() : ReadSpan();
-        if (!result)
-            _needsMoreData = !_isFinalBlock;
-        return result;
+        try
+        {
+            var result = _isSequence ? ReadSeq() : ReadSpan();
+            if (!result)
+                _needsMoreData = !_isFinalBlock;
+            return result;
+        }
+        catch (IncompleteInputException)
+        {
+            // Non-final span reads must report NeedsMoreData, never throw.
+            _needsMoreData = true;
+            return false;
+        }
     }
 
     /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>
@@ -791,6 +801,8 @@ public ref struct TomlReader : ITokenReader
             && _data[_position] is not ((byte)'\n' or (byte)'\r')
         )
             _position++;
+        if (_position >= _data.Length && !_isFinalBlock)
+            throw new IncompleteInputException();
         if (_position >= _data.Length || _data[_position] != (byte)'=')
             throw new FormatException("Invalid TOML line: expected '='.");
         _position++;
@@ -799,6 +811,10 @@ public ref struct TomlReader : ITokenReader
 
         if (_position < _data.Length && _data[_position] == (byte)'[')
         {
+            // Arrays may span lines: read them atomically so the token stream
+            // never exposes a partial array (resume lands on the member start).
+            if (!BracketedValueComplete(_position) && !_isFinalBlock)
+                throw new IncompleteInputException();
             _position++;
             _inArray = true;
             _arrayDepth = 1;
@@ -809,6 +825,8 @@ public ref struct TomlReader : ITokenReader
 
         if (_position < _data.Length && _data[_position] == (byte)'{')
         {
+            if (!BracketedValueComplete(_position) && !_isFinalBlock)
+                throw new IncompleteInputException();
             _position++;
             _inInlineTable = true;
             _inlineTableDepth = 1;
@@ -859,6 +877,8 @@ public ref struct TomlReader : ITokenReader
                     }
                     _position++;
                 }
+                if (!_isFinalBlock)
+                    throw new IncompleteInputException();
             }
             else
             {
@@ -892,6 +912,8 @@ public ref struct TomlReader : ITokenReader
                     }
                     _position++;
                 }
+                if (!_isFinalBlock)
+                    throw new IncompleteInputException();
             }
             else
             {
@@ -899,6 +921,8 @@ public ref struct TomlReader : ITokenReader
                 while (_position < _data.Length && _data[_position] != (byte)'\'')
                     _position++;
                 _valueSpan = _data[vs.._position];
+                if (_position >= _data.Length && !_isFinalBlock)
+                    throw new IncompleteInputException();
                 _position++;
             }
         }
@@ -911,6 +935,8 @@ public ref struct TomlReader : ITokenReader
                 && _data[_position] != (byte)'\r'
             )
                 _position++;
+            if (_position >= _data.Length && !_isFinalBlock)
+                throw new IncompleteInputException();
             _valueSpan = _data[vs.._position];
         }
     }
@@ -939,6 +965,8 @@ public ref struct TomlReader : ITokenReader
 
         if (_data[_position] == (byte)'}')
         {
+            if (_position >= _data.Length && !_isFinalBlock)
+                throw new IncompleteInputException();
             _position++;
             _inlineTableDepth--;
             if (_inlineTableDepth == 0)
@@ -1092,6 +1120,66 @@ public ref struct TomlReader : ITokenReader
     /// backslash the original buffer slice is returned (zero allocation); when it
     /// does, a pooled buffer is rented, tracked for disposal, and returned.
     /// </summary>
+    /// <summary>
+    /// True when the bracketed value starting at <paramref name="start"/>
+    /// (a '[' or '{') has its matching closing bracket inside the buffer.
+    /// Quotes and comments are honoured so brackets in strings do not count.
+    /// </summary>
+    private bool BracketedValueComplete(int start)
+    {
+        int i = start;
+        int depth = 0;
+        while (i < _data.Length)
+        {
+            byte b = _data[i];
+            if (b == (byte)35)
+            {
+                while (i < _data.Length && _data[i] != (byte)10 && _data[i] != (byte)13)
+                    i++;
+                continue;
+            }
+            if (b == (byte)34)
+            {
+                i++;
+                while (i < _data.Length)
+                {
+                    if (_data[i] == (byte)92)
+                    {
+                        i += 2;
+                        continue;
+                    }
+                    if (_data[i] == (byte)34)
+                    {
+                        i++;
+                        break;
+                    }
+                    i++;
+                }
+                continue;
+            }
+            if (b == (byte)39)
+            {
+                i++;
+                while (i < _data.Length && _data[i] != (byte)39)
+                    i++;
+                if (i >= _data.Length)
+                    return false;
+                i++;
+                continue;
+            }
+            if (b is (byte)91 or (byte)123)
+                depth++;
+            else if (b is (byte)93 or (byte)125)
+            {
+                depth--;
+                if (depth == 0)
+                    return true;
+            }
+            i++;
+        }
+        return false;
+    }
+
     private ReadOnlySpan<byte> ReadBasicStringSpan()
     {
         int start = _position;
@@ -1111,6 +1199,8 @@ public ref struct TomlReader : ITokenReader
             }
             _position++;
         }
+        if (_position >= _data.Length && !_isFinalBlock)
+            throw new IncompleteInputException();
         var content = _data[start.._position];
         if (_position < _data.Length)
             _position++; // consume closing quote

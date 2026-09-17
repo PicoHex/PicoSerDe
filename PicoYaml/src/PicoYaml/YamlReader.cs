@@ -378,7 +378,8 @@ public ref struct YamlReader : ITokenReader
             catch (Exception ex)
                 when (!_isFinalBlock
                     && ex
-                        is FormatException
+                        is IncompleteInputException
+                            or FormatException
                             or IndexOutOfRangeException
                             or ArgumentOutOfRangeException
                 )
@@ -388,10 +389,19 @@ public ref struct YamlReader : ITokenReader
                 return false;
             }
         }
-        var result = ReadImpl();
-        if (!result)
-            _needsMoreData = !_isFinalBlock;
-        return result;
+        try
+        {
+            var result = ReadImpl();
+            if (!result)
+                _needsMoreData = !_isFinalBlock;
+            return result;
+        }
+        catch (IncompleteInputException)
+        {
+            // Non-final span reads must report NeedsMoreData, never throw.
+            _needsMoreData = true;
+            return false;
+        }
     }
 
     /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>
@@ -560,6 +570,10 @@ public ref struct YamlReader : ITokenReader
         {
             if (_stackCount > 0)
             {
+                // A non-final chunk may still contain more lines of this
+                // mapping; the synthetic ObjectEnd must wait for them.
+                if (!_isFinalBlock)
+                    throw new IncompleteInputException();
                 PopIndent();
                 _tokenType = TokenType.ObjectEnd;
                 _depth--;
@@ -717,6 +731,8 @@ public ref struct YamlReader : ITokenReader
                     _position++;
                 _valueSpan = Trim(_data[vs.._position]);
             }
+            if (_position >= _data.Length && !_isFinalBlock)
+                throw new IncompleteInputException();
             SkipNewlineSpan();
             _tokenType = TokenType.String;
             return true;
@@ -766,6 +782,8 @@ public ref struct YamlReader : ITokenReader
         )
             _position++;
         _keySpan = TrimEnd(_data[ks.._position]);
+        if (_position >= _data.Length && !_isFinalBlock)
+            throw new IncompleteInputException();
         if (_position >= _data.Length || _data[_position] != (byte)':')
             throw new FormatException("Invalid YAML mapping line: expected ':'.");
         _position++;
@@ -835,6 +853,8 @@ public ref struct YamlReader : ITokenReader
                 }
                 // Handle newline
                 bool hadNewline = _position < _data.Length;
+                if (!hadNewline && !_isFinalBlock)
+                    throw new IncompleteInputException();
                 SkipNewlineSpan();
                 // Check if next line is still part of block (indented >= baseIndent)
                 int nextBlockIndent = 0;
@@ -944,6 +964,8 @@ public ref struct YamlReader : ITokenReader
         }
         if (_position < _data.Length && _data[_position] == (byte)'{')
         {
+            if (!FlowValueComplete(_position) && !_isFinalBlock)
+                throw new IncompleteInputException();
             _position++;
             _inFlow = true;
             _flowStartEmitted = false;
@@ -1063,6 +1085,8 @@ public ref struct YamlReader : ITokenReader
         )
             _position++;
         _keySpan = TrimEnd(_data[ks.._position]);
+        if (_position >= _data.Length && !_isFinalBlock)
+            throw new IncompleteInputException();
         if (_position >= _data.Length || _data[_position] != (byte)':')
             throw new FormatException("Invalid YAML mapping line: expected ':'.");
         _position++;
@@ -1123,6 +1147,52 @@ public ref struct YamlReader : ITokenReader
     /// unescapes the content. Single-quoted scalars use a separate (''-doubled)
     /// path and are not handled here.
     /// </summary>
+    /// <summary>
+    /// True when the flow collection starting at <paramref name="start"/>
+    /// (a '{' or '[') has its matching close inside the buffer; quotes and
+    /// comments are honoured.
+    /// </summary>
+    private bool FlowValueComplete(int start)
+    {
+        int i = start;
+        int depth = 0;
+        while (i < _data.Length)
+        {
+            byte b = _data[i];
+            if (b == (byte)35)
+            {
+                while (i < _data.Length && _data[i] != (byte)10 && _data[i] != (byte)13)
+                    i++;
+                continue;
+            }
+            if (b == (byte)34 || b == (byte)39)
+            {
+                byte q = b;
+                i++;
+                while (i < _data.Length && _data[i] != q)
+                {
+                    if (q == (byte)34 && _data[i] == (byte)92)
+                        i++;
+                    i++;
+                }
+                if (i >= _data.Length)
+                    return false;
+                i++;
+                continue;
+            }
+            if (b == (byte)123 || b == (byte)91)
+                depth++;
+            else if (b == (byte)125 || b == (byte)93)
+            {
+                depth--;
+                if (depth == 0)
+                    return true;
+            }
+            i++;
+        }
+        return false;
+    }
+
     private ReadOnlySpan<byte> ReadDoubleQuotedStringSpan()
     {
         int start = _position;
@@ -1142,6 +1212,8 @@ public ref struct YamlReader : ITokenReader
             }
             _position++;
         }
+        if (_position >= _data.Length && !_isFinalBlock)
+            throw new IncompleteInputException();
         var content = _data[start.._position];
         if (_position < _data.Length)
             _position++; // consume closing quote
@@ -1259,6 +1331,8 @@ public ref struct YamlReader : ITokenReader
             }
             _position++;
         }
+        if (_position >= _data.Length && !_isFinalBlock)
+            throw new IncompleteInputException();
         var content = _data[start.._position];
         if (_position < _data.Length)
             _position++; // consume closing quote

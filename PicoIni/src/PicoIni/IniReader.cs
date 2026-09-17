@@ -222,9 +222,6 @@ public ref struct IniReader : ITokenReader
         }
 
         // Emit pending value from previous PropertyName read
-        Console.Error.WriteLine(
-            $"[INI] read pos={_position} real={_realLength} norm={_normalizedSequence} pending={_hasPendingValue} tok={_tokenType}"
-        );
         if (_hasPendingValue)
         {
             _currentValue = _pendingValue;
@@ -271,7 +268,16 @@ public ref struct IniReader : ITokenReader
                 return false;
             }
         }
-        return _isSequence ? ReadSeq() : ReadSpan();
+        try
+        {
+            return _isSequence ? ReadSeq() : ReadSpan();
+        }
+        catch (IncompleteInputException)
+        {
+            // Non-final span reads must report NeedsMoreData, never throw.
+            _needsMoreData = true;
+            return false;
+        }
     }
 
     /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>

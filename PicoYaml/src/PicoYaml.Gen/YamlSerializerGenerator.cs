@@ -1685,8 +1685,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
         // Streaming for YAML is document-oriented: DeserializeFromStreamAsync
         // buffers the payload and uses the synchronous parser (always correct).
-        // The incremental delegate is intentionally not registered until the
-        // parser exposes a formal incomplete-input signal.
+        // Incremental resume needs the block-mapping indent stack carried
+        // through the delegate (follow-up); the explicit incomplete signal is
+        // already in place in the reader.
         sb.AppendLine();
 
         sb.Append("file static class ");
@@ -1708,6 +1709,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     /// Emits the streaming deserializer: the synchronous dispatch wrapped in a
     /// snapshot/rewind guard, so an incomplete chunk resumes at the member
     /// start with previously parsed members carried by <c>partial</c>.
+    /// </summary>
+    /// <summary>
+    /// Emits the streaming deserializer: the synchronous dispatch with a
+    /// per-member snapshot. Failures inside a member rewind to its start;
+    /// failures while reading the next member's token keep the safe token
+    /// position so the resume always advances.
     /// </summary>
     private static void EmitYamlStreaming(
         StringBuilder sb,
@@ -1749,36 +1756,40 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             "            if (!r.Read()) return r.NeedsMoreData ? ReadStatus.NeedMoreData : (r.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput);"
         );
         sb.AppendLine("        }");
+        sb.AppendLine("        long __snap = 0;");
         sb.AppendLine("        while (true) {");
-        sb.AppendLine("            long __snap = r.TokenStart;");
-        sb.AppendLine("            while (true) {");
-        sb.AppendLine("                if (r.TokenType != TokenType.PropertyName) {");
-        sb.AppendLine("                    if (!r.Read()) break;");
-        sb.AppendLine("                    continue;");
-        sb.AppendLine("                }");
-        sb.AppendLine("                var k = r.KeySpan;");
+        sb.AppendLine("            if (r.TokenType != TokenType.PropertyName) {");
+        sb.AppendLine(
+            "                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
+        );
+        sb.AppendLine("                continue;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            __snap = r.TokenStart;");
+        sb.AppendLine("            var k = r.KeySpan;");
         for (int i = 0; i < t.Properties.Length; i++)
         {
             var p = t.Properties[i];
-            sb.Append("                ");
+            sb.Append("            ");
             sb.Append(i == 0 ? "if" : "else if");
             sb.Append(" (TextHelpers.Eq(k, \"");
             sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             sb.AppendLine("\"u8)) {");
-            EmitDeserialize(sb, p, "o", "                    ", ctorMap: ctorMap);
-            sb.AppendLine("                }");
+            EmitDeserialize(sb, p, "o", "                ", ctorMap: ctorMap);
+            sb.AppendLine("            }");
         }
-        sb.AppendLine("                else {");
-        sb.AppendLine("                    if (!r.Read()) break;");
-        sb.AppendLine("                }");
+        sb.AppendLine("            else {");
+        sb.AppendLine(
+            "                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }"
+        );
         sb.AppendLine("            }");
-        sb.AppendLine("            if (r.NeedsMoreData) {");
-        sb.AppendLine("                r.RewindTo(__snap);");
-        sb.AppendLine("                return ReadStatus.NeedMoreData;");
-        sb.AppendLine("            }");
-        sb.AppendLine("            result = o;");
-        sb.AppendLine("            return ReadStatus.Success;");
         sb.AppendLine("        }");
+        sb.AppendLine("        // Reached via a container read that hit the buffer end.");
+        sb.AppendLine("        if (r.NeedsMoreData) {");
+        sb.AppendLine("            r.RewindTo(__snap);");
+        sb.AppendLine("            return ReadStatus.NeedMoreData;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        result = o;");
+        sb.AppendLine("        return ReadStatus.Success;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
     }
