@@ -3175,7 +3175,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             foreach (var prop in dti.Properties)
             {
                 if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
+                {
+                    // Nested object/dict members use the shared member emitter
+                    // (previously dropped from the polymorphic branch).
+                    EmitSerialize(s, prop, "__v", "                ");
                     continue;
+                }
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 // DefaultIgnoreCondition: same guard as the other YAML emit paths
                 var acc = $"__v.{prop.Name}";
@@ -3282,8 +3287,6 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
                 var prop = dti.Properties[pi];
-                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
-                    continue;
                 var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 s.Append("                ");
@@ -3291,6 +3294,46 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(" (MemoryExtensions.SequenceEqual(__k, \"");
                 s.Append(pn);
                 s.AppendLine("\"u8)) {");
+                if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
+                {
+                    var __cmIdx = -1;
+                    if (hasCtor)
+                    {
+                        for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                            if (
+                                string.Equals(
+                                    dti.CtorParams[ci].Name,
+                                    prop.Name,
+                                    StringComparison.OrdinalIgnoreCase
+                                )
+                            )
+                            {
+                                __cmIdx = ci;
+                                break;
+                            }
+                    }
+                    if (__cmIdx >= 0 && prop.TypeKind == "object")
+                    {
+                        // Ctor parameter: read the nested object directly.
+                        var __cmSn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                            "YamlInner",
+                            prop.TypeFullName!
+                        );
+                        s.Append("                    __cp_");
+                        s.Append(__cmIdx);
+                        s.Append(" = ");
+                        s.Append(__cmSn);
+                        s.AppendLine(".Deserialize(ref reader);");
+                    }
+                    else if (__cmIdx < 0)
+                    {
+                        // Non-ctor members reuse the shared inline property read
+                        // (nested objects/lists/dicts).
+                        EmitDeserializeInline(s, prop, "obj", "                    ");
+                    }
+                    s.AppendLine("                }");
+                    continue;
+                }
                 if (hasCtor)
                 {
                     int matchIdx = -1;

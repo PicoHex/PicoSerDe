@@ -50,6 +50,46 @@ public class PolyInheritanceTests
     }
 
     [Test]
+    public async Task Toml_DerivedWithNestedObject_RoundTrips()
+    {
+        PolyPerson person = new PolyEmployee
+        {
+            Id = 7,
+            Name = "Ada",
+            Address = new PolyAddress { City = "Cambridge" },
+        };
+
+        var toml = TomlSerializer.Serialize(person);
+        var back = TomlSerializer.Deserialize<PolyPerson>(System.Text.Encoding.UTF8.GetBytes(toml));
+
+        await Assert.That(back).IsTypeOf<PolyEmployee>();
+        var employee = (PolyEmployee)back!;
+        await Assert.That(employee.Id).IsEqualTo(7);
+        await Assert.That(employee.Name).IsEqualTo("Ada");
+        await Assert.That(employee.Address.City).IsEqualTo("Cambridge").Because("toml=" + toml);
+    }
+
+    [Test]
+    public async Task Yaml_DerivedWithNestedObject_RoundTrips()
+    {
+        PolyPerson person = new PolyEmployee
+        {
+            Id = 7,
+            Name = "Ada",
+            Address = new PolyAddress { City = "Cambridge" },
+        };
+
+        var yaml = YamlSerializer.Serialize(person);
+        var back = YamlSerializer.Deserialize<PolyPerson>(System.Text.Encoding.UTF8.GetBytes(yaml));
+
+        await Assert.That(back).IsTypeOf<PolyEmployee>();
+        var employee = (PolyEmployee)back!;
+        await Assert.That(employee.Id).IsEqualTo(7);
+        await Assert.That(employee.Name).IsEqualTo("Ada");
+        await Assert.That(employee.Address.City).IsEqualTo("Cambridge").Because("yaml=" + yaml);
+    }
+
+    [Test]
     public async Task MsgPack_DerivedWithInheritedMember_RoundTrips()
     {
         PolyPerson person = new PolyEmployee

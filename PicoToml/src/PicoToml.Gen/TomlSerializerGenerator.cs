@@ -2867,7 +2867,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             foreach (var prop in dti.Properties)
             {
                 if (PicoSerDe.Gen.GenInfrastructure.IsComplexMember(prop))
+                {
+                    // Nested object/dict member: '[Section]' + inner helper
+                    // (previously dropped from the polymorphic branch).
+                    EmitSerializeProp(s, prop, "__v", "                ");
                     continue;
+                }
                 var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
                 // TOML has no null literal — null poly values are always omitted.
                 var acc = $"__v.{prop.Name}";
@@ -2951,10 +2956,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("();");
             }
 
-            s.AppendLine(
-                "            while (reader.Read() && reader.TokenType == TokenType.PropertyName) {"
-            );
-            s.AppendLine("                var __k = reader.KeySpan;");
+            s.AppendLine("            reader.Read();");
+            s.AppendLine("            while (true) {");
+            s.AppendLine("                if (reader.TokenType == TokenType.PropertyName) {");
+            s.AppendLine("                    var __k = reader.KeySpan;");
             var first = true;
             for (int pi = 0; pi < dti.Properties.Length; pi++)
             {
@@ -3002,6 +3007,58 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 }
                 s.AppendLine("                }");
             }
+            s.AppendLine("                    if (!reader.Read()) break;");
+            s.AppendLine("                    continue;");
+            s.AppendLine("                }");
+            var __polyComplex = dti
+                .Properties.Where(PicoSerDe.Gen.GenInfrastructure.IsComplexMember)
+                .ToImmutableArray();
+            if (__polyComplex.Length > 0)
+            {
+                s.AppendLine("                if (reader.TokenType == TokenType.ObjectStart) {");
+                s.AppendLine("                    var __tbl = reader.TablePath;");
+                var __cmFirst = true;
+                foreach (var prop in __polyComplex)
+                {
+                    var __cmIdx = -1;
+                    if (hasCtor)
+                    {
+                        for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                            if (
+                                string.Equals(
+                                    dti.CtorParams[ci].Name,
+                                    prop.Name,
+                                    StringComparison.OrdinalIgnoreCase
+                                )
+                            )
+                            {
+                                __cmIdx = ci;
+                                break;
+                            }
+                    }
+                    if (hasCtor && __cmIdx < 0)
+                        continue;
+                    var __cmKw = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref __cmFirst);
+                    s.Append("                    ");
+                    s.Append(__cmKw);
+                    s.Append(" (TextHelpers.Eq(__tbl, \"");
+                    s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
+                    s.AppendLine("\"u8)) {");
+                    var __cmHelper = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        prop.TypeKind == "dict" ? "TomlDictInner" : "TomlInner",
+                        prop.TypeKind == "dict" ? prop.ElementTypeName! : prop.TypeFullName!
+                    );
+                    s.Append("                        ");
+                    s.Append(__cmIdx >= 0 ? $"__cp_{__cmIdx}" : $"obj.{prop.Name}");
+                    s.Append(" = ");
+                    s.Append(__cmHelper);
+                    s.AppendLine(".Deserialize(ref reader);");
+                    s.AppendLine("                    }");
+                }
+                s.AppendLine("                    continue;");
+                s.AppendLine("                }");
+            }
+            s.AppendLine("                if (!reader.Read()) break;");
             s.AppendLine("            }");
             if (hasCtor)
             {
