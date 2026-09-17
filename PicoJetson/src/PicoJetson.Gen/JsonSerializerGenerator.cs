@@ -5234,8 +5234,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     {
         // For nested lists, use ElementTypeName (e.g. "System.Collections.Generic.List<int>");
         // for primitives, resolve from TypeKind (e.g. "int32" → "int").
-        var innerTypeName = prop.TypeKind is "list" or "array"
-            ? (prop.ElementTypeName ?? "object")
+        var innerTypeName =
+            prop.TypeKind is "list" or "array" ? (prop.ElementTypeName ?? "object")
+            : prop.TypeKind == "object" ? (prop.ElementTypeName ?? prop.TypeFullName ?? "object")
             : ResolveCSharpTypeName(prop.TypeKind);
         var innerVar = nestLevel == 0 ? $"__inner_{propName}" : $"__inner_{propName}_{nestLevel}";
 

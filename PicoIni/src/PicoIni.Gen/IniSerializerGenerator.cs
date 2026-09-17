@@ -438,6 +438,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         // Recursive members cannot be represented by INI sections: surface the
         // per-format skip as the shared PICOSERDE003 diagnostic.
         PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, types);
+        PicoSerDe.Gen.GenInfrastructure.ReportUnsupportedMembers(spc, types);
         // Merge duplicate FQNs, preferring poly entries (same as JSON SG)
         var typeMap = new Dictionary<string, TypeInfo>();
         foreach (var t in types)

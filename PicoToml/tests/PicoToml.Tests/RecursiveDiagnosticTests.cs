@@ -77,6 +77,26 @@ public class RecursiveDiagnosticTests
     }
 
     [Test]
+    public async Task NestedListMember_IsReported()
+    {
+        const string source = """
+            using PicoToml;
+
+            public class Leaf { public string Name { get; set; } = ""; }
+
+            public class Holder { public System.Collections.Generic.List<System.Collections.Generic.List<Leaf>> Rows { get; set; } = new(); }
+
+            public static class Probe
+            {
+                public static byte[] Run() => TomlSerializer.Serialize(new Holder());
+            }
+            """;
+
+        var ids = RunGenerator(source);
+        await Assert.That(ids).Contains("PICOSERDE004");
+    }
+
+    [Test]
     public async Task RecursiveMember_IsReported()
     {
         const string source = """

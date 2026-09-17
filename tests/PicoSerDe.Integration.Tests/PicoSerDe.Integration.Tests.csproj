@@ -7,8 +7,8 @@
 <IsPackable>false</IsPackable>
     <!-- IL2026/IL3050: TUnit reflection (test-only). PICOSERDE002: the hint-name
          collision fixtures intentionally collide. PICOSERDE003: recursive fixtures
-         intentionally exercise the TOML/YAML/INI limitation; both warnings are the tested behavior. -->
-    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE002;PICOSERDE003</NoWarn>
+         intentionally exercise the TOML/YAML/INI limitation; all three warnings are the tested behavior. -->
+    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE002;PICOSERDE003;PICOSERDE004</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Generated code must be nullability-clean (review P2-1). -->

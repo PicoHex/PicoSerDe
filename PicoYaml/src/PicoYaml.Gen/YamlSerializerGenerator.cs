@@ -422,6 +422,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         // (merged) property sets, and surface per-format skips as PICOSERDE003.
         PicoSerDe.Gen.GenInfrastructure.SeedRecursiveTargets(validTypes, nestedTypes);
         PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
+        PicoSerDe.Gen.GenInfrastructure.ReportUnsupportedMembers(spc, validTypes);
 
         // Collect nested Dictionary types
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();

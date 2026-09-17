@@ -33,7 +33,10 @@ internal readonly record struct TypeInfo(
     bool IsTopLevelList = false,
     // Members skipped because they are recursive/self-referencing for this
     // format (TOML/YAML/INI); surfaced as PICOSERDE003 by GenerateAll.
-    ImmutableArray<string> SkippedRecursiveMembers = default
+    ImmutableArray<string> SkippedRecursiveMembers = default,
+    // Members skipped because this format cannot represent them at all
+    // (e.g. nested lists in TOML/YAML/INI); surfaced as PICOSERDE004.
+    ImmutableArray<string> SkippedUnsupportedMembers = default
 )
 {
     public bool Equals(TypeInfo other) =>
@@ -48,7 +51,8 @@ internal readonly record struct TypeInfo(
         && IsTopLevelList == other.IsTopLevelList
         && DiscriminatorPropertyName == other.DiscriminatorPropertyName
         && DerivedTypes.SequenceEqual(other.DerivedTypes)
-        && SkippedRecursiveMembers.SequenceEqual(other.SkippedRecursiveMembers);
+        && SkippedRecursiveMembers.SequenceEqual(other.SkippedRecursiveMembers)
+        && SkippedUnsupportedMembers.SequenceEqual(other.SkippedUnsupportedMembers);
 
     public override int GetHashCode()
     {
@@ -64,6 +68,8 @@ internal readonly record struct TypeInfo(
         foreach (var dt in DerivedTypes)
             hash = (hash * 397) ^ dt.GetHashCode();
         foreach (var m in SkippedRecursiveMembers)
+            hash = (hash * 397) ^ m.GetHashCode();
+        foreach (var m in SkippedUnsupportedMembers)
             hash = (hash * 397) ^ m.GetHashCode();
         return hash;
     }
@@ -210,6 +216,44 @@ internal static class GenInfrastructure
         var keyword = first ? "if" : "else if";
         first = false;
         return keyword;
+    }
+
+    /// <summary>
+    /// A member whose shape this format cannot represent at all (for example a
+    /// nested list in TOML/YAML/INI) is dropped with this shared diagnostic
+    /// instead of emitting non-compiling or lossy code.
+    /// </summary>
+    private static readonly DiagnosticDescriptor UnsupportedMemberSkippedWarning = new(
+        id: "PICOSERDE004",
+        title: "Member skipped by this format",
+        messageFormat: "Member '{0}' cannot be represented by this format — it will be ignored",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// Reports PICOSERDE004 for every unsupported member skipped during
+    /// extraction. Called by the TOML/YAML/INI generators from GenerateAll.
+    /// </summary>
+    public static void ReportUnsupportedMembers(
+        SourceProductionContext spc,
+        IEnumerable<TypeInfo> typeInfos
+    )
+    {
+        // A type discovered from several usage sites carries the same skip on
+        // every entry: report each member once.
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in typeInfos)
+        {
+            if (t.SkippedUnsupportedMembers.IsDefaultOrEmpty)
+                continue;
+            foreach (var member in t.SkippedUnsupportedMembers)
+                if (reported.Add(member))
+                    spc.ReportDiagnostic(
+                        Diagnostic.Create(UnsupportedMemberSkippedWarning, null, member)
+                    );
+        }
     }
 
     /// <summary>Reports a skipped type whose generated file name collided.</summary>
@@ -564,6 +608,7 @@ internal static class GenInfrastructure
 
         var useCamelCase = attrs.HasCamelCase(namedType);
         var skippedRecursive = new List<string>();
+        var skippedUnsupported = new List<string>();
         var properties = ExtractProperties(
             namedType,
             config.FormatTag,
@@ -572,7 +617,8 @@ internal static class GenInfrastructure
             useCamelCase,
             visiting: new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default) { namedType },
             includeFields: includeFields,
-            skippedRecursive: skippedRecursive
+            skippedRecursive: skippedRecursive,
+            skippedUnsupported: skippedUnsupported
         );
 
         return new TypeInfo(
@@ -582,7 +628,8 @@ internal static class GenInfrastructure
             properties.ToImmutableArray(),
             IsRefLikeType: namedType.IsRefLikeType,
             IsValueType: namedType.IsValueType,
-            SkippedRecursiveMembers: skippedRecursive.ToImmutableArray()
+            SkippedRecursiveMembers: skippedRecursive.ToImmutableArray(),
+            SkippedUnsupportedMembers: skippedUnsupported.ToImmutableArray()
         );
     }
 
@@ -709,7 +756,8 @@ internal static class GenInfrastructure
         AttributeHelpers attrs,
         string formatTag,
         HashSet<INamedTypeSymbol>? visiting,
-        List<string>? skippedRecursive = null
+        List<string>? skippedRecursive = null,
+        List<string>? skippedUnsupported = null
     )
     {
         var useCamelCase = attrs.HasCamelCase(type);
@@ -723,7 +771,8 @@ internal static class GenInfrastructure
             useCamelCase,
             includeFields: includeFields,
             visiting: visiting,
-            skippedRecursive: skippedRecursive
+            skippedRecursive: skippedRecursive,
+            skippedUnsupported: skippedUnsupported
         );
         return properties.ToImmutableArray();
     }
@@ -740,7 +789,8 @@ internal static class GenInfrastructure
         string formatTag,
         HashSet<INamedTypeSymbol>? visiting,
         out bool isRecursiveRef,
-        List<string>? skippedRecursive = null
+        List<string>? skippedRecursive = null,
+        List<string>? skippedUnsupported = null
     )
     {
         isRecursiveRef = false;
@@ -751,7 +801,14 @@ internal static class GenInfrastructure
         }
         try
         {
-            return ExtractNestedProperties(type, attrs, formatTag, visiting, skippedRecursive);
+            return ExtractNestedProperties(
+                type,
+                attrs,
+                formatTag,
+                visiting,
+                skippedRecursive,
+                skippedUnsupported
+            );
         }
         finally
         {
@@ -793,7 +850,8 @@ internal static class GenInfrastructure
         bool useCamelCase,
         bool includeFields = false,
         HashSet<INamedTypeSymbol>? visiting = null,
-        List<string>? skippedRecursive = null
+        List<string>? skippedRecursive = null,
+        List<string>? skippedUnsupported = null
     )
     {
         var result = ExtractProperties(
@@ -805,7 +863,8 @@ internal static class GenInfrastructure
             null,
             includeFields,
             visiting,
-            skippedRecursive
+            skippedRecursive,
+            skippedUnsupported
         );
         // Field-based fallback for System.ValueTuple<...>: tuples carry their data in
         // public fields and have no serializable properties — extract fields so they
@@ -822,7 +881,8 @@ internal static class GenInfrastructure
                 null,
                 includeFields: true,
                 visiting: visiting,
-                skippedRecursive: skippedRecursive
+                skippedRecursive: skippedRecursive,
+                skippedUnsupported: skippedUnsupported
             );
         }
         return result;
@@ -841,7 +901,8 @@ internal static class GenInfrastructure
         List<Diagnostic>? diagnostics,
         bool includeFields = false,
         HashSet<INamedTypeSymbol>? visiting = null,
-        List<string>? skippedRecursive = null
+        List<string>? skippedRecursive = null,
+        List<string>? skippedUnsupported = null
     )
     {
         var list = new List<PropertyInfo>();
@@ -876,7 +937,8 @@ internal static class GenInfrastructure
                         formatTag,
                         visiting,
                         out fieldRecursive,
-                        skippedRecursive
+                        skippedRecursive,
+                        skippedUnsupported
                     );
                 }
 
@@ -993,6 +1055,14 @@ internal static class GenInfrastructure
                 var (ek, _, _) = TypeKindResolver.Resolve(elementType, formatTag);
                 if (ek is null)
                     continue;
+                // Section-based formats cannot represent a nested list at all;
+                // drop the member with a shared PICOSERDE004 diagnostic instead
+                // of emitting non-compiling or lossy element code.
+                if (formatTag is "toml" or "yaml" or "ini" && ek is "list" or "array")
+                {
+                    skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                    continue;
+                }
                 // Extended collection kinds are not supported as nested elements yet —
                 // drop (instead of emitting element code that does not compile).
                 if (
@@ -1032,7 +1102,9 @@ internal static class GenInfrastructure
                         ntsNested,
                         formatTag,
                         attrs,
-                        visiting
+                        visiting,
+                        skippedRecursive,
+                        skippedUnsupported
                     );
                 }
                 else if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
@@ -1043,7 +1115,8 @@ internal static class GenInfrastructure
                         formatTag,
                         visiting,
                         out recursiveRef,
-                        skippedRecursive
+                        skippedRecursive,
+                        skippedUnsupported
                     );
                 }
             }
@@ -1094,7 +1167,8 @@ internal static class GenInfrastructure
                             formatTag,
                             visiting,
                             out recursiveRef,
-                            skippedRecursive
+                            skippedRecursive,
+                            skippedUnsupported
                         );
                     }
                     else if (
@@ -1125,7 +1199,8 @@ internal static class GenInfrastructure
                     formatTag,
                     visiting,
                     out recursiveRef,
-                    skippedRecursive
+                    skippedRecursive,
+                    skippedUnsupported
                 );
             }
 
@@ -1191,7 +1266,9 @@ internal static class GenInfrastructure
         INamedTypeSymbol listType,
         string formatTag,
         AttributeHelpers attrs,
-        HashSet<INamedTypeSymbol>? visiting = null
+        HashSet<INamedTypeSymbol>? visiting = null,
+        List<string>? skippedRecursive = null,
+        List<string>? skippedUnsupported = null
     )
     {
         // listType is a List<T> or similar — extract T
@@ -1206,15 +1283,37 @@ internal static class GenInfrastructure
         var innerTypeName = TypeKindResolver.MapTypeName(innerKind, innerType);
         var innerFullName = innerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         ImmutableArray<PropertyInfo> innerNested = ImmutableArray<PropertyInfo>.Empty;
+        bool innerRecursive = false;
 
-        // If the inner type is also a list, recurse
+        // If the inner type is also a list, recurse; an object element still
+        // needs its members extracted so the generated inner helper is not
+        // empty (and so a recursion back into the current type is detected).
         if (
             (innerKind is "list" or "array")
             && innerType is INamedTypeSymbol ntsInner
             && ntsInner.TypeArguments.Length == 1
         )
         {
-            innerNested = BuildNestedListElement(ntsInner, formatTag, attrs, visiting);
+            innerNested = BuildNestedListElement(
+                ntsInner,
+                formatTag,
+                attrs,
+                visiting,
+                skippedRecursive,
+                skippedUnsupported
+            );
+        }
+        else if (innerKind is "object" && innerType is INamedTypeSymbol ntsObjElem)
+        {
+            innerNested = ExtractNestedPropertiesGuarded(
+                ntsObjElem,
+                attrs,
+                formatTag,
+                visiting,
+                out innerRecursive,
+                skippedRecursive,
+                skippedUnsupported
+            );
         }
 
         var wrapper = new PropertyInfo(
@@ -1228,7 +1327,9 @@ internal static class GenInfrastructure
             KeyTypeKind: null,
             KeyTypeName: null,
             NestedProperties: innerNested,
-            ConverterTypeFullName: null
+            ConverterTypeFullName: null,
+            IsRecursiveRef: innerRecursive,
+            ElementTypeFullName: innerFullName
         );
 
         return ImmutableArray.Create(wrapper);
@@ -1248,7 +1349,8 @@ internal static class GenInfrastructure
         string formatTag,
         AttributeHelpers attrs,
         HashSet<INamedTypeSymbol>? visiting = null,
-        List<string>? skippedRecursive = null
+        List<string>? skippedRecursive = null,
+        List<string>? skippedUnsupported = null
     )
     {
         if (dictType.TypeArguments.Length != 2)
@@ -1278,7 +1380,8 @@ internal static class GenInfrastructure
                 formatTag,
                 visiting,
                 out isRecursiveDictValue,
-                skippedRecursive
+                skippedRecursive,
+                skippedUnsupported
             );
         }
         else if (
@@ -1292,7 +1395,8 @@ internal static class GenInfrastructure
                 formatTag,
                 attrs,
                 visiting,
-                skippedRecursive
+                skippedRecursive,
+                skippedUnsupported
             );
         }
 
@@ -1386,12 +1490,37 @@ internal static class GenInfrastructure
                 && !string.IsNullOrEmpty(prop.ElementTypeName)
             )
                 AddNestedType(prop.ElementTypeName!, prop.NestedProperties, nestedTypes);
+            // Nested list chains (List<List<...<TObject>>>): the innermost
+            // object element needs its own helper too.
+            if ((prop.TypeKind is "list" or "array") && prop.NestedProperties.Length > 0)
+                AddNestedTypeFromListChain(prop.NestedProperties[0], nestedTypes);
             // Recurse into nested-dict synthetic PropertyInfo to collect object value types
             if (prop.TypeKind == "dict" && prop.NestedProperties.Length > 0)
             {
                 foreach (var dnp in prop.NestedProperties)
                     AddNestedTypeFromDict(dnp, nestedTypes);
             }
+        }
+    }
+
+    private static void AddNestedTypeFromListChain(
+        PropertyInfo wrapper,
+        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes
+    )
+    {
+        var current = wrapper;
+        while (true)
+        {
+            if (current.TypeKind is "list" or "array")
+            {
+                if (current.NestedProperties.Length == 0)
+                    return;
+                current = current.NestedProperties[0];
+                continue;
+            }
+            if (current.TypeKind == "object" && !string.IsNullOrEmpty(current.TypeFullName))
+                AddNestedType(current.TypeFullName, current.NestedProperties, nestedTypes);
+            return;
         }
     }
 

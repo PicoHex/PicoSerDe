@@ -1764,6 +1764,35 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(a);
                 s.AppendLine(");");
                 break;
+            case "list":
+            case "array":
+            {
+                if (p.NestedProperties.Length == 0)
+                {
+                    s.Append(ind);
+                    s.AppendLine("mw.WriteNull();");
+                    break;
+                }
+                var innerElem = p.NestedProperties[0];
+                var lv = c++;
+                var vn = $"__nl{lv}";
+                s.Append(ind);
+                s.Append("mw.WriteStartArray(");
+                s.Append(a);
+                s.AppendLine(p.ElementTypeKind == "array" ? ".Length);" : ".Count);");
+                s.Append(ind);
+                s.Append("foreach (var ");
+                s.Append(vn);
+                s.Append(" in ");
+                s.Append(a);
+                s.AppendLine(") {");
+                WriteSerElem(s, innerElem, vn, ind + "    ", ref c);
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("mw.WriteEndArray();");
+                break;
+            }
             case "any":
                 EmitMsgPackAnySerialize(s, a, ind);
                 break;
@@ -2708,6 +2737,53 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append("(");
                 s.Append(sn);
                 s.AppendLine(".Deserialize(ref reader));");
+                break;
+            }
+            case "list":
+            case "array":
+            {
+                if (p.NestedProperties.Length == 0)
+                {
+                    s.Append(ind);
+                    s.Append(target);
+                    s.Append(op);
+                    s.AppendLine("(default!);");
+                    break;
+                }
+                var innerElem = p.NestedProperties[0];
+                var lv = c++;
+                var vn = $"__nl{lv}";
+                var innerListType = innerElem.ElementTypeName ?? innerElem.TypeFullName ?? "object";
+                s.Append(ind);
+                s.Append("var ");
+                s.Append(vn);
+                s.Append(" = new List<");
+                s.Append(innerListType);
+                s.AppendLine(">(16);");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
+                s.Append(ind);
+                s.AppendLine(
+                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
+                );
+                ReadDeserElem(s, innerElem, vn, ".Add", ind + "        ", ref c);
+                s.Append(ind);
+                s.AppendLine("    } }");
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                if (p.ElementTypeKind == "array")
+                {
+                    s.Append("(");
+                    s.Append(vn);
+                    s.AppendLine(".ToArray());");
+                }
+                else
+                {
+                    s.Append("(");
+                    s.Append(vn);
+                    s.AppendLine(");");
+                }
                 break;
             }
             case "any":
