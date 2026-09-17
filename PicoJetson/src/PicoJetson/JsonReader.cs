@@ -1295,7 +1295,17 @@ public ref struct JsonReader : ITokenReader
 
     private void ReadNumberSeq()
     {
-        var buf = ArrayPool<byte>.Shared.Rent(32);
+        // BUG-11: measure the token before copying — a JSON number has no
+        // length limit and used to overflow a fixed 32-byte buffer. The probe
+        // is a copy of the reader position, so it never mutates parser state.
+        var probe = new SequenceReader<byte>(_seqReader.Sequence.Slice(_seqReader.Position));
+        int measured = 0;
+        while (probe.TryPeek(0, out var pb) && IsNumberByte(pb))
+        {
+            probe.Advance(1);
+            measured++;
+        }
+        var buf = ArrayPool<byte>.Shared.Rent(Math.Max(32, measured + 1));
         TrackBuffer(buf);
         int di = 0;
         try
@@ -1384,6 +1394,16 @@ public ref struct JsonReader : ITokenReader
             throw;
         }
     }
+
+    private static bool IsNumberByte(byte b) =>
+        b
+            is >= (byte)'0'
+                and <= (byte)'9'
+                or (byte)'-'
+                or (byte)'+'
+                or (byte)'.'
+                or (byte)'e'
+                or (byte)'E';
 
     // ── Literal reading ──
 
