@@ -756,7 +756,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         );
         sb.AppendLine("        {");
         sb.AppendLine("            var __n = reader.GetStringRaw();");
-        sb.AppendLine("            reader.Read();");
+        // Streaming: an incomplete value must abort the helper so the caller
+        // can rewind to the property snapshot. Span mode keeps the old strict
+        // error path (NeedsMoreData is false there).
+        sb.AppendLine("            if (!reader.Read() && reader.NeedsMoreData) break;");
         for (int i = 0; i < props.Length; i++)
         {
             var np = props[i];
@@ -886,7 +889,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         );
         sb.AppendLine("            {");
         EmitDictInnerKeyRead(sb, dictProp, "                ");
-        sb.AppendLine("                reader.Read();");
+        sb.AppendLine("                if (!reader.Read() && reader.NeedsMoreData) break;");
         EmitDictInnerValueDeserialize(sb, dictProp, "obj", "                ");
         sb.AppendLine("            }");
         sb.AppendLine("        }");
@@ -1432,7 +1435,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         );
         sb.AppendLine("            {");
         sb.AppendLine("                var __nk = Encoding.UTF8.GetString(reader.GetStringRaw());");
-        sb.AppendLine("                reader.Read();");
+        sb.AppendLine("                if (!reader.Read() && reader.NeedsMoreData) break;");
         sb.AppendLine("                __nd[__nk] = DeserializeValue(ref reader);");
         sb.AppendLine("            }");
         sb.AppendLine("            return __nd;");
@@ -4467,54 +4470,39 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
         sb.AppendLine();
 
-        // Constructor-param temps and required-property flags persist across
-        // resumes (streaming state), so they stay OUTSIDE the IsResumed guard.
-        if (hasCtor)
+        // Constructor-param temps and required-property flags must survive
+        // chunk resumes, so they live in the reader's StreamState (exported
+        // across chunks) instead of per-call locals.
+        var streamReqProps = type.Properties.Where(p => p.IsRequired).ToArray();
+        bool needsPersistedState = hasCtor || streamReqProps.Length > 0;
+        if (needsPersistedState)
         {
-            // Declare temp variables for constructor parameters
-            for (int ci = 0; ci < type.CtorParams.Length; ci++)
+            sb.Append("        var __st = (");
+            sb.Append(type.Name);
+            sb.Append("StreamingState)(reader.StreamState ??= new ");
+            sb.Append(type.Name);
+            sb.AppendLine("StreamingState());");
+            if (hasCtor)
             {
-                var cp = type.CtorParams[ci];
-                // Use TypeFullName directly — MapTypeName with null type NREs
-                // for complex kinds (object, enum, list, dict).
-                var typeName = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
-                var defaultVal = cp.TypeKind switch
+                for (int ci = 0; ci < type.CtorParams.Length; ci++)
                 {
-                    "string" => "\"\"",
-                    "int32"
-                    or "int64"
-                    or "int16"
-                    or "uint16"
-                    or "sbyte"
-                    or "byte"
-                    or "uint32"
-                    or "uint64"
-                    or "float64" => "0",
-                    "boolean" => "false",
-                    _ => "default!",
-                };
-                sb.Append("        ");
-                sb.Append(typeName);
-                sb.Append(" __cp_");
-                sb.Append(ci);
-                sb.Append(" = ");
-                sb.Append(defaultVal);
-                sb.AppendLine(";");
+                    sb.Append("        ref var __cp_");
+                    sb.Append(ci);
+                    sb.Append(" = ref __st.__cp_");
+                    sb.Append(ci);
+                    sb.AppendLine(";");
+                }
             }
+            if (!hasCtor)
+                foreach (var rp in streamReqProps)
+                {
+                    sb.Append("        ref bool __seen_");
+                    sb.Append(rp.Name);
+                    sb.Append(" = ref __st.__seen_");
+                    sb.Append(rp.Name);
+                    sb.AppendLine(";");
+                }
         }
-        else
-        {
-            // Object creation happens inside the IsResumed guard below; only the
-            // required-property tracking flags persist across resumes.
-            var reqProps = type.Properties.Where(p => p.IsRequired).ToArray();
-        }
-        if (!hasCtor)
-            foreach (var rp in type.Properties.Where(p => p.IsRequired))
-            {
-                sb.Append("        bool __seen_");
-                sb.Append(rp.Name);
-                sb.AppendLine(" = false;");
-            }
         sb.AppendLine();
         sb.AppendLine("        // ReadStart runs on the first invocation only.");
         sb.AppendLine("        if (!reader.IsResumed)");
@@ -4533,6 +4521,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("        while (true)");
         sb.AppendLine("        {");
+        // Snapshot before the property name: any incomplete inner read
+        // rewinds here so the whole property is re-read on resume.
+        sb.AppendLine("            long __snap = reader.BytesConsumed;");
         sb.AppendLine(
             "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;"
         );
@@ -4575,6 +4566,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             );
             sb.AppendLine("            else reader.TrySkip();");
         }
+        // Any incomplete inner read (collection element, nested object, skipped
+        // member) rewinds to the property snapshot and asks for more data.
+        sb.AppendLine(
+            "            if (reader.NeedsMoreData) { reader.RewindTo(__snap); return ReadStatus.NeedMoreData; }"
+        );
         sb.AppendLine("        }");
         if (hasCtor)
         {
@@ -4602,6 +4598,54 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        return ReadStatus.Success;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
+
+        // Per-type streaming state holder: ctor args + required flags survive
+        // chunk boundaries via JsonReader.StreamState.
+        if (needsPersistedState)
+        {
+            sb.Append("file sealed class ");
+            sb.Append(type.Name);
+            sb.AppendLine("StreamingState");
+            sb.AppendLine("{");
+            if (hasCtor)
+                for (int ci = 0; ci < type.CtorParams.Length; ci++)
+                {
+                    var cp = type.CtorParams[ci];
+                    // Use TypeFullName directly — MapTypeName with null type NREs
+                    // for complex kinds (object, enum, list, dict).
+                    var typeName = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
+                    var defaultVal = cp.TypeKind switch
+                    {
+                        "string" => "\"\"",
+                        "int32"
+                        or "int64"
+                        or "int16"
+                        or "uint16"
+                        or "sbyte"
+                        or "byte"
+                        or "uint32"
+                        or "uint64"
+                        or "float64" => "0",
+                        "boolean" => "false",
+                        _ => "default!",
+                    };
+                    sb.Append("    public ");
+                    sb.Append(typeName);
+                    sb.Append(" __cp_");
+                    sb.Append(ci);
+                    sb.Append(" = ");
+                    sb.Append(defaultVal);
+                    sb.AppendLine(";");
+                }
+            if (!hasCtor)
+                foreach (var rp in streamReqProps)
+                {
+                    sb.Append("    public bool __seen_");
+                    sb.Append(rp.Name);
+                    sb.AppendLine(";");
+                }
+            sb.AppendLine("}");
+        }
     }
 
     private static void EmitRegistration(StringBuilder sb, TypeInfo type)

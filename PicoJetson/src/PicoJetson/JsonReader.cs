@@ -57,6 +57,10 @@ public ref struct JsonReader : ITokenReader
     private readonly bool _isFinalBlock;
     private bool _needsMoreData;
 
+    // Set when a read failed at the buffer end (sequence, non-final). Cleared by
+    // RewindTo or by constructing a reader for the next chunk.
+    private bool _incomplete;
+
     // One-time UTF-8 BOM resolution (sequence mode). Span mode resolves it in
     // the constructor and sets this to true.
     private bool _bomChecked;
@@ -117,6 +121,7 @@ public ref struct JsonReader : ITokenReader
     {
         _depth = state.Depth;
         _needsMoreData = false;
+        _incomplete = false;
         IsResumed = state.BytesConsumed > 0 || state.Depth > 0;
         StreamState = state.Aux;
         Rewound = state.Rewound;
@@ -229,10 +234,29 @@ public ref struct JsonReader : ITokenReader
             _seqReader.Rewind(_seqReader.Consumed - consumedOffset);
         else
             _position = (int)consumedOffset;
+        _incomplete = false;
         Rewound = true;
     }
 
     public bool Read()
+    {
+        // Sticky incomplete: once a read fails at the buffer end (sequence mode,
+        // non-final block), every further read on this reader instance keeps
+        // returning false until the caller rewinds (RewindTo) or a new reader is
+        // created for the next chunk. Inner loops therefore exit immediately
+        // instead of parsing tokens past the incomplete one.
+        if (_incomplete)
+        {
+            _needsMoreData = true;
+            return false;
+        }
+        bool ok = ReadCore();
+        if (!ok && _needsMoreData)
+            _incomplete = true;
+        return ok;
+    }
+
+    private bool ReadCore()
     {
         _needsMoreData = false;
         Rewound = false;
