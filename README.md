@@ -248,10 +248,16 @@ empty stream as an empty object; JSON throws `FormatException` ("the document
 contains no value").
 
 **Recursive DTOs**: JSON and MsgPack support self- and mutually-referencing
-types (cycle-safe extraction + seeded helpers). TOML/YAML/INI cannot express
+types (cycle-safe extraction + seeded helpers), including recursive members on
+polymorphic bases — nested values keep their derived (discriminator) type in
+both the sync and chunked streaming paths. TOML/YAML/INI cannot express
 unbounded nesting, so the recursive member is skipped and the source generator
 reports `PICOSERDE003` (never silent). Data-level object graph cycles fail
 loudly instead of overflowing the stack.
+
+**Polymorphic hierarchies** keep nested object/dict members of derived types in
+MsgPack, TOML and YAML (previously dropped from the discriminator branches);
+INI ignores them because its format is flat.
 
 **Diagnostics** (warnings, emitted by all five generators):
 `PICOSERDE002` — two distinct types produced the same generated file name

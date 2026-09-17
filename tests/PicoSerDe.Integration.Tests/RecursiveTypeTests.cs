@@ -26,6 +26,32 @@ public class DictNode
     public Dictionary<string, DictNode> Children { get; set; } = new();
 }
 
+[PicoSerializable]
+[PicoDerivedType(typeof(PolyRecLeaf), "leaf")]
+public abstract class PolyRecAbstract
+{
+    public int Value { get; set; }
+    public PolyRecAbstract? Next { get; set; }
+}
+
+public class PolyRecLeaf : PolyRecAbstract
+{
+    public string Extra { get; set; } = "";
+}
+
+[PicoSerializable]
+[PicoDerivedType(typeof(ConcRecLeaf), "leaf")]
+public class ConcRecBase
+{
+    public int Value { get; set; }
+    public ConcRecBase? Next { get; set; }
+}
+
+public class ConcRecLeaf : ConcRecBase
+{
+    public string Extra { get; set; } = "";
+}
+
 public class ElemNode
 {
     public string Name { get; set; } = "";
@@ -173,6 +199,94 @@ public class RecursiveTypeTests
 
         await Assert.That(back!.Items[0]!.Name).IsEqualTo("i");
         await Assert.That(back.Map["m"]!.Name).IsEqualTo("mm");
+    }
+
+    [Test]
+    public async Task Json_AbstractPolyRecursive_NestedDerivedTypeSurvives()
+    {
+        PolyRecAbstract root = new PolyRecLeaf
+        {
+            Value = 1,
+            Extra = "root",
+            Next = new PolyRecLeaf { Value = 2, Extra = "leaf" },
+        };
+
+        var json = JsonSerializer.Serialize(root);
+        var back = JsonSerializer.Deserialize<PolyRecAbstract>(Encoding.UTF8.GetBytes(json));
+
+        await Assert.That(back).IsTypeOf<PolyRecLeaf>();
+        await Assert.That(back!.Next).IsTypeOf<PolyRecLeaf>();
+        await Assert.That(((PolyRecLeaf)back.Next!).Extra).IsEqualTo("leaf");
+    }
+
+    [Test]
+    public async Task MsgPack_AbstractPolyRecursive_NestedDerivedTypeSurvives()
+    {
+        PolyRecAbstract root = new PolyRecLeaf
+        {
+            Value = 1,
+            Extra = "root",
+            Next = new PolyRecLeaf { Value = 2, Extra = "leaf" },
+        };
+
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(root);
+        var back = MsgPackSerializer.Deserialize<PolyRecAbstract>(bytes);
+
+        await Assert.That(back).IsTypeOf<PolyRecLeaf>();
+        await Assert.That(((PolyRecLeaf)back!.Next!).Extra).IsEqualTo("leaf");
+    }
+
+    [Test]
+    public async Task Json_ConcretePolyRecursive_NestedDerivedTypeSurvives()
+    {
+        ConcRecBase root = new ConcRecLeaf
+        {
+            Value = 1,
+            Extra = "root",
+            Next = new ConcRecLeaf { Value = 2, Extra = "leaf" },
+        };
+
+        var json = JsonSerializer.Serialize(root);
+        var back = JsonSerializer.Deserialize<ConcRecBase>(Encoding.UTF8.GetBytes(json));
+
+        await Assert.That(((ConcRecLeaf)back!.Next!).Extra).IsEqualTo("leaf");
+    }
+
+    [Test]
+    public async Task Json_Streaming_AbstractPolyRecursive_NestedDerivedTypeSurvives()
+    {
+        PolyRecAbstract root = new PolyRecLeaf
+        {
+            Value = 1,
+            Extra = "root",
+            Next = new PolyRecLeaf { Value = 2, Extra = "leaf" },
+        };
+        var json = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(root));
+
+        foreach (var chunk in new[] { 1, 7, 64 })
+        {
+            using var stream = new SkChunkedStream(json, chunk);
+            var back = await JsonSerializer.DeserializeFromStreamAsync<PolyRecAbstract>(stream);
+            await Assert
+                .That(((PolyRecLeaf)back!.Next!).Extra)
+                .IsEqualTo("leaf")
+                .Because($"chunk={chunk}");
+        }
+    }
+
+    [Test]
+    public async Task MsgPack_SelfRecursiveObjectMember_RoundTrips()
+    {
+        var root = new TreeNode
+        {
+            Value = 1,
+            Child = new TreeNode { Value = 2 },
+        };
+        var bytes = MsgPackSerializer.SerializeToUtf8Bytes(root);
+        var back = MsgPackSerializer.Deserialize<TreeNode>(bytes);
+
+        await Assert.That(back!.Value).IsEqualTo(1);
+        await Assert.That(back.Child!.Value).IsEqualTo(2);
     }
 
     [Test]

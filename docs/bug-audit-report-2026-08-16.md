@@ -231,8 +231,8 @@
 
 | 编号 | 严重度 | 说明 | 证据 |
 |---|---|---|---|
-| POLY-01 | P1 | **多态派生类型的复杂成员被丢弃**：原为 MsgPack/TOML/YAML/INI 的 poly 派生链排除 `IsComplexMember`。**MsgPack 已修**（`PolyInheritanceTests.MsgPack_*` 断言 `Address.City` 恢复，poly 派生 ser 全成员 + de 走 inner helper）；**TOML/YAML 仍开放**（poly 派生 de 循环为 `PropertyName`-only，缺根循环的 ObjectStart/TablePath 段分发；TOML ser 也需改用 `EmitSerializeProp` 以写 `[Address]` 段）；INI 保持"忽略（文档化）"。 | `tests/PicoSerDe.Integration.Tests/PolyInheritanceTests.cs`（MsgPack 断言已收窄并注释）；生成代码：`PicoMsgPack.Gen/..._PolyPerson_*_MsgPackSerializer.g.cs` 仅派发 `Id`/`Name` |
-| POLY-02 | P1 | **递归 × 多态**：递归环目标为多态类型时，播种的内层 helper 生成 `new T()`（抽象基类直接编译失败）且不按 discriminator 路由——嵌套的派生值退化为基类型。需要"多态感知的内层 helper"（在既有 reader 上读 discriminator 后内联派生类型）才能正确修复，含流式续传语义。 | 复现：`[PicoDerivedType(typeof(Leaf),"leaf")] abstract class Node { public Node? Next; }` → `_JsonInner.g.cs`/`_MsgPackInner.g.cs` CS0144；具体基类变体：嵌套 `Next` 反序列化后 `IsTypeOf<Leaf>()` 失败 |
+| POLY-01 | P1 | **多态派生类型的复杂成员被丢弃**：原为 MsgPack/TOML/YAML/INI 的 poly 派生链排除 `IsComplexMember`。✅ **已修**（`343199c` MsgPack；`e329d63` TOML/YAML）：MsgPack poly 派生 ser 发全成员 + de 用 inner helper 读对象成员；YAML 走共享 `EmitSerialize`/`EmitDeserializeInline`；TOML ser 用 `EmitSerializeProp` 写 `[Section]`、de 改为根循环形状（ObjectStart/TablePath → `TomlInner`/`TomlDictInner`）。INI 保持"忽略（文档化）"。 | `tests/PicoSerDe.Integration.Tests/PolyInheritanceTests.cs`（MsgPack 断言已收窄并注释）；生成代码：`PicoMsgPack.Gen/..._PolyPerson_*_MsgPackSerializer.g.cs` 仅派发 `Id`/`Name` |
+| POLY-02 | P1 | ✅ **已修**：多态感知的内层 helper（`GenPolyInner`）——多态类型的生成的 ser/de 改为 `internal` 跨文件可达（`{UniqueName}JsonPolySer/JsonPolyDes`、`{...}MsgPackPolySer/MsgPackPolyDes`），递归 helper 路由到 discriminator 分派；poly core 改为"调用方已定位到对象起始"约定并加 chunk 守卫；JSON poly 流式派生分支加 per-member 快照 + `NeedMoreData` 回退（嵌套多态值跨块安全）。 | 复现：`[PicoDerivedType(typeof(Leaf),"leaf")] abstract class Node { public Node? Next; }` → `_JsonInner.g.cs`/`_MsgPackInner.g.cs` CS0144；具体基类变体：嵌套 `Next` 反序列化后 `IsTypeOf<Leaf>()` 失败 |
 | POLY-03 | P2 | **具体多态基类实例**：poly 序列化器仅对 `[PicoDerivedType]` 分支写 discriminator，运行时类型为具体基类而无匹配分支时输出 `{"$type":}`（畸形 JSON）；STJ 语义为"基类型实例不写 discriminator"。 | `JsonSerializer.Serialize(person)`（静态类型 = 具体基类，实例 = 基类）→ 反序列化报 `Unknown type discriminator: $type` |
 
 ### Code review（2026-09-17 提交 `ecaa69d` 复审）
@@ -250,3 +250,5 @@
 - **REC-01**：`BuildNestedListElement` 现在提取最内层对象元素成员并标记环引用；`CollectNestedTypes` 沿嵌套列表链注册最内层对象 helper（`AddNestedTypeFromListChain`）；JSON 内层列表用元素类型声明；MsgPack 新增真正的嵌套 list/array 读写（原来写 `ToString()`、读 `default!`，属静默损坏）。TOML/YAML/INI 在提取阶段以 **PICOSERDE004** 诊断式丢弃嵌套列表成员（原来生成不可编译代码）。
 - **REC-05**：`MapTypeNamePreservingNullability` 为 `Nullable<T>` 保留 `?`；新增 `PropertyInfo.ElementIsNullableValue`；JSON/MsgPack 的元素读写对可空元素发 null 检查（值类型解包 `.Value`、引用类型写 null/读 null），TObject 元素同样获得 null 检查（原来 CS8604/运行时 NRE）。TOML/YAML 保留"可空标量元素跳过 null"的既有语义（TOML 数组写出补 null 守卫）；三者对无法表达的形态（`List<int?>`、可空对象/字典元素、嵌套列表）统一 PICOSERDE004 丢弃；INI 丢弃一切可空元素成员。
 - 附带修复：YAML 全部成员被丢弃时发射器产生悬挂 `else`（空分发链）——已加 `Properties.Length == 0` 守卫（同步与流式发电器）。
+- **POLY-01/POLY-02（2026-09-18 完成）**：poly 派生类型保留嵌套对象成员（MsgPack/TOML/YAML，INI 文档化忽略）；递归 × 多态：抽象基类的递归成员编译通过，嵌套派生值保持运行时类型（JSON 同步+流式跨块、MsgPack），具体基类同样正确。
+- **新增修复（同批）**：MsgPack 普通递归对象成员（`TreeNode.Child` 这类 `IsRecursiveRef` 成员）此前序列化为 `null`、反序列化 `default!` —— 现走播种 helper（`RecursiveTypeTests.MsgPack_SelfRecursiveObjectMember_RoundTrips` 锁定）。
