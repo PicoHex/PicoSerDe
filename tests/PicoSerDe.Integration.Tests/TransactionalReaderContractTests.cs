@@ -134,4 +134,34 @@ public class TransactionalReaderContractTests
         }
         await Assert.That(consumed).IsEqualTo(0);
     }
+
+    [Test]
+    public async Task Yaml_NeedsMoreData_DoesNotAdvanceReader()
+    {
+        long consumed;
+        {
+            var r = new YamlReader("Key:"u8, isFinalBlock: false);
+            r.Read();
+            long before = r.BytesConsumed;
+            r.Read();
+            consumed = r.BytesConsumed - before;
+            r.Dispose();
+        }
+        await Assert.That(consumed).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Ini_NeedsMoreData_DoesNotAdvanceReader()
+    {
+        long consumed;
+        {
+            var r = new IniReader("Key="u8, isFinalBlock: false);
+            r.Read();
+            long before = r.BytesConsumed;
+            r.Read();
+            consumed = r.BytesConsumed - before;
+            r.Dispose();
+        }
+        await Assert.That(consumed).IsEqualTo(0);
+    }
 }

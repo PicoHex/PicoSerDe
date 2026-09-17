@@ -464,7 +464,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                 // chunk; defer it instead of consuming a possibly partial value.
                 if (
                     !_isFinalBlock
-                    && _position >= _realLength
+                    && _position >= _data.Length
                     && (_inFlow || _data.Length == 0 || _data[_data.Length - 1] != (byte)10)
                 )
                 {

@@ -83,4 +83,109 @@ public class BomTests
         await Assert.That(dto!.Name).IsEqualTo("");
         await Assert.That(dto.Age).IsEqualTo(0);
     }
+
+    [Test]
+    [Arguments(1)]
+    [Arguments(2)]
+    [Arguments(3)]
+    [Arguments(4)]
+    [Arguments(5)]
+    [Arguments(6)]
+    [Arguments(7)]
+    [Arguments(8)]
+    [Arguments(12)]
+    [Arguments(64)]
+    public async Task Toml_Bom_Stream_Chunked_MatchesSync(int chunk)
+    {
+        var bytes = Bom("Name = \"n\"\nAge = 3\n");
+        using var s = new BomChunkedStream(bytes, chunk);
+        var dto = await TomlSerializer.DeserializeFromStreamAsync<BomDto>(s);
+        await Assert.That(dto!.Name).IsEqualTo("n");
+        await Assert.That(dto.Age).IsEqualTo(3);
+    }
+
+    [Test]
+    [Arguments(1)]
+    [Arguments(2)]
+    [Arguments(3)]
+    [Arguments(4)]
+    [Arguments(5)]
+    [Arguments(6)]
+    [Arguments(7)]
+    [Arguments(8)]
+    [Arguments(12)]
+    [Arguments(64)]
+    public async Task Yaml_Bom_Stream_Chunked_MatchesSync(int chunk)
+    {
+        var bytes = Bom("Name: n\nAge: 3\n");
+        using var s = new BomChunkedStream(bytes, chunk);
+        var dto = await YamlSerializer.DeserializeFromStreamAsync<BomDto>(s);
+        await Assert.That(dto!.Name).IsEqualTo("n");
+        await Assert.That(dto.Age).IsEqualTo(3);
+    }
+
+    [Test]
+    [Arguments(1)]
+    [Arguments(2)]
+    [Arguments(3)]
+    [Arguments(4)]
+    [Arguments(5)]
+    [Arguments(6)]
+    [Arguments(7)]
+    [Arguments(8)]
+    [Arguments(12)]
+    [Arguments(64)]
+    public async Task Ini_Bom_Stream_Chunked_MatchesSync(int chunk)
+    {
+        var bytes = Bom("Name=n\nAge=3\n");
+        using var s = new BomChunkedStream(bytes, chunk);
+        var dto = await IniSerializer.DeserializeFromStreamAsync<BomDto>(s);
+        await Assert.That(dto!.Name).IsEqualTo("n");
+        await Assert.That(dto.Age).IsEqualTo(3);
+    }
+}
+
+/// <summary>Chunked stream helper for the BOM streaming tests.</summary>
+public sealed class BomChunkedStream(byte[] data, int chunk) : Stream
+{
+    private int _pos;
+
+    public override bool CanRead => true;
+    public override bool CanSeek => false;
+    public override bool CanWrite => false;
+    public override long Length => data.Length;
+    public override long Position
+    {
+        get => _pos;
+        set => throw new NotSupportedException();
+    }
+
+    public override void Flush() { }
+
+    public override int Read(byte[] buffer, int offset, int count)
+    {
+        int n = Math.Min(Math.Min(count, chunk), data.Length - _pos);
+        Array.Copy(data, _pos, buffer, offset, n);
+        _pos += n;
+        return n;
+    }
+
+    public override async ValueTask<int> ReadAsync(
+        Memory<byte> buffer,
+        CancellationToken cancellationToken = default
+    )
+    {
+        await Task.Yield();
+        int n = Math.Min(Math.Min(buffer.Length, chunk), data.Length - _pos);
+        data.AsSpan(_pos, n).CopyTo(buffer.Span);
+        _pos += n;
+        return n;
+    }
+
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override void Write(byte[] buffer, int offset, int count) =>
+        throw new NotSupportedException();
 }

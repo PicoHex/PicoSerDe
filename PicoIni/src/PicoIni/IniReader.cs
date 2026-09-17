@@ -324,7 +324,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
                 }
                 // A token that reaches the sentinel may continue in the next
                 // chunk; defer it instead of consuming a possibly partial value.
-                if (!_isFinalBlock && _position >= _realLength)
+                if (!_isFinalBlock && _position >= _data.Length)
                 {
                     _position = __tokenStart;
                     _needsMoreData = true;

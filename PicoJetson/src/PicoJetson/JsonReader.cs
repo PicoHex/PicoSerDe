@@ -109,6 +109,9 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
         Rewound = m.Rewound;
         _valueSpan = default;
         _needsMoreData = false;
+        // A restored reader must be readable again (the sticky incomplete flag
+        // belongs to the failed attempt, not to the restored state).
+        _incomplete = false;
     }
 
     /// <inheritdoc />
