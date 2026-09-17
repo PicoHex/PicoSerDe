@@ -502,6 +502,15 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 code = GenPoly(t, typeMap);
             else
                 code = Gen(t);
+            if (!hintNames.Add(hintName))
+            {
+                PicoSerDe.Gen.GenInfrastructure.ReportHintNameCollision(
+                    spc,
+                    hintName,
+                    t.FullyQualifiedName
+                );
+                continue;
+            }
             spc.AddSource(hintName, SourceText.From(code, Encoding.UTF8));
         }
     }
@@ -1773,7 +1782,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         );
         sb.AppendLine("                continue;");
         sb.AppendLine("            }");
-                sb.AppendLine("            var k = r.KeySpan;");
+        sb.AppendLine("            var k = r.KeySpan;");
         for (int i = 0; i < t.Properties.Length; i++)
         {
             var p = t.Properties[i];
@@ -1799,7 +1808,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine("        // Reached via a container read that hit the buffer end.");
-        sb.AppendLine("#pragma warning disable CS0162 // generated: branch shape decides reachability");
+        sb.AppendLine(
+            "#pragma warning disable CS0162 // generated: branch shape decides reachability"
+        );
         sb.AppendLine("        if (r.NeedsMoreData) {");
         sb.AppendLine("            r.RewindToMark();");
         sb.AppendLine("            return ReadStatus.NeedMoreData;");

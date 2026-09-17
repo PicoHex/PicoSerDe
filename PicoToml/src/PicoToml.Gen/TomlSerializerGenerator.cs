@@ -490,6 +490,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 code = GenPoly(t, typeMap);
             else
                 code = Gen(t);
+            if (!hintNames.Add(hintName))
+            {
+                PicoSerDe.Gen.GenInfrastructure.ReportHintNameCollision(
+                    spc,
+                    hintName,
+                    t.FullyQualifiedName
+                );
+                continue;
+            }
             spc.AddSource(hintName, SourceText.From(code, Encoding.UTF8));
         }
     }

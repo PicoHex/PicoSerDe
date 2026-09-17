@@ -5,7 +5,9 @@
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
 <IsPackable>false</IsPackable>
-    <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
+    <!-- IL2026/IL3050: TUnit reflection (test-only). PICOSERDE002: the hint-name
+         collision fixtures intentionally collide; the warning is the tested behavior. -->
+    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE002</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Generated code must be nullability-clean (review P2-1). -->

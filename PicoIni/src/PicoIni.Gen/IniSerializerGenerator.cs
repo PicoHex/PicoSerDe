@@ -452,6 +452,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             }
         }
 
+        var hintNames = new HashSet<string>();
         foreach (var kv in typeMap)
         {
             var t = kv.Value;
@@ -468,6 +469,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 code = GenPoly(t, typeMap);
             else
                 code = Gen(t);
+            if (!hintNames.Add(hintName))
+            {
+                PicoSerDe.Gen.GenInfrastructure.ReportHintNameCollision(
+                    spc,
+                    hintName,
+                    t.FullyQualifiedName
+                );
+                continue;
+            }
             spc.AddSource(hintName, SourceText.From(code, Encoding.UTF8));
         }
     }

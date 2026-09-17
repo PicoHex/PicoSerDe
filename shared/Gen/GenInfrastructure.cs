@@ -136,6 +136,37 @@ internal static class GenInfrastructure
         isEnabledByDefault: true
     );
 
+    /// <summary>
+    /// Two distinct fully-qualified names can normalize to the same generated
+    /// file name (SafeName replaces '.', '&lt;', ... with '_'). Without this
+    /// guard the second AddSource throws and the generator drops every file.
+    /// </summary>
+    private static readonly DiagnosticDescriptor HintNameCollisionWarning = new(
+        id: "PICOSERDE002",
+        title: "Generated file name collision",
+        messageFormat: "Type '{0}' was skipped: generated file name '{1}' collides with another type",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>Reports a skipped type whose generated file name collided.</summary>
+    public static void ReportHintNameCollision(
+        SourceProductionContext spc,
+        string hintName,
+        string? fullyQualifiedName
+    )
+    {
+        spc.ReportDiagnostic(
+            Diagnostic.Create(
+                HintNameCollisionWarning,
+                null,
+                fullyQualifiedName ?? "(unknown)",
+                hintName
+            )
+        );
+    }
+
     public static bool IsCandidate(SyntaxNode node)
     {
         if (node is not InvocationExpressionSyntax { Expression: var expr })
