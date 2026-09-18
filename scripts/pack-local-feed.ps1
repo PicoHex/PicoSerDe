@@ -13,6 +13,7 @@
 #   ./scripts/release.ps1 -Version 2026.8.9
 #   ./scripts/release.ps1 -Version 2026.8.9 -SkipTests
 #   ./scripts/release.ps1 -Version 2026.8.9 -NoPush   # pack + tag only
+#   ./scripts/release.ps1 -Version 2026.8.9 -SkipTag  # pack only (tag already released)
 #
 # The pack phase mirrors release.yml exactly (Core first, then per-format
 # Gen -> Consumer with staged RestoreAdditionalProjectSources), so local
@@ -24,7 +25,11 @@ param(
 
     [switch]$SkipTests,
 
-    [switch]$NoPush
+    [switch]$NoPush,
+
+    # Pack into the local feed only: the release tag already exists (created by
+    # scripts/release.ps1 or by CI), so skip tag creation/push.
+    [switch]$SkipTag
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,7 +50,12 @@ try {
     }
 
     $tag = "v$Version"
-    if (git tag -l $tag) {
+    if ($SkipTag) {
+        if (-not (git tag -l $tag)) {
+            Fail "-SkipTag needs an existing release tag '$tag' (cut the release first)"
+        }
+    }
+    elseif (git tag -l $tag) {
         Fail "Tag '$tag' already exists"
     }
 
@@ -125,6 +135,12 @@ try {
     Write-Host "=== Local feed ready: $nupkgDir ($($packed.Count) packages, version $Version) ===" -ForegroundColor Green
 
     # --- Tag + push ----------------------------------------------------------------
+
+    if ($SkipTag) {
+        Write-Host "Local feed ready for the already-released tag '$tag' (no tag/push)." -ForegroundColor Green
+        Write-Host "=== Local feed $Version complete ===" -ForegroundColor Green
+        return
+    }
 
     git tag -a $tag -m "PicoSerDe $Version - packed locally + published via release.yml"
     if ($LASTEXITCODE -ne 0) { Fail "git tag failed" }
