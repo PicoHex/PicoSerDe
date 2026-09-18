@@ -5463,7 +5463,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var innerTypeName =
             prop.TypeKind is "list" or "array"
                 ? (prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object")
-            : prop.TypeKind == "object" ? (prop.ElementTypeName ?? prop.TypeFullName ?? "object")
+            : prop.TypeKind == "object"
+                ? (
+                    prop.ElementTypeNameAnnotated
+                    ?? prop.ElementTypeName
+                    ?? prop.TypeFullName
+                    ?? "object"
+                )
             : (
                 prop.ElementTypeNameAnnotated
                 ?? prop.ElementTypeName

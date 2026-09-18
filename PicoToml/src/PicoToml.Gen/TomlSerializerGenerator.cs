@@ -814,7 +814,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(tn);
                 s.Append(" __cp_");
                 s.Append(ci);
-                s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
+                s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
             }
         }
         else
@@ -858,6 +858,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 && x.NestedProperties.Length > 0
             )
             .ToArray();
+        int TomlCtorIndex(string name) =>
+            ctorMap is not null && ctorMap.TryGetValue(name, out var idx) ? idx : -1;
         foreach (var ap in tomlArrayObjProps)
         {
             s.Append("        System.Collections.Generic.List<");
@@ -1004,8 +1006,19 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.Append("        if (__arr_");
             s.Append(ap.Name);
-            s.Append(" is not null) o.");
-            s.Append(ap.Name);
+            s.Append(" is not null) ");
+            // Constructor parameters receive the array directly.
+            var apCtor = TomlCtorIndex(ap.Name);
+            if (apCtor >= 0)
+            {
+                s.Append("__cp_");
+                s.Append(apCtor);
+            }
+            else
+            {
+                s.Append("o.");
+                s.Append(ap.Name);
+            }
             s.Append(" = __arr_");
             s.Append(ap.Name);
             s.AppendLine(".ToArray();");
@@ -2345,9 +2358,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("}");
             }
             s.Append(pad);
-            s.Append(tgt);
-            s.Append('.');
-            s.Append(p.Name);
+            EmitAssign();
             s.Append(" = __tmpList");
             if (p.TypeKind == "array")
                 s.Append(".ToArray()");
@@ -2988,7 +2999,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
                     s.Append(" __cp_");
                     s.Append(ci);
-                    s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
+                    s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
                 }
             }
             else

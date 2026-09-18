@@ -223,7 +223,24 @@ internal static class TypeKindResolver
     /// </summary>
     public static string MapTypeNamePreservingNullability(string kind, ITypeSymbol type)
     {
-        var name = MapTypeName(kind, type);
+        // Symbol-derived kinds use the annotation-preserving display so nested
+        // annotations survive (List<List<string?>> must not collapse to
+        // List<List<string>>), not just the top-level '?'.
+        var name = kind
+            is "list"
+                or "array"
+                or "dict"
+                or "hashset"
+                or "queue"
+                or "stack"
+                or "linkedlist"
+                or "immutablearray"
+                or "memory"
+                or "readonlymemory"
+                or "enum"
+                or "object"
+            ? DisplayType(type)
+            : MapTypeName(kind, type);
         // Nullable value types (int?, Guid?, ...) and annotated reference types
         // keep their '?' so collection declarations stay exact.
         if (

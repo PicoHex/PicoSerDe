@@ -282,3 +282,15 @@ RV-03/RV-04 建议单开修复（形态族：字段级数组、字典值为集�
   - 测试：`ArraySupportTests` 4/4（JSON/MsgPack/TOML/YAML 数组字段往返、JSON `List<T[]>`+`T[][]`、TOML 流式回退、INI 丢弃）。
 - **RV-04 字典值集合（诊断式跳过）**：`Dictionary<string, List<T>>` 在 JSON/TOML/YAML 生成不可编译代码、MsgPack 静默丢值；现于提取期以 **PICOSERDE004** 丢弃（嵌套字典 `Dictionary<string, Dictionary<...>>` 仍走原 helper 路径保持支持）。
   - 测试：`DictValueCollectionTests` 5/5（五格式成员被丢弃且不产出 key）+ TOML driver `DictValueListMember_IsReported`。
+
+### Code review 第三轮（2026-09-18，批次 `fa5dfef..b295115`）
+
+对抗性探针（batch A/B/C，共 20+ 形态）发现：
+
+| 编号 | 严重度 | 结论 | 说明 |
+|---|---|---|---|
+| RV-05 | P1（本批引入） | ✅ 已修 | `List<List<T?>>`（嵌套可空**引用**元素）不可编译：集合名走 `FullyQualifiedFormat`（丢注解），且 JSON 最内层对象名未用注解名。修复：`MapTypeNamePreservingNullability` 对符号派生 kind 使用注解保留显示；JSON 最内层名优先 `ElementTypeNameAnnotated`。回归：`EdgeCaseRegressionTests`（`Grid`/`Names` 含 JSON 流式分块）|
+| RV-06 | P1（**预存在**） | ✅ 已修 | **record（主构造器）在 MsgPack/TOML/YAML/INI 全部不可编译**（CS7036/CS8852）——共享 `DetectConstructor` 只认显式 ctor 属性。修复：共享 `DetectConstructor` 回退到 record 主构造器（`BuildCtorParams` 抽公共），并补 TOML ctor-集合成员发射（列表/数组赋值走 `EmitAssign`/`__cp_i`）、YAML inner helper 的对象列表读取。回归：`RecordSupportTests` 4/4（五格式 plain record、含 List/数组成员、流式）|
+| RV-07 | P2（预存在，静默丢值） | ✅ 已修（诊断式） | YAML：**嵌套对象成员内含对象序列**时 inner helper 静默返回空列表；现于提取期以 `PICOSERDE004` 丢弃外层成员（TOML 该形态保持既有"深层嵌套"响亮异常）。回归：`EdgeCaseCollectionRegressionTests.ObjectArrayInsideNestedMember_*` |
+
+同轮确认无问题：字段级数组四格式往返、`List<T[]>`/`T[][]`/`List<string[]>`、JSON/MsgPack 流式数组元素、MsgPack 数组元素、TOML record+数组（`[[Items]]` + ctor）、`Dictionary<string,Obj[]>` 丢弃、嵌套成员内 `List<List<int?>>`、`HashSet<int?>`/`Queue<string?>`、TOML/YAML 流式（含缓冲回退）。

@@ -214,9 +214,15 @@ if (doc.RootElement["age"].TryGetInt32(out int age))
 
 ### Arrays and Dictionaries
 
+Records (`record`/`record struct` primary constructors) work in every format —
+JSON, MsgPack, TOML, YAML and INI — without a format-specific constructor
+attribute.
+
 Field-level object arrays (`TObject[]`, `List<TObject[]>`, `TObject[][]`) round-trip
 in JSON, MsgPack, TOML and YAML (INI drops object collections because its format
-is flat). TOML arrays of tables have no chunk-resume strategy, so their streaming
+is flat). A YAML nested-object member that itself contains an object sequence is
+dropped with `PICOSERDE004` (the inner helper cannot read it); TOML keeps its
+documented loud "nested tables deeper than one level" error. TOML arrays of tables have no chunk-resume strategy, so their streaming
 delegate is not registered — `DeserializeFromStreamAsync` then buffers the stream
 and uses the synchronous path (correct, just not incremental). Dictionaries accept
 scalar, object and nested-dictionary values; a **collection** dict value

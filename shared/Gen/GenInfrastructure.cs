@@ -1297,6 +1297,22 @@ internal static class GenInfrastructure
                 );
             }
 
+            // YAML's inner helper cannot read an object member that itself
+            // contains an object sequence (it silently produced an empty list);
+            // drop the outer member with the shared diagnostic instead.
+            if (
+                formatTag == "yaml"
+                && typeKind == "object"
+                && nestedProperties.Any(x =>
+                    (x.TypeKind is "list" or "array")
+                    && x.ElementTypeKind == "object"
+                    && x.NestedProperties.Length > 0
+                )
+            )
+            {
+                skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                continue;
+            }
             if (recursiveRef && formatTag is not ("json" or "msgpack"))
             {
                 // TOML/YAML/INI cannot represent arbitrarily deep nesting; drop
@@ -1789,28 +1805,51 @@ internal static class GenInfrastructure
             if (!hasAttr)
                 continue;
 
-            var ctorParams = new List<CtorParamInfo>();
-            foreach (var param in ctor.Parameters)
-            {
-                var (typeKind, _, _) = TypeKindResolver.Resolve(param.Type, formatTag);
-                // An unsupported parameter type cannot be constructed by the
-                // generated deserializer — fall back to the parameterless
-                // constructor instead of emitting a constructor call with a
-                // missing argument (which would fail compilation).
-                if (typeKind is null)
-                    return null;
-                ctorParams.Add(
-                    new CtorParamInfo(
-                        param.Name,
-                        typeKind,
-                        param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                        TypeFullNameAnnotated: TypeKindResolver.DisplayType(param.Type)
-                    )
-                );
-            }
-            return ctorParams.ToImmutableArray();
+            return BuildCtorParams(ctor, formatTag);
         }
+
+        // Records expose their data through the primary constructor: accept it
+        // without requiring the format's constructor attribute (all formats,
+        // not just JSON which has its own record handling).
+        if (type.IsRecord)
+        {
+            var primary = type.Constructors.FirstOrDefault(c =>
+                c.DeclaredAccessibility == Accessibility.Public && !c.IsImplicitlyDeclared
+            );
+            if (primary is not null)
+                return BuildCtorParams(primary, formatTag);
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// Maps a constructor's parameters to <see cref="CtorParamInfo"/>. Returns
+    /// null when a parameter type is unsupported (the caller then falls back to
+    /// the parameterless constructor instead of emitting a call with a missing
+    /// argument, which would fail compilation).
+    /// </summary>
+    private static ImmutableArray<CtorParamInfo>? BuildCtorParams(
+        IMethodSymbol ctor,
+        string formatTag
+    )
+    {
+        var ctorParams = new List<CtorParamInfo>();
+        foreach (var param in ctor.Parameters)
+        {
+            var (typeKind, _, _) = TypeKindResolver.Resolve(param.Type, formatTag);
+            if (typeKind is null)
+                return null;
+            ctorParams.Add(
+                new CtorParamInfo(
+                    param.Name,
+                    typeKind,
+                    param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    TypeFullNameAnnotated: TypeKindResolver.DisplayType(param.Type)
+                )
+            );
+        }
+        return ctorParams.ToImmutableArray();
     }
 
     /// <summary>

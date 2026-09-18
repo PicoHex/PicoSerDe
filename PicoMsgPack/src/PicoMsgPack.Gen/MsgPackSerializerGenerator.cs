@@ -599,7 +599,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(tn);
                 s.Append(" __cp_");
                 s.Append(ci);
-                s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
+                s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
             }
         }
         s.AppendLine(

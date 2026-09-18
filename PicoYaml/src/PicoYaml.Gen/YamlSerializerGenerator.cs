@@ -1328,6 +1328,45 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append("var __tmpList = new System.Collections.Generic.List<");
                 s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
                 s.AppendLine(">(16);");
+                if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+                {
+                    // Block sequence of objects: skip the indentation ObjectStart,
+                    // then each String token is one item and the inner helper
+                    // reads that item's ObjectStart.
+                    var objElemSn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        "YamlInner",
+                        p.ElementTypeName ?? "object"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("bool __more;");
+                    s.Append(pad);
+                    s.AppendLine(
+                        "reader.Read(); // skip indentation ObjectStart after PropertyName"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("while ((__more = reader.Read())) {");
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    if (reader.TokenType != TokenType.String) break; // sequence item"
+                    );
+                    s.Append(pad);
+                    s.Append("    var __item = ");
+                    s.Append(objElemSn);
+                    s.AppendLine(".Deserialize(ref reader);");
+                    s.Append(pad);
+                    s.AppendLine("    __tmpList.Add(__item);");
+                    s.Append(pad);
+                    s.AppendLine("}");
+                    s.Append(pad);
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.Append(" = __tmpList");
+                    if (p.TypeKind == "array")
+                        s.Append(".ToArray()");
+                    s.AppendLine(";");
+                    break;
+                }
                 s.Append(pad);
                 s.AppendLine("bool __more = reader.Read();");
                 s.Append(pad);
@@ -1597,7 +1636,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 sb.Append(tn);
                 sb.Append(" __cp_");
                 sb.Append(yci);
-                sb.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
+                sb.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
             }
         }
         else
@@ -3251,7 +3290,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
                     s.Append(" __cp_");
                     s.Append(ci);
-                    s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default;");
+                    s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
                 }
             }
             else
