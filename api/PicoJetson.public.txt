@@ -37,6 +37,7 @@ I:PicoJetson.ArrayEnumerator : System.Collections.IEnumerable
 I:PicoJetson.ArrayEnumerator : System.Collections.IEnumerator
 I:PicoJetson.ArrayEnumerator : System.IDisposable
 I:PicoJetson.JsonReader : PicoSerDe.Core.ITokenReader
+I:PicoJetson.JsonReader : PicoSerDe.Core.ITransactionalTokenReader
 I:PicoJetson.ObjectEnumerator : System.Collections.Generic.IEnumerable`1<PicoJetson.PicoProperty>
 I:PicoJetson.ObjectEnumerator : System.Collections.Generic.IEnumerator`1<PicoJetson.PicoProperty>
 I:PicoJetson.ObjectEnumerator : System.Collections.IEnumerable
@@ -63,7 +64,10 @@ M:PicoJetson.JsonReader..ctor(System.ReadOnlySpan`1<byte> data, int maxDepth = 2
 M:PicoJetson.JsonReader.Dispose() : void
 M:PicoJetson.JsonReader.ExportState() : PicoJetson.JsonReaderState
 M:PicoJetson.JsonReader.GetStringRaw() : System.ReadOnlySpan`1<byte>
+M:PicoJetson.JsonReader.Mark() : void override
 M:PicoJetson.JsonReader.Read() : bool override
+M:PicoJetson.JsonReader.RewindTo(long consumedOffset) : void override
+M:PicoJetson.JsonReader.RewindToMark() : void override
 M:PicoJetson.JsonReader.SetRawPos(int pos) : void
 M:PicoJetson.JsonReader.Skip() : void
 M:PicoJetson.JsonReader.TryGetBool(out bool v) : bool override
@@ -185,6 +189,7 @@ P:PicoJetson.JsonReader.RawBuffer : System.ReadOnlySpan`1<byte> { get; }
 P:PicoJetson.JsonReader.RawPos : int { get; }
 P:PicoJetson.JsonReader.Rewound : bool { get; }
 P:PicoJetson.JsonReader.StreamState : object { get; set; }
+P:PicoJetson.JsonReader.TokenStart : long { get; }
 P:PicoJetson.JsonReader.TokenType : PicoSerDe.Core.TokenType { get; }
 P:PicoJetson.JsonReader.TokenValueEnd : int { get; }
 P:PicoJetson.JsonReader.TokenValueStart : int { get; }

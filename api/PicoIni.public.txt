@@ -11,8 +11,10 @@ B:PicoIni.PicoIniSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribut
 F:PicoIni.IniIgnoreCondition.Never : PicoIni.IniIgnoreCondition = 0 const
 F:PicoIni.IniIgnoreCondition.WhenWritingNull : PicoIni.IniIgnoreCondition = 1 const
 F:PicoIni.IniIgnoreCondition.value__ : int
+F:PicoIni.IniReaderState.SectionNameBytes : byte[]
 F:PicoIni.IniSerializer.ContentType : string = "text/plain" const
 I:PicoIni.IniReader : PicoSerDe.Core.ITokenReader
+I:PicoIni.IniReader : PicoSerDe.Core.ITransactionalTokenReader
 M:PicoIni.IIniConverter`1.Read(System.ReadOnlySpan`1<byte> value) : T abstract
 M:PicoIni.IIniConverter`1.Write(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
 M:PicoIni.IniCamelCaseAttribute..ctor() : void
@@ -29,8 +31,11 @@ M:PicoIni.IniReader..ctor(System.ReadOnlySpan`1<byte> data, bool isFinalBlock = 
 M:PicoIni.IniReader.Dispose() : void
 M:PicoIni.IniReader.ExportState() : PicoIni.IniReaderState
 M:PicoIni.IniReader.GetStringRaw() : System.ReadOnlySpan`1<byte>
+M:PicoIni.IniReader.Mark() : void override
 M:PicoIni.IniReader.Read() : bool override
 M:PicoIni.IniReader.ReadValue() : void
+M:PicoIni.IniReader.RewindTo(long consumedOffset) : void override
+M:PicoIni.IniReader.RewindToMark() : void override
 M:PicoIni.IniReader.Skip() : void
 M:PicoIni.IniReader.TryGetBool(out bool v) : bool override
 M:PicoIni.IniReader.TryGetFloat64(out double v) : bool override
@@ -39,20 +44,17 @@ M:PicoIni.IniReader.TryGetInt64(out long v) : bool override
 M:PicoIni.IniReader.TryGetUInt64(out ulong v) : bool
 M:PicoIni.IniReader.TrySkip() : bool override
 M:PicoIni.IniSectionAttribute..ctor(string name) : void
+M:PicoIni.IniSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, PicoIni.IniOptions options, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoIni.IniSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoIni.IniSerializer.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoIni.IniOptions options = null) : T static
 M:PicoIni.IniSerializer.HasStreamingDelegate``1() : bool static
 M:PicoIni.IniSerializer.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
-M:PicoIni.IniSerializer.RegisterStreaming``1(PicoIni.IniSerializer.StreamingFunc`1<T> func) : void static
+M:PicoIni.IniSerializer.RegisterStreaming``1(PicoSerDe.Core.StreamingFunc`2<PicoIni.IniReader, T> func) : void static
 M:PicoIni.IniSerializer.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
 M:PicoIni.IniSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
 M:PicoIni.IniSerializer.SerializeToUtf8Bytes``1(T value, PicoIni.IniOptions options = null) : byte[] static
 M:PicoIni.IniSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoIni.IniOptions options = null) : void static
 M:PicoIni.IniSerializer.Serialize``1(T value, PicoIni.IniOptions options = null) : string static
-M:PicoIni.IniSerializer.StreamingFunc`1..ctor(object object, nint method) : void
-M:PicoIni.IniSerializer.StreamingFunc`1.BeginInvoke(ref PicoIni.IniReader reader, out T result, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
-M:PicoIni.IniSerializer.StreamingFunc`1.EndInvoke(ref PicoIni.IniReader reader, out T result, System.IAsyncResult __result) : PicoSerDe.Core.ReadStatus virtual
-M:PicoIni.IniSerializer.StreamingFunc`1.Invoke(ref PicoIni.IniReader reader, out T result) : PicoSerDe.Core.ReadStatus virtual
 M:PicoIni.IniWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, bool indented = false) : void
 M:PicoIni.IniWriter.WriteBlankLine() : void
 M:PicoIni.IniWriter.WriteComment(string prefix, string text) : void
@@ -99,7 +101,9 @@ P:PicoIni.IniOptions.DefaultIgnoreCondition : PicoIni.IniIgnoreCondition { get; 
 P:PicoIni.IniOptions.Indented : bool { get; set; }
 P:PicoIni.IniReader.BytesConsumed : long { get; }
 P:PicoIni.IniReader.Depth : int { get; }
+P:PicoIni.IniReader.IsResumed : bool { get; }
 P:PicoIni.IniReader.NeedsMoreData : bool { get; }
+P:PicoIni.IniReader.TokenStart : long { get; }
 P:PicoIni.IniReader.TokenType : PicoSerDe.Core.TokenType { get; }
 P:PicoIni.IniSectionAttribute.Name : string { get; }
 P:PicoIni.IniWriter.BytesWritten : long { get; }
@@ -114,7 +118,6 @@ T:class PicoIni.IniOptions
 T:class PicoIni.IniSectionAttribute
 T:class PicoIni.IniSerializer
 T:class PicoIni.PicoIniSerializableAttribute
-T:delegate PicoIni.IniSerializer.StreamingFunc`1
 T:enum PicoIni.IniIgnoreCondition
 T:interface PicoIni.IIniConverter`1
 T:struct PicoIni.IniFormat

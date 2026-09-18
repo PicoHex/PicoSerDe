@@ -11,6 +11,7 @@ F:PicoToml.TomlIgnoreCondition.WhenWritingNull : PicoToml.TomlIgnoreCondition = 
 F:PicoToml.TomlIgnoreCondition.value__ : int
 F:PicoToml.TomlSerializer.ContentType : string = "application/toml" const
 I:PicoToml.TomlReader : PicoSerDe.Core.ITokenReader
+I:PicoToml.TomlReader : PicoSerDe.Core.ITransactionalTokenReader
 M:PicoToml.ITomlConverter`1.Read(ref PicoToml.TomlReader reader) : T abstract
 M:PicoToml.ITomlConverter`1.Write(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
 M:PicoToml.PicoTomlSerializableAttribute..ctor() : void
@@ -27,7 +28,10 @@ M:PicoToml.TomlReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool i
 M:PicoToml.TomlReader..ctor(System.ReadOnlySpan`1<byte> data, bool isFinalBlock = true) : void
 M:PicoToml.TomlReader.Dispose() : void
 M:PicoToml.TomlReader.ExportState() : PicoToml.TomlReaderState
+M:PicoToml.TomlReader.Mark() : void override
 M:PicoToml.TomlReader.Read() : bool override
+M:PicoToml.TomlReader.RewindTo(long consumedOffset) : void override
+M:PicoToml.TomlReader.RewindToMark() : void override
 M:PicoToml.TomlReader.Skip() : void
 M:PicoToml.TomlReader.TryGetBool(out bool v) : bool override
 M:PicoToml.TomlReader.TryGetFloat64(out double v) : bool override
@@ -39,20 +43,17 @@ M:PicoToml.TomlReader.TryReadInt32ArrayFast(System.Span`1<int> dest) : int
 M:PicoToml.TomlReader.TryReadInt64ArrayFast(System.Span`1<long> dest) : int
 M:PicoToml.TomlReader.TryReadNextInt32(out int v) : bool
 M:PicoToml.TomlReader.TrySkip() : bool override
+M:PicoToml.TomlSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, PicoToml.TomlOptions options, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoToml.TomlSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoToml.TomlSerializer.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoToml.TomlOptions options = null) : T static
 M:PicoToml.TomlSerializer.HasStreamingDelegate``1() : bool static
 M:PicoToml.TomlSerializer.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
-M:PicoToml.TomlSerializer.RegisterStreaming``1(PicoToml.TomlSerializer.StreamingFunc`1<T> func) : void static
+M:PicoToml.TomlSerializer.RegisterStreaming``1(PicoSerDe.Core.StreamingFunc`2<PicoToml.TomlReader, T> func) : void static
 M:PicoToml.TomlSerializer.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
 M:PicoToml.TomlSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
 M:PicoToml.TomlSerializer.SerializeToUtf8Bytes``1(T value, PicoToml.TomlOptions options = null) : byte[] static
 M:PicoToml.TomlSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoToml.TomlOptions options = null) : void static
 M:PicoToml.TomlSerializer.Serialize``1(T value, PicoToml.TomlOptions options = null) : string static
-M:PicoToml.TomlSerializer.StreamingFunc`1..ctor(object object, nint method) : void
-M:PicoToml.TomlSerializer.StreamingFunc`1.BeginInvoke(ref PicoToml.TomlReader reader, out T result, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
-M:PicoToml.TomlSerializer.StreamingFunc`1.EndInvoke(ref PicoToml.TomlReader reader, out T result, System.IAsyncResult __result) : PicoSerDe.Core.ReadStatus virtual
-M:PicoToml.TomlSerializer.StreamingFunc`1.Invoke(ref PicoToml.TomlReader reader, out T result) : PicoSerDe.Core.ReadStatus virtual
 M:PicoToml.TomlWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, int maxDepth = 256, bool indented = false) : void
 M:PicoToml.TomlWriter.WriteArrayTable(System.ReadOnlySpan`1<byte> utf8Name) : void
 M:PicoToml.TomlWriter.WriteArrayValue(bool value) : void
@@ -104,9 +105,11 @@ P:PicoToml.TomlOptions.Indented : bool { get; set; }
 P:PicoToml.TomlReader.BytesConsumed : long { get; }
 P:PicoToml.TomlReader.Depth : int { get; }
 P:PicoToml.TomlReader.IsArrayTable : bool { get; }
+P:PicoToml.TomlReader.IsResumed : bool { get; }
 P:PicoToml.TomlReader.KeySpan : System.ReadOnlySpan`1<byte> { get; }
 P:PicoToml.TomlReader.NeedsMoreData : bool { get; }
 P:PicoToml.TomlReader.TablePath : System.ReadOnlySpan`1<byte> { get; }
+P:PicoToml.TomlReader.TokenStart : long { get; }
 P:PicoToml.TomlReader.TokenType : PicoSerDe.Core.TokenType { get; }
 P:PicoToml.TomlReader.ValueSpan : System.ReadOnlySpan`1<byte> { get; }
 P:PicoToml.TomlWriter.BytesWritten : long { get; }
@@ -119,7 +122,6 @@ T:class PicoToml.TomlIgnoreAttribute
 T:class PicoToml.TomlKeyAttribute
 T:class PicoToml.TomlOptions
 T:class PicoToml.TomlSerializer
-T:delegate PicoToml.TomlSerializer.StreamingFunc`1
 T:enum PicoToml.TomlIgnoreCondition
 T:interface PicoToml.ITomlConverter`1
 T:struct PicoToml.TomlFormat

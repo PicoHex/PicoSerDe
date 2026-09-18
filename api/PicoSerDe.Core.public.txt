@@ -20,6 +20,7 @@ F:PicoSerDe.Core.ReadStatus.Success : PicoSerDe.Core.ReadStatus = 0 const
 F:PicoSerDe.Core.ReadStatus.value__ : int
 F:PicoSerDe.Core.SerRegistry`2.CustomHandler : PicoSerDe.Core.SerDelegate`1<T> static
 F:PicoSerDe.Core.SerRegistry`2.Handler : PicoSerDe.Core.SerDelegate`1<T> static
+F:PicoSerDe.Core.TextHelpers.BomLength : int = 3 const
 F:PicoSerDe.Core.TokenType.ArrayEnd : PicoSerDe.Core.TokenType = 4 const
 F:PicoSerDe.Core.TokenType.ArrayStart : PicoSerDe.Core.TokenType = 3 const
 F:PicoSerDe.Core.TokenType.Bool : PicoSerDe.Core.TokenType = 7 const
@@ -40,6 +41,7 @@ F:PicoSerDe.Core.TokenType.UInt32 : PicoSerDe.Core.TokenType = 12 const
 F:PicoSerDe.Core.TokenType.UInt64 : PicoSerDe.Core.TokenType = 13 const
 F:PicoSerDe.Core.TokenType.UInt8 : PicoSerDe.Core.TokenType = 10 const
 F:PicoSerDe.Core.TokenType.value__ : int
+I:PicoSerDe.Core.ITransactionalTokenReader : PicoSerDe.Core.ITokenReader
 M:PicoSerDe.Core.DeserializeDelegate`1..ctor(object object, nint method) : void
 M:PicoSerDe.Core.DeserializeDelegate`1.BeginInvoke(System.ReadOnlySpan`1<byte> data, PicoSerDe.Core.SerOptions options, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
 M:PicoSerDe.Core.DeserializeDelegate`1.EndInvoke(System.IAsyncResult result) : T virtual
@@ -59,6 +61,9 @@ M:PicoSerDe.Core.ITokenReader.TryGetFloat64(out double value) : bool abstract
 M:PicoSerDe.Core.ITokenReader.TryGetInt32(out int value) : bool abstract
 M:PicoSerDe.Core.ITokenReader.TryGetInt64(out long value) : bool abstract
 M:PicoSerDe.Core.ITokenReader.TrySkip() : bool abstract
+M:PicoSerDe.Core.ITransactionalTokenReader.Mark() : void abstract
+M:PicoSerDe.Core.ITransactionalTokenReader.RewindTo(long consumedOffset) : void abstract
+M:PicoSerDe.Core.ITransactionalTokenReader.RewindToMark() : void abstract
 M:PicoSerDe.Core.PicoCamelCaseAttribute..ctor() : void
 M:PicoSerDe.Core.PicoConstructorAttribute..ctor() : void
 M:PicoSerDe.Core.PicoConverterAttribute..ctor(System.Type converterType) : void
@@ -119,15 +124,21 @@ M:PicoSerDe.Core.StreamingFunc`2.Invoke(ref TReader reader, T partial, out T res
 M:PicoSerDe.Core.StreamingRunner.RunAsync``3(System.IO.Stream stream, PicoSerDe.Core.StreamingFunc`2<TReader, T> func, PicoSerDe.Core.SerOptions options, PicoSerDe.Core.StreamStep`3<TReader, TState, T> step, System.Threading.CancellationToken ct) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoSerDe.Core.TextHelpers.AppendCodepoint(byte[] buf, int di, int cp) : int static
 M:PicoSerDe.Core.TextHelpers.Eq(System.ReadOnlySpan`1<byte> a, System.ReadOnlySpan`1<byte> b, bool caseSensitive = false) : bool static
+M:PicoSerDe.Core.TextHelpers.IsBomAtStart(System.ReadOnlySpan`1<byte> data) : bool static
+M:PicoSerDe.Core.TextHelpers.IsBomAtStart(ref System.Buffers.SequenceReader`1<byte> reader) : bool static
 M:PicoSerDe.Core.TextHelpers.IsDigit(byte b) : bool static
 M:PicoSerDe.Core.TextHelpers.ReadHexEscape(System.ReadOnlySpan`1<byte> src, ref int si, int count) : int static
 M:PicoSerDe.Core.TextHelpers.ScanUntilLineEnd(System.ReadOnlySpan`1<byte> data, int position) : int static
+M:PicoSerDe.Core.TextHelpers.SkipBom(System.ReadOnlySpan`1<byte> data) : System.ReadOnlySpan`1<byte> static
+M:PicoSerDe.Core.TextHelpers.SkipBomSeq(ref System.Buffers.SequenceReader`1<byte> reader, bool isFinalBlock, out bool needsMoreData) : bool static
 M:PicoSerDe.Core.TextHelpers.Trim(System.ReadOnlySpan`1<byte> s) : System.ReadOnlySpan`1<byte> static
 M:PicoSerDe.Core.TextHelpers.TrimEnd(System.ReadOnlySpan`1<byte> s) : System.ReadOnlySpan`1<byte> static
 M:System.Runtime.CompilerServices.InterceptsLocationAttribute..ctor(string filePath, int line, int column) : void
 P:PicoSerDe.Core.ITokenReader.Depth : int { get; }
 P:PicoSerDe.Core.ITokenReader.NeedsMoreData : bool { get; }
 P:PicoSerDe.Core.ITokenReader.TokenType : PicoSerDe.Core.TokenType { get; }
+P:PicoSerDe.Core.ITransactionalTokenReader.BytesConsumed : long { get; }
+P:PicoSerDe.Core.ITransactionalTokenReader.TokenStart : long { get; }
 P:PicoSerDe.Core.PicoConverterAttribute.ConverterType : System.Type { get; }
 P:PicoSerDe.Core.PicoDateTimeFormatAttribute.Format : string { get; }
 P:PicoSerDe.Core.PicoDerivedTypeAttribute.DerivedType : System.Type { get; }
@@ -167,3 +178,4 @@ T:interface PicoSerDe.Core.IDeserializer`1
 T:interface PicoSerDe.Core.IOptionsSerializer`1
 T:interface PicoSerDe.Core.ISerializer`1
 T:interface PicoSerDe.Core.ITokenReader
+T:interface PicoSerDe.Core.ITransactionalTokenReader
