@@ -1,0 +1,169 @@
+B:PicoSerDe.Core.GenerateSerializerAttribute : PicoSerDe.Core.PicoSerializableAttribute
+B:PicoSerDe.Core.PicoCamelCaseAttribute : System.Attribute
+B:PicoSerDe.Core.PicoConstructorAttribute : System.Attribute
+B:PicoSerDe.Core.PicoConverterAttribute : System.Attribute
+B:PicoSerDe.Core.PicoDateTimeFormatAttribute : System.Attribute
+B:PicoSerDe.Core.PicoDerivedTypeAttribute : System.Attribute
+B:PicoSerDe.Core.PicoIgnoreAttribute : System.Attribute
+B:PicoSerDe.Core.PicoPolymorphicAttribute : System.Attribute
+B:PicoSerDe.Core.PicoSerializableAttribute : System.Attribute
+B:System.Runtime.CompilerServices.InterceptsLocationAttribute : System.Attribute
+F:PicoSerDe.Core.DesRegistry`2.Deserializer : PicoSerDe.Core.DeserializeDelegate`1<T> static
+F:PicoSerDe.Core.PicoIgnoreCondition.Always : PicoSerDe.Core.PicoIgnoreCondition = 0 const
+F:PicoSerDe.Core.PicoIgnoreCondition.Never : PicoSerDe.Core.PicoIgnoreCondition = 1 const
+F:PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault : PicoSerDe.Core.PicoIgnoreCondition = 3 const
+F:PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull : PicoSerDe.Core.PicoIgnoreCondition = 2 const
+F:PicoSerDe.Core.PicoIgnoreCondition.value__ : int
+F:PicoSerDe.Core.ReadStatus.EndOfInput : PicoSerDe.Core.ReadStatus = 1 const
+F:PicoSerDe.Core.ReadStatus.NeedMoreData : PicoSerDe.Core.ReadStatus = 2 const
+F:PicoSerDe.Core.ReadStatus.Success : PicoSerDe.Core.ReadStatus = 0 const
+F:PicoSerDe.Core.ReadStatus.value__ : int
+F:PicoSerDe.Core.SerRegistry`2.CustomHandler : PicoSerDe.Core.SerDelegate`1<T> static
+F:PicoSerDe.Core.SerRegistry`2.Handler : PicoSerDe.Core.SerDelegate`1<T> static
+F:PicoSerDe.Core.TokenType.ArrayEnd : PicoSerDe.Core.TokenType = 4 const
+F:PicoSerDe.Core.TokenType.ArrayStart : PicoSerDe.Core.TokenType = 3 const
+F:PicoSerDe.Core.TokenType.Bool : PicoSerDe.Core.TokenType = 7 const
+F:PicoSerDe.Core.TokenType.Bytes : PicoSerDe.Core.TokenType = 17 const
+F:PicoSerDe.Core.TokenType.Extension : PicoSerDe.Core.TokenType = 18 const
+F:PicoSerDe.Core.TokenType.Float32 : PicoSerDe.Core.TokenType = 14 const
+F:PicoSerDe.Core.TokenType.Float64 : PicoSerDe.Core.TokenType = 15 const
+F:PicoSerDe.Core.TokenType.Int32 : PicoSerDe.Core.TokenType = 8 const
+F:PicoSerDe.Core.TokenType.Int64 : PicoSerDe.Core.TokenType = 9 const
+F:PicoSerDe.Core.TokenType.None : PicoSerDe.Core.TokenType = 0 const
+F:PicoSerDe.Core.TokenType.Null : PicoSerDe.Core.TokenType = 6 const
+F:PicoSerDe.Core.TokenType.ObjectEnd : PicoSerDe.Core.TokenType = 2 const
+F:PicoSerDe.Core.TokenType.ObjectStart : PicoSerDe.Core.TokenType = 1 const
+F:PicoSerDe.Core.TokenType.PropertyName : PicoSerDe.Core.TokenType = 5 const
+F:PicoSerDe.Core.TokenType.String : PicoSerDe.Core.TokenType = 16 const
+F:PicoSerDe.Core.TokenType.UInt16 : PicoSerDe.Core.TokenType = 11 const
+F:PicoSerDe.Core.TokenType.UInt32 : PicoSerDe.Core.TokenType = 12 const
+F:PicoSerDe.Core.TokenType.UInt64 : PicoSerDe.Core.TokenType = 13 const
+F:PicoSerDe.Core.TokenType.UInt8 : PicoSerDe.Core.TokenType = 10 const
+F:PicoSerDe.Core.TokenType.value__ : int
+M:PicoSerDe.Core.DeserializeDelegate`1..ctor(object object, nint method) : void
+M:PicoSerDe.Core.DeserializeDelegate`1.BeginInvoke(System.ReadOnlySpan`1<byte> data, PicoSerDe.Core.SerOptions options, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
+M:PicoSerDe.Core.DeserializeDelegate`1.EndInvoke(System.IAsyncResult result) : T virtual
+M:PicoSerDe.Core.DeserializeDelegate`1.Invoke(System.ReadOnlySpan`1<byte> data, PicoSerDe.Core.SerOptions options) : T virtual
+M:PicoSerDe.Core.DeserializerExtensions.DeserializeFromPipeAsync``1(PicoSerDe.Core.IDeserializer`1<T> deserializer, System.IO.Pipelines.PipeReader reader, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
+M:PicoSerDe.Core.DeserializerExtensions.DeserializeFromStreamAsync``1(PicoSerDe.Core.IDeserializer`1<T> deserializer, System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
+M:PicoSerDe.Core.DeserializerExtensions.DeserializeFromStream``1(PicoSerDe.Core.IDeserializer`1<T> deserializer, System.IO.Stream stream) : T static
+M:PicoSerDe.Core.DeserializerExtensions.Deserialize``1(PicoSerDe.Core.IDeserializer`1<T> deserializer, byte[] data) : T static
+M:PicoSerDe.Core.DeserializerExtensions.Deserialize``1(PicoSerDe.Core.IDeserializer`1<T> deserializer, string data) : T static
+M:PicoSerDe.Core.GenerateSerializerAttribute..ctor(System.Type type) : void
+M:PicoSerDe.Core.IDeserializer`1.Deserialize(System.ReadOnlySpan`1<byte> data) : T abstract
+M:PicoSerDe.Core.IOptionsSerializer`1.Serialize(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoSerDe.Core.SerOptions options) : void abstract
+M:PicoSerDe.Core.ISerializer`1.Serialize(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
+M:PicoSerDe.Core.ITokenReader.Read() : bool abstract
+M:PicoSerDe.Core.ITokenReader.TryGetBool(out bool value) : bool abstract
+M:PicoSerDe.Core.ITokenReader.TryGetFloat64(out double value) : bool abstract
+M:PicoSerDe.Core.ITokenReader.TryGetInt32(out int value) : bool abstract
+M:PicoSerDe.Core.ITokenReader.TryGetInt64(out long value) : bool abstract
+M:PicoSerDe.Core.ITokenReader.TrySkip() : bool abstract
+M:PicoSerDe.Core.PicoCamelCaseAttribute..ctor() : void
+M:PicoSerDe.Core.PicoConstructorAttribute..ctor() : void
+M:PicoSerDe.Core.PicoConverterAttribute..ctor(System.Type converterType) : void
+M:PicoSerDe.Core.PicoDateTimeFormatAttribute..ctor(string format) : void
+M:PicoSerDe.Core.PicoDerivedTypeAttribute..ctor(System.Type derivedType, string typeDiscriminator) : void
+M:PicoSerDe.Core.PicoIgnoreAttribute..ctor() : void
+M:PicoSerDe.Core.PicoPolymorphicAttribute..ctor() : void
+M:PicoSerDe.Core.PicoSerializableAttribute..ctor() : void
+M:PicoSerDe.Core.PicoSerializableAttribute..ctor(System.Type type) : void
+M:PicoSerDe.Core.ScalarCodec.ParseBigInteger(System.ReadOnlySpan`1<byte> utf8) : System.Numerics.BigInteger static
+M:PicoSerDe.Core.ScalarCodec.ParseChar(System.ReadOnlySpan`1<byte> utf8) : char static
+M:PicoSerDe.Core.ScalarCodec.ParseDateTimeOffset(System.ReadOnlySpan`1<byte> utf8) : System.DateTimeOffset static
+M:PicoSerDe.Core.ScalarCodec.ParseHalf(System.ReadOnlySpan`1<byte> utf8) : System.Half static
+M:PicoSerDe.Core.ScalarCodec.ParseInt128(System.ReadOnlySpan`1<byte> utf8) : System.Int128 static
+M:PicoSerDe.Core.ScalarCodec.ParseNInt(System.ReadOnlySpan`1<byte> utf8) : nint static
+M:PicoSerDe.Core.ScalarCodec.ParseUInt128(System.ReadOnlySpan`1<byte> utf8) : System.UInt128 static
+M:PicoSerDe.Core.ScalarCodec.ParseUri(System.ReadOnlySpan`1<byte> utf8) : System.Uri static
+M:PicoSerDe.Core.ScalarCodec.ParseVersion(System.ReadOnlySpan`1<byte> utf8) : System.Version static
+M:PicoSerDe.Core.ScalarCodec.TryFormatBigInteger(System.Numerics.BigInteger value, System.Span`1<byte> dest, out int written) : bool static
+M:PicoSerDe.Core.ScalarCodec.TryFormatChar(char value, System.Span`1<byte> dest, out int written) : bool static
+M:PicoSerDe.Core.ScalarCodec.TryFormatDateTimeOffset(System.DateTimeOffset value, System.Span`1<byte> dest, out int written) : bool static
+M:PicoSerDe.Core.ScalarCodec.TryFormatHalf(System.Half value, System.Span`1<byte> dest, out int written) : bool static
+M:PicoSerDe.Core.ScalarCodec.TryFormatInt128(System.Int128 value, System.Span`1<byte> dest, out int written) : bool static
+M:PicoSerDe.Core.ScalarCodec.TryFormatNInt(nint value, System.Span`1<byte> dest, out int written) : bool static
+M:PicoSerDe.Core.ScalarCodec.TryFormatUInt128(System.UInt128 value, System.Span`1<byte> dest, out int written) : bool static
+M:PicoSerDe.Core.ScalarCodec.TryFormatUri(System.Uri value, System.Span`1<byte> dest, out int written) : bool static
+M:PicoSerDe.Core.ScalarCodec.TryFormatVersion(System.Version value, System.Span`1<byte> dest, out int written) : bool static
+M:PicoSerDe.Core.SerDelegate`1..ctor(object object, nint method) : void
+M:PicoSerDe.Core.SerDelegate`1.BeginInvoke(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoSerDe.Core.SerOptions options, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
+M:PicoSerDe.Core.SerDelegate`1.EndInvoke(System.IAsyncResult result) : void virtual
+M:PicoSerDe.Core.SerDelegate`1.Invoke(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoSerDe.Core.SerOptions options) : void virtual
+M:PicoSerDe.Core.SerOptions..ctor() : void
+M:PicoSerDe.Core.SerializerExtensions.RentWriter() : System.Buffers.ArrayBufferWriter`1<byte> static
+M:PicoSerDe.Core.SerializerExtensions.SerializeToBytes``1(PicoSerDe.Core.ISerializer`1<T> serializer, T value) : byte[] static
+M:PicoSerDe.Core.SerializerExtensions.SerializeToStreamAsync``1(PicoSerDe.Core.ISerializer`1<T> serializer, T value, System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask static
+M:PicoSerDe.Core.SerializerExtensions.SerializeToStream``1(PicoSerDe.Core.ISerializer`1<T> serializer, System.IO.Stream stream, T value) : void static
+M:PicoSerDe.Core.SerializerExtensions.SerializeToString``1(PicoSerDe.Core.ISerializer`1<T> serializer, T value) : string static
+M:PicoSerDe.Core.SerializerExtensions.ThrowNoSerializer``1(string formatPackage) : void static
+M:PicoSerDe.Core.SerializerFacade`1.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoSerDe.Core.SerOptions options = null) : T static
+M:PicoSerDe.Core.SerializerFacade`1.RegisterDeserializer``1(PicoSerDe.Core.DeserializeDelegate`1<T> deserializer) : void static
+M:PicoSerDe.Core.SerializerFacade`1.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoSerDe.Core.SerializerFacade`1.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoSerDe.Core.SerializerFacade`1.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
+M:PicoSerDe.Core.SerializerFacade`1.Register``1(PicoSerDe.Core.SerDelegate`1<T> serializer, PicoSerDe.Core.DeserializeDelegate`1<T> deserializer) : void static
+M:PicoSerDe.Core.SerializerFacade`1.SerializeToUtf8Bytes``1(T value, PicoSerDe.Core.SerOptions options = null) : byte[] static
+M:PicoSerDe.Core.SerializerFacade`1.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoSerDe.Core.SerOptions options = null) : void static
+M:PicoSerDe.Core.SerializerFacade`1.Serialize``1(T value, PicoSerDe.Core.SerOptions options = null) : string static
+M:PicoSerDe.Core.SimdHelpers.SkipSpacesAndTabs(System.ReadOnlySpan`1<byte> data, int position) : int static
+M:PicoSerDe.Core.SimdHelpers.SkipWhitespace(System.ReadOnlySpan`1<byte> data, int position) : int static
+M:PicoSerDe.Core.StreamStep`3..ctor(object object, nint method) : void
+M:PicoSerDe.Core.StreamStep`3.BeginInvoke(System.Buffers.ReadOnlySequence`1<byte> buffer, bool isFinalBlock, TState state, PicoSerDe.Core.SerOptions options, PicoSerDe.Core.StreamingFunc`2<TReader, T> func, T partial, out T result, out TState nextState, out System.SequencePosition advanceTo, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
+M:PicoSerDe.Core.StreamStep`3.EndInvoke(out T result, out TState nextState, out System.SequencePosition advanceTo, System.IAsyncResult __result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoSerDe.Core.StreamStep`3.Invoke(System.Buffers.ReadOnlySequence`1<byte> buffer, bool isFinalBlock, TState state, PicoSerDe.Core.SerOptions options, PicoSerDe.Core.StreamingFunc`2<TReader, T> func, T partial, out T result, out TState nextState, out System.SequencePosition advanceTo) : PicoSerDe.Core.ReadStatus virtual
+M:PicoSerDe.Core.StreamingFunc`2..ctor(object object, nint method) : void
+M:PicoSerDe.Core.StreamingFunc`2.BeginInvoke(ref TReader reader, T partial, out T result, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
+M:PicoSerDe.Core.StreamingFunc`2.EndInvoke(ref TReader reader, out T result, System.IAsyncResult __result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoSerDe.Core.StreamingFunc`2.Invoke(ref TReader reader, T partial, out T result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoSerDe.Core.StreamingRunner.RunAsync``3(System.IO.Stream stream, PicoSerDe.Core.StreamingFunc`2<TReader, T> func, PicoSerDe.Core.SerOptions options, PicoSerDe.Core.StreamStep`3<TReader, TState, T> step, System.Threading.CancellationToken ct) : System.Threading.Tasks.ValueTask`1<T> static
+M:PicoSerDe.Core.TextHelpers.AppendCodepoint(byte[] buf, int di, int cp) : int static
+M:PicoSerDe.Core.TextHelpers.Eq(System.ReadOnlySpan`1<byte> a, System.ReadOnlySpan`1<byte> b, bool caseSensitive = false) : bool static
+M:PicoSerDe.Core.TextHelpers.IsDigit(byte b) : bool static
+M:PicoSerDe.Core.TextHelpers.ReadHexEscape(System.ReadOnlySpan`1<byte> src, ref int si, int count) : int static
+M:PicoSerDe.Core.TextHelpers.ScanUntilLineEnd(System.ReadOnlySpan`1<byte> data, int position) : int static
+M:PicoSerDe.Core.TextHelpers.Trim(System.ReadOnlySpan`1<byte> s) : System.ReadOnlySpan`1<byte> static
+M:PicoSerDe.Core.TextHelpers.TrimEnd(System.ReadOnlySpan`1<byte> s) : System.ReadOnlySpan`1<byte> static
+M:System.Runtime.CompilerServices.InterceptsLocationAttribute..ctor(string filePath, int line, int column) : void
+P:PicoSerDe.Core.ITokenReader.Depth : int { get; }
+P:PicoSerDe.Core.ITokenReader.NeedsMoreData : bool { get; }
+P:PicoSerDe.Core.ITokenReader.TokenType : PicoSerDe.Core.TokenType { get; }
+P:PicoSerDe.Core.PicoConverterAttribute.ConverterType : System.Type { get; }
+P:PicoSerDe.Core.PicoDateTimeFormatAttribute.Format : string { get; }
+P:PicoSerDe.Core.PicoDerivedTypeAttribute.DerivedType : System.Type { get; }
+P:PicoSerDe.Core.PicoDerivedTypeAttribute.TypeDiscriminator : string { get; }
+P:PicoSerDe.Core.PicoIgnoreAttribute.Condition : PicoSerDe.Core.PicoIgnoreCondition { get; set; }
+P:PicoSerDe.Core.PicoPolymorphicAttribute.TypeDiscriminatorPropertyName : string { get; set; }
+P:PicoSerDe.Core.PicoSerializableAttribute.IncludeFields : bool { get; set; }
+P:PicoSerDe.Core.PicoSerializableAttribute.Type : System.Type { get; }
+T:class PicoSerDe.Core.DesRegistry`2
+T:class PicoSerDe.Core.DeserializerExtensions
+T:class PicoSerDe.Core.GenerateSerializerAttribute
+T:class PicoSerDe.Core.PicoCamelCaseAttribute
+T:class PicoSerDe.Core.PicoConstructorAttribute
+T:class PicoSerDe.Core.PicoConverterAttribute
+T:class PicoSerDe.Core.PicoDateTimeFormatAttribute
+T:class PicoSerDe.Core.PicoDerivedTypeAttribute
+T:class PicoSerDe.Core.PicoIgnoreAttribute
+T:class PicoSerDe.Core.PicoPolymorphicAttribute
+T:class PicoSerDe.Core.PicoSerializableAttribute
+T:class PicoSerDe.Core.ScalarCodec
+T:class PicoSerDe.Core.SerOptions
+T:class PicoSerDe.Core.SerRegistry`2
+T:class PicoSerDe.Core.SerializerExtensions
+T:class PicoSerDe.Core.SerializerFacade`1
+T:class PicoSerDe.Core.SimdHelpers
+T:class PicoSerDe.Core.StreamingRunner
+T:class PicoSerDe.Core.TextHelpers
+T:class System.Runtime.CompilerServices.InterceptsLocationAttribute
+T:delegate PicoSerDe.Core.DeserializeDelegate`1
+T:delegate PicoSerDe.Core.SerDelegate`1
+T:delegate PicoSerDe.Core.StreamStep`3
+T:delegate PicoSerDe.Core.StreamingFunc`2
+T:enum PicoSerDe.Core.PicoIgnoreCondition
+T:enum PicoSerDe.Core.ReadStatus
+T:enum PicoSerDe.Core.TokenType
+T:interface PicoSerDe.Core.IDeserializer`1
+T:interface PicoSerDe.Core.IOptionsSerializer`1
+T:interface PicoSerDe.Core.ISerializer`1
+T:interface PicoSerDe.Core.ITokenReader

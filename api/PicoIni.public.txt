@@ -1,0 +1,123 @@
+B:PicoIni.IniCamelCaseAttribute : PicoSerDe.Core.PicoCamelCaseAttribute
+B:PicoIni.IniCommentAttribute : System.Attribute
+B:PicoIni.IniConstructorAttribute : PicoSerDe.Core.PicoConstructorAttribute
+B:PicoIni.IniConverterAttribute : PicoSerDe.Core.PicoConverterAttribute
+B:PicoIni.IniDateTimeFormatAttribute : PicoSerDe.Core.PicoDateTimeFormatAttribute
+B:PicoIni.IniIgnoreAttribute : PicoSerDe.Core.PicoIgnoreAttribute
+B:PicoIni.IniKeyAttribute : System.Attribute
+B:PicoIni.IniOptions : PicoSerDe.Core.SerOptions
+B:PicoIni.IniSectionAttribute : System.Attribute
+B:PicoIni.PicoIniSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
+F:PicoIni.IniIgnoreCondition.Never : PicoIni.IniIgnoreCondition = 0 const
+F:PicoIni.IniIgnoreCondition.WhenWritingNull : PicoIni.IniIgnoreCondition = 1 const
+F:PicoIni.IniIgnoreCondition.value__ : int
+F:PicoIni.IniSerializer.ContentType : string = "text/plain" const
+I:PicoIni.IniReader : PicoSerDe.Core.ITokenReader
+M:PicoIni.IIniConverter`1.Read(System.ReadOnlySpan`1<byte> value) : T abstract
+M:PicoIni.IIniConverter`1.Write(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
+M:PicoIni.IniCamelCaseAttribute..ctor() : void
+M:PicoIni.IniCommentAttribute..ctor(string text) : void
+M:PicoIni.IniConstructorAttribute..ctor() : void
+M:PicoIni.IniConverterAttribute..ctor(System.Type converterType) : void
+M:PicoIni.IniDateTimeFormatAttribute..ctor(string format) : void
+M:PicoIni.IniIgnoreAttribute..ctor() : void
+M:PicoIni.IniKeyAttribute..ctor(string key) : void
+M:PicoIni.IniOptions..ctor() : void
+M:PicoIni.IniReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool isFinalBlock = true) : void
+M:PicoIni.IniReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool isFinalBlock, PicoIni.IniReaderState state) : void
+M:PicoIni.IniReader..ctor(System.ReadOnlySpan`1<byte> data, bool isFinalBlock = true) : void
+M:PicoIni.IniReader.Dispose() : void
+M:PicoIni.IniReader.ExportState() : PicoIni.IniReaderState
+M:PicoIni.IniReader.GetStringRaw() : System.ReadOnlySpan`1<byte>
+M:PicoIni.IniReader.Read() : bool override
+M:PicoIni.IniReader.ReadValue() : void
+M:PicoIni.IniReader.Skip() : void
+M:PicoIni.IniReader.TryGetBool(out bool v) : bool override
+M:PicoIni.IniReader.TryGetFloat64(out double v) : bool override
+M:PicoIni.IniReader.TryGetInt32(out int v) : bool override
+M:PicoIni.IniReader.TryGetInt64(out long v) : bool override
+M:PicoIni.IniReader.TryGetUInt64(out ulong v) : bool
+M:PicoIni.IniReader.TrySkip() : bool override
+M:PicoIni.IniSectionAttribute..ctor(string name) : void
+M:PicoIni.IniSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
+M:PicoIni.IniSerializer.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoIni.IniOptions options = null) : T static
+M:PicoIni.IniSerializer.HasStreamingDelegate``1() : bool static
+M:PicoIni.IniSerializer.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoIni.IniSerializer.RegisterStreaming``1(PicoIni.IniSerializer.StreamingFunc`1<T> func) : void static
+M:PicoIni.IniSerializer.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoIni.IniSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
+M:PicoIni.IniSerializer.SerializeToUtf8Bytes``1(T value, PicoIni.IniOptions options = null) : byte[] static
+M:PicoIni.IniSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoIni.IniOptions options = null) : void static
+M:PicoIni.IniSerializer.Serialize``1(T value, PicoIni.IniOptions options = null) : string static
+M:PicoIni.IniSerializer.StreamingFunc`1..ctor(object object, nint method) : void
+M:PicoIni.IniSerializer.StreamingFunc`1.BeginInvoke(ref PicoIni.IniReader reader, out T result, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
+M:PicoIni.IniSerializer.StreamingFunc`1.EndInvoke(ref PicoIni.IniReader reader, out T result, System.IAsyncResult __result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoIni.IniSerializer.StreamingFunc`1.Invoke(ref PicoIni.IniReader reader, out T result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoIni.IniWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, bool indented = false) : void
+M:PicoIni.IniWriter.WriteBlankLine() : void
+M:PicoIni.IniWriter.WriteComment(string prefix, string text) : void
+M:PicoIni.IniWriter.WriteComment(string text) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, System.DateOnly value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, System.DateTime value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, System.Decimal value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, System.Guid value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, System.ReadOnlySpan`1<byte> utf8Value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, System.ReadOnlySpan`1<char> value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, System.TimeOnly value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, System.TimeSpan value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, bool value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, byte value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, double value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, int value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, long value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, sbyte value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, short value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, uint value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, ulong value) : void
+M:PicoIni.IniWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, ushort value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, System.DateOnly value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, System.DateTime value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, System.Decimal value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, System.Guid value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, System.ReadOnlySpan`1<byte> utf8Value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, System.ReadOnlySpan`1<char> value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, System.TimeOnly value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, System.TimeSpan value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, bool value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, double value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, int value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, long value) : void
+M:PicoIni.IniWriter.WriteKeyValue(string key, string value) : void
+M:PicoIni.IniWriter.WriteSection(System.ReadOnlySpan`1<byte> utf8Name) : void
+M:PicoIni.IniWriter.WriteSection(string name) : void
+M:PicoIni.PicoIniSerializableAttribute..ctor() : void
+M:PicoIni.PicoIniSerializableAttribute..ctor(System.Type type) : void
+P:PicoIni.IniCommentAttribute.Text : string { get; }
+P:PicoIni.IniKeyAttribute.Key : string { get; }
+P:PicoIni.IniKeyAttribute.Name : string { get; }
+P:PicoIni.IniOptions.DefaultIgnoreCondition : PicoIni.IniIgnoreCondition { get; set; }
+P:PicoIni.IniOptions.Indented : bool { get; set; }
+P:PicoIni.IniReader.BytesConsumed : long { get; }
+P:PicoIni.IniReader.Depth : int { get; }
+P:PicoIni.IniReader.NeedsMoreData : bool { get; }
+P:PicoIni.IniReader.TokenType : PicoSerDe.Core.TokenType { get; }
+P:PicoIni.IniSectionAttribute.Name : string { get; }
+P:PicoIni.IniWriter.BytesWritten : long { get; }
+T:class PicoIni.IniCamelCaseAttribute
+T:class PicoIni.IniCommentAttribute
+T:class PicoIni.IniConstructorAttribute
+T:class PicoIni.IniConverterAttribute
+T:class PicoIni.IniDateTimeFormatAttribute
+T:class PicoIni.IniIgnoreAttribute
+T:class PicoIni.IniKeyAttribute
+T:class PicoIni.IniOptions
+T:class PicoIni.IniSectionAttribute
+T:class PicoIni.IniSerializer
+T:class PicoIni.PicoIniSerializableAttribute
+T:delegate PicoIni.IniSerializer.StreamingFunc`1
+T:enum PicoIni.IniIgnoreCondition
+T:interface PicoIni.IIniConverter`1
+T:struct PicoIni.IniFormat
+T:struct PicoIni.IniReader
+T:struct PicoIni.IniReaderState
+T:struct PicoIni.IniWriter

@@ -1,0 +1,229 @@
+B:PicoJetson.DateTimeFormatAttribute : PicoSerDe.Core.PicoDateTimeFormatAttribute
+B:PicoJetson.JsonCamelCaseAttribute : PicoSerDe.Core.PicoCamelCaseAttribute
+B:PicoJetson.JsonConstructorAttribute : PicoSerDe.Core.PicoConstructorAttribute
+B:PicoJetson.JsonConverterAttribute : PicoSerDe.Core.PicoConverterAttribute
+B:PicoJetson.JsonIgnoreAttribute : PicoSerDe.Core.PicoIgnoreAttribute
+B:PicoJetson.JsonOptions : PicoSerDe.Core.SerOptions
+B:PicoJetson.JsonPropertyNameAttribute : System.Attribute
+B:PicoJetson.PicoJsonSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
+F:PicoJetson.JsonCommentHandling.Disallow : PicoJetson.JsonCommentHandling = 0 const
+F:PicoJetson.JsonCommentHandling.Skip : PicoJetson.JsonCommentHandling = 1 const
+F:PicoJetson.JsonCommentHandling.value__ : int
+F:PicoJetson.JsonIgnoreCondition.Never : PicoJetson.JsonIgnoreCondition = 0 const
+F:PicoJetson.JsonIgnoreCondition.WhenWritingDefault : PicoJetson.JsonIgnoreCondition = 2 const
+F:PicoJetson.JsonIgnoreCondition.WhenWritingNull : PicoJetson.JsonIgnoreCondition = 1 const
+F:PicoJetson.JsonIgnoreCondition.value__ : int
+F:PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals : PicoJetson.JsonNumberHandling = 1 const
+F:PicoJetson.JsonNumberHandling.Strict : PicoJetson.JsonNumberHandling = 0 const
+F:PicoJetson.JsonNumberHandling.value__ : int
+F:PicoJetson.JsonReaderState.Aux : object
+F:PicoJetson.JsonReaderState.Rewound : bool
+F:PicoJetson.JsonSerializer.ContentType : string = "application/json" const
+F:PicoJetson.JsonUnmappedMemberHandling.Disallow : PicoJetson.JsonUnmappedMemberHandling = 1 const
+F:PicoJetson.JsonUnmappedMemberHandling.Skip : PicoJetson.JsonUnmappedMemberHandling = 0 const
+F:PicoJetson.JsonUnmappedMemberHandling.value__ : int
+F:PicoJetson.PicoValueKind.Array : PicoJetson.PicoValueKind = 2 const
+F:PicoJetson.PicoValueKind.False : PicoJetson.PicoValueKind = 6 const
+F:PicoJetson.PicoValueKind.Null : PicoJetson.PicoValueKind = 7 const
+F:PicoJetson.PicoValueKind.Number : PicoJetson.PicoValueKind = 4 const
+F:PicoJetson.PicoValueKind.Object : PicoJetson.PicoValueKind = 1 const
+F:PicoJetson.PicoValueKind.String : PicoJetson.PicoValueKind = 3 const
+F:PicoJetson.PicoValueKind.True : PicoJetson.PicoValueKind = 5 const
+F:PicoJetson.PicoValueKind.Undefined : PicoJetson.PicoValueKind = 0 const
+F:PicoJetson.PicoValueKind.value__ : byte
+I:PicoJetson.ArrayEnumerator : System.Collections.Generic.IEnumerable`1<PicoJetson.PicoElement>
+I:PicoJetson.ArrayEnumerator : System.Collections.Generic.IEnumerator`1<PicoJetson.PicoElement>
+I:PicoJetson.ArrayEnumerator : System.Collections.IEnumerable
+I:PicoJetson.ArrayEnumerator : System.Collections.IEnumerator
+I:PicoJetson.ArrayEnumerator : System.IDisposable
+I:PicoJetson.JsonReader : PicoSerDe.Core.ITokenReader
+I:PicoJetson.ObjectEnumerator : System.Collections.Generic.IEnumerable`1<PicoJetson.PicoProperty>
+I:PicoJetson.ObjectEnumerator : System.Collections.Generic.IEnumerator`1<PicoJetson.PicoProperty>
+I:PicoJetson.ObjectEnumerator : System.Collections.IEnumerable
+I:PicoJetson.ObjectEnumerator : System.Collections.IEnumerator
+I:PicoJetson.ObjectEnumerator : System.IDisposable
+M:PicoJetson.ArrayEnumerator.Dispose() : void override
+M:PicoJetson.ArrayEnumerator.GetEnumerator() : PicoJetson.ArrayEnumerator
+M:PicoJetson.ArrayEnumerator.MoveNext() : bool override
+M:PicoJetson.ArrayEnumerator.Reset() : void override
+M:PicoJetson.DateTimeFormatAttribute..ctor(string format) : void
+M:PicoJetson.IJsonConverter`1.Read(ref PicoJetson.JsonReader reader) : T abstract
+M:PicoJetson.IJsonConverter`1.Write(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
+M:PicoJetson.JsonCamelCaseAttribute..ctor() : void
+M:PicoJetson.JsonConstructorAttribute..ctor() : void
+M:PicoJetson.JsonConverterAttribute..ctor(System.Type converterType) : void
+M:PicoJetson.JsonIgnoreAttribute..ctor() : void
+M:PicoJetson.JsonNamingPolicy..ctor() : void
+M:PicoJetson.JsonNamingPolicy.ConvertName(string name) : string abstract
+M:PicoJetson.JsonOptions..ctor() : void
+M:PicoJetson.JsonPropertyNameAttribute..ctor(string name) : void
+M:PicoJetson.JsonReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool isFinalBlock, PicoJetson.JsonReaderState state, PicoJetson.JsonOptions options = null) : void
+M:PicoJetson.JsonReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, int maxDepth = 256, bool isFinalBlock = true, PicoJetson.JsonOptions options = null) : void
+M:PicoJetson.JsonReader..ctor(System.ReadOnlySpan`1<byte> data, int maxDepth = 256, bool isFinalBlock = true, PicoJetson.JsonOptions options = null) : void
+M:PicoJetson.JsonReader.Dispose() : void
+M:PicoJetson.JsonReader.ExportState() : PicoJetson.JsonReaderState
+M:PicoJetson.JsonReader.GetStringRaw() : System.ReadOnlySpan`1<byte>
+M:PicoJetson.JsonReader.Read() : bool override
+M:PicoJetson.JsonReader.SetRawPos(int pos) : void
+M:PicoJetson.JsonReader.Skip() : void
+M:PicoJetson.JsonReader.TryGetBool(out bool v) : bool override
+M:PicoJetson.JsonReader.TryGetFloat64(out double v) : bool override
+M:PicoJetson.JsonReader.TryGetInt32(out int v) : bool override
+M:PicoJetson.JsonReader.TryGetInt64(out long v) : bool override
+M:PicoJetson.JsonReader.TryGetUInt64(out ulong v) : bool
+M:PicoJetson.JsonReader.TryReadBoolArrayFast(System.Span`1<bool> dest) : int
+M:PicoJetson.JsonReader.TryReadInt32ArrayFast(System.Span`1<int> dest) : int
+M:PicoJetson.JsonReader.TryReadInt64ArrayFast(System.Span`1<long> dest) : int
+M:PicoJetson.JsonReader.TryReadNextInt32(out int v) : bool
+M:PicoJetson.JsonReader.TrySkip() : bool override
+M:PicoJetson.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream stream, bool topLevelValues = true, PicoJetson.JsonOptions options = null, System.Threading.CancellationToken ct = null) : System.Collections.Generic.IAsyncEnumerable`1<T> static
+M:PicoJetson.JsonSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, PicoJetson.JsonOptions options = null, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
+M:PicoJetson.JsonSerializer.DeserializeLines``1(System.ReadOnlySpan`1<byte> data, PicoJetson.JsonOptions options = null) : T[] static
+M:PicoJetson.JsonSerializer.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoJetson.JsonOptions options = null) : T static
+M:PicoJetson.JsonSerializer.HasCustomSerializer``1() : bool static
+M:PicoJetson.JsonSerializer.HasStreamingDelegate``1() : bool static
+M:PicoJetson.JsonSerializer.RegisterCustom``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoJetson.JsonSerializer.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoJetson.JsonSerializer.RegisterStreaming``1(PicoSerDe.Core.StreamingFunc`2<PicoJetson.JsonReader, T> func) : void static
+M:PicoJetson.JsonSerializer.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoJetson.JsonSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
+M:PicoJetson.JsonSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> serializer, PicoSerDe.Core.DeserializeDelegate`1<T> deserializer) : void static
+M:PicoJetson.JsonSerializer.SerializeCustom``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoJetson.JsonOptions options = null) : void static
+M:PicoJetson.JsonSerializer.SerializeLines``1(System.Collections.Generic.IEnumerable`1<T> values, PicoJetson.JsonOptions options = null) : byte[] static
+M:PicoJetson.JsonSerializer.SerializeToUtf8Bytes``1(T value, PicoJetson.JsonOptions options = null) : byte[] static
+M:PicoJetson.JsonSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoJetson.JsonOptions options = null) : void static
+M:PicoJetson.JsonSerializer.Serialize``1(T value, PicoJetson.JsonOptions options = null) : string static
+M:PicoJetson.JsonWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, bool indented = false, int maxDepth = 63, PicoJetson.JsonOptions options = null) : void
+M:PicoJetson.JsonWriter.WriteBoolean(bool value) : void
+M:PicoJetson.JsonWriter.WriteEndArray() : void
+M:PicoJetson.JsonWriter.WriteEndObject() : void
+M:PicoJetson.JsonWriter.WriteNull() : void
+M:PicoJetson.JsonWriter.WriteNumber(System.Decimal value) : void
+M:PicoJetson.JsonWriter.WriteNumber(byte value) : void
+M:PicoJetson.JsonWriter.WriteNumber(double value) : void
+M:PicoJetson.JsonWriter.WriteNumber(int value) : void
+M:PicoJetson.JsonWriter.WriteNumber(long value) : void
+M:PicoJetson.JsonWriter.WriteNumber(sbyte value) : void
+M:PicoJetson.JsonWriter.WriteNumber(short value) : void
+M:PicoJetson.JsonWriter.WriteNumber(uint value) : void
+M:PicoJetson.JsonWriter.WriteNumber(ulong value) : void
+M:PicoJetson.JsonWriter.WriteNumber(ushort value) : void
+M:PicoJetson.JsonWriter.WritePropertyName(System.ReadOnlySpan`1<byte> utf8Name) : void
+M:PicoJetson.JsonWriter.WritePropertyName(System.ReadOnlySpan`1<char> name) : void
+M:PicoJetson.JsonWriter.WriteRawValue(System.ReadOnlySpan`1<byte> utf8Json) : void
+M:PicoJetson.JsonWriter.WriteRawValue(System.ReadOnlySpan`1<char> json) : void
+M:PicoJetson.JsonWriter.WriteStartArray() : void
+M:PicoJetson.JsonWriter.WriteStartObject() : void
+M:PicoJetson.JsonWriter.WriteString(System.ReadOnlySpan`1<byte> utf8Value) : void
+M:PicoJetson.JsonWriter.WriteString(System.ReadOnlySpan`1<char> value) : void
+M:PicoJetson.ObjectEnumerator.Dispose() : void override
+M:PicoJetson.ObjectEnumerator.GetEnumerator() : PicoJetson.ObjectEnumerator
+M:PicoJetson.ObjectEnumerator.MoveNext() : bool override
+M:PicoJetson.ObjectEnumerator.Reset() : void override
+M:PicoJetson.PicoDocument.IsValid(System.ReadOnlySpan`1<byte> json) : bool static
+M:PicoJetson.PicoDocument.Parse(byte[] json) : PicoJetson.PicoDocument static
+M:PicoJetson.PicoDocument.Parse(byte[] json, int maxDepth) : PicoJetson.PicoDocument static
+M:PicoJetson.PicoElement.EnumerateArray() : PicoJetson.ArrayEnumerator
+M:PicoJetson.PicoElement.EnumerateObject() : PicoJetson.ObjectEnumerator
+M:PicoJetson.PicoElement.GetArrayLength() : int
+M:PicoJetson.PicoElement.GetBoolean() : bool
+M:PicoJetson.PicoElement.GetDouble() : double
+M:PicoJetson.PicoElement.GetInt32() : int
+M:PicoJetson.PicoElement.GetInt64() : long
+M:PicoJetson.PicoElement.GetRawValue() : System.ReadOnlySpan`1<byte>
+M:PicoJetson.PicoElement.GetString() : string
+M:PicoJetson.PicoElement.GetStringOrNull() : string
+M:PicoJetson.PicoElement.GetUInt64() : ulong
+M:PicoJetson.PicoElement.HasProperty(System.ReadOnlySpan`1<byte> utf8Key) : bool
+M:PicoJetson.PicoElement.TryGetInt32(out int value) : bool
+M:PicoJetson.PicoElement.TryGetInt64(out long value) : bool
+M:PicoJetson.PicoElement.TryGetProperty(System.ReadOnlySpan`1<byte> utf8Key, out PicoJetson.PicoElement value) : bool
+M:PicoJetson.PicoElement.TryGetProperty(string key, out PicoJetson.PicoElement value) : bool
+M:PicoJetson.PicoElement.TryGetUInt64(out ulong value) : bool
+M:PicoJetson.PicoJsonSerializableAttribute..ctor() : void
+M:PicoJetson.PicoJsonSerializableAttribute..ctor(System.Type type) : void
+M:PicoJetson.TypeIo.ReadBigInteger(ref PicoJetson.JsonReader r) : System.Numerics.BigInteger static
+M:PicoJetson.TypeIo.ReadChar(ref PicoJetson.JsonReader r) : char static
+M:PicoJetson.TypeIo.ReadDateTimeOffset(ref PicoJetson.JsonReader r) : System.DateTimeOffset static
+M:PicoJetson.TypeIo.ReadHalf(ref PicoJetson.JsonReader r) : System.Half static
+M:PicoJetson.TypeIo.ReadInt128(ref PicoJetson.JsonReader r) : System.Int128 static
+M:PicoJetson.TypeIo.ReadNInt(ref PicoJetson.JsonReader r) : nint static
+M:PicoJetson.TypeIo.ReadUInt128(ref PicoJetson.JsonReader r) : System.UInt128 static
+M:PicoJetson.TypeIo.ReadUri(ref PicoJetson.JsonReader r) : System.Uri static
+M:PicoJetson.TypeIo.ReadVersion(ref PicoJetson.JsonReader r) : System.Version static
+M:PicoJetson.TypeIo.WriteBigInteger(ref PicoJetson.JsonWriter w, System.Numerics.BigInteger value) : void static
+M:PicoJetson.TypeIo.WriteChar(ref PicoJetson.JsonWriter w, char value) : void static
+M:PicoJetson.TypeIo.WriteDateTimeOffset(ref PicoJetson.JsonWriter w, System.DateTimeOffset value) : void static
+M:PicoJetson.TypeIo.WriteHalf(ref PicoJetson.JsonWriter w, System.Half value) : void static
+M:PicoJetson.TypeIo.WriteInt128(ref PicoJetson.JsonWriter w, System.Int128 value) : void static
+M:PicoJetson.TypeIo.WriteNInt(ref PicoJetson.JsonWriter w, nint value) : void static
+M:PicoJetson.TypeIo.WriteUInt128(ref PicoJetson.JsonWriter w, System.UInt128 value) : void static
+M:PicoJetson.TypeIo.WriteUri(ref PicoJetson.JsonWriter w, System.Uri value) : void static
+M:PicoJetson.TypeIo.WriteVersion(ref PicoJetson.JsonWriter w, System.Version value) : void static
+P:PicoJetson.ArrayEnumerator.Current : PicoJetson.PicoElement { get; }
+P:PicoJetson.JsonNamingPolicy.CamelCase : PicoJetson.JsonNamingPolicy { get; }
+P:PicoJetson.JsonNamingPolicy.KebabCaseLower : PicoJetson.JsonNamingPolicy { get; }
+P:PicoJetson.JsonNamingPolicy.PascalCase : PicoJetson.JsonNamingPolicy { get; }
+P:PicoJetson.JsonNamingPolicy.SnakeCaseLower : PicoJetson.JsonNamingPolicy { get; }
+P:PicoJetson.JsonOptions.AllowTrailingCommas : bool { get; set; }
+P:PicoJetson.JsonOptions.DefaultIgnoreCondition : PicoJetson.JsonIgnoreCondition { get; set; }
+P:PicoJetson.JsonOptions.IncludeFields : bool { get; set; }
+P:PicoJetson.JsonOptions.Indented : bool { get; set; }
+P:PicoJetson.JsonOptions.MaxDepth : int { get; set; }
+P:PicoJetson.JsonOptions.NumberHandling : PicoJetson.JsonNumberHandling { get; set; }
+P:PicoJetson.JsonOptions.PropertyNameCaseInsensitive : bool { get; set; }
+P:PicoJetson.JsonOptions.PropertyNamingPolicy : PicoJetson.JsonNamingPolicy { get; set; }
+P:PicoJetson.JsonOptions.ReadCommentHandling : PicoJetson.JsonCommentHandling { get; set; }
+P:PicoJetson.JsonOptions.UnmappedMemberHandling : PicoJetson.JsonUnmappedMemberHandling { get; set; }
+P:PicoJetson.JsonPropertyNameAttribute.Name : string { get; }
+P:PicoJetson.JsonReader.BytesConsumed : long { get; }
+P:PicoJetson.JsonReader.Depth : int { get; }
+P:PicoJetson.JsonReader.IsResumed : bool { get; }
+P:PicoJetson.JsonReader.NeedsMoreData : bool { get; }
+P:PicoJetson.JsonReader.Options : PicoJetson.JsonOptions { get; }
+P:PicoJetson.JsonReader.RawBuffer : System.ReadOnlySpan`1<byte> { get; }
+P:PicoJetson.JsonReader.RawPos : int { get; }
+P:PicoJetson.JsonReader.Rewound : bool { get; }
+P:PicoJetson.JsonReader.StreamState : object { get; set; }
+P:PicoJetson.JsonReader.TokenType : PicoSerDe.Core.TokenType { get; }
+P:PicoJetson.JsonReader.TokenValueEnd : int { get; }
+P:PicoJetson.JsonReader.TokenValueStart : int { get; }
+P:PicoJetson.JsonReader.ValueSpan : System.ReadOnlySpan`1<byte> { get; }
+P:PicoJetson.JsonWriter.Buffer : System.Buffers.IBufferWriter`1<byte> { get; }
+P:PicoJetson.JsonWriter.BytesWritten : long { get; }
+P:PicoJetson.JsonWriter.Options : PicoJetson.JsonOptions { get; }
+P:PicoJetson.ObjectEnumerator.Current : PicoJetson.PicoProperty { get; }
+P:PicoJetson.PicoDocument.RootElement : PicoJetson.PicoElement { get; }
+P:PicoJetson.PicoElement.Item[System.ReadOnlySpan`1<byte>] : PicoJetson.PicoElement { get; }
+P:PicoJetson.PicoElement.Item[int] : PicoJetson.PicoElement { get; }
+P:PicoJetson.PicoElement.Item[string] : PicoJetson.PicoElement { get; }
+P:PicoJetson.PicoElement.ValueKind : PicoJetson.PicoValueKind { get; }
+P:PicoJetson.PicoProperty.Name : string { get; }
+P:PicoJetson.PicoProperty.NameSpan : System.ReadOnlySpan`1<byte> { get; }
+P:PicoJetson.PicoProperty.Value : PicoJetson.PicoElement { get; }
+T:class PicoJetson.DateTimeFormatAttribute
+T:class PicoJetson.JsonCamelCaseAttribute
+T:class PicoJetson.JsonConstructorAttribute
+T:class PicoJetson.JsonConverterAttribute
+T:class PicoJetson.JsonIgnoreAttribute
+T:class PicoJetson.JsonNamingPolicy
+T:class PicoJetson.JsonOptions
+T:class PicoJetson.JsonPropertyNameAttribute
+T:class PicoJetson.JsonSerializer
+T:class PicoJetson.PicoDocument
+T:class PicoJetson.PicoJsonSerializableAttribute
+T:class PicoJetson.TypeIo
+T:enum PicoJetson.JsonCommentHandling
+T:enum PicoJetson.JsonIgnoreCondition
+T:enum PicoJetson.JsonNumberHandling
+T:enum PicoJetson.JsonUnmappedMemberHandling
+T:enum PicoJetson.PicoValueKind
+T:interface PicoJetson.IJsonConverter`1
+T:struct PicoJetson.ArrayEnumerator
+T:struct PicoJetson.JsonFormat
+T:struct PicoJetson.JsonReader
+T:struct PicoJetson.JsonReaderState
+T:struct PicoJetson.JsonWriter
+T:struct PicoJetson.ObjectEnumerator
+T:struct PicoJetson.PicoElement
+T:struct PicoJetson.PicoProperty

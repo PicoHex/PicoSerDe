@@ -1,0 +1,101 @@
+B:PicoMsgPack.MsgPackConstructorAttribute : PicoSerDe.Core.PicoConstructorAttribute
+B:PicoMsgPack.MsgPackConverterAttribute : PicoSerDe.Core.PicoConverterAttribute
+B:PicoMsgPack.MsgPackExtensionTagAttribute : System.Attribute
+B:PicoMsgPack.MsgPackIgnoreAttribute : PicoSerDe.Core.PicoIgnoreAttribute
+B:PicoMsgPack.MsgPackKeyAttribute : System.Attribute
+B:PicoMsgPack.MsgPackOptions : PicoSerDe.Core.SerOptions
+B:PicoMsgPack.PicoMsgPackSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
+F:PicoMsgPack.MsgPackIgnoreCondition.Never : PicoMsgPack.MsgPackIgnoreCondition = 0 const
+F:PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull : PicoMsgPack.MsgPackIgnoreCondition = 1 const
+F:PicoMsgPack.MsgPackIgnoreCondition.value__ : int
+F:PicoMsgPack.MsgPackSerializer.ContentType : string = "application/msgpack" const
+I:PicoMsgPack.MsgPackReader : PicoSerDe.Core.ITokenReader
+M:PicoMsgPack.IMsgPackConverter`1.Read(ref PicoMsgPack.MsgPackReader reader) : T abstract
+M:PicoMsgPack.IMsgPackConverter`1.Write(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
+M:PicoMsgPack.MsgPackConstructorAttribute..ctor() : void
+M:PicoMsgPack.MsgPackConverterAttribute..ctor(System.Type converterType) : void
+M:PicoMsgPack.MsgPackExtensionTagAttribute..ctor(byte tag) : void
+M:PicoMsgPack.MsgPackIgnoreAttribute..ctor() : void
+M:PicoMsgPack.MsgPackKeyAttribute..ctor(int key) : void
+M:PicoMsgPack.MsgPackOptions..ctor() : void
+M:PicoMsgPack.MsgPackReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool isFinalBlock = true) : void
+M:PicoMsgPack.MsgPackReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool isFinalBlock, PicoMsgPack.MsgPackReaderState state) : void
+M:PicoMsgPack.MsgPackReader..ctor(System.ReadOnlySpan`1<byte> data, bool isFinalBlock = true) : void
+M:PicoMsgPack.MsgPackReader.Dispose() : void
+M:PicoMsgPack.MsgPackReader.ExportState() : PicoMsgPack.MsgPackReaderState
+M:PicoMsgPack.MsgPackReader.GetStringRaw() : System.ReadOnlySpan`1<byte>
+M:PicoMsgPack.MsgPackReader.Read() : bool override
+M:PicoMsgPack.MsgPackReader.SetRawPos(int pos) : void
+M:PicoMsgPack.MsgPackReader.Skip() : void
+M:PicoMsgPack.MsgPackReader.TryGetBool(out bool v) : bool override
+M:PicoMsgPack.MsgPackReader.TryGetExtension(out byte tag, out System.ReadOnlySpan`1<byte> data) : bool
+M:PicoMsgPack.MsgPackReader.TryGetFloat64(out double v) : bool override
+M:PicoMsgPack.MsgPackReader.TryGetInt32(out int v) : bool override
+M:PicoMsgPack.MsgPackReader.TryGetInt64(out long v) : bool override
+M:PicoMsgPack.MsgPackReader.TryGetUInt64(out ulong v) : bool
+M:PicoMsgPack.MsgPackReader.TryReadBoolArray(System.Span`1<bool> dest) : int
+M:PicoMsgPack.MsgPackReader.TryReadDoubleArray(System.Span`1<double> dest) : int
+M:PicoMsgPack.MsgPackReader.TryReadInt32Array(System.Span`1<int> dest) : int
+M:PicoMsgPack.MsgPackReader.TryReadInt64Array(System.Span`1<long> dest) : int
+M:PicoMsgPack.MsgPackReader.TrySkip() : bool override
+M:PicoMsgPack.MsgPackSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
+M:PicoMsgPack.MsgPackSerializer.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoMsgPack.MsgPackOptions options = null) : T static
+M:PicoMsgPack.MsgPackSerializer.HasCustomSerializer``1() : bool static
+M:PicoMsgPack.MsgPackSerializer.HasStreamingDelegate``1() : bool static
+M:PicoMsgPack.MsgPackSerializer.RegisterCustom``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoMsgPack.MsgPackSerializer.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoMsgPack.MsgPackSerializer.RegisterStreaming``1(PicoMsgPack.MsgPackSerializer.StreamingFunc`1<T> func) : void static
+M:PicoMsgPack.MsgPackSerializer.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoMsgPack.MsgPackSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
+M:PicoMsgPack.MsgPackSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> serializer, PicoSerDe.Core.DeserializeDelegate`1<T> deserializer) : void static
+M:PicoMsgPack.MsgPackSerializer.SerializeCustom``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoMsgPack.MsgPackOptions options = null) : void static
+M:PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes``1(T value, PicoMsgPack.MsgPackOptions options = null) : byte[] static
+M:PicoMsgPack.MsgPackSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoMsgPack.MsgPackOptions options = null) : void static
+M:PicoMsgPack.MsgPackSerializer.StreamingFunc`1..ctor(object object, nint method) : void
+M:PicoMsgPack.MsgPackSerializer.StreamingFunc`1.BeginInvoke(ref PicoMsgPack.MsgPackReader reader, out T result, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
+M:PicoMsgPack.MsgPackSerializer.StreamingFunc`1.EndInvoke(ref PicoMsgPack.MsgPackReader reader, out T result, System.IAsyncResult __result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoMsgPack.MsgPackSerializer.StreamingFunc`1.Invoke(ref PicoMsgPack.MsgPackReader reader, out T result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoMsgPack.MsgPackWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, PicoMsgPack.MsgPackOptions options = null) : void
+M:PicoMsgPack.MsgPackWriter.WriteBoolean(bool value) : void
+M:PicoMsgPack.MsgPackWriter.WriteBytes(System.ReadOnlySpan`1<byte> value) : void
+M:PicoMsgPack.MsgPackWriter.WriteEndArray() : void
+M:PicoMsgPack.MsgPackWriter.WriteEndObject() : void
+M:PicoMsgPack.MsgPackWriter.WriteExtension(byte tag, System.ReadOnlySpan`1<byte> data) : void
+M:PicoMsgPack.MsgPackWriter.WriteFloat64(double value) : void
+M:PicoMsgPack.MsgPackWriter.WriteInt32(int value) : void
+M:PicoMsgPack.MsgPackWriter.WriteInt64(long value) : void
+M:PicoMsgPack.MsgPackWriter.WriteNull() : void
+M:PicoMsgPack.MsgPackWriter.WritePropertyName(System.ReadOnlySpan`1<byte> utf8Name) : void
+M:PicoMsgPack.MsgPackWriter.WriteStartArray(int count) : void
+M:PicoMsgPack.MsgPackWriter.WriteStartObject(int count) : void
+M:PicoMsgPack.MsgPackWriter.WriteString(System.ReadOnlySpan`1<byte> utf8Value) : void
+M:PicoMsgPack.MsgPackWriter.WriteUInt64(ulong value) : void
+M:PicoMsgPack.PicoMsgPackSerializableAttribute..ctor() : void
+M:PicoMsgPack.PicoMsgPackSerializableAttribute..ctor(System.Type type) : void
+P:PicoMsgPack.MsgPackExtensionTagAttribute.Tag : byte { get; }
+P:PicoMsgPack.MsgPackKeyAttribute.Key : int { get; }
+P:PicoMsgPack.MsgPackOptions.DefaultIgnoreCondition : PicoMsgPack.MsgPackIgnoreCondition { get; set; }
+P:PicoMsgPack.MsgPackReader.BytesConsumed : long { get; }
+P:PicoMsgPack.MsgPackReader.Depth : int { get; }
+P:PicoMsgPack.MsgPackReader.NeedsMoreData : bool { get; }
+P:PicoMsgPack.MsgPackReader.RawBuffer : System.ReadOnlySpan`1<byte> { get; }
+P:PicoMsgPack.MsgPackReader.RawPos : int { get; }
+P:PicoMsgPack.MsgPackReader.TokenType : PicoSerDe.Core.TokenType { get; }
+P:PicoMsgPack.MsgPackWriter.Buffer : System.Buffers.IBufferWriter`1<byte> { get; }
+P:PicoMsgPack.MsgPackWriter.BytesWritten : long { get; }
+P:PicoMsgPack.MsgPackWriter.Options : PicoMsgPack.MsgPackOptions { get; }
+T:class PicoMsgPack.MsgPackConstructorAttribute
+T:class PicoMsgPack.MsgPackConverterAttribute
+T:class PicoMsgPack.MsgPackExtensionTagAttribute
+T:class PicoMsgPack.MsgPackIgnoreAttribute
+T:class PicoMsgPack.MsgPackKeyAttribute
+T:class PicoMsgPack.MsgPackOptions
+T:class PicoMsgPack.MsgPackSerializer
+T:class PicoMsgPack.PicoMsgPackSerializableAttribute
+T:delegate PicoMsgPack.MsgPackSerializer.StreamingFunc`1
+T:enum PicoMsgPack.MsgPackIgnoreCondition
+T:interface PicoMsgPack.IMsgPackConverter`1
+T:struct PicoMsgPack.MsgPackFormat
+T:struct PicoMsgPack.MsgPackReader
+T:struct PicoMsgPack.MsgPackReaderState
+T:struct PicoMsgPack.MsgPackWriter

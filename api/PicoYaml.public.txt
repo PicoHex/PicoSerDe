@@ -1,0 +1,107 @@
+B:PicoYaml.PicoYamlSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
+B:PicoYaml.YamlCamelCaseAttribute : PicoSerDe.Core.PicoCamelCaseAttribute
+B:PicoYaml.YamlConstructorAttribute : PicoSerDe.Core.PicoConstructorAttribute
+B:PicoYaml.YamlConverterAttribute : PicoSerDe.Core.PicoConverterAttribute
+B:PicoYaml.YamlDateTimeFormatAttribute : PicoSerDe.Core.PicoDateTimeFormatAttribute
+B:PicoYaml.YamlIgnoreAttribute : PicoSerDe.Core.PicoIgnoreAttribute
+B:PicoYaml.YamlKeyAttribute : System.Attribute
+B:PicoYaml.YamlOptions : PicoSerDe.Core.SerOptions
+B:PicoYaml.YamlTagAttribute : System.Attribute
+F:PicoYaml.YamlIgnoreCondition.Never : PicoYaml.YamlIgnoreCondition = 0 const
+F:PicoYaml.YamlIgnoreCondition.WhenWritingNull : PicoYaml.YamlIgnoreCondition = 1 const
+F:PicoYaml.YamlIgnoreCondition.value__ : int
+F:PicoYaml.YamlSerializer.ContentType : string = "text/yaml" const
+I:PicoYaml.YamlReader : PicoSerDe.Core.ITokenReader
+M:PicoYaml.IYamlConverter`1.Read(ref PicoYaml.YamlReader reader) : T abstract
+M:PicoYaml.IYamlConverter`1.Write(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
+M:PicoYaml.PicoYamlSerializableAttribute..ctor() : void
+M:PicoYaml.PicoYamlSerializableAttribute..ctor(System.Type type) : void
+M:PicoYaml.YamlCamelCaseAttribute..ctor() : void
+M:PicoYaml.YamlConstructorAttribute..ctor() : void
+M:PicoYaml.YamlConverterAttribute..ctor(System.Type converterType) : void
+M:PicoYaml.YamlDateTimeFormatAttribute..ctor(string format) : void
+M:PicoYaml.YamlIgnoreAttribute..ctor() : void
+M:PicoYaml.YamlKeyAttribute..ctor(string key) : void
+M:PicoYaml.YamlOptions..ctor() : void
+M:PicoYaml.YamlReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool isFinalBlock = true) : void
+M:PicoYaml.YamlReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool isFinalBlock, PicoYaml.YamlReaderState state) : void
+M:PicoYaml.YamlReader..ctor(System.ReadOnlySpan`1<byte> data, bool isFinalBlock = true) : void
+M:PicoYaml.YamlReader.Dispose() : void
+M:PicoYaml.YamlReader.ExportState() : PicoYaml.YamlReaderState
+M:PicoYaml.YamlReader.Read() : bool override
+M:PicoYaml.YamlReader.SetRawPos(int pos) : void
+M:PicoYaml.YamlReader.Skip() : void
+M:PicoYaml.YamlReader.TryGetBool(out bool v) : bool override
+M:PicoYaml.YamlReader.TryGetFloat64(out double v) : bool override
+M:PicoYaml.YamlReader.TryGetInt32(out int v) : bool override
+M:PicoYaml.YamlReader.TryGetInt64(out long v) : bool override
+M:PicoYaml.YamlReader.TryGetUInt64(out ulong v) : bool
+M:PicoYaml.YamlReader.TryReadBoolArrayFast(System.Span`1<bool> dest) : int
+M:PicoYaml.YamlReader.TryReadInt32ArrayFast(System.Span`1<int> dest) : int
+M:PicoYaml.YamlReader.TryReadInt64ArrayFast(System.Span`1<long> dest) : int
+M:PicoYaml.YamlReader.TrySkip() : bool override
+M:PicoYaml.YamlSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
+M:PicoYaml.YamlSerializer.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoYaml.YamlOptions options = null) : T static
+M:PicoYaml.YamlSerializer.HasStreamingDelegate``1() : bool static
+M:PicoYaml.YamlSerializer.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoYaml.YamlSerializer.RegisterStreaming``1(PicoYaml.YamlSerializer.StreamingFunc`1<T> func) : void static
+M:PicoYaml.YamlSerializer.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoYaml.YamlSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
+M:PicoYaml.YamlSerializer.SerializeToUtf8Bytes``1(T value, PicoYaml.YamlOptions options = null) : byte[] static
+M:PicoYaml.YamlSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoYaml.YamlOptions options = null) : void static
+M:PicoYaml.YamlSerializer.Serialize``1(T value, PicoYaml.YamlOptions options = null) : string static
+M:PicoYaml.YamlSerializer.StreamingFunc`1..ctor(object object, nint method) : void
+M:PicoYaml.YamlSerializer.StreamingFunc`1.BeginInvoke(ref PicoYaml.YamlReader reader, out T result, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
+M:PicoYaml.YamlSerializer.StreamingFunc`1.EndInvoke(ref PicoYaml.YamlReader reader, out T result, System.IAsyncResult __result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoYaml.YamlSerializer.StreamingFunc`1.Invoke(ref PicoYaml.YamlReader reader, out T result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoYaml.YamlTagAttribute..ctor(string tag) : void
+M:PicoYaml.YamlWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, int maxDepth = 256, bool indented = false) : void
+M:PicoYaml.YamlWriter.WriteBoolean(bool value) : void
+M:PicoYaml.YamlWriter.WriteComment(string text) : void
+M:PicoYaml.YamlWriter.WriteDouble(double value) : void
+M:PicoYaml.YamlWriter.WriteEndMapping() : void
+M:PicoYaml.YamlWriter.WriteEndSequenceBlock() : void
+M:PicoYaml.YamlWriter.WriteInt64(long value) : void
+M:PicoYaml.YamlWriter.WriteNumber(int value) : void
+M:PicoYaml.YamlWriter.WritePropertyName(System.ReadOnlySpan`1<byte> utf8Name) : void
+M:PicoYaml.YamlWriter.WritePropertyName(System.ReadOnlySpan`1<char> name) : void
+M:PicoYaml.YamlWriter.WriteSequenceItem(System.ReadOnlySpan`1<byte> utf8Value) : void
+M:PicoYaml.YamlWriter.WriteSequenceItem(double value) : void
+M:PicoYaml.YamlWriter.WriteSequenceItem(float value) : void
+M:PicoYaml.YamlWriter.WriteSequenceItem(int value) : void
+M:PicoYaml.YamlWriter.WriteSequenceItem(long value) : void
+M:PicoYaml.YamlWriter.WriteStartMapping() : void
+M:PicoYaml.YamlWriter.WriteStartSequenceBlock() : void
+M:PicoYaml.YamlWriter.WriteString(System.ReadOnlySpan`1<byte> utf8Value) : void
+M:PicoYaml.YamlWriter.WriteString(System.ReadOnlySpan`1<char> value) : void
+M:PicoYaml.YamlWriter.WriteTag(string tag) : void
+M:PicoYaml.YamlWriter.WriteUInt64(ulong value) : void
+P:PicoYaml.YamlKeyAttribute.Key : string { get; }
+P:PicoYaml.YamlOptions.DefaultIgnoreCondition : PicoYaml.YamlIgnoreCondition { get; set; }
+P:PicoYaml.YamlOptions.Indented : bool { get; set; }
+P:PicoYaml.YamlReader.BytesConsumed : long { get; }
+P:PicoYaml.YamlReader.Depth : int { get; }
+P:PicoYaml.YamlReader.KeySpan : System.ReadOnlySpan`1<byte> { get; }
+P:PicoYaml.YamlReader.NeedsMoreData : bool { get; }
+P:PicoYaml.YamlReader.RawPos : int { get; }
+P:PicoYaml.YamlReader.TokenType : PicoSerDe.Core.TokenType { get; }
+P:PicoYaml.YamlReader.ValueSpan : System.ReadOnlySpan`1<byte> { get; }
+P:PicoYaml.YamlTagAttribute.Tag : string { get; }
+P:PicoYaml.YamlWriter.BytesWritten : long { get; }
+T:class PicoYaml.PicoYamlSerializableAttribute
+T:class PicoYaml.YamlCamelCaseAttribute
+T:class PicoYaml.YamlConstructorAttribute
+T:class PicoYaml.YamlConverterAttribute
+T:class PicoYaml.YamlDateTimeFormatAttribute
+T:class PicoYaml.YamlIgnoreAttribute
+T:class PicoYaml.YamlKeyAttribute
+T:class PicoYaml.YamlOptions
+T:class PicoYaml.YamlSerializer
+T:class PicoYaml.YamlTagAttribute
+T:delegate PicoYaml.YamlSerializer.StreamingFunc`1
+T:enum PicoYaml.YamlIgnoreCondition
+T:interface PicoYaml.IYamlConverter`1
+T:struct PicoYaml.YamlFormat
+T:struct PicoYaml.YamlReader
+T:struct PicoYaml.YamlReaderState
+T:struct PicoYaml.YamlWriter

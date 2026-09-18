@@ -1,0 +1,24 @@
+I:PicoMsgPack.Gen.MsgPackSerializerGenerator : Microsoft.CodeAnalysis.IIncrementalGenerator
+I:PicoSerDe.Gen.AttributeHelpers : System.IEquatable`1<PicoSerDe.Gen.AttributeHelpers>
+I:PicoSerDe.Gen.FormatConfig : System.IEquatable`1<PicoSerDe.Gen.FormatConfig>
+M:PicoMsgPack.Gen.MsgPackSerializerGenerator..ctor() : void
+M:PicoMsgPack.Gen.MsgPackSerializerGenerator.Initialize(Microsoft.CodeAnalysis.IncrementalGeneratorInitializationContext context) : void override
+M:PicoSerDe.Gen.AttributeHelpers..ctor(System.Func`2<Microsoft.CodeAnalysis.ITypeSymbol, bool> HasCamelCase, System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> GetCustomName, System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, bool> HasIgnore, System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> GetConverterType, System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> GetDateTimeFormat, System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, System.Nullable`1<int>> GetIntKey = null, System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> GetSectionName = null, System.Func`2<Microsoft.CodeAnalysis.ITypeSymbol, string> GetComment = null, System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> GetPropertyComment = null, bool OverrideKindWithStringOnConverter = false) : void
+M:PicoSerDe.Gen.FormatConfig..ctor(string SerializerClassName, string Namespace, string FormatTag, string ConstructorAttributeName) : void
+P:PicoSerDe.Gen.AttributeHelpers.GetComment : System.Func`2<Microsoft.CodeAnalysis.ITypeSymbol, string> { get; init; }
+P:PicoSerDe.Gen.AttributeHelpers.GetConverterType : System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> { get; init; }
+P:PicoSerDe.Gen.AttributeHelpers.GetCustomName : System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> { get; init; }
+P:PicoSerDe.Gen.AttributeHelpers.GetDateTimeFormat : System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> { get; init; }
+P:PicoSerDe.Gen.AttributeHelpers.GetIntKey : System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, System.Nullable`1<int>> { get; init; }
+P:PicoSerDe.Gen.AttributeHelpers.GetPropertyComment : System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> { get; init; }
+P:PicoSerDe.Gen.AttributeHelpers.GetSectionName : System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, string> { get; init; }
+P:PicoSerDe.Gen.AttributeHelpers.HasCamelCase : System.Func`2<Microsoft.CodeAnalysis.ITypeSymbol, bool> { get; init; }
+P:PicoSerDe.Gen.AttributeHelpers.HasIgnore : System.Func`2<Microsoft.CodeAnalysis.IPropertySymbol, bool> { get; init; }
+P:PicoSerDe.Gen.AttributeHelpers.OverrideKindWithStringOnConverter : bool { get; init; }
+P:PicoSerDe.Gen.FormatConfig.ConstructorAttributeName : string { get; init; }
+P:PicoSerDe.Gen.FormatConfig.FormatTag : string { get; init; }
+P:PicoSerDe.Gen.FormatConfig.Namespace : string { get; init; }
+P:PicoSerDe.Gen.FormatConfig.SerializerClassName : string { get; init; }
+T:class PicoMsgPack.Gen.MsgPackSerializerGenerator
+T:struct PicoSerDe.Gen.AttributeHelpers
+T:struct PicoSerDe.Gen.FormatConfig

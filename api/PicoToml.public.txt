@@ -1,0 +1,128 @@
+B:PicoToml.PicoTomlSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
+B:PicoToml.TomlCamelCaseAttribute : PicoSerDe.Core.PicoCamelCaseAttribute
+B:PicoToml.TomlConstructorAttribute : PicoSerDe.Core.PicoConstructorAttribute
+B:PicoToml.TomlConverterAttribute : PicoSerDe.Core.PicoConverterAttribute
+B:PicoToml.TomlDateTimeFormatAttribute : PicoSerDe.Core.PicoDateTimeFormatAttribute
+B:PicoToml.TomlIgnoreAttribute : PicoSerDe.Core.PicoIgnoreAttribute
+B:PicoToml.TomlKeyAttribute : System.Attribute
+B:PicoToml.TomlOptions : PicoSerDe.Core.SerOptions
+F:PicoToml.TomlIgnoreCondition.Never : PicoToml.TomlIgnoreCondition = 0 const
+F:PicoToml.TomlIgnoreCondition.WhenWritingNull : PicoToml.TomlIgnoreCondition = 1 const
+F:PicoToml.TomlIgnoreCondition.value__ : int
+F:PicoToml.TomlSerializer.ContentType : string = "application/toml" const
+I:PicoToml.TomlReader : PicoSerDe.Core.ITokenReader
+M:PicoToml.ITomlConverter`1.Read(ref PicoToml.TomlReader reader) : T abstract
+M:PicoToml.ITomlConverter`1.Write(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
+M:PicoToml.PicoTomlSerializableAttribute..ctor() : void
+M:PicoToml.PicoTomlSerializableAttribute..ctor(System.Type type) : void
+M:PicoToml.TomlCamelCaseAttribute..ctor() : void
+M:PicoToml.TomlConstructorAttribute..ctor() : void
+M:PicoToml.TomlConverterAttribute..ctor(System.Type converterType) : void
+M:PicoToml.TomlDateTimeFormatAttribute..ctor(string format) : void
+M:PicoToml.TomlIgnoreAttribute..ctor() : void
+M:PicoToml.TomlKeyAttribute..ctor(string key) : void
+M:PicoToml.TomlOptions..ctor() : void
+M:PicoToml.TomlReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool isFinalBlock = true) : void
+M:PicoToml.TomlReader..ctor(System.Buffers.ReadOnlySequence`1<byte> data, bool isFinalBlock, PicoToml.TomlReaderState state) : void
+M:PicoToml.TomlReader..ctor(System.ReadOnlySpan`1<byte> data, bool isFinalBlock = true) : void
+M:PicoToml.TomlReader.Dispose() : void
+M:PicoToml.TomlReader.ExportState() : PicoToml.TomlReaderState
+M:PicoToml.TomlReader.Read() : bool override
+M:PicoToml.TomlReader.Skip() : void
+M:PicoToml.TomlReader.TryGetBool(out bool v) : bool override
+M:PicoToml.TomlReader.TryGetFloat64(out double v) : bool override
+M:PicoToml.TomlReader.TryGetInt32(out int v) : bool override
+M:PicoToml.TomlReader.TryGetInt64(out long v) : bool override
+M:PicoToml.TomlReader.TryGetUInt64(out ulong v) : bool
+M:PicoToml.TomlReader.TryReadBoolArrayFast(System.Span`1<bool> dest) : int
+M:PicoToml.TomlReader.TryReadInt32ArrayFast(System.Span`1<int> dest) : int
+M:PicoToml.TomlReader.TryReadInt64ArrayFast(System.Span`1<long> dest) : int
+M:PicoToml.TomlReader.TryReadNextInt32(out int v) : bool
+M:PicoToml.TomlReader.TrySkip() : bool override
+M:PicoToml.TomlSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
+M:PicoToml.TomlSerializer.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoToml.TomlOptions options = null) : T static
+M:PicoToml.TomlSerializer.HasStreamingDelegate``1() : bool static
+M:PicoToml.TomlSerializer.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoToml.TomlSerializer.RegisterStreaming``1(PicoToml.TomlSerializer.StreamingFunc`1<T> func) : void static
+M:PicoToml.TomlSerializer.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
+M:PicoToml.TomlSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
+M:PicoToml.TomlSerializer.SerializeToUtf8Bytes``1(T value, PicoToml.TomlOptions options = null) : byte[] static
+M:PicoToml.TomlSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoToml.TomlOptions options = null) : void static
+M:PicoToml.TomlSerializer.Serialize``1(T value, PicoToml.TomlOptions options = null) : string static
+M:PicoToml.TomlSerializer.StreamingFunc`1..ctor(object object, nint method) : void
+M:PicoToml.TomlSerializer.StreamingFunc`1.BeginInvoke(ref PicoToml.TomlReader reader, out T result, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
+M:PicoToml.TomlSerializer.StreamingFunc`1.EndInvoke(ref PicoToml.TomlReader reader, out T result, System.IAsyncResult __result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoToml.TomlSerializer.StreamingFunc`1.Invoke(ref PicoToml.TomlReader reader, out T result) : PicoSerDe.Core.ReadStatus virtual
+M:PicoToml.TomlWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, int maxDepth = 256, bool indented = false) : void
+M:PicoToml.TomlWriter.WriteArrayTable(System.ReadOnlySpan`1<byte> utf8Name) : void
+M:PicoToml.TomlWriter.WriteArrayValue(bool value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(byte value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(double value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(int value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(long value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(sbyte value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(short value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(string value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(uint value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(ulong value) : void
+M:PicoToml.TomlWriter.WriteArrayValue(ushort value) : void
+M:PicoToml.TomlWriter.WriteBlankLine() : void
+M:PicoToml.TomlWriter.WriteComment(string text) : void
+M:PicoToml.TomlWriter.WriteEndArray() : void
+M:PicoToml.TomlWriter.WriteEndInlineTable() : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, System.ReadOnlySpan`1<char> value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, bool value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, byte value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, double value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, int value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, long value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, sbyte value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, short value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, string value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, uint value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, ulong value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(System.ReadOnlySpan`1<byte> utf8Key, ushort value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, System.ReadOnlySpan`1<char> value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, bool value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, byte value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, double value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, int value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, long value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, sbyte value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, short value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, string value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, uint value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, ulong value) : void
+M:PicoToml.TomlWriter.WriteKeyValue(string key, ushort value) : void
+M:PicoToml.TomlWriter.WriteStartArray(System.ReadOnlySpan`1<byte> key) : void
+M:PicoToml.TomlWriter.WriteStartInlineTable(string key) : void
+M:PicoToml.TomlWriter.WriteTable(System.ReadOnlySpan`1<byte> utf8Name) : void
+M:PicoToml.TomlWriter.WriteTable(string name) : void
+P:PicoToml.TomlKeyAttribute.Key : string { get; }
+P:PicoToml.TomlOptions.DefaultIgnoreCondition : PicoToml.TomlIgnoreCondition { get; set; }
+P:PicoToml.TomlOptions.Indented : bool { get; set; }
+P:PicoToml.TomlReader.BytesConsumed : long { get; }
+P:PicoToml.TomlReader.Depth : int { get; }
+P:PicoToml.TomlReader.IsArrayTable : bool { get; }
+P:PicoToml.TomlReader.KeySpan : System.ReadOnlySpan`1<byte> { get; }
+P:PicoToml.TomlReader.NeedsMoreData : bool { get; }
+P:PicoToml.TomlReader.TablePath : System.ReadOnlySpan`1<byte> { get; }
+P:PicoToml.TomlReader.TokenType : PicoSerDe.Core.TokenType { get; }
+P:PicoToml.TomlReader.ValueSpan : System.ReadOnlySpan`1<byte> { get; }
+P:PicoToml.TomlWriter.BytesWritten : long { get; }
+T:class PicoToml.PicoTomlSerializableAttribute
+T:class PicoToml.TomlCamelCaseAttribute
+T:class PicoToml.TomlConstructorAttribute
+T:class PicoToml.TomlConverterAttribute
+T:class PicoToml.TomlDateTimeFormatAttribute
+T:class PicoToml.TomlIgnoreAttribute
+T:class PicoToml.TomlKeyAttribute
+T:class PicoToml.TomlOptions
+T:class PicoToml.TomlSerializer
+T:delegate PicoToml.TomlSerializer.StreamingFunc`1
+T:enum PicoToml.TomlIgnoreCondition
+T:interface PicoToml.ITomlConverter`1
+T:struct PicoToml.TomlFormat
+T:struct PicoToml.TomlReader
+T:struct PicoToml.TomlReaderState
+T:struct PicoToml.TomlWriter
