@@ -2033,6 +2033,17 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     }
 
     /// <summary>
+    /// Strips the Nullable&lt;T&gt; annotation from a fully-qualified type name so
+    /// the shared scalar decoder sees the underlying value type (the member
+    /// read already handled nil, and Enum.TryParse needs a non-nullable TEnum).
+    /// </summary>
+    static string? NullableUnderlyingType(string? typeFullName) =>
+        typeFullName is null ? null
+        : typeFullName.EndsWith("?", System.StringComparison.Ordinal)
+            ? typeFullName.Substring(0, typeFullName.Length - 1)
+        : typeFullName;
+
+    /// <summary>
     /// Strict read of one scalar token into <paramref name="dst"/> (an
     /// assignable expression of the member/element type). The token shape is
     /// validated before any byte is consumed and every Try* result is checked,
@@ -2763,25 +2774,38 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 }
                 break;
             case "datetime":
-                EmitScalarRead(s, "datetime", p.TypeFullName, t, ind, ref c);
-                break;
             case "timespan":
-                EmitScalarRead(s, "timespan", p.TypeFullName, t, ind, ref c);
-                break;
             case "decimal":
-                EmitScalarRead(s, "decimal", p.TypeFullName, t, ind, ref c);
-                break;
             case "dateonly":
-                EmitScalarRead(s, "dateonly", p.TypeFullName, t, ind, ref c);
-                break;
             case "timeonly":
-                EmitScalarRead(s, "timeonly", p.TypeFullName, t, ind, ref c);
-                break;
             case "guid":
-                EmitScalarRead(s, "guid", p.TypeFullName, t, ind, ref c);
-                break;
             case "enum":
-                EmitScalarRead(s, "enum", p.TypeFullName, t, ind, ref c);
+                // A nullable member accepts nil before the typed read runs, so
+                // a missing value stays null instead of throwing.
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else {");
+                    EmitScalarRead(
+                        s,
+                        p.TypeKind,
+                        NullableUnderlyingType(p.TypeFullName),
+                        t,
+                        ind + "    ",
+                        ref c
+                    );
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                else
+                {
+                    EmitScalarRead(s, p.TypeKind, p.TypeFullName, t, ind, ref c);
+                }
                 break;
             case "bytes":
                 EmitScalarRead(s, "bytes", p.TypeFullName, t, ind, ref c);
@@ -2790,6 +2814,19 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 EmitScalarRead(s, "extension", p.TypeFullName, t, ind, ref c);
                 break;
             case "list":
+                // nil means "no collection" for a nullable member: stay null
+                // rather than materialising an empty list.
+                if (p.IsNullableReference)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else {");
+                    ind += "    ";
+                }
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" ??= new List<");
@@ -2804,8 +2841,25 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 ReadDeserElem(s, p, t, ".Add", ind + "        ", ref c);
                 s.Append(ind);
                 s.AppendLine("    } }");
+                if (p.IsNullableReference)
+                {
+                    ind = ind.Substring(4);
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
                 break;
             case "array":
+                if (p.IsNullableReference || p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else {");
+                    ind += "    ";
+                }
                 s.Append(ind);
                 s.Append("var __l = new List<");
                 s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName);
@@ -2822,8 +2876,25 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append(t);
                 s.AppendLine(" = __l.ToArray();");
+                if (p.IsNullableReference || p.IsNullable)
+                {
+                    ind = ind.Substring(4);
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
                 break;
             case "dict":
+                if (p.IsNullableReference)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else {");
+                    ind += "    ";
+                }
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" ??= new Dictionary<string, ");
@@ -2842,6 +2913,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 ReadDeserElem(s, p, $"{t}[__dk]", " =", ind + "        ", ref c);
                 s.Append(ind);
                 s.AppendLine("    } }");
+                if (p.IsNullableReference)
+                {
+                    ind = ind.Substring(4);
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
                 break;
             case "object":
                 if (p.NestedProperties.Length == 0)
