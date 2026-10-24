@@ -1385,10 +1385,12 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                         );
                         break;
                     case (byte)'u':
+                        // A supplementary character may be written as two escapes
+                        // (\uD83D\uDE00): join the surrogate pair before encoding.
                         di = TextHelpers.AppendCodepoint(
                             buf,
                             di,
-                            TextHelpers.ReadHexEscape(src, ref si, 4)
+                            TextHelpers.ReadUnicodeEscape(src, ref si)
                         );
                         break;
                     case (byte)'U':

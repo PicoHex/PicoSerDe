@@ -139,12 +139,46 @@ public static class TextHelpers
     }
 
     /// <summary>
+    /// Reads a four-digit <c>\uXXXX</c> code-point escape (the <c>u</c> is already
+    /// consumed) and joins a surrogate pair written as two consecutive escapes
+    /// (<c>\uD83D\uDE00</c>) into the one supplementary code point it denotes.
+    /// An unpaired high surrogate is rejected with <see cref="FormatException"/>;
+    /// an unpaired low surrogate is caught by <see cref="AppendCodepoint"/>.
+    /// </summary>
+    public static int ReadUnicodeEscape(ReadOnlySpan<byte> src, ref int si)
+    {
+        int cp = ReadHexEscape(src, ref si, 4);
+        if (cp is < 0xD800 or > 0xDBFF)
+            return cp;
+
+        // High surrogate: the low half must follow as its own \uXXXX escape.
+        if (si + 1 >= src.Length || src[si] != (byte)'\\' || src[si + 1] != (byte)'u')
+            throw new FormatException($"Unpaired high surrogate U+{cp:X4}");
+
+        int hi = cp;
+        si += 2; // consume the second escape's own prefix
+        int lo = ReadHexEscape(src, ref si, 4);
+        if (lo is < 0xDC00 or > 0xDFFF)
+            throw new FormatException($"Unpaired high surrogate U+{hi:X4}");
+
+        return 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00);
+    }
+
+    /// <summary>
     /// Encodes a Unicode code-point into UTF-8 bytes at <c>buf[di]</c> and
     /// returns the advanced index after the encoded bytes.
+    /// Throws <see cref="FormatException"/> for values that are not valid Unicode
+    /// scalar values (negative, above U+10FFFF, or an unpaired surrogate) instead
+    /// of writing illegal UTF-8. Callers decoding a <c>\uXXXX</c> high surrogate
+    /// must join it with its low surrogate into one supplementary code point
+    /// before calling this.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int AppendCodepoint(byte[] buf, int di, int cp)
     {
+        if (cp < 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
+            throw new FormatException($"Invalid Unicode code point U+{cp:X}");
+
         if (cp < 0x80)
             buf[di++] = (byte)cp;
         else if (cp < 0x800)
