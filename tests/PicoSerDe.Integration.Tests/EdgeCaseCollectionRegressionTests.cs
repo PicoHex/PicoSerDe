@@ -249,7 +249,7 @@ public class EdgeCaseCollectionRegressionTests
     }
 
     [Test]
-    public async Task ObjectArrayInsideNestedMember_JsonMsgPackToml_YamlThrowsLoudly()
+    public async Task ObjectArrayInsideNestedMember_JsonMsgPackYaml_RoundTrip_TomlFailsLoudly()
     {
         var v = new RvNestedArrHolder
         {
@@ -269,14 +269,17 @@ public class EdgeCaseCollectionRegressionTests
             .That(MsgPackSerializer.Deserialize<RvNestedArrHolder>(mp)!.Inner.Items.Length)
             .IsEqualTo(1);
 
-        // YAML drops the outer member with PICOSERDE004 instead of silently
-        // returning an empty list (its inner helper cannot read this shape).
+        // YAML used to drop the outer member with PICOSERDE004 (its inner helper could
+        // not read an object sequence inside a nested object). F5 wired that read, so
+        // the member and its rows now survive the round-trip.
         var yaml = YamlSerializer.Serialize(v);
-        await Assert.That(yaml).DoesNotContain("Items").Because("yaml=" + yaml);
+        await Assert.That(yaml).Contains("Items").Because("yaml=" + yaml);
         var yamlBack = YamlSerializer.Deserialize<RvNestedArrHolder>(
             System.Text.Encoding.UTF8.GetBytes(yaml)
         );
         await Assert.That(yamlBack!.Name).IsEqualTo("n");
+        await Assert.That(yamlBack.Inner.Items.Length).IsEqualTo(1).Because("yaml=" + yaml);
+        await Assert.That(yamlBack.Inner.Items[0].Name).IsEqualTo("a");
 
         // TOML documents one nesting level: the deep member fails loudly (write or read).
         Exception? tomlError = null;

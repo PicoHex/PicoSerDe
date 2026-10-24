@@ -1004,10 +1004,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
-                // Recursively handle nested List<List<...<T>>>
+                // Nested sequences get one block per level (see
+                // EmitYamlSequenceWrite); everything else keeps the flat shape.
                 if (IsYamlNestedList(p))
                 {
-                    EmitYamlNestedListSerialize(s, p.NestedProperties[0], accessor, ind);
+                    EmitYamlSequenceWrite(s, p, accessor, ind, 0, p.TypeKind ?? "list");
                 }
                 else
                 {
@@ -2087,8 +2088,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
+            // A nested sequence: one block per level, so each item's inner sequence is
+            // the indented block under its dash.
+            if (IsYamlNestedList(p))
+            {
+                EmitYamlSequenceWrite(s, p, $"{target}.{p.Name}", ind, 0, p.TypeKind ?? "list");
+            }
             // Array of complex objects: use block sequence ("- " + indented properties)
-            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            else if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
             {
                 var elemTypeName = p.ElementTypeName ?? "object";
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", elemTypeName);
@@ -2586,7 +2593,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitSerializeListElement(StringBuilder s, PropertyInfo p, string ind)
+    private static void EmitSerializeListElement(
+        StringBuilder s,
+        PropertyInfo p,
+        string ind,
+        string io = "__item"
+    )
     {
         switch (p.ElementTypeKind)
         {
@@ -2594,14 +2606,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 if (p.ElementIsNullableReference)
                 {
                     s.Append(ind);
-                    s.AppendLine("if (__item != null)");
+                    s.AppendLine("if (" + io + " != null)");
                     s.Append(ind);
-                    s.AppendLine("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item));");
+                    s.AppendLine("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(" + io + "));");
                 }
                 else
                 {
                     s.Append(ind);
-                    s.AppendLine("yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item));");
+                    s.AppendLine("yw.WriteSequenceItem(Encoding.UTF8.GetBytes(" + io + "));");
                 }
                 break;
             case "dict":
@@ -2612,7 +2624,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 );
                 s.Append(ind);
                 s.Append(sn);
-                s.AppendLine(".Serialize(yw, __item);");
+                s.AppendLine(".Serialize(yw, " + io + ");");
                 break;
             }
             case "object":
@@ -2626,52 +2638,60 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append("    ");
                 s.Append(sn);
-                s.AppendLine(".SerializeBlock(yw, __item);");
+                s.AppendLine(".SerializeBlock(yw, " + io + ");");
                 s.Append(ind);
                 s.AppendLine("yw.WriteEndSequenceBlock();");
                 break;
             }
             case "int32":
                 s.Append(ind);
-                s.AppendLine("yw.WriteSequenceItem(__item);");
+                s.AppendLine("yw.WriteSequenceItem(" + io + ");");
                 break;
             case "int64":
                 s.Append(ind);
-                s.AppendLine("yw.WriteSequenceItem((long)__item);");
+                s.AppendLine("yw.WriteSequenceItem((long)" + io + ");");
                 break;
             case "float32":
                 s.Append(ind);
-                s.AppendLine("yw.WriteSequenceItem(__item);");
+                s.AppendLine("yw.WriteSequenceItem(" + io + ");");
                 break;
             case "float64":
                 s.Append(ind);
-                s.AppendLine("yw.WriteSequenceItem(__item);");
+                s.AppendLine("yw.WriteSequenceItem(" + io + ");");
                 break;
             case "boolean":
                 s.Append(ind);
-                s.AppendLine("yw.WriteSequenceItem(__item ? \"true\"u8 : \"false\"u8);");
+                s.AppendLine("yw.WriteSequenceItem(" + io + " ? \"true\"u8 : \"false\"u8);");
                 break;
             case "datetime":
                 s.Append(ind);
                 s.AppendLine(
-                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes("
+                        + io
+                        + ".ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)));"
                 );
                 break;
             case "dateonly":
                 s.Append(ind);
                 s.AppendLine(
-                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString(\"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes("
+                        + io
+                        + ".ToString(\"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture)));"
                 );
                 break;
             case "timeonly":
                 s.Append(ind);
                 s.AppendLine(
-                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes("
+                        + io
+                        + ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
                 );
                 break;
             default:
                 s.Append(ind);
-                s.AppendLine("yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString()));");
+                s.AppendLine(
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(" + io + ".ToString()));"
+                );
                 break;
         }
     }
@@ -2718,6 +2738,19 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
         if (p.TypeKind is "list" or "array")
         {
+            // Nested sequences (List<List<T>>, List<T[]>, ...) decode level by level;
+            // the flat shapes below stay byte-identical for every other list member.
+            if (IsYamlNestedList(p))
+            {
+                EmitYamlNestedListDeserialize(
+                    s,
+                    p,
+                    pad,
+                    ctorAssign ? tgt : tgt + "." + p.Name,
+                    p.TypeKind == "array"
+                );
+                return;
+            }
             s.Append(pad);
             s.Append("var __tmpList = new System.Collections.Generic.List<");
             s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
@@ -3237,26 +3270,34 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("{");
     }
 
-    private static void EmitDeserializeListElementTemp(StringBuilder s, PropertyInfo p, string pad)
+    private static void EmitDeserializeListElementTemp(
+        StringBuilder s,
+        PropertyInfo p,
+        string pad,
+        string lo = "__tmpList"
+    )
     {
         switch (p.ElementTypeKind)
         {
             case "float32":
                 s.Append(pad);
                 s.AppendLine(
-                    "__tmpList.Add(float.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                    lo
+                        + ".Add(float.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "float64":
                 s.Append(pad);
                 s.AppendLine(
-                    "__tmpList.Add(double.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                    lo
+                        + ".Add(double.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "decimal":
                 s.Append(pad);
                 s.AppendLine(
-                    "__tmpList.Add(decimal.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                    lo
+                        + ".Add(decimal.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "boolean":
@@ -3265,13 +3306,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!r.TryGetBool(out var __evb)) throw new System.FormatException($\"Expected a boolean at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__evb);");
+                s.AppendLine(lo + ".Add(__evb);");
                 break;
             case "guid":
                 s.Append(pad);
-                s.AppendLine(
-                    "__tmpList.Add(System.Guid.Parse(Encoding.UTF8.GetString(r.ValueSpan)));"
-                );
+                s.AppendLine(lo + ".Add(System.Guid.Parse(Encoding.UTF8.GetString(r.ValueSpan)));");
                 break;
             case "datetime":
                 s.Append(pad);
@@ -3281,29 +3320,32 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!System.DateTime.TryParse(__eraw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __edt)) throw new System.FormatException($\"Invalid DateTime at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__edt);");
+                s.AppendLine(lo + ".Add(__edt);");
                 break;
             case "timespan":
                 s.Append(pad);
                 s.AppendLine(
-                    "__tmpList.Add(System.TimeSpan.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                    lo
+                        + ".Add(System.TimeSpan.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "dateonly":
                 s.Append(pad);
                 s.AppendLine(
-                    "__tmpList.Add(System.DateOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture));"
+                    lo
+                        + ".Add(System.DateOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "timeonly":
                 s.Append(pad);
                 s.AppendLine(
-                    "__tmpList.Add(System.TimeOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture));"
+                    lo
+                        + ".Add(System.TimeOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "enum":
                 s.Append(pad);
-                s.Append("__tmpList.Add(System.Enum.Parse<");
+                s.Append(lo + ".Add(System.Enum.Parse<");
                 s.Append(
                     PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(
                         p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "string"
@@ -3313,7 +3355,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "string":
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(Encoding.UTF8.GetString(r.ValueSpan));");
+                s.AppendLine(lo + ".Add(Encoding.UTF8.GetString(r.ValueSpan));");
                 break;
             case "int32":
                 s.Append(pad);
@@ -3321,7 +3363,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__ev);");
+                s.AppendLine(lo + ".Add(__ev);");
                 break;
             case "int16":
                 s.Append(pad);
@@ -3329,7 +3371,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((short)__ev));");
+                s.AppendLine(lo + ".Add(checked((short)__ev));");
                 break;
             case "uint16":
                 s.Append(pad);
@@ -3337,7 +3379,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((ushort)__ev));");
+                s.AppendLine(lo + ".Add(checked((ushort)__ev));");
                 break;
             case "sbyte":
                 s.Append(pad);
@@ -3345,7 +3387,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((sbyte)__ev));");
+                s.AppendLine(lo + ".Add(checked((sbyte)__ev));");
                 break;
             case "byte":
                 s.Append(pad);
@@ -3353,7 +3395,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((byte)__ev));");
+                s.AppendLine(lo + ".Add(checked((byte)__ev));");
                 break;
             case "uint32":
                 s.Append(pad);
@@ -3361,7 +3403,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($\"Expected an integer at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((uint)__ev));");
+                s.AppendLine(lo + ".Add(checked((uint)__ev));");
                 break;
             case "uint64":
                 s.Append(pad);
@@ -3369,7 +3411,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!r.TryGetUInt64(out var __ev)) throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__ev);");
+                s.AppendLine(lo + ".Add(__ev);");
                 break;
             case "int64":
                 s.Append(pad);
@@ -3377,7 +3419,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "if (!r.TryGetInt64(out var __ev)) throw new System.FormatException($\"Expected a 64-bit integer at offset {r.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__ev);");
+                s.AppendLine(lo + ".Add(__ev);");
                 break;
             case "dict":
             {
@@ -3386,7 +3428,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     p.ElementTypeName!
                 );
                 s.Append(pad);
-                s.Append("__tmpList.Add(");
+                s.Append(lo + ".Add(");
                 s.Append(sn);
                 s.AppendLine(".Deserialize(ref r));");
                 break;
@@ -3398,69 +3440,313 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     p.ElementTypeName!
                 );
                 s.Append(pad);
-                s.Append("__tmpList.Add(");
+                s.Append(lo + ".Add(");
                 s.Append(sn);
                 s.AppendLine(".Deserialize(ref r));");
                 break;
             }
             default:
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(Encoding.UTF8.GetString(r.ValueSpan));");
+                s.AppendLine(lo + ".Add(Encoding.UTF8.GetString(r.ValueSpan));");
                 break;
         }
     }
 
-    // ── Recursive nested-list helpers ──
+    // ── Recursive nested-sequence helpers ──
+    //
+    // A nested sequence is written as a block sequence whose item carries the inner
+    // sequence as the indented block below its dash:
+    //
+    //     Grid:
+    //     -
+    //       - 1
+    //       - 2
+    //
+    // YamlReader has no ArrayStart/ArrayEnd token: a sequence is one String token per
+    // item line, and a deeper indentation opens a synthetic ObjectStart block. So a
+    // nested item is the bare dash line (empty unquoted value, IsNestedSequenceItem)
+    // followed by its block, or the "- []" flow marker (IsEmptySequenceMarker) for an
+    // empty one. Both halves of the wire are therefore readable from plain token types.
 
+    /// <summary>
+    /// True when a list/array level's items are themselves sequences. The extraction
+    /// pass keeps one synthetic descriptor per level in <c>NestedProperties</c>: its
+    /// <c>ElementTypeKind</c> is that level's item kind and its <c>ElementTypeName</c>
+    /// the item type, so one descriptor walks the whole chain.
+    /// </summary>
     private static bool IsYamlNestedList(PropertyInfo p) =>
         (p.ElementTypeKind is "list" or "array") && p.NestedProperties.Length > 0;
 
-    private static void EmitYamlNestedListSerialize(
+    /// <summary>Emits the write of <paramref name="accessor"/> as a YAML block sequence.</summary>
+    private static void EmitYamlSequenceWrite(
         StringBuilder s,
-        PropertyInfo p,
+        PropertyInfo level,
         string accessor,
-        string ind
+        string ind,
+        int depth,
+        string valueKind
     )
     {
+        var itemVar = depth == 0 ? "__item" : "__item" + depth;
         s.Append(ind);
         s.AppendLine("yw.WriteStartSequence();");
         s.Append(ind);
-        s.Append("foreach (var __item in ");
+        s.Append("foreach (var ");
+        s.Append(itemVar);
+        s.Append(" in ");
         s.Append(accessor);
+        if (valueKind == "array")
+            s.Append(" ?? []");
+        else
+        {
+            s.Append(" ?? new System.Collections.Generic.List<");
+            s.Append(level.ElementTypeNameAnnotated ?? level.ElementTypeName ?? "object");
+            s.Append(">(0)");
+        }
         s.AppendLine(")");
         s.Append(ind);
         s.AppendLine("{");
-
-        if (IsYamlNestedList(p))
-        {
-            EmitYamlNestedListSerialize(s, p.NestedProperties[0], "__item", ind + "    ");
-        }
-        else
-        {
-            s.Append(ind);
-            s.AppendLine("    yw.WriteStartSequence();");
-            s.Append(ind);
-            s.AppendLine("    foreach (var __inner in __item)");
-            s.Append(ind);
-            s.AppendLine("    {");
-            var innerKind = p.TypeKind;
-            s.Append(ind);
-            s.Append("        yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
-            if (innerKind == "string")
-                s.Append("__inner");
-            else
-                s.Append("__inner.ToString()");
-            s.AppendLine("));");
-            s.Append(ind);
-            s.AppendLine("    }");
-            s.Append(ind);
-            s.AppendLine("    yw.WriteEndSequence();");
-        }
-
+        EmitYamlSequenceItemWrite(s, level, itemVar, ind + "    ", depth);
         s.Append(ind);
         s.AppendLine("}");
         s.Append(ind);
         s.AppendLine("yw.WriteEndSequence();");
+    }
+
+    /// <summary>Emits one item of the sequence described by <paramref name="level"/>.</summary>
+    private static void EmitYamlSequenceItemWrite(
+        StringBuilder s,
+        PropertyInfo level,
+        string itemVar,
+        string ind,
+        int depth
+    )
+    {
+        if (!IsYamlNestedList(level))
+        {
+            // Scalar/object element: the same writer a flat list member uses.
+            EmitSerializeListElement(s, level, ind, itemVar);
+            return;
+        }
+        var countExpr = level.ElementTypeKind == "array" ? itemVar + ".Length" : itemVar + ".Count";
+        s.Append(ind);
+        s.Append("if (");
+        s.Append(itemVar);
+        s.Append(" is null || ");
+        s.Append(countExpr);
+        s.AppendLine(" == 0)");
+        s.Append(ind);
+        s.AppendLine("{");
+        s.Append(ind);
+        s.AppendLine("    yw.WriteEmptySequenceItem();");
+        s.Append(ind);
+        s.AppendLine("}");
+        s.Append(ind);
+        s.AppendLine("else");
+        s.Append(ind);
+        s.AppendLine("{");
+        s.Append(ind);
+        s.AppendLine("    yw.WriteStartSequenceBlock();");
+        EmitYamlSequenceWrite(
+            s,
+            level.NestedProperties[0],
+            itemVar,
+            ind + "    ",
+            depth + 1,
+            level.ElementTypeKind ?? "list"
+        );
+        s.Append(ind);
+        s.AppendLine("    yw.WriteEndSequenceBlock();");
+        s.Append(ind);
+        s.AppendLine("}");
+    }
+
+    /// <summary>
+    /// Emits the read of a nested-sequence member. <paramref name="p"/> is the member's
+    /// list level; the innermost element is produced by
+    /// <see cref="EmitDeserializeListElementTemp"/> so nested sequences keep the same
+    /// element fidelity as flat ones.
+    /// </summary>
+    private static void EmitYamlNestedListDeserialize(
+        StringBuilder s,
+        PropertyInfo p,
+        string pad,
+        string assignTarget,
+        bool isArray
+    )
+    {
+        s.Append(pad);
+        s.Append("var __tmpList = new System.Collections.Generic.List<");
+        s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
+        s.AppendLine(">(16);");
+        s.Append(pad);
+        s.AppendLine("bool __more;");
+        s.Append(pad);
+        s.AppendLine("__more = r.Read();");
+        s.Append(pad);
+        s.AppendLine("if (!__more)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    // The document ended at this key: there is no list to read.");
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else if (r.TokenType == TokenType.ObjectStart)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    // Indented block sequence: the wrapper ObjectStart was consumed.");
+        EmitYamlSequenceReadLoop(s, p, "__tmpList", pad + "    ", 1, readFirst: true);
+        s.Append(pad);
+        s.AppendLine("    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();");
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else if (r.TokenType == TokenType.String)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    // No wrapper: the probe token is the first item of a flat sequence.");
+        EmitYamlSequenceReadLoop(s, p, "__tmpList", pad + "    ", 1, readFirst: false);
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine(
+            "    // No wrapper and no sequence item: the list is empty and the probe token"
+        );
+        s.Append(pad);
+        s.AppendLine("    // is already the sibling property this member must not eat (C-21).");
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.Append(assignTarget);
+        s.Append(" = __tmpList");
+        if (isArray)
+            s.Append(".ToArray()");
+        s.AppendLine(";");
+        s.Append(pad);
+        s.AppendLine("if (!__more) break;");
+    }
+
+    /// <summary>
+    /// Emits the item loop of one sequence level. Every iteration consumes exactly one
+    /// item token and leaves the reader on the next token, so the loop head only has to
+    /// test the current one.
+    /// </summary>
+    private static void EmitYamlSequenceReadLoop(
+        StringBuilder s,
+        PropertyInfo level,
+        string listVar,
+        string pad,
+        int depth,
+        bool readFirst
+    )
+    {
+        if (readFirst)
+        {
+            s.Append(pad);
+            s.AppendLine("__more = r.Read();");
+        }
+        s.Append(pad);
+        s.AppendLine("while (__more && r.TokenType == TokenType.String)");
+        s.Append(pad);
+        s.AppendLine("{");
+        if (IsYamlNestedList(level))
+            EmitYamlNestedSequenceItemRead(s, level, listVar, pad + "    ", depth);
+        else
+        {
+            EmitDeserializeListElementTemp(s, level, pad + "    ", listVar);
+            s.Append(pad);
+            s.AppendLine("    __more = r.Read();");
+        }
+        s.Append(pad);
+        s.AppendLine("}");
+    }
+
+    /// <summary>Emits one item of a nested-sequence level into <paramref name="listVar"/>.</summary>
+    private static void EmitYamlNestedSequenceItemRead(
+        StringBuilder s,
+        PropertyInfo level,
+        string listVar,
+        string pad,
+        int depth
+    )
+    {
+        var inner = level.NestedProperties[0];
+        var itemVar = "__seq" + depth;
+        s.Append(pad);
+        s.Append("var ");
+        s.Append(itemVar);
+        s.Append(" = new System.Collections.Generic.List<");
+        s.Append(inner.ElementTypeNameAnnotated ?? inner.ElementTypeName ?? "object");
+        s.AppendLine(">(16);");
+        s.Append(pad);
+        s.AppendLine("if (r.IsEmptySequenceMarker)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    // A \"- []\" item: the inner sequence has no elements.");
+        s.Append(pad);
+        s.AppendLine("    __more = r.Read();");
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else if (r.IsNestedSequenceItem)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    // A bare dash: the inner sequence is the indented block that follows.");
+        s.Append(pad);
+        s.AppendLine("    if (!r.Read())");
+        s.Append(pad);
+        s.AppendLine("    {");
+        s.Append(pad);
+        s.AppendLine("        // The chunk (or the document) ended inside the item: a resumed");
+        s.Append(pad);
+        s.AppendLine("        // read restarts the member from its mark, so stopping here is safe");
+        s.Append(pad);
+        s.AppendLine("        // and the streaming dispatcher decides whether to wait for more.");
+        s.Append(pad);
+        s.AppendLine("        __more = false;");
+        s.Append(pad);
+        s.AppendLine("    }");
+        s.Append(pad);
+        s.AppendLine("    else if (r.TokenType != TokenType.ObjectStart)");
+        s.Append(pad);
+        s.AppendLine("    {");
+        s.Append(pad);
+        s.AppendLine(
+            "        throw new System.FormatException($\"Expected a nested sequence at offset {r.BytesConsumed}\");"
+        );
+        s.Append(pad);
+        s.AppendLine("    }");
+        EmitYamlSequenceReadLoop(s, inner, itemVar, pad + "    ", depth + 1, readFirst: true);
+        s.Append(pad);
+        s.AppendLine("    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();");
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine(
+            "    throw new System.FormatException($\"Expected a nested sequence item at offset {r.BytesConsumed}\");"
+        );
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.Append(listVar);
+        s.Append(".Add(");
+        s.Append(itemVar);
+        if (level.ElementTypeKind == "array")
+            s.Append(".ToArray()");
+        s.AppendLine(");");
     }
 
     static string GenPoly(TypeInfo type, Dictionary<string, TypeInfo> typeMap)

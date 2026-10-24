@@ -347,6 +347,20 @@ public ref struct YamlWriter
             _sequenceWroteContent |= 1UL << (_sequenceDepth - 1);
     }
 
+    /// <summary>
+    /// Writes an empty nested sequence as its own item line (<c>- []</c>): the value of a
+    /// nested sequence item that has no elements. The flow marker is written raw — passing
+    /// it through <see cref="WriteSequenceItem(ReadOnlySpan{byte})"/> would quote it and turn
+    /// the empty nested sequence into the scalar "[]". A scalar item whose text is literally
+    /// [] is quoted by the writer, so the reader can tell the two apart.
+    /// </summary>
+    public void WriteEmptySequenceItem()
+    {
+        WriteSequencePrefix();
+        WriteRaw("[]"u8);
+        WriteNewLine();
+    }
+
     /// <summary>Writes a block sequence item that starts a mapping (-\n indented properties).</summary>
     public void WriteStartSequenceBlock()
     {

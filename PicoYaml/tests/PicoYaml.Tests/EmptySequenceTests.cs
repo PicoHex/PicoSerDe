@@ -11,8 +11,8 @@
 // still a value on the key's own line and the following key starts a new line.
 
 // NOTE: PICOSERDE004 is reported with Location.None, so it cannot be silenced by a
-// #pragma. The nested fixture below therefore adds one intentional warning to this
-// project's build — that warning *is* the behaviour under test.
+// #pragma. The nested fixture below used to be the one intentional warning in this
+// project's build; F5 removed that shape from the dropped set, so the warning is gone.
 namespace PicoYaml.Tests;
 
 /// <summary>A scalar list member inside a nested object (EmitSerializeInline path).</summary>
@@ -64,7 +64,11 @@ public class NonEmptySeqInts
     public int Count { get; set; } = 5;
 }
 
-/// <summary>List&lt;List&lt;int&gt;&gt; is still dropped by PICOSERDE004 (F5's scope).</summary>
+/// <summary>
+/// The F2 fixture whose <c>List&lt;List&lt;int&gt;&gt;</c> member the shared extractor used
+/// to drop with PICOSERDE004. F5 wired nested sequences, so the member is written and
+/// read back.
+/// </summary>
 public class NestedSeqInts
 {
     public string Name { get; set; } = "";
@@ -265,21 +269,26 @@ public class EmptySequenceTests
     }
 
     /// <summary>
-    /// List&lt;List&lt;int&gt;&gt; is still dropped at extraction time (PICOSERDE004, F5's
-    /// scope) — this asserts the drop is visible instead of silently lossy. The
-    /// diagnostic id itself is asserted by
+    /// The fixture F2 used to prove the drop: <c>List&lt;List&lt;int&gt;&gt;</c> is no longer
+    /// dropped (F5). The member is written, round-trips, and its sibling keys still
+    /// start their own lines. The diagnostic id itself is asserted by
     /// tests/PicoSerDe.Integration.Tests/YamlNestedListDiagnosticTests.cs, which is the
     /// only project that references PicoYaml.Gen with ReferenceOutputAssembly=true.
     /// </summary>
     [Test]
-    public async Task NestedList_IsStillDropped_WithDiagnostic_AndDoesNotGlueKeys()
+    public async Task NestedList_IsNoLongerDropped_AndRoundTrips()
     {
         var text = YamlSerializer.Serialize(new NestedSeqInts { Name = "n" });
-        await Assert.That(text).DoesNotContain("Grid").Because("actual=" + text);
-        await Assert.That(text).IsEqualTo("Name: n\nCount: 5\n").Because("actual=" + text);
+        await Assert.That(text).Contains("Grid").Because("actual=" + text);
+        await Assert
+            .That(text)
+            .IsEqualTo("Name: n\nGrid:\n- \n  - 1\n  - 2\nCount: 5\n")
+            .Because("actual=" + text);
 
         var back = YamlSerializer.Deserialize<NestedSeqInts>(Encoding.UTF8.GetBytes(text));
         await Assert.That(back!.Name).IsEqualTo("n");
+        await Assert.That(back.Grid.Count).IsEqualTo(1);
+        await Assert.That(back.Grid[0]).IsEquivalentTo([1, 2]);
         await Assert.That(back.Count).IsEqualTo(5);
     }
 }

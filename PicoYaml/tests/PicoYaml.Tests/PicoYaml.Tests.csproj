@@ -5,12 +5,10 @@
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
     <IsPackable>false</IsPackable>
-    <!-- IL2026/IL3050: TUnit reflection (test-only). PICOSERDE004: the
-         NestedSeqInts fixture deliberately uses List<List<int>> so the test can
-         assert that the diagnostic fires and that the member is dropped; that
-         warning is the tested behaviour (same convention as
-         tests/PicoSerDe.Integration.Tests). -->
-    <NoWarn>$(NoWarn);IL2026;IL3050;TUnitAssertions0005;PICOSERDE004</NoWarn>
+    <!-- IL2026/IL3050: TUnit reflection (test-only). No PICOSERDE004 suppression:
+         F5 wired nested sequences, so nothing in this project drops a member any
+         more - the warning must stay at zero here. -->
+    <NoWarn>$(NoWarn);IL2026;IL3050;TUnitAssertions0005</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
   <ItemGroup>

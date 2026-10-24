@@ -1240,13 +1240,13 @@ internal static class GenInfrastructure
                 var (ek, _, _) = TypeKindResolver.Resolve(elementType, formatTag);
                 if (ek is null)
                     continue;
-                // Section-based formats cannot represent a nested list at all;
-                // drop the member with a shared PICOSERDE004 diagnostic instead
-                // of emitting non-compiling or lossy element code.
                 // Section-based formats cannot express nested lists or nullable
                 // value-type elements. TOML/YAML additionally cannot express null
                 // object/dict elements (they skip null *scalars*); INI has no null
                 // representation at all, so every nullable element is dropped.
+                // YAML used to be in the nested-list group as well; it has its own
+                // block-sequence encoding for them now (F5), and its element list
+                // carries the innermost element's nullability instead.
                 var elementIsNullableValueType =
                     elementType is INamedTypeSymbol
                     {
@@ -1254,14 +1254,14 @@ internal static class GenInfrastructure
                     };
                 var elementIsAnnotated =
                     elementType.NullableAnnotation == NullableAnnotation.Annotated;
-                if (
+                var nestedListUnsupported = formatTag is "toml" or "ini" && ek is "list" or "array";
+                var nullableElementUnsupported =
                     formatTag is "toml" or "yaml" or "ini"
                     && (
-                        ek is "list" or "array"
-                        || elementIsNullableValueType
+                        elementIsNullableValueType
                         || elementIsAnnotated && (formatTag == "ini" || ek is "object" or "dict")
-                    )
-                )
+                    );
+                if (nestedListUnsupported || nullableElementUnsupported)
                 {
                     skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                     continue;
@@ -1457,22 +1457,6 @@ internal static class GenInfrastructure
                 );
             }
 
-            // YAML's inner helper cannot read an object member that itself
-            // contains an object sequence (it silently produced an empty list);
-            // drop the outer member with the shared diagnostic instead.
-            if (
-                formatTag == "yaml"
-                && typeKind == "object"
-                && nestedProperties.Any(x =>
-                    (x.TypeKind is "list" or "array")
-                    && x.ElementTypeKind == "object"
-                    && x.NestedProperties.Length > 0
-                )
-            )
-            {
-                skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
-                continue;
-            }
             if (recursiveRef && formatTag is not ("json" or "msgpack"))
             {
                 // TOML/YAML/INI cannot represent arbitrarily deep nesting; drop

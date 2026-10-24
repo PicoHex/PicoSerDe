@@ -5,13 +5,13 @@ using PicoYaml.Gen;
 namespace PicoSerDe.Integration.Tests;
 
 /// <summary>
-/// F2 scope: an empty scalar sequence is fixed by <c>WriteStartSequence()</c>/
-/// <c>WriteEndSequence()</c>, but <c>List&lt;List&lt;T&gt;&gt;</c> (and object-element
-/// lists) inside a YAML member are still dropped at extraction time by the shared
-/// <c>PICOSERDE004</c> diagnostic — that shape is F5's scope.
+/// F5 scope (closed): <c>List&lt;List&lt;T&gt;&gt;</c> (and object-element lists) inside a
+/// YAML member used to be dropped at extraction time by the shared <c>PICOSERDE004</c>
+/// diagnostic. Nested sequences are generated now, so the diagnostic must not fire
+/// for them and the member must reach the generated serializer.
 ///
-/// <c>PicoYaml.Tests.EmptySequenceTests</c> asserts the observable half (the
-/// member is absent and the sibling keys survive); this test pins the diagnostic id
+/// <c>PicoYaml.Tests.NestedSeqTests</c> asserts the observable half (the member is
+/// written, read back, and its siblings survive); this test pins the diagnostic id
 /// itself, which needs a generator-driven compilation. Only this project references
 /// <c>PicoYaml.Gen</c> with <c>ReferenceOutputAssembly="true"</c>.
 /// </summary>
@@ -20,7 +20,7 @@ public class YamlNestedListDiagnosticTests
     private const string Id = "PICOSERDE004";
 
     [Test]
-    public async Task Yaml_NestedScalarListMember_ReportsDiagnostic()
+    public async Task Yaml_NestedScalarListMember_ReportsNoDiagnostic()
     {
         const string source = """
             using PicoYaml;
@@ -39,11 +39,12 @@ public class YamlNestedListDiagnosticTests
             """;
 
         var (ids, generated) = RunGenerator(source);
-        await Assert.That(ids).Contains(Id);
+        await Assert.That(ids).DoesNotContain(Id);
+        await Assert.That(generated).Contains("Grid").Because("the member must be emitted");
         await Assert
             .That(generated)
-            .DoesNotContain("Grid")
-            .Because("the dropped member must not be emitted");
+            .Contains("WriteEmptySequenceItem")
+            .Because("a nested sequence is written as '- ' block lines");
     }
 
     /// <summary>

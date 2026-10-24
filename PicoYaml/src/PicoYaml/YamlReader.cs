@@ -360,6 +360,31 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
 
     /// <summary>
+    /// True when the current value came from an explicitly quoted scalar (or a block
+    /// scalar). An empty quoted scalar is the empty string, never a null literal and
+    /// never a sequence marker — which is what lets the generated nested-sequence code
+    /// tell <c>- ""</c> from a bare <c>-</c>.
+    /// </summary>
+    public bool ValueWasQuoted => _valueWasQuoted;
+
+    /// <summary>
+    /// True when the current item token is a bare sequence dash: the reader emitted an
+    /// empty, unquoted value, so the item's value is the indented block that follows.
+    /// </summary>
+    public bool IsNestedSequenceItem => !_valueWasQuoted && _valueSpan.IsEmpty;
+
+    /// <summary>
+    /// True when the current item token carries the unquoted flow-empty marker
+    /// (<c>- []</c>): a nested sequence with no elements. A quoted "[]" is a string
+    /// element and is never reported here.
+    /// </summary>
+    public bool IsEmptySequenceMarker =>
+        !_valueWasQuoted
+        && _valueSpan.Length == 2
+        && _valueSpan[0] == (byte)'['
+        && _valueSpan[1] == (byte)']';
+
+    /// <summary>
     /// True when the current value is a YAML null literal: <c>null</c> (any
     /// case), <c>~</c>, or a missing value (<c>Key:</c> with nothing after the
     /// colon). A quoted scalar is never null — <c>V: ""</c> is the empty
