@@ -67,13 +67,28 @@ var ini = IniSerializer.Serialize(config);
 `IniSerializer.Serialize` / `Deserialize` accept `IniOptions`:
 
 - `Indented` — indents section contents by two spaces (default: compact)
-- `DefaultIgnoreCondition` — accepted for API uniformity; INI has no null literal, so null values are always omitted
+- `DefaultIgnoreCondition` — accepted for API uniformity; INI has no null value on the write side, so null members are always omitted
+
+## Null Handling
+
+- **Write:** a null member is omitted — INI has no null value. Omission means a
+  null does **not** round-trip: the property keeps its initializer (or stays
+  `null` when it has none) on read.
+- **Read:** `Key =` with nothing after it, and the unquoted word `null` (any
+  case), are null literals and assign `null` to nullable members. An unquoted
+  empty value used to produce `""`; it is now `null`.
+- A quoted `""` is the empty string and a quoted `"null"` is the four-character
+  string — quoted scalars are never null.
+- A null literal aimed at a **non-nullable value type** throws
+  `FormatException`; an unannotated `string` member receives `null` (the
+  generators' NRT-lenient contract).
 
 ## Limitations
 
 - Nested object lists (`List<SomeDto>` as a property) cannot be represented by flat INI sections and are ignored.
 - Objects nested deeper than one level throw `NotSupportedException` instead of silently losing data.
 - List values parse strictly and culture-invariantly: malformed elements throw `FormatException`; `List<int>`, `List<bool>`, `List<DateOnly>`, `List<TimeSpan>`, etc. round-trip.
+- Enum values parse strictly too: an unparseable enum text throws `FormatException` naming the member and offset. It previously fell back silently to the default (`0`) enum member.
 
 ## Performance
 

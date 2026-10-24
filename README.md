@@ -27,22 +27,27 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**1330 tests** across all 6 modules, with cross-validation against 5 competitor libraries:
+**1698 tests** across the five format modules, the shared core and the cross-format integration suite, with cross-validation against 5 competitor libraries:
 
 | Module | Tests | Competitor | Cross-Validation |
 |--------|:-----:|:-----------|:----------------:|
-| PicoJetson | 559 | System.Text.Json | ✅ bidirectional, all 19 property types |
-| PicoToml | 143 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
-| PicoYaml | 157 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
-| PicoIni | 161 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
-| PicoMsgPack | 157 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
-| PicoSerDe.Core | 65 | — | — |
-| Integration (cross-format) | 88 | — | Ignore-condition matrix, anon types, round-trips |
+| PicoJetson | 624 | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoToml | 164 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
+| PicoYaml | 174 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
+| PicoIni | 195 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
+| PicoMsgPack | 180 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
+| PicoSerDe.Core | 72 | — | — |
+| Integration (cross-format) | 289 | — | Ignore-condition matrix, anon types, round-trips |
 
-> 91 of these are strictness/robustness regression tests added in the
-> strict-deserialization hardening pass: wrong-typed input, trailing data,
-> missing `required` members, malformed documents, chunked streaming, and
-> comment handling all fail loudly instead of silently producing defaults.
+> Counts come from `dotnet test PicoSerDe.slnx -c Debug` (1698 passed, 0 failed,
+> 0 skipped). PicoJetson's 624 is split across its three test projects: 240 unit,
+> 323 integration, 61 functional.
+>
+> Strictness/robustness regression tests live in dedicated per-format suites
+> (`Strict*Tests`, `*StrictnessTests`, `*RobustnessTests`): wrong-typed input,
+> trailing data, missing `required` members, malformed documents, chunked
+> streaming and comment handling all fail loudly instead of silently producing
+> defaults.
 
 ## Performance Summary
 
@@ -75,11 +80,17 @@ Benchmarks: AOT self-contained, .NET 10, 100K iterations, win-x64.
 ## Design
 
 ```csharp
-// One API across all formats
-JsonSerializer.Serialize<T>(value)      // → byte[] via PicoJetson
-MsgPackSerializer.Deserialize<T>(data)  // T ← byte[] via PicoMsgPack
-IniSerializer.Serialize(config)         // → string via PicoIni
+// One API across all formats. The four text formats return string;
+// MsgPack is binary and returns byte[].
+JsonSerializer.Serialize<T>(value)                 // → string  (PicoJetson)
+TomlSerializer.Serialize<T>(value)                 // → string  (PicoToml)
+YamlSerializer.Serialize<T>(value)                 // → string  (PicoYaml)
+IniSerializer.Serialize<T>(value)                  // → string  (PicoIni)
+MsgPackSerializer.SerializeToUtf8Bytes<T>(value)   // → byte[]  (PicoMsgPack)
 ```
+
+> `SerializeToUtf8Bytes` is the `byte[]` entry point (JSON has one too); the
+> plain `Serialize` overloads of the text formats return `string`.
 
 ### Attribute-Driven Registration
 
@@ -156,6 +167,64 @@ default values:
 - **INI list values parse strictly per element kind** — malformed numbers,
   booleans, dates, etc. throw `FormatException` (never silently default to `0`/
   `false`), and formatting/parsing is culture-invariant
+- **INI enum values parse strictly** — an unparseable enum text now throws
+  `FormatException` naming the member and offset; it used to fall back silently
+  to the default (`0`) enum member
+- **TOML/YAML/INI unquoted empty values are `null`, not `""`** — `Key =` (TOML/
+  INI) and `Key:` (YAML) assign `null` to nullable members; INI previously
+  produced the empty string. Quoted `""` is still the empty string
+- **`float` keeps its own precision** — `JsonWriter.WriteNumber(float)` emits the
+  shortest round-trippable single-precision text instead of widening to `double`
+  and printing the widened value
+
+### Null Semantics
+
+Null is not portable across the five formats, so "write a null" and "read a
+null" are spelled out per format below. Everything here is observed behaviour of
+the generated code, not a format-theoretic claim.
+
+**Writing a null member** (default options, `DefaultIgnoreCondition = Never`):
+
+| Format | Null member written as | Under `WhenWritingNull` |
+|--------|------------------------|-------------------------|
+| JSON | `"key":null` | member omitted |
+| MsgPack | `nil` (`0xC0`; the map/array header is adjusted) | member omitted |
+| TOML | member omitted — TOML has no null value | member omitted |
+| YAML | member omitted — YAML has no null value on write | member omitted |
+| INI | member omitted — INI has no null value | member omitted |
+
+Because the three section-based formats drop the member, **a null does not
+round-trip through TOML/YAML/INI**: reading the document back leaves the target
+at its default, which is the property initializer's value when one exists.
+JSON and MsgPack write an explicit null and do round-trip.
+
+**Reading a null** — accepted spellings and what the target receives:
+
+| Format | Null spellings accepted | nullable target (`T?`, `string?`) | non-nullable value type | non-nullable `string` |
+|--------|-------------------------|:---:|:---:|:---:|
+| JSON | `null` | `null` | `FormatException` | `FormatException` |
+| MsgPack | `nil` | `null` | `FormatException` | `FormatException` |
+| TOML | `Key =` (no value), or unquoted `null` (any case) | `null` | `FormatException` | `null` |
+| YAML | `Key:` (no value), `~`, or unquoted `null` (any case) | `null` | `FormatException` | `null` |
+| INI | `Key =` (no value), or unquoted `null` (any case) | `null` | `FormatException` | `null` |
+
+Rules that hold in every format:
+
+- **A quoted scalar is never null.** `Key = ""` is the empty string and
+  `Key = "null"` is the four-character string `null`; both are values, not
+  omissions.
+- **A missing member is not an error.** It leaves the target at its default.
+- **An unquoted empty value *is* the null literal** in TOML/YAML/INI — `Key =`
+  with nothing after it assigns `null`; it does not mean "member missing".
+- **A null aimed at a non-nullable value type fails loudly** with
+  `FormatException` instead of silently leaving `0` / `false` / `Guid.Empty`.
+- **The non-nullable `string` column is the generators' NRT-lenient contract:**
+  TOML/YAML/INI assign `null!` to an unannotated `string`, while JSON/MsgPack
+  keep requiring a value token and reject the null.
+- **Scope:** these rules cover scalar members (string, numeric, temporal, enum,
+  Guid, and their nullable forms). Collection, object and dictionary branches
+  keep their own empty-value semantics and are not routed through the
+  null-literal path.
 
 ### Polymorphic Deserialization (Type Discriminator)
 
@@ -240,12 +309,20 @@ represent any nullable element and drops those members the same way.
 
 ### Streaming (incremental, chunked)
 
-`DeserializeFromStreamAsync<T>(stream, options, ct)` reads a stream incrementally:
-consumed bytes are released as tokens complete and only the current
-token/member window is retained, so the document is never buffered wholesale
-before parsing. JSON/TOML/YAML/INI accept an options argument
-(`JsonOptions`/`TomlOptions`/`YamlOptions`/`IniOptions`); MsgPack takes
-`(stream, ct)` because it has no options type.
+`DeserializeFromStreamAsync<T>(stream, options, ct)` reads a stream
+incrementally: for JSON/TOML/YAML/INI the consumed prefix is released as tokens
+complete and only the current token/member window is retained, so the document
+is never buffered wholesale before parsing.
+
+**MsgPack is the exception — its stream path is a buffering implementation.**
+Each read is appended to an accumulator and the whole buffer is re-parsed from
+the beginning until the value is complete (correct, and it resumes cleanly, but
+it is not incremental and costs O(n²) in the number of chunks).
+
+JSON/TOML/YAML/INI accept an options argument
+(`JsonOptions`/`TomlOptions`/`YamlOptions`/`IniOptions`). MsgPack also has a
+`MsgPackOptions` type, but its `DeserializeFromStreamAsync` overload takes
+`(stream, ct)` only — options are not accepted on the streaming path.
 
 ```csharp
 await using var stream = File.OpenRead("config.toml");
@@ -382,12 +459,16 @@ Every format's options class (`JsonOptions`, `YamlOptions`, `TomlOptions`, `IniO
 |--------|-------------------|-------------------|
 | JSON | `"key":null` written | omitted |
 | MsgPack | `nil` written (map count adjusts automatically) | omitted |
-| TOML / INI | omitted — these formats have no null literal | omitted |
-| YAML | omitted — the reader has no null-literal support yet; writing `key:` would read back as a default value and break round-trip fidelity | omitted |
+| TOML / INI | omitted — these formats have no null value | omitted |
+| YAML | omitted — YAML has no null value on write; writing `key:` would read back as a default value and break round-trip fidelity | omitted |
+
+> All three section-based formats still *read* an explicit null literal
+> (`Key =`, `Key:`, `~`, unquoted `null`) — see
+> [Null Semantics](#null-semantics) for the full per-format matrix.
 
 The matrix applies to every emit path — top-level members, nested objects, collection elements, nullable collections, and polymorphic dispatch — and is locked by cross-format regression tests (`IgnoreConditionMatrixTests`).
 
-> **Honored options:** JSON and MsgPack read `DefaultIgnoreCondition` from their options objects. INI/TOML/YAML always omit nulls because those wire formats have no null literal; their `DefaultIgnoreCondition` property is accepted by the public API but the generated code treats nulls as always omitted. `Indented = true` is honored: YAML additionally indents sequence items under their key, TOML indents table contents, and INI indents section contents (the compact default is unchanged).
+> **Honored options:** JSON and MsgPack read `DefaultIgnoreCondition` from their options objects. INI/TOML/YAML always omit nulls because those wire formats have no null *value* on the write side; their `DefaultIgnoreCondition` property is accepted by the public API but the generated code treats nulls as always omitted. `Indented = true` is honored: YAML additionally indents sequence items under their key, TOML indents table contents, and INI indents section contents (the compact default is unchanged).
 
 Per-property control is available via the cross-format `[PicoIgnore]` attribute (PicoSerDe.Core):
 
@@ -449,7 +530,7 @@ is the canonical property (`Name` is an obsolete alias).
 | linux-arm64 | ubuntu-24.04-arm |
 | osx-arm64 | macos-latest |
 
-Every push: build + test (1330 tests) + 5 benchmarks smoke + 5 AOT sample publishes.
+Every push: build + test (1698 tests) + 5 benchmarks smoke + 5 AOT sample publishes.
 Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
 Local feed: run `./scripts/release.ps1 -Version <ver>` **before** pushing the
 tag — it runs the test suite, packs all 11 packages into `artifacts/nupkg`

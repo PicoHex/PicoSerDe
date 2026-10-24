@@ -105,6 +105,7 @@ M:PicoJetson.JsonWriter.WriteNull() : void
 M:PicoJetson.JsonWriter.WriteNumber(System.Decimal value) : void
 M:PicoJetson.JsonWriter.WriteNumber(byte value) : void
 M:PicoJetson.JsonWriter.WriteNumber(double value) : void
+M:PicoJetson.JsonWriter.WriteNumber(float value) : void
 M:PicoJetson.JsonWriter.WriteNumber(int value) : void
 M:PicoJetson.JsonWriter.WriteNumber(long value) : void
 M:PicoJetson.JsonWriter.WriteNumber(sbyte value) : void

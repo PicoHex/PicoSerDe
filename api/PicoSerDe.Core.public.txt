@@ -128,6 +128,7 @@ M:PicoSerDe.Core.TextHelpers.IsBomAtStart(System.ReadOnlySpan`1<byte> data) : bo
 M:PicoSerDe.Core.TextHelpers.IsBomAtStart(ref System.Buffers.SequenceReader`1<byte> reader) : bool static
 M:PicoSerDe.Core.TextHelpers.IsDigit(byte b) : bool static
 M:PicoSerDe.Core.TextHelpers.ReadHexEscape(System.ReadOnlySpan`1<byte> src, ref int si, int count) : int static
+M:PicoSerDe.Core.TextHelpers.ReadUnicodeEscape(System.ReadOnlySpan`1<byte> src, ref int si) : int static
 M:PicoSerDe.Core.TextHelpers.ScanUntilLineEnd(System.ReadOnlySpan`1<byte> data, int position) : int static
 M:PicoSerDe.Core.TextHelpers.SkipBom(System.ReadOnlySpan`1<byte> data) : System.ReadOnlySpan`1<byte> static
 M:PicoSerDe.Core.TextHelpers.SkipBomSeq(ref System.Buffers.SequenceReader`1<byte> reader, bool isFinalBlock, out bool needsMoreData) : bool static

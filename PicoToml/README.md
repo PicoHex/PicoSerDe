@@ -61,7 +61,20 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
 `TomlSerializer.Serialize` / `Deserialize` accept `TomlOptions`:
 
 - `Indented` — indents table contents by two spaces (default: compact)
-- `DefaultIgnoreCondition` — accepted for API uniformity; TOML has no null literal, so null values are always omitted
+- `DefaultIgnoreCondition` — accepted for API uniformity; TOML has no null value on the write side, so null members are always omitted
+
+## Null Handling
+
+- **Write:** a null member is omitted — TOML has no null value. Omission means a
+  null does **not** round-trip: the property keeps its initializer (or stays
+  `null` when it has none) on read.
+- **Read:** `Key =` with nothing after it, and the unquoted word `null` (any
+  case), are null literals and assign `null` to nullable members.
+- A quoted `""` is the empty string and a quoted `"null"` is the four-character
+  string — quoted scalars are never null.
+- A null literal aimed at a **non-nullable value type** throws
+  `FormatException`; an unannotated `string` member receives `null` (the
+  generators' NRT-lenient contract).
 
 ## Limitations
 
