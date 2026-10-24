@@ -61,6 +61,23 @@ var user = MsgPackSerializer.Deserialize<User>(bytes);
   (e.g. a string where an `int` is declared) throws instead of silently
   becoming a default
 
+## Limits
+
+MessagePack has native arrays and maps, so every shape in the framework's format-limits matrix is
+expressible: object lists (`List<Dto>`), nested primitive lists (`List<List<int>>`), nested object
+lists (`List<List<Dto>>`), nested nullable elements (`List<List<int?>>`, `nil` elements included)
+and recursive members. `PICOSERDE003` never fires for this format.
+
+The drops that do happen come from rules shared with the other formats and are all reported: a
+**collection dictionary value** (`Dictionary<string, List<T>>`) and a nested chain with a nullable
+*value* leaf are dropped with `PICOSERDE004`; an anonymous-type **collection** member is dropped
+with `PICOSERDE005` (the map/array headers need an element count up front, so only the JSON writer
+can emit those). A **top-level scalar** target fails loudly instead (`Serialize<Guid>()` throws
+`InvalidOperationException`).
+
+See the [root README](../README.md#format-limits-what-each-wire-format-cannot-express) for the
+same matrix across all five formats.
+
 ## Streaming
 
 `DeserializeFromStreamAsync<T>(stream, ct)` is a **buffering** implementation:

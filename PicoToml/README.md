@@ -76,9 +76,25 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
   `FormatException`; an unannotated `string` member receives `null` (the
   generators' NRT-lenient contract).
 
-## Limitations
+## Limits
 
+- **Object lists** — `List<Dto>` is written as TOML array tables (`[[Rows]]`) and round-trips.
+- **Nested primitive arrays** — `List<List<int>>`, `List<int[]>`, `int[][]` are written as an
+  inline array of inline arrays (`Grid = [[1, 2], [3]]`) and round-trip. The representable leaf
+  kinds are the scalars the TOML list writer has a case for: `string`, the integer widths,
+  `float`/`double`, `bool`.
+- **`List<List<Dto>>` is not representable** — TOML has no "array table of array tables", so the
+  member is dropped and the build reports `PICOSERDE004`
+  (`Member 'X.Y' cannot be represented by this format — it will be ignored`). A nested chain with
+  a nullable leaf (`List<List<int?>>`) is dropped the same way.
+- **Recursive members** (`Node Child` on `Node`) are dropped with `PICOSERDE003`; the rest of the
+  document is still written, so a recursive DTO serializes "partially". JSON/MsgPack keep the
+  member.
 - Objects nested deeper than one level throw `NotSupportedException` instead of silently losing data.
+
+Confirm what was dropped with `dotnet build 2>&1 | grep PICOSERDE` (the diagnostics carry
+`Location.None`, so `#pragma warning disable` cannot silence them). The full five-format matrix
+lives in the [root README](../README.md#format-limits-what-each-wire-format-cannot-express).
 
 ## Performance
 
