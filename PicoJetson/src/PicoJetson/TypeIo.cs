@@ -39,7 +39,30 @@ public static class TypeIo
     public static void WriteVersion(ref JsonWriter w, Version? value) =>
         w.WriteString(Encoding.UTF8.GetBytes(value?.ToString() ?? ""));
 
-    public static void WriteHalf(ref JsonWriter w, Half value) => w.WriteNumber((double)value);
+    public static void WriteHalf(ref JsonWriter w, Half value)
+    {
+        if (!Half.IsFinite(value))
+            // NaN / ±Infinity: let the writer apply its number-handling policy
+            // (throw by default, named literals when explicitly allowed).
+            w.WriteNumber((double)value);
+        else
+        {
+            // A Half has an 11-bit significand, so widening it to double (or float)
+            // spells out the exact binary expansion — 0.1h became
+            // 0.0999755859375. Format the Half itself for its shortest round-trip text.
+            Span<byte> buf = stackalloc byte[32];
+            if (
+                !value.TryFormat(
+                    buf,
+                    out var n,
+                    default,
+                    System.Globalization.CultureInfo.InvariantCulture
+                )
+            )
+                throw new ArgumentException("Half value cannot be formatted.", nameof(value));
+            w.WriteRawValue(buf[..n]);
+        }
+    }
 
     public static void WriteBigInteger(ref JsonWriter w, BigInteger value)
     {

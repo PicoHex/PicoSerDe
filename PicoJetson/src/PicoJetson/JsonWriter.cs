@@ -135,6 +135,53 @@ public ref struct JsonWriter
         _bytesWritten += w;
     }
 
+    /// <summary>
+    /// Writes a <see cref="float"/> as its shortest round-trip text. Formatting a
+    /// <c>float</c> through <see cref="WriteNumber(double)"/> first widens it to
+    /// <c>double</c>, which exposes the binary expansion (e.g. <c>0.1f</c> becomes
+    /// <c>0.10000000149011612</c>); the <c>float</c> overload formats the value at its
+    /// own precision instead. Non-finite values follow the same policy as
+    /// <see cref="WriteNumber(double)"/>.
+    /// </summary>
+    public void WriteNumber(float value)
+    {
+        BeforeWriteValue();
+        if (float.IsNaN(value))
+        {
+            if (
+                _options?.NumberHandling
+                == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
+            )
+            {
+                WriteRaw("NaN"u8);
+                return;
+            }
+            throw new ArgumentException(
+                "NaN cannot be written as JSON. Consider handling NaN before serialization.",
+                nameof(value)
+            );
+        }
+        if (float.IsInfinity(value))
+        {
+            if (
+                _options?.NumberHandling
+                == PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
+            )
+            {
+                WriteRaw(float.IsPositiveInfinity(value) ? "Infinity"u8 : "-Infinity"u8);
+                return;
+            }
+            throw new ArgumentException(
+                "Infinity cannot be written as JSON. Consider handling Infinity before serialization.",
+                nameof(value)
+            );
+        }
+        Span<byte> buf = stackalloc byte[32];
+        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
+        _buffer.Write(buf[..w]);
+        _bytesWritten += w;
+    }
+
     public void WriteNumber(double value)
     {
         BeforeWriteValue();
