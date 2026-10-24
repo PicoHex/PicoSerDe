@@ -1834,7 +1834,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 sb.Append(" (TextHelpers.Eq(k, \"");
                 sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
                 sb.AppendLine("\"u8)) {");
-                EmitDeserialize(sb, p, "o", "                ", ctorMap: ctorMap);
+                EmitDeserialize(sb, p, "o", "                ", ctorMap: ctorMap, streaming: true);
                 // A member dispatch (e.g. a nested-object helper) may stop on a
                 // chunk boundary without breaking the loop; rewind to the member.
                 sb.AppendLine("                if (r.NeedsMoreData) {");
@@ -2570,6 +2570,28 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.AppendLine("yw.WriteSequenceItem(__item);");
                 break;
+            case "boolean":
+                s.Append(ind);
+                s.AppendLine("yw.WriteSequenceItem(__item ? \"true\"u8 : \"false\"u8);");
+                break;
+            case "datetime":
+                s.Append(ind);
+                s.AppendLine(
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
+            case "dateonly":
+                s.Append(ind);
+                s.AppendLine(
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString(\"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
+            case "timeonly":
+                s.Append(ind);
+                s.AppendLine(
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
             default:
                 s.Append(ind);
                 s.AppendLine("yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString()));");
@@ -2583,13 +2605,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         string tgt,
         string pad,
         bool ctorAssign = false,
-        IReadOnlyDictionary<string, int>? ctorMap = null
+        IReadOnlyDictionary<string, int>? ctorMap = null,
+        bool streaming = false
     )
     {
         // If property is in ctorMap, redirect to __cp_N
         if (!ctorAssign && ctorMap is not null && ctorMap.TryGetValue(p.Name, out var __ci))
         {
-            EmitDeserialize(s, p, $"__cp_{__ci}", pad, ctorAssign: true);
+            EmitDeserialize(s, p, $"__cp_{__ci}", pad, ctorAssign: true, streaming: streaming);
             return;
         }
         void EmitTgt()
@@ -2633,29 +2656,114 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 );
                 s.Append(pad);
                 s.AppendLine("bool __more;");
-                s.Append(pad);
-                s.AppendLine("r.Read(); // skip indentation ObjectStart after PropertyName");
-                s.Append(pad);
-                s.AppendLine("while ((__more = r.Read())) {");
-                s.Append(pad);
-                s.AppendLine(
-                    "    if (r.TokenType != TokenType.String) break; // String('') = sequence item; ObjectEnd = list end"
-                );
-                s.Append(pad);
-                s.Append("    var __item = ");
-                s.Append(sn);
-                s.AppendLine(
-                    ".Deserialize(ref r); // Deserialize reads ObjectStart(item) internally"
-                );
-                s.Append(pad);
-                s.AppendLine("    __tmpList.Add(__item);");
-                s.Append(pad);
-                s.AppendLine("}");
+                if (streaming)
+                {
+                    // Streaming never touches the reader mark: the dispatcher rewinds to it
+                    // to resume at this member when a chunk ends mid-value. The shape here
+                    // is the pre-existing one so chunked input keeps its behaviour.
+                    s.Append(pad);
+                    s.AppendLine("r.Read(); // skip indentation ObjectStart after PropertyName");
+                    s.Append(pad);
+                    s.AppendLine("while ((__more = r.Read())) {");
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    if (r.TokenType != TokenType.String) break; // String('') = item; ObjectEnd = list end"
+                    );
+                    s.Append(pad);
+                    s.Append("    var __item = ");
+                    s.Append(sn);
+                    s.AppendLine(".Deserialize(ref r);");
+                    s.Append(pad);
+                    s.AppendLine("    __tmpList.Add(__item);");
+                    s.Append(pad);
+                    s.AppendLine("}");
+                }
+                else
+                {
+                    s.Append(pad);
+                    s.AppendLine(
+                        "r.Mark(); // YamlReader has no push-back: probe the wrapper, then rewind"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("if (r.Read() && r.TokenType == TokenType.ObjectStart)");
+                    s.Append(pad);
+                    s.AppendLine("{");
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    // Indented block sequence: the wrapper ObjectStart was consumed."
+                    );
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    while ((__more = r.Read()) && r.TokenType == TokenType.String)"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("    {");
+                    s.Append(pad);
+                    s.Append("        var __item = ");
+                    s.Append(sn);
+                    s.AppendLine(
+                        ".Deserialize(ref r); // Deserialize reads ObjectStart(item) internally"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("        __tmpList.Add(__item);");
+                    s.Append(pad);
+                    s.AppendLine("    }");
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    if (__more) __more = r.Read(); // skip the wrapper ObjectEnd"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("}");
+                    s.Append(pad);
+                    s.AppendLine("else");
+                    s.Append(pad);
+                    s.AppendLine("{");
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    // No wrapper: the list is empty or a flat sequence follows. Rewinding"
+                    );
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    // first keeps the sibling PropertyName an eager read would eat."
+                    );
+                    s.Append(pad);
+                    s.AppendLine("    r.RewindToMark();");
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    while ((__more = r.Read()) && r.TokenType == TokenType.String)"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("    {");
+                    s.Append(pad);
+                    s.Append("        var __item = ");
+                    s.Append(sn);
+                    s.AppendLine(".Deserialize(ref r);");
+                    s.Append(pad);
+                    s.AppendLine("        __tmpList.Add(__item);");
+                    s.Append(pad);
+                    s.AppendLine("    }");
+                    s.Append(pad);
+                    s.AppendLine("}");
+                }
             }
             else
             {
                 s.Append(pad);
-                s.AppendLine("bool __more = r.Read();");
+                s.AppendLine("bool __more;");
+                if (streaming)
+                {
+                    s.Append(pad);
+                    s.AppendLine("__more = r.Read();");
+                }
+                else
+                {
+                    s.Append(pad);
+                    s.AppendLine(
+                        "r.Mark(); // YamlReader has no push-back: probe the wrapper, then rewind"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("__more = r.Read();");
+                }
                 s.Append(pad);
                 s.AppendLine("if (__more && r.TokenType == TokenType.ObjectStart)");
                 s.Append(pad);
@@ -2678,14 +2786,40 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("{");
                 s.Append(pad);
-                s.AppendLine("    while (__more && r.TokenType == TokenType.String)");
-                s.Append(pad);
-                s.AppendLine("    {");
-                EmitDeserializeListElementTemp(s, p, pad + "        ");
-                s.Append(pad);
-                s.AppendLine("        __more = r.Read();");
-                s.Append(pad);
-                s.AppendLine("    }");
+                if (streaming)
+                {
+                    s.AppendLine("    while (__more && r.TokenType == TokenType.String)");
+                    s.Append(pad);
+                    s.AppendLine("    {");
+                    EmitDeserializeListElementTemp(s, p, pad + "        ");
+                    s.Append(pad);
+                    s.AppendLine("        __more = r.Read();");
+                    s.Append(pad);
+                    s.AppendLine("    }");
+                }
+                else
+                {
+                    s.AppendLine(
+                        "    // No wrapper ObjectStart: the list is empty or flat. Rewinding first"
+                    );
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    // keeps the sibling PropertyName that the probing read would eat;"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("    // the loop then re-reads from the mark.");
+                    s.Append(pad);
+                    s.AppendLine("    r.RewindToMark();");
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    while ((__more = r.Read()) && r.TokenType == TokenType.String)"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("    {");
+                    EmitDeserializeListElementTemp(s, p, pad + "        ");
+                    s.Append(pad);
+                    s.AppendLine("    }");
+                }
                 s.Append(pad);
                 s.AppendLine("}");
             }
@@ -3014,6 +3148,72 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     {
         switch (p.ElementTypeKind)
         {
+            case "float32":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(float.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "float64":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(double.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "decimal":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(decimal.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "boolean":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!r.TryGetBool(out var __evb)) throw new System.FormatException($\"Expected a boolean at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__evb);");
+                break;
+            case "guid":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(System.Guid.Parse(Encoding.UTF8.GetString(r.ValueSpan)));"
+                );
+                break;
+            case "datetime":
+                s.Append(pad);
+                s.AppendLine("var __eraw = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!System.DateTime.TryParse(__eraw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __edt)) throw new System.FormatException($\"Invalid DateTime at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__edt);");
+                break;
+            case "timespan":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(System.TimeSpan.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "dateonly":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(System.DateOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "timeonly":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(System.TimeOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "enum":
+                s.Append(pad);
+                s.Append("__tmpList.Add(System.Enum.Parse<");
+                s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "string");
+                s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan)));");
+                break;
             case "string":
                 s.Append(pad);
                 s.AppendLine("__tmpList.Add(Encoding.UTF8.GetString(r.ValueSpan));");
