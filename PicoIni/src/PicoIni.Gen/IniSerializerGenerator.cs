@@ -548,32 +548,16 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 "value." + p.Name,
                 "        "
             );
+            // INI has no null literal — null values are always omitted,
+            // regardless of DefaultIgnoreCondition.
+            var pad = checkNull ? "            " : "        ";
+            var acc =
+                p.IsNullable && !p.IsNullableReference
+                    ? $"value.{p.Name}!.Value"
+                    : $"value.{p.Name}";
+            EmitWriteKeyValue(s, p.JsonName, p, acc, pad);
             if (checkNull)
-            {
-                // INI has no null literal — null values are always omitted,
-                // regardless of DefaultIgnoreCondition.
-                s.Append("            iw.WriteKeyValue(\"");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-                s.Append("\"u8, ");
-                if (p.IsNullable && !p.IsNullableReference)
-                {
-                    s.Append($"value.{p.Name}!.Value");
-                }
-                else
-                {
-                    WriteValue(s, p, $"value.{p.Name}");
-                }
-                s.AppendLine(");");
                 s.AppendLine("        }");
-            }
-            else
-            {
-                s.Append("        iw.WriteKeyValue(\"");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-                s.Append("\"u8, ");
-                WriteValue(s, p, $"value.{p.Name}");
-                s.AppendLine(");");
-            }
         }
 
         // Dicts as sections (before objects)
@@ -1307,6 +1291,49 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
+    /// <summary>
+    /// Emits one statement-level key/value write. Unlike <see cref="WriteValue"/>
+    /// (a pure expression builder used inside <c>sb.Append(</c> and
+    /// <c>string.Join</c>), this can open statements, which converters need:
+    /// <c>[IniConverter]</c> writes through an <see cref="ArrayBufferWriter{T}"/>
+    /// rather than returning a formatted string.
+    /// </summary>
+    /// <param name="key">Raw key name; escaped into a <c>"..."u8</c> literal here.</param>
+    private static void EmitWriteKeyValue(
+        StringBuilder s,
+        string key,
+        PropertyInfo p,
+        string accessor,
+        string indent
+    )
+    {
+        var keyText = "\"" + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(key) + "\"u8";
+        if (p.ConverterTypeFullName is not null)
+        {
+            s.Append(indent);
+            s.Append("var __c = new ");
+            s.Append(p.ConverterTypeFullName);
+            s.AppendLine("();");
+            s.Append(indent);
+            s.AppendLine("var __bw = new System.Buffers.ArrayBufferWriter<byte>();");
+            s.Append(indent);
+            s.Append("__c.Write(__bw, ");
+            s.Append(accessor);
+            s.AppendLine(");");
+            s.Append(indent);
+            s.Append("iw.WriteKeyValue(");
+            s.Append(keyText);
+            s.AppendLine(", __bw.WrittenSpan);");
+            return;
+        }
+        s.Append(indent);
+        s.Append("iw.WriteKeyValue(");
+        s.Append(keyText);
+        s.Append(", ");
+        WriteValue(s, p, accessor);
+        s.AppendLine(");");
+    }
+
     private static void WriteValue(StringBuilder s, PropertyInfo p, string acc)
     {
         switch (p.TypeKind)
@@ -1736,17 +1763,25 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.Append(pad);
                     s.AppendLine("var __dtStr = Encoding.UTF8.GetString(reader.GetStringRaw());");
                     s.Append(pad);
-                    s.Append("System.DateTime.TryParseExact(__dtStr, \"");
+                    s.Append("if (!System.DateTime.TryParseExact(__dtStr, \"");
                     s.Append(p.DateTimeFormat);
                     s.AppendLine(
-                        "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime __v);"
+                        "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime __v))"
+                    );
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    throw new System.FormatException($\"Invalid DateTime at offset {reader.BytesConsumed}\");"
                     );
                 }
                 else
                 {
                     s.Append(pad);
                     s.AppendLine(
-                        "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O');"
+                        "if (!System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O'))"
+                    );
+                    s.Append(pad);
+                    s.AppendLine(
+                        "    throw new System.FormatException($\"Invalid DateTime at offset {reader.BytesConsumed}\");"
                     );
                 }
                 s.Append(pad);
@@ -1758,7 +1793,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             case "guid":
                 s.Append(pad);
                 s.AppendLine(
-                    "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out Guid __v, out _, 'D');"
+                    "if (!System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out Guid __v, out _, 'D'))"
+                );
+                s.Append(pad);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Invalid Guid at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
                 s.Append(target);
@@ -1768,14 +1807,23 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "enum":
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-                s.Append(" = Enum.TryParse<");
+                s.Append("if (!Enum.TryParse<");
                 s.Append(p.TypeFullName);
+                s.AppendLine(">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __ev))");
+                s.Append(pad);
                 s.AppendLine(
-                    ">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __ev) ? __ev : default;"
+                    "    throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
                 );
+                s.Append(pad);
+                if (ctorAssign)
+                    s.Append(target);
+                else
+                {
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                }
+                s.AppendLine(" = __ev;");
                 break;
             case "dateonly":
                 s.Append(pad);
@@ -1794,7 +1842,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             case "timespan":
                 s.Append(pad);
                 s.AppendLine(
-                    "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out TimeSpan __v, out _, 'c');"
+                    "if (!System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out TimeSpan __v, out _, 'c'))"
+                );
+                s.Append(pad);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Invalid TimeSpan at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
                 s.Append(target);

@@ -465,11 +465,19 @@ public class IniEnumPoco
 public class IniEnumSafetyTests
 {
     [Test]
-    public async Task Enum_InvalidValue_DoesNotThrow()
+    public void Enum_InvalidValue_Throws()
     {
         var ini = "Color = Purple"u8.ToArray();
+        // C-18: an unparsable enum used to be swallowed into the default value,
+        // which silently corrupted round-trips. Fail loudly instead.
+        Assert.Throws<FormatException>(() => IniSerializer.Deserialize<IniEnumPoco>(ini));
+    }
+
+    [Test]
+    public async Task Enum_ValidValue_StillParses()
+    {
+        var ini = "Color = Blue"u8.ToArray();
         var result = IniSerializer.Deserialize<IniEnumPoco>(ini);
-        // Should not throw — invalid enum values should just leave default
-        await Assert.That(result!.Color).IsEqualTo(IniTestColor.Red); // default = 0 = Red
+        await Assert.That(result!.Color).IsEqualTo(IniTestColor.Blue);
     }
 }
