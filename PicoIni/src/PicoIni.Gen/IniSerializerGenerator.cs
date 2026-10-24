@@ -566,19 +566,31 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         {
             if (p.TypeKind != "dict")
                 continue;
+            // A null dictionary has no section to write (C-31). The guard also
+            // owns the blank-line separator so a skipped dict leaves no stray
+            // blank line behind.
+            bool dictGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                s,
+                p,
+                "value." + p.Name,
+                "        "
+            );
+            var dictPad = dictGuard ? "            " : "        ";
             if (!dictFirst)
-                s.AppendLine("        iw.WriteBlankLine();");
-            s.Append("        iw.WriteSection(\"");
+                s.AppendLine(dictPad + "iw.WriteBlankLine();");
+            s.Append(dictPad + "iw.WriteSection(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
-            s.Append("        foreach (var __kvp in value.");
+            s.Append(dictPad + "foreach (var __kvp in value.");
             s.Append(p.Name);
             s.AppendLine(")");
-            s.AppendLine("        {");
-            s.Append("            iw.WriteKeyValue(__kvp.Key, ");
+            s.AppendLine(dictPad + "{");
+            s.Append(dictPad + "    iw.WriteKeyValue(__kvp.Key, ");
             WriteValue(s, p, "__kvp.Value");
             s.AppendLine(");");
-            s.AppendLine("        }");
+            s.AppendLine(dictPad + "}");
+            if (dictGuard)
+                s.AppendLine("        }");
             dictFirst = false;
         }
 
