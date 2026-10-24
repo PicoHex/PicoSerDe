@@ -346,10 +346,10 @@ dotnet build 2>&1 | grep PICOSERDE
 # PowerShell: dotnet build 2>&1 | Select-String PICOSERDE
 ```
 
-¹ **INI object lists are the one silent drop today.** INI has no array-of-tables
-syntax, so a `List<SomeDto>` **member** cannot be represented, and the extractor
-drops it before it reaches the `PICOSERDE004` path — no warning is emitted for
-this shape (see [PicoIni → Limits](PicoIni/README.md#limits)). A **top-level**
+¹ **INI object lists.** INI has no array-of-tables syntax, so a `List<SomeDto>`
+**member** cannot be represented and is dropped — reported as `PICOSERDE004` like
+every other unrepresentable shape (it used to be a bare `continue`, the one silent
+loss in the generator; that path is instrumented now). A **top-level**
 `List<SomeDto>` does round-trip in INI: each item becomes a numbered section
 (`[0]`, `[1]`, …). For an object list *inside* a DTO use TOML, YAML or JSON.
 
