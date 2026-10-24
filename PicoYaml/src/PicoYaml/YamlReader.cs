@@ -28,6 +28,10 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
     private TokenType _tokenType;
     private ReadOnlySpan<byte> _keySpan;
     private ReadOnlySpan<byte> _valueSpan;
+
+    // True when the current value came from explicit quoting (or a block
+    // scalar): an empty quoted scalar is "" — never a null literal.
+    private bool _valueWasQuoted;
     private int _depth;
     private readonly int _maxDepth;
     private int[] _indentStack;
@@ -354,6 +358,27 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
     public TokenType TokenType => _tokenType;
     public ReadOnlySpan<byte> KeySpan => _keySpan;
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
+
+    /// <summary>
+    /// True when the current value is a YAML null literal: <c>null</c> (any
+    /// case), <c>~</c>, or a missing value (<c>Key:</c> with nothing after the
+    /// colon). A quoted scalar is never null — <c>V: ""</c> is the empty
+    /// string.
+    /// </summary>
+    public bool IsNullLiteral
+    {
+        get
+        {
+            if (_valueWasQuoted)
+                return false;
+            var v = _valueSpan;
+            if (v.IsEmpty)
+                return true;
+            if (v.Length == 1 && v[0] == (byte)'~')
+                return true;
+            return v.Length == 4 && System.Text.Ascii.EqualsIgnoreCase(v, "null"u8);
+        }
+    }
     public int Depth => _depth;
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
 
@@ -520,6 +545,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         _tokenType = TokenType.None;
         _keySpan = default;
         _valueSpan = default;
+        _valueWasQuoted = false;
     }
 
     /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>
@@ -533,6 +559,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
 
     private bool ReadImpl()
     {
+        _valueWasQuoted = false;
         if (++_tokenCount > MaxTokens)
             throw new FormatException(
                 $"Exceeded maximum token count of {MaxTokens}; likely an infinite loop in YAML parsing"
@@ -824,6 +851,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             if (_position < _data.Length && _data[_position] == (byte)'"')
             {
                 _position++;
+                _valueWasQuoted = true;
                 _valueSpan = ReadDoubleQuotedStringSpan();
                 // consume any trailing content on the line (comment/whitespace)
                 while (
@@ -836,6 +864,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             else if (_position < _data.Length && _data[_position] == (byte)'\'')
             {
                 _position++;
+                _valueWasQuoted = true;
                 _valueSpan = ReadSingleQuotedStringSpan();
             }
             else
@@ -1016,6 +1045,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             {
                 buf[di++] = (byte)'\n';
             }
+            _valueWasQuoted = true;
             _valueSpan = buf.AsSpan(0, di);
             _tokenType = TokenType.PropertyName;
             StoreAnchorIfNeeded();
@@ -1097,6 +1127,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         {
             var q = _data[_position];
             _position++;
+            _valueWasQuoted = true;
             if (q == (byte)'"')
                 _valueSpan = ReadDoubleQuotedStringSpan();
             else
@@ -1217,6 +1248,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         {
             var q = _data[_position];
             _position++;
+            _valueWasQuoted = true;
             if (q == (byte)'"')
                 _valueSpan = ReadDoubleQuotedStringSpan();
             else
@@ -1836,6 +1868,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
             {
                 _seqReader.Advance(1);
+                _valueWasQuoted = true;
                 _valueSpan = ReadDoubleQuotedStringSeq();
                 SkipNewlineSeq();
                 StoreAnchorIfNeeded();
@@ -1852,6 +1885,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             )
             {
                 _seqReader.Advance(1);
+                _valueWasQuoted = true;
                 while (
                     !_seqReader.End
                     && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\''
@@ -1933,6 +1967,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         )
         {
             _seqReader.Advance(1);
+            _valueWasQuoted = true;
             while (
                 !_seqReader.End
                 && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"'

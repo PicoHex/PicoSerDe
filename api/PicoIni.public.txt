@@ -101,6 +101,7 @@ P:PicoIni.IniOptions.DefaultIgnoreCondition : PicoIni.IniIgnoreCondition { get; 
 P:PicoIni.IniOptions.Indented : bool { get; set; }
 P:PicoIni.IniReader.BytesConsumed : long { get; }
 P:PicoIni.IniReader.Depth : int { get; }
+P:PicoIni.IniReader.IsNullLiteral : bool { get; }
 P:PicoIni.IniReader.IsResumed : bool { get; }
 P:PicoIni.IniReader.NeedsMoreData : bool { get; }
 P:PicoIni.IniReader.TokenStart : long { get; }

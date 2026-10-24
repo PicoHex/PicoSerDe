@@ -18,10 +18,21 @@ public class IniStrictnessGapTests
             .That(IniSerializer.Deserialize<TextDto>(Encoding.UTF8.GetBytes(text))!.A)
             .IsEqualTo("v");
 
+    /// <summary>
+    /// A value that is only a comment is an <em>empty</em> value. Since C-30 an
+    /// empty unquoted value is the null literal, so this member is null rather
+    /// than the old empty string (a quoted <c>A = ""</c> still yields "").
+    /// </summary>
     [Test]
-    public async Task ValueIsOnlyAComment_YieldsEmpty() =>
+    public async Task ValueIsOnlyAComment_IsNull() =>
         await Assert
             .That(IniSerializer.Deserialize<TextDto>(Encoding.UTF8.GetBytes("A = ;onlycomment"))!.A)
+            .IsNull();
+
+    [Test]
+    public async Task QuotedEmptyValue_IsEmptyString() =>
+        await Assert
+            .That(IniSerializer.Deserialize<TextDto>(Encoding.UTF8.GetBytes("A = \"\""))!.A)
             .IsEqualTo("");
 
     [Test]

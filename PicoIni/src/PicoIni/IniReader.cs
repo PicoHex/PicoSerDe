@@ -20,6 +20,11 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
     private readonly bool _isSequence;
     private TokenType _tokenType;
     private ReadOnlySpan<byte> _currentValue;
+
+    // Quoted-ness of the current value and of the value waiting behind the
+    // pending-key token: an empty quoted value is "", never a null literal.
+    private bool _valueWasQuoted;
+    private bool _pendingValueQuoted;
     private byte[]? _rentedBuffer;
 
     // Inline buffer tracking — avoids heap array allocation
@@ -235,11 +240,28 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
 
     public ReadOnlySpan<byte> GetStringRaw() => _currentValue;
 
+    /// <summary>
+    /// True when the current value is a null literal: a key with no value
+    /// (<c>Key =</c>) or the unquoted word <c>null</c> (any case). A quoted
+    /// value is never null — <c>Key = ""</c> is the empty string.
+    /// </summary>
+    public bool IsNullLiteral
+    {
+        get
+        {
+            if (_valueWasQuoted)
+                return false;
+            var v = _currentValue;
+            return v.IsEmpty || System.Text.Ascii.EqualsIgnoreCase(v, "null"u8);
+        }
+    }
+
     /// <summary>Optimized fast path: consume the pending value after a PropertyName read,
     /// without checking for section transitions.</summary>
     public void ReadValue()
     {
         _currentValue = _pendingValue;
+        _valueWasQuoted = _pendingValueQuoted;
         _hasPendingValue = false;
         _tokenType = TokenType.String;
     }
@@ -302,6 +324,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
         if (_hasPendingValue)
         {
             _currentValue = _pendingValue;
+            _valueWasQuoted = _pendingValueQuoted;
             _hasPendingValue = false;
             // Value always starts as String — TryGet* methods parse on demand
             _tokenType = TokenType.String;
@@ -625,6 +648,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
             }
             _position++;
             _pendingValue = buf.AsSpan(0, di);
+            _pendingValueQuoted = true;
         }
         else
         {
@@ -642,6 +666,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
             if (commentIdx >= 0)
                 raw = TrimEnd(raw[..commentIdx]);
             _pendingValue = Trim(raw);
+            _pendingValueQuoted = false;
         }
 
         SkipToNextLineSpan();
@@ -656,6 +681,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
         if (_hasPendingValue)
         {
             _currentValue = _pendingValue;
+            _valueWasQuoted = _pendingValueQuoted;
             _hasPendingValue = false;
             _tokenType = TokenType.String;
             return true;
@@ -815,6 +841,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
             }
             _seqReader.Advance(1); // skip closing quote
             _pendingValue = buf.AsSpan(0, di);
+            _pendingValueQuoted = true;
         }
         else
         {
@@ -835,6 +862,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
             if (commentIdx >= 0)
                 raw = TextHelpers.TrimEnd(raw[..commentIdx]);
             _pendingValue = TextHelpers.Trim(raw);
+            _pendingValueQuoted = false;
         }
         SkipToNextLineSeq();
         _hasPendingValue = true;
