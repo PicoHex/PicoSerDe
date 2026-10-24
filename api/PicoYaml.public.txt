@@ -82,6 +82,7 @@ P:PicoYaml.YamlOptions.DefaultIgnoreCondition : PicoYaml.YamlIgnoreCondition { g
 P:PicoYaml.YamlOptions.Indented : bool { get; set; }
 P:PicoYaml.YamlReader.BytesConsumed : long { get; }
 P:PicoYaml.YamlReader.Depth : int { get; }
+P:PicoYaml.YamlReader.IsNullLiteral : bool { get; }
 P:PicoYaml.YamlReader.IsResumed : bool { get; }
 P:PicoYaml.YamlReader.KeySpan : System.ReadOnlySpan`1<byte> { get; }
 P:PicoYaml.YamlReader.NeedsMoreData : bool { get; }

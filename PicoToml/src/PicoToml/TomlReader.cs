@@ -31,6 +31,10 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
     private TokenType _tokenType;
     private ReadOnlySpan<byte> _keySpan;
     private ReadOnlySpan<byte> _valueSpan;
+
+    // True when the current value came from quoted string syntax: an empty
+    // quoted string ("") is the empty string, never a null literal.
+    private bool _valueWasQuoted;
     private ReadOnlySpan<byte> _tablePath;
     private bool _isArrayTable;
     private bool _inArray;
@@ -256,6 +260,22 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
     public TokenType TokenType => _tokenType;
     public ReadOnlySpan<byte> KeySpan => _keySpan;
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
+
+    /// <summary>
+    /// True when the current value is a null literal: a bare key with no value
+    /// (<c>Key =</c>) or the unquoted word <c>null</c> (any case). A quoted
+    /// value is never null — <c>Key = ""</c> is the empty string.
+    /// </summary>
+    public bool IsNullLiteral
+    {
+        get
+        {
+            if (_valueWasQuoted)
+                return false;
+            var v = _valueSpan;
+            return v.IsEmpty || System.Text.Ascii.EqualsIgnoreCase(v, "null"u8);
+        }
+    }
     public ReadOnlySpan<byte> TablePath => _tablePath;
     public bool IsArrayTable => _isArrayTable;
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
@@ -1071,9 +1091,11 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
 
     private void ReadValueSpan()
     {
+        _valueWasQuoted = false;
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
             _position++;
+            _valueWasQuoted = true;
             if (
                 _position + 1 < _data.Length
                 && _data[_position] == (byte)'"'
@@ -1109,6 +1131,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
         else if (_position < _data.Length && _data[_position] == (byte)'\'')
         {
             _position++;
+            _valueWasQuoted = true;
             if (
                 _position + 1 < _data.Length
                 && _data[_position] == (byte)'\''
@@ -1210,9 +1233,11 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
         while (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;
 
+        _valueWasQuoted = false;
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
             _position++;
+            _valueWasQuoted = true;
             _valueSpan = ReadBasicStringSpan();
         }
         else
@@ -1287,14 +1312,17 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
 
     private bool ReadArrayValueSpan()
     {
+        _valueWasQuoted = false;
         if (_data[_position] == (byte)'"')
         {
             _position++;
+            _valueWasQuoted = true;
             _valueSpan = ReadBasicStringSpan();
         }
         else if (_data[_position] == (byte)'\'')
         {
             _position++;
+            _valueWasQuoted = true;
             int vs = _position;
             while (_position < _data.Length && _data[_position] != (byte)'\'')
                 _position++;
@@ -1674,9 +1702,11 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
 
     private void ReadValueSeq()
     {
+        _valueWasQuoted = false;
         if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
         {
             _seqReader.Advance(1);
+            _valueWasQuoted = true;
             // Multiline basic string
             if (
                 !_seqReader.End
@@ -1790,9 +1820,11 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' ')
             _seqReader.Advance(1);
 
+        _valueWasQuoted = false;
         if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
         {
             _seqReader.Advance(1);
+            _valueWasQuoted = true;
             _valueSpan = ReadBasicStringSeq();
             _tokenType = TokenType.PropertyName;
             return true;
@@ -1873,9 +1905,11 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
     {
         var buf = RentBuf(256);
         int di = 0;
+        _valueWasQuoted = false;
         if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
         {
             _seqReader.Advance(1);
+            _valueWasQuoted = true;
             _valueSpan = ReadBasicStringSeq();
             _tokenType = TokenType.String;
             return true;
@@ -1883,6 +1917,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
         else if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\'')
         {
             _seqReader.Advance(1);
+            _valueWasQuoted = true;
             while (
                 !_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'\''
             )
