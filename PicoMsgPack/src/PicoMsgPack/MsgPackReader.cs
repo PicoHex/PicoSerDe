@@ -162,29 +162,35 @@ public ref struct MsgPackReader : ITokenReader
             _position += count;
     }
 
-    private ReadOnlySpan<byte> ReadBytes(int count)
+    private ReadOnlySpan<byte> ReadBytes(long count)
     {
+        // Length prefixes are accumulated in long so a hostile 4-byte length
+        // cannot wrap negative; an over-long value must fail loudly as a
+        // FormatException instead of surfacing as ArgumentOutOfRangeException
+        // from Slice/Rent.
+        if (count < 0 || count > int.MaxValue || count > _data.Length + (long)_seqReader.Remaining)
+            throw new FormatException($"Invalid length prefix {count} at offset {BytesConsumed}");
         if (_isSequence)
         {
             if (_seqReader.Remaining < count)
                 throw new FormatException(
                     $"Expected {count} bytes, only {_seqReader.Remaining} remaining"
                 );
-            var buf = RentBuf(count);
-            _seqReader.TryCopyTo(buf.AsSpan(0, count));
-            _seqReader.Advance(count);
-            return buf.AsSpan(0, count);
+            var buf = RentBuf((int)count);
+            _seqReader.TryCopyTo(buf.AsSpan(0, (int)count));
+            _seqReader.Advance((int)count);
+            return buf.AsSpan(0, (int)count);
         }
         if (_position + count > _data.Length)
             throw new FormatException(
                 $"Expected {count} bytes at offset {_position}, only {_data.Length - _position} remaining"
             );
-        var span = _data.Slice(_position, count);
-        _position += count;
+        var span = _data.Slice(_position, (int)count);
+        _position += (int)count;
         return span;
     }
 
-    private int ReadByteLen(int bytes)
+    private long ReadByteLen(int bytes)
     {
         if (_isSequence)
         {
@@ -192,7 +198,7 @@ public ref struct MsgPackReader : ITokenReader
                 throw new FormatException(
                     $"Expected {bytes} length bytes, only {_seqReader.Remaining} remaining"
                 );
-            int v = 0;
+            long v = 0;
             for (int i = 0; i < bytes; i++)
             {
                 _seqReader.TryRead(out byte b);
@@ -204,7 +210,7 @@ public ref struct MsgPackReader : ITokenReader
             throw new FormatException(
                 $"Expected {bytes} length bytes at offset {_position}, only {_data.Length - _position} remaining"
             );
-        int vs = 0;
+        long vs = 0;
         for (int i = 0; i < bytes; i++)
             vs = (vs << 8) | _data[_position++];
         return vs;
@@ -530,7 +536,7 @@ public ref struct MsgPackReader : ITokenReader
                         return true;
                     case 0xC7:
                     {
-                        int extLen = ReadByteLen(1);
+                        var extLen = ReadByteLen(1);
                         _tag = PeekByte();
                         AdvanceByte();
                         _valueSpan = ReadBytes(extLen);
@@ -540,7 +546,7 @@ public ref struct MsgPackReader : ITokenReader
                     }
                     case 0xC8:
                     {
-                        int extLen = ReadByteLen(2);
+                        var extLen = ReadByteLen(2);
                         _tag = PeekByte();
                         AdvanceByte();
                         _valueSpan = ReadBytes(extLen);
@@ -559,29 +565,29 @@ public ref struct MsgPackReader : ITokenReader
                         return true;
                     }
                     case 0xD9:
-                        return ReadString(ReadByteLen(1));
+                        return ReadString((int)ReadByteLen(1));
                     case 0xDA:
-                        return ReadString(ReadByteLen(2));
+                        return ReadString((int)ReadByteLen(2));
                     case 0xDB:
-                        return ReadString(ReadByteLen(4));
+                        return ReadString((int)Math.Min(ReadByteLen(4), int.MaxValue));
                     case 0xDC:
                         CountElement();
-                        PushLevel(false, ReadByteLen(2));
+                        PushLevel(false, (int)ReadByteLen(2));
                         _tokenType = TokenType.ArrayStart;
                         return true;
                     case 0xDD:
                         CountElement();
-                        PushLevel(false, ReadByteLen(4));
+                        PushLevel(false, (int)Math.Min(ReadByteLen(4), int.MaxValue));
                         _tokenType = TokenType.ArrayStart;
                         return true;
                     case 0xDE:
                         CountElement();
-                        PushLevel(true, ReadByteLen(2) * 2);
+                        PushLevel(true, (int)ReadByteLen(2) * 2);
                         _tokenType = TokenType.ObjectStart;
                         return true;
                     case 0xDF:
                         CountElement();
-                        PushLevel(true, ReadByteLen(4) * 2);
+                        PushLevel(true, (int)Math.Min(ReadByteLen(4), int.MaxValue / 2) * 2);
                         _tokenType = TokenType.ObjectStart;
                         return true;
                     default:
@@ -689,21 +695,50 @@ public ref struct MsgPackReader : ITokenReader
                 or TokenType.UInt64
         )
         {
-            v = _valueSpan.Length switch
+            switch (_valueSpan.Length)
             {
-                1 => _tokenType == TokenType.UInt8
-                    ? _valueSpan[0]
-                    : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]),
-                2 => _tokenType == TokenType.UInt16
-                    ? BinaryPrimitives.ReadUInt16BigEndian(_valueSpan)
-                    : BinaryPrimitives.ReadInt16BigEndian(_valueSpan),
-                4 => _tokenType == TokenType.UInt32
-                    ? BinaryPrimitives.ReadUInt32BigEndian(_valueSpan)
-                    : BinaryPrimitives.ReadInt32BigEndian(_valueSpan),
-                8 => BinaryPrimitives.ReadInt64BigEndian(_valueSpan),
-                _ => 0,
-            };
-            return true;
+                case 1:
+                    v =
+                        _tokenType == TokenType.UInt8
+                            ? _valueSpan[0]
+                            : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]);
+                    return true;
+                case 2:
+                    v =
+                        _tokenType == TokenType.UInt16
+                            ? BinaryPrimitives.ReadUInt16BigEndian(_valueSpan)
+                            : BinaryPrimitives.ReadInt16BigEndian(_valueSpan);
+                    return true;
+                case 4:
+                    if (_tokenType == TokenType.UInt32)
+                    {
+                        uint uv32 = BinaryPrimitives.ReadUInt32BigEndian(_valueSpan);
+                        v = uv32;
+                        return true;
+                    }
+                    v = BinaryPrimitives.ReadInt32BigEndian(_valueSpan);
+                    return true;
+                case 8:
+                    // A uint64 above long.MaxValue does not fit a long target:
+                    // report failure so the caller raises FormatException
+                    // instead of silently wrapping to a negative value.
+                    if (_tokenType == TokenType.UInt64)
+                    {
+                        ulong uv64 = BinaryPrimitives.ReadUInt64BigEndian(_valueSpan);
+                        if (uv64 > long.MaxValue)
+                        {
+                            v = 0;
+                            return false;
+                        }
+                        v = (long)uv64;
+                        return true;
+                    }
+                    v = BinaryPrimitives.ReadInt64BigEndian(_valueSpan);
+                    return true;
+                default:
+                    v = 0;
+                    return false;
+            }
         }
         v = 0;
         return false;
@@ -864,17 +899,17 @@ public ref struct MsgPackReader : ITokenReader
         }
     }
 
+    /// <summary>
+    /// Skips an unknown value when its bytes are all present. A truncated
+    /// payload reports false (streaming can retry with more data) while a real
+    /// malformed payload raises FormatException — it is never swallowed.
+    /// </summary>
     public bool TrySkip()
     {
-        try
-        {
-            Skip();
-            return true;
-        }
-        catch
-        {
+        if (NeedsMoreData)
             return false;
-        }
+        Skip();
+        return true;
     }
 
     public void Dispose()

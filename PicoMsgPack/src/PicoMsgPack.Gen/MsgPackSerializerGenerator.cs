@@ -611,7 +611,16 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         );
         s.AppendLine("            int __k;");
         s.AppendLine("            if (__isMap) {");
-        s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
+        s.AppendLine(
+            "                if (reader.TokenType != TokenType.Int32 && reader.TokenType != TokenType.Int64 && reader.TokenType != TokenType.UInt8 && reader.TokenType != TokenType.UInt16 && reader.TokenType != TokenType.UInt32 && reader.TokenType != TokenType.UInt64)"
+        );
+        s.AppendLine(
+            "                    throw new System.FormatException($\"Map keys must be integers at offset {reader.BytesConsumed}\");"
+        );
+        s.AppendLine(
+            "                if (!reader.TryGetInt32(out __k)) throw new System.FormatException($\"Map key out of range at offset {reader.BytesConsumed}\");"
+        );
+        s.AppendLine("                reader.Read();");
         s.AppendLine("            } else {");
         s.AppendLine("                __k = __pos;");
         s.AppendLine("            }");
@@ -627,6 +636,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("                default: if (__isMap) reader.TrySkip(); break; }");
         s.AppendLine("            __pos++;");
         s.AppendLine("        }");
+        s.AppendLine(
+            "        if (reader.Depth != 0) throw new System.FormatException(\"Truncated container: unexpected end of input\");"
+        );
         if (hasCtor)
         {
             s.Append("        return new ");
@@ -706,7 +718,18 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             );
             s.AppendLine("            int __k;");
             s.AppendLine("            if (__isMap) {");
-            s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
+            s.AppendLine(
+                "                if (reader.TokenType != TokenType.Int32 && reader.TokenType != TokenType.Int64 && reader.TokenType != TokenType.UInt8 && reader.TokenType != TokenType.UInt16 && reader.TokenType != TokenType.UInt32 && reader.TokenType != TokenType.UInt64)"
+            );
+            s.AppendLine(
+                "                    throw new System.FormatException($\"Map keys must be integers at offset {reader.BytesConsumed}\");"
+            );
+            s.AppendLine(
+                "                if (!reader.TryGetInt32(out __k)) throw new System.FormatException($\"Map key out of range at offset {reader.BytesConsumed}\");"
+            );
+            s.AppendLine(
+                "                if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+            );
             s.AppendLine("            } else {");
             s.AppendLine("                __k = __pos;");
             s.AppendLine("            }");
@@ -722,6 +745,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.AppendLine("                default: if (__isMap) reader.TrySkip(); break; }");
             s.AppendLine("            __pos++;");
             s.AppendLine("        }");
+            // A chunk boundary is not truncation: only a complete-but-unclosed
+            // document is. Checking NeedsMoreData first keeps legal chunks readable.
+            s.AppendLine("        if (reader.NeedsMoreData) return ReadStatus.NeedMoreData;");
+            s.AppendLine(
+                "        if (reader.Depth != 0) throw new System.FormatException(\"Truncated container: unexpected end of input\");"
+            );
             s.AppendLine("        result = obj;");
             s.AppendLine("        return ReadStatus.Success;");
             s.AppendLine("    }");
@@ -1066,7 +1095,16 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("            int __k;");
         s.AppendLine("            if (__isMap)");
         s.AppendLine("            {");
-        s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
+        s.AppendLine(
+            "                if (reader.TokenType != TokenType.Int32 && reader.TokenType != TokenType.Int64 && reader.TokenType != TokenType.UInt8 && reader.TokenType != TokenType.UInt16 && reader.TokenType != TokenType.UInt32 && reader.TokenType != TokenType.UInt64)"
+        );
+        s.AppendLine(
+            "                    throw new System.FormatException($\"Map keys must be integers at offset {reader.BytesConsumed}\");"
+        );
+        s.AppendLine(
+            "                if (!reader.TryGetInt32(out __k)) throw new System.FormatException($\"Map key out of range at offset {reader.BytesConsumed}\");"
+        );
+        s.AppendLine("                reader.Read();");
         s.AppendLine("            }");
         s.AppendLine("            else");
         s.AppendLine("            {");
@@ -1615,10 +1653,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".ToString(\"O\")));");
                 break;
             case "timespan":
+                // C-14: pin the payload to the invariant culture so it never depends on the
+                // ambient culture (paired with the invariant reader below).
                 s.Append(ind);
                 s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
                 s.Append(a);
-                s.AppendLine(".ToString()));");
+                s.AppendLine(
+                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
                 break;
             case "dateonly":
             case "guid":
@@ -1627,6 +1669,15 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
                 s.Append(a);
                 s.AppendLine(".ToString()));");
+                break;
+            case "decimal":
+                // C-14: a plain ToString() writes "1,5" under de-DE, which the invariant
+                // reader rejects - always emit the invariant form ("1.5") instead of
+                // falling through to the culture-sensitive default: branch.
+                s.Append(ind);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
                 break;
             case "timeonly":
                 s.Append(ind);
@@ -1871,6 +1922,61 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(a);
                 s.AppendLine(");");
                 break;
+            case "datetime":
+                s.Append(ind);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(".ToString(\"O\")));");
+                break;
+            case "timespan":
+                // C-14: pin the payload to the invariant culture so it never depends on the
+                // ambient culture (paired with the invariant reader below).
+                s.Append(ind);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(
+                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
+            case "dateonly":
+            case "guid":
+            case "enum":
+                s.Append(ind);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(".ToString()));");
+                break;
+            case "decimal":
+                // C-14: a plain ToString() writes "1,5" under de-DE, which the invariant
+                // reader rejects - always emit the invariant form ("1.5") instead of
+                // falling through to the culture-sensitive default: branch.
+                s.Append(ind);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                break;
+            case "timeonly":
+                s.Append(ind);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(
+                    ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
+            case "bytes":
+                s.Append(ind);
+                s.Append("mw.WriteBytes(");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
+            case "extension":
+                s.Append(ind);
+                s.Append("mw.WriteExtension(");
+                s.Append(p.ExtensionTag ?? 0);
+                s.Append(", ");
+                s.Append(a);
+                s.AppendLine(");");
+                break;
             case "list":
             case "array":
             {
@@ -1952,6 +2058,377 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// Strips the Nullable&lt;T&gt; annotation from a fully-qualified type name so
+    /// the shared scalar decoder sees the underlying value type (the member
+    /// read already handled nil, and Enum.TryParse needs a non-nullable TEnum).
+    /// </summary>
+    static string? NullableUnderlyingType(string? typeFullName) =>
+        typeFullName is null ? null
+        : typeFullName.EndsWith("?", System.StringComparison.Ordinal)
+            ? typeFullName.Substring(0, typeFullName.Length - 1)
+        : typeFullName;
+
+    /// <summary>
+    /// Strict read of one scalar token into <paramref name="dst"/> (an
+    /// assignable expression of the member/element type). The token shape is
+    /// validated before any byte is consumed and every Try* result is checked,
+    /// so a wrong-typed or truncated token raises FormatException instead of
+    /// silently producing default(T). Shared by the member path and the
+    /// collection-element path, which keeps both exactly as strict as each other.
+    /// </summary>
+    static void EmitScalarRead(
+        StringBuilder s,
+        string kind,
+        string? typeFullName,
+        string dst,
+        string ind,
+        ref int c
+    )
+    {
+        var id = c++;
+        switch (kind)
+        {
+            case "datetime":
+                s.Append(ind);
+                s.AppendLine("System.DateTime __dt" + id + ";");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.Extension)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!reader.TryGetExtension(out var __extTag"
+                        + id
+                        + ", out var __extData"
+                        + id
+                        + ") || __extTag"
+                        + id
+                        + " != 0xFF) throw new System.FormatException($\"Invalid timestamp extension at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("    switch (__extData" + id + ".Length)");
+                s.Append(ind);
+                s.AppendLine("    {");
+                s.Append(ind);
+                s.AppendLine("        case 4:");
+                s.Append(ind);
+                s.AppendLine(
+                    "            __dt"
+                        + id
+                        + " = System.DateTimeOffset.FromUnixTimeSeconds(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(__extData"
+                        + id
+                        + ")).UtcDateTime;"
+                );
+                s.Append(ind);
+                s.AppendLine("            break;");
+                s.Append(ind);
+                s.AppendLine("        case 8:");
+                s.Append(ind);
+                s.AppendLine("        {");
+                s.Append(ind);
+                s.AppendLine(
+                    "            ulong __ts64 = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(__extData"
+                        + id
+                        + ");"
+                );
+                s.Append(ind);
+                s.AppendLine("            long __secs64 = (long)(__ts64 >> 34);");
+                s.Append(ind);
+                s.AppendLine("            ulong __nano64 = __ts64 & 0x3FFFFFFFFUL;");
+                s.Append(ind);
+                s.AppendLine(
+                    "            __dt"
+                        + id
+                        + " = System.DateTimeOffset.FromUnixTimeSeconds(__secs64).UtcDateTime.AddTicks((long)(__nano64 / 100));"
+                );
+                s.Append(ind);
+                s.AppendLine("            break;");
+                s.Append(ind);
+                s.AppendLine("        }");
+                s.Append(ind);
+                s.AppendLine("        case 12:");
+                s.Append(ind);
+                s.AppendLine("        {");
+                s.Append(ind);
+                s.AppendLine(
+                    "            uint __nano32 = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(__extData"
+                        + id
+                        + ");"
+                );
+                s.Append(ind);
+                s.AppendLine(
+                    "            long __secs96 = System.Buffers.Binary.BinaryPrimitives.ReadInt64BigEndian(__extData"
+                        + id
+                        + ".Slice(4));"
+                );
+                s.Append(ind);
+                s.AppendLine(
+                    "            __dt"
+                        + id
+                        + " = System.DateTimeOffset.FromUnixTimeSeconds(__secs96).UtcDateTime.AddTicks((long)(__nano32 / 100));"
+                );
+                s.Append(ind);
+                s.AppendLine("            break;");
+                s.Append(ind);
+                s.AppendLine("        }");
+                s.Append(ind);
+                s.AppendLine("        default:");
+                s.Append(ind);
+                s.AppendLine(
+                    "            throw new System.FormatException($\"Unsupported timestamp extension length at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("    }");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    var __dtRaw"
+                        + id
+                        + " = Encoding.UTF8.GetString(reader.GetStringRaw()); if (!DateTime.TryParse(__dtRaw"
+                        + id
+                        + ", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __dt"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid DateTime at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a DateTime at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.AppendLine(" = __dt" + id + ";");
+                break;
+            case "timespan":
+                s.Append(ind);
+                s.AppendLine("System.TimeSpan __ts" + id + ";");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!TimeSpan.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.CultureInfo.InvariantCulture, out __ts"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid TimeSpan at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine(
+                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
+                );
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!reader.TryGetInt64(out var __tsTicks"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid TimeSpan ticks at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine(
+                    "    __ts" + id + " = System.TimeSpan.FromTicks(__tsTicks" + id + ");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a TimeSpan at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.AppendLine(" = __ts" + id + ";");
+                break;
+            case "decimal":
+                // C-14: NumberStyles.Number alone still allows group separators
+                // (AllowThousands), so "1,5" would silently read as 15 - the flag
+                // is cleared here, making a culture-scaled payload throw instead.
+                s.Append(ind);
+                s.AppendLine(
+                    "if (reader.TokenType != TokenType.String || !decimal.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.NumberStyles.Number & ~System.Globalization.NumberStyles.AllowThousands, System.Globalization.CultureInfo.InvariantCulture, out var __decv"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid decimal at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.AppendLine(" = __decv" + id + ";");
+                break;
+            case "dateonly":
+                s.Append(ind);
+                s.AppendLine("System.DateOnly __dov" + id + ";");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!DateOnly.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), out __dov"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid DateOnly at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine(
+                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
+                );
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!reader.TryGetInt32(out var __dayNumber"
+                        + id
+                        + ") || __dayNumber"
+                        + id
+                        + " < 1) throw new System.FormatException($\"Invalid DateOnly day number at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine(
+                    "    __dov" + id + " = DateOnly.FromDayNumber(__dayNumber" + id + ");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a DateOnly at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.AppendLine(" = __dov" + id + ";");
+                break;
+            case "timeonly":
+                s.Append(ind);
+                s.AppendLine("System.TimeOnly __tov" + id + ";");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!System.TimeOnly.TryParseExact(Encoding.UTF8.GetString(reader.GetStringRaw()), \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out __tov"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid TimeOnly at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine(
+                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
+                );
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!reader.TryGetInt64(out var __toTicks"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid TimeOnly ticks at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.AppendLine("    __tov" + id + " = new System.TimeOnly(__toTicks" + id + ");");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a TimeOnly at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.AppendLine(" = __tov" + id + ";");
+                break;
+            case "guid":
+                s.Append(ind);
+                s.AppendLine(
+                    "if (reader.TokenType != TokenType.String || !Guid.TryParse(reader.GetStringRaw(), out var __g"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid Guid at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.AppendLine(" = __g" + id + ";");
+                break;
+            case "enum":
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.String)");
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.Append("    if (!Enum.TryParse<");
+                s.Append(typeFullName);
+                s.AppendLine(
+                    ">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __e"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.AppendLine(" = __e" + id + ";");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine(
+                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
+                );
+                s.Append(ind);
+                s.AppendLine("{");
+                s.Append(ind);
+                s.AppendLine(
+                    "    if (!reader.TryGetInt32(out var __enumInt"
+                        + id
+                        + ")) throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.Append(" = (");
+                s.Append(typeFullName);
+                s.AppendLine(")(object)__enumInt" + id + ";");
+                s.Append(ind);
+                s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("else");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an enum value at offset {reader.BytesConsumed}\");"
+                );
+                break;
+            case "bytes":
+                s.Append(ind);
+                s.AppendLine(
+                    "if (reader.TokenType != TokenType.Bytes) throw new System.FormatException($\"Expected binary data at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.AppendLine(" = reader.GetStringRaw().ToArray();");
+                break;
+            case "extension":
+                s.Append(ind);
+                s.AppendLine(
+                    "if (reader.TokenType != TokenType.Extension) throw new System.FormatException($\"Expected an extension at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
+                s.Append(dst);
+                s.AppendLine(" = reader.GetStringRaw().ToArray();");
+                break;
+            default:
+                break;
+        }
+    }
+
     static void WriteDeser(
         StringBuilder s,
         PropertyInfo p,
@@ -1990,15 +2467,28 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 if (p.IsNullable)
                 {
                     s.Append(ind);
-                    s.Append("if (reader.TokenType == TokenType.Null) ");
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
                     s.Append(t);
-                    s.AppendLine(" = null; else ");
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else if (reader.TokenType == TokenType.String)");
                     s.Append(ind);
                     s.Append(t);
                     s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                    s.Append(ind);
+                    s.AppendLine("else");
+                    s.Append(ind);
+                    s.AppendLine(
+                        "    throw new System.FormatException($\"Expected a string at offset {reader.BytesConsumed}\");"
+                    );
                 }
                 else
                 {
+                    s.Append(ind);
+                    s.AppendLine(
+                        "if (reader.TokenType != TokenType.String) throw new System.FormatException($\"Expected a string at offset {reader.BytesConsumed}\");"
+                    );
                     s.Append(ind);
                     s.Append(t);
                     s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
@@ -2313,278 +2803,59 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 }
                 break;
             case "datetime":
-                s.Append(ind);
-                s.AppendLine("System.DateTime __dt;");
-                s.Append(ind);
-                s.AppendLine("if (reader.TokenType == TokenType.Extension)");
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine(
-                    "    if (!reader.TryGetExtension(out var __extTag, out var __extData) || __extTag != 0xFF) throw new System.FormatException($\"Invalid timestamp extension at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.AppendLine("    switch (__extData.Length)");
-                s.Append(ind);
-                s.AppendLine("    {");
-                s.Append(ind);
-                s.AppendLine("        case 4:");
-                s.Append(ind);
-                s.AppendLine(
-                    "            __dt = System.DateTimeOffset.FromUnixTimeSeconds(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(__extData)).UtcDateTime;"
-                );
-                s.Append(ind);
-                s.AppendLine("            break;");
-                s.Append(ind);
-                s.AppendLine("        case 8:");
-                s.Append(ind);
-                s.AppendLine("        {");
-                s.Append(ind);
-                s.AppendLine(
-                    "            ulong __ts64 = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(__extData);"
-                );
-                s.Append(ind);
-                s.AppendLine("            long __secs64 = (long)(__ts64 >> 34);");
-                s.Append(ind);
-                s.AppendLine("            ulong __nano64 = __ts64 & 0x3FFFFFFFFUL;");
-                s.Append(ind);
-                s.AppendLine(
-                    "            __dt = System.DateTimeOffset.FromUnixTimeSeconds(__secs64).UtcDateTime.AddTicks((long)(__nano64 / 100));"
-                );
-                s.Append(ind);
-                s.AppendLine("            break;");
-                s.Append(ind);
-                s.AppendLine("        }");
-                s.Append(ind);
-                s.AppendLine("        case 12:");
-                s.Append(ind);
-                s.AppendLine("        {");
-                s.Append(ind);
-                s.AppendLine(
-                    "            uint __nano32 = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(__extData);"
-                );
-                s.Append(ind);
-                s.AppendLine(
-                    "            long __secs96 = System.Buffers.Binary.BinaryPrimitives.ReadInt64BigEndian(__extData.Slice(4));"
-                );
-                s.Append(ind);
-                s.AppendLine(
-                    "            __dt = System.DateTimeOffset.FromUnixTimeSeconds(__secs96).UtcDateTime.AddTicks((long)(__nano32 / 100));"
-                );
-                s.Append(ind);
-                s.AppendLine("            break;");
-                s.Append(ind);
-                s.AppendLine("        }");
-                s.Append(ind);
-                s.AppendLine("        default:");
-                s.Append(ind);
-                s.AppendLine(
-                    "            throw new System.FormatException($\"Unsupported timestamp extension length at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.AppendLine("    }");
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine("else if (reader.TokenType == TokenType.String)");
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine(
-                    "    var __dtRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); if (!DateTime.TryParse(__dtRaw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __dt)) throw new System.FormatException($\"Invalid DateTime at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine("else");
-                s.Append(ind);
-                s.AppendLine(
-                    "    throw new System.FormatException($\"Expected a DateTime at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.Append(t);
-                s.AppendLine(" = __dt;");
-                break;
             case "timespan":
-                s.Append(ind);
-                s.AppendLine("System.TimeSpan __ts;");
-                s.Append(ind);
-                s.AppendLine("if (reader.TokenType == TokenType.String)");
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine(
-                    "    if (!TimeSpan.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), out __ts)) throw new System.FormatException($\"Invalid TimeSpan at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine(
-                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
-                );
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine(
-                    "    if (!reader.TryGetInt64(out var __tsTicks)) throw new System.FormatException($\"Invalid TimeSpan ticks at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.AppendLine("    __ts = System.TimeSpan.FromTicks(__tsTicks);");
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine("else");
-                s.Append(ind);
-                s.AppendLine(
-                    "    throw new System.FormatException($\"Expected a TimeSpan at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.Append(t);
-                s.AppendLine(" = __ts;");
-                break;
             case "decimal":
-                s.Append(ind);
-                s.AppendLine(
-                    "var __decRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); if (!decimal.TryParse(__decRaw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decv)) throw new System.FormatException($\"Invalid decimal at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.Append(t);
-                s.AppendLine(" = __decv;");
-                break;
             case "dateonly":
-                s.Append(ind);
-                s.AppendLine("System.DateOnly __dov;");
-                s.Append(ind);
-                s.AppendLine("if (reader.TokenType == TokenType.String)");
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine(
-                    "    var __doRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); if (!DateOnly.TryParse(__doRaw, out __dov)) throw new System.FormatException($\"Invalid DateOnly at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine(
-                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
-                );
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine(
-                    "    if (!reader.TryGetInt32(out var __dayNumber) || __dayNumber < 1) throw new System.FormatException($\"Invalid DateOnly day number at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.AppendLine("    __dov = DateOnly.FromDayNumber(__dayNumber);");
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine("else");
-                s.Append(ind);
-                s.AppendLine(
-                    "    throw new System.FormatException($\"Expected a DateOnly at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.Append(t);
-                s.AppendLine(" = __dov;");
-                break;
             case "timeonly":
-                s.Append(ind);
-                s.AppendLine("System.TimeOnly __tov;");
-                s.Append(ind);
-                s.AppendLine("if (reader.TokenType == TokenType.String)");
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine(
-                    "    var __toRaw = Encoding.UTF8.GetString(reader.GetStringRaw()); if (!System.TimeOnly.TryParseExact(__toRaw, \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out __tov)) throw new System.FormatException($\"Invalid TimeOnly at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine(
-                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
-                );
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine(
-                    "    if (!reader.TryGetInt64(out var __toTicks)) throw new System.FormatException($\"Invalid TimeOnly ticks at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.AppendLine("    __tov = new System.TimeOnly(__toTicks);");
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine("else");
-                s.Append(ind);
-                s.AppendLine(
-                    "    throw new System.FormatException($\"Expected a TimeOnly at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.Append(t);
-                s.AppendLine(" = __tov;");
-                break;
             case "guid":
-                s.Append(ind);
-                s.AppendLine(
-                    "if (!Guid.TryParse(reader.GetStringRaw(), out var __g)) throw new System.FormatException($\"Invalid Guid at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.Append(t);
-                s.AppendLine(" = __g;");
-                break;
             case "enum":
-                s.Append(ind);
-                s.AppendLine("if (reader.TokenType == TokenType.String)");
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.Append("    if (!Enum.TryParse<");
-                s.Append(p.TypeFullName);
-                s.AppendLine(
-                    ">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __e)) throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.Append(t);
-                s.AppendLine(" = __e;");
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine(
-                    "else if (reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.UInt8 or TokenType.UInt16 or TokenType.UInt32 or TokenType.UInt64)"
-                );
-                s.Append(ind);
-                s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine(
-                    "    if (!reader.TryGetInt32(out var __enumInt)) throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
-                );
-                s.Append(ind);
-                s.Append(t);
-                s.Append(" = (");
-                s.Append(p.TypeFullName);
-                s.AppendLine(")(object)__enumInt;");
-                s.Append(ind);
-                s.AppendLine("}");
-                s.Append(ind);
-                s.AppendLine("else");
-                s.Append(ind);
-                s.AppendLine(
-                    "    throw new System.FormatException($\"Expected an enum value at offset {reader.BytesConsumed}\");"
-                );
+                // A nullable member accepts nil before the typed read runs, so
+                // a missing value stays null instead of throwing.
+                if (p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else {");
+                    EmitScalarRead(
+                        s,
+                        p.TypeKind,
+                        NullableUnderlyingType(p.TypeFullName),
+                        t,
+                        ind + "    ",
+                        ref c
+                    );
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                else
+                {
+                    EmitScalarRead(s, p.TypeKind, p.TypeFullName, t, ind, ref c);
+                }
                 break;
             case "bytes":
-                s.Append(ind);
-                s.Append(t);
-                s.AppendLine(" = reader.GetStringRaw().ToArray();");
+                EmitScalarRead(s, "bytes", p.TypeFullName, t, ind, ref c);
                 break;
             case "extension":
-                s.Append(ind);
-                s.Append(t);
-                s.AppendLine(" = reader.GetStringRaw().ToArray();");
+                EmitScalarRead(s, "extension", p.TypeFullName, t, ind, ref c);
                 break;
             case "list":
+                // nil means "no collection" for a nullable member: stay null
+                // rather than materialising an empty list.
+                if (p.IsNullableReference)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else {");
+                    ind += "    ";
+                }
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" ??= new List<");
@@ -2599,8 +2870,25 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 ReadDeserElem(s, p, t, ".Add", ind + "        ", ref c);
                 s.Append(ind);
                 s.AppendLine("    } }");
+                if (p.IsNullableReference)
+                {
+                    ind = ind.Substring(4);
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
                 break;
             case "array":
+                if (p.IsNullableReference || p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else {");
+                    ind += "    ";
+                }
                 s.Append(ind);
                 s.Append("var __l = new List<");
                 s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName);
@@ -2617,8 +2905,25 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append(t);
                 s.AppendLine(" = __l.ToArray();");
+                if (p.IsNullableReference || p.IsNullable)
+                {
+                    ind = ind.Substring(4);
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
                 break;
             case "dict":
+                if (p.IsNullableReference)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else {");
+                    ind += "    ";
+                }
                 s.Append(ind);
                 s.Append(t);
                 s.Append(" ??= new Dictionary<string, ");
@@ -2637,6 +2942,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 ReadDeserElem(s, p, $"{t}[__dk]", " =", ind + "        ", ref c);
                 s.Append(ind);
                 s.AppendLine("    } }");
+                if (p.IsNullableReference)
+                {
+                    ind = ind.Substring(4);
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
                 break;
             case "object":
                 if (p.NestedProperties.Length == 0)
@@ -2782,108 +3093,226 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         {
             case "string":
                 s.Append(ind);
+                s.AppendLine(
+                    "if (reader.TokenType != TokenType.String) throw new System.FormatException($\"Expected a string element at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(ind);
                 s.Append(target);
                 s.Append(op);
                 s.AppendLine("(Encoding.UTF8.GetString(reader.GetStringRaw()));");
                 break;
             case "int32":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetInt32(out var __ev);");
+                s.Append("if (!reader.TryGetInt32(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(__ev);");
+                s.Append("(__ev");
+                s.Append(c++);
+                s.AppendLine(");");
                 break;
             case "int64":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetInt64(out var __ev);");
+                s.Append("if (!reader.TryGetInt64(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit integer element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(__ev);");
+                s.Append("(__ev");
+                s.Append(c++);
+                s.AppendLine(");");
                 break;
             case "int16":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetInt32(out var __ev);");
+                s.Append("if (!reader.TryGetInt32(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(checked((short)__ev));");
+                s.Append("(checked((short)__ev");
+                s.Append(c++);
+                s.AppendLine("));");
                 break;
             case "uint16":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetInt32(out var __ev);");
+                s.Append("if (!reader.TryGetInt32(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(checked((ushort)__ev));");
+                s.Append("(checked((ushort)__ev");
+                s.Append(c++);
+                s.AppendLine("));");
                 break;
             case "sbyte":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetInt32(out var __ev);");
+                s.Append("if (!reader.TryGetInt32(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(checked((sbyte)__ev));");
+                s.Append("(checked((sbyte)__ev");
+                s.Append(c++);
+                s.AppendLine("));");
                 break;
             case "byte":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetInt32(out var __ev);");
+                s.Append("if (!reader.TryGetInt32(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(checked((byte)__ev));");
+                s.Append("(checked((byte)__ev");
+                s.Append(c++);
+                s.AppendLine("));");
                 break;
             case "uint32":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetInt64(out var __ev);");
+                s.Append("if (!reader.TryGetInt64(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(checked((uint)__ev));");
+                s.Append("(checked((uint)__ev");
+                s.Append(c++);
+                s.AppendLine("));");
                 break;
             case "uint64":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetUInt64(out var __ev);");
+                s.Append("if (!reader.TryGetUInt64(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a 64-bit unsigned integer element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(__ev);");
+                s.Append("(__ev");
+                s.Append(c++);
+                s.AppendLine(");");
                 break;
             case "float32":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetFloat64(out var __ev);");
+                s.Append("if (!reader.TryGetFloat64(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("((float)__ev);");
+                s.Append("((float)__ev");
+                s.Append(c++);
+                s.AppendLine(");");
                 break;
             case "float64":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetFloat64(out var __ev);");
+                s.Append("if (!reader.TryGetFloat64(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a floating-point element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(__ev);");
+                s.Append("(__ev");
+                s.Append(c++);
+                s.AppendLine(");");
                 break;
             case "boolean":
                 s.Append(ind);
-                s.AppendLine("reader.TryGetBool(out var __ev);");
+                s.Append("if (!reader.TryGetBool(out var __ev");
+                s.Append(c);
+                s.AppendLine("))");
+                s.Append(ind);
+                s.AppendLine(
+                    "    throw new System.FormatException($\"Expected a boolean element at offset {reader.BytesConsumed}\");"
+                );
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine("(__ev);");
+                s.Append("(__ev");
+                s.Append(c++);
+                s.AppendLine(");");
                 break;
             case "decimal":
+            case "datetime":
+            case "timespan":
+            case "dateonly":
+            case "timeonly":
+            case "guid":
+            case "enum":
+            case "bytes":
+            case "extension":
+            {
+                // One shared strict scalar decoder for members and elements —
+                // a wrong-typed or truncated token raises FormatException here
+                // instead of silently yielding default(T).
+                var id = c++;
+                var ev = $"__sv{id}";
+                // Declaration-position name keeps a pending "?" for nullable
+                // value-type elements (List<decimal?>, List<DayOfWeek?>); the
+                // enum parser needs the underlying type.
+                var evType = p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object";
+                var evEnumType = evType.EndsWith("?", StringComparison.Ordinal)
+                    ? evType.Substring(0, evType.Length - 1)
+                    : evType;
                 s.Append(ind);
-                s.AppendLine("var __decRaw = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                s.Append(evType);
+                s.Append(" ");
+                s.Append(ev);
+                s.AppendLine(" = default!;");
+                EmitScalarRead(s, p.ElementTypeKind!, evEnumType, ev, ind, ref c);
                 s.Append(ind);
                 s.Append(target);
                 s.Append(op);
-                s.AppendLine(
-                    "(decimal.Parse(__decRaw, System.Globalization.CultureInfo.InvariantCulture));"
-                );
+                s.Append("(");
+                s.Append(ev);
+                s.AppendLine(");");
                 break;
+            }
             case "object":
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
