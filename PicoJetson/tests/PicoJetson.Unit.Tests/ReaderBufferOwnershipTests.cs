@@ -70,4 +70,63 @@ public class ReaderBufferOwnershipTests
         for (var i = 1; i <= names.Count; i++)
             await Assert.That(names[i - 1]).IsEqualTo($"P{i}");
     }
+
+    [Test]
+    public async Task ValueSpan_IsEmptyAfterEndOfDocument_Sequence()
+    {
+        // Sequence mode rents a pooled buffer for every string token. Once Read()
+        // reports the end of the document, those buffers go back to the pool, so a
+        // retained span would alias a recycled array (use-after-return). The
+        // contract must be an explicit empty span, not stale bytes.
+        var reader = new JsonReader(
+            new ReadOnlySequence<byte>(Encoding.UTF8.GetBytes("{\"P1\":\"v1\"}")),
+            maxDepth: 256,
+            isFinalBlock: true
+        );
+        var ok = true;
+        while (ok)
+            ok = reader.Read();
+
+        // Read() returned false (EOF) — every tracked buffer was handed back.
+        var valueSpanLength = reader.ValueSpan.Length;
+        var stringRawLength = reader.GetStringRaw().Length;
+        var leaked = reader.LeakedBufferCount;
+        var tracked = reader.TrackedBufferCount;
+        reader.Dispose();
+
+        await Assert.That(valueSpanLength).IsZero();
+        await Assert.That(stringRawLength).IsZero();
+        await Assert.That(leaked).IsZero();
+        await Assert.That(tracked).IsZero();
+    }
+
+    [Test]
+    public async Task GetStringRaw_DoesNotAliasRecycledBuffer_AfterEndOfDocument()
+    {
+        // The dangling span from the previous test is only *observable* as garbage
+        // when the pool hands the returned array to the next renter. Force that
+        // reuse with a probe rent, then read the span again.
+        var reader = new JsonReader(
+            new ReadOnlySequence<byte>(Encoding.UTF8.GetBytes("{\"P1\":\"v1\"}")),
+            maxDepth: 256,
+            isFinalBlock: true
+        );
+        var ok = true;
+        while (ok)
+            ok = reader.Read();
+
+        var probe = ArrayPool<byte>.Shared.Rent(256);
+        probe.AsSpan().Fill((byte)'Z');
+        ArrayPool<byte>.Shared.Return(probe);
+
+        var reused = reader.GetStringRaw();
+        var reusedLength = reused.Length;
+        var isGarbage = false;
+        foreach (var b in reused)
+            isGarbage |= b == (byte)'Z';
+        reader.Dispose();
+
+        await Assert.That(reusedLength).IsZero();
+        await Assert.That(isGarbage).IsFalse();
+    }
 }

@@ -24,6 +24,13 @@ public class DateTimeMap
     public Dictionary<string, DateTime?> Map { get; set; } = new();
 }
 
+// Nested dict with a nullable value type: the outer helper delegates to the
+// generated *JsonDictInner helper for Dictionary<string, int?>.
+public class NestedNullableIntMap
+{
+    public Dictionary<string, Dictionary<string, int?>> Map { get; set; } = new();
+}
+
 public class DictNullableValueTests
 {
     [Test]
@@ -63,5 +70,35 @@ public class DictNullableValueTests
                     .Map["b"]
             )
             .IsNull();
+    }
+
+    // C-29 in the nested-dict path: the inner helper for Dictionary<string, int?>
+    // must apply the same null guard as the flat dict path.
+    [Test]
+    public async Task NestedDict_NullStaysNull()
+    {
+        var back = JsonSerializer.Deserialize<NestedNullableIntMap>(
+            Encoding.UTF8.GetBytes("{\"Map\":{\"a\":{\"b\":null,\"c\":7}}}")
+        );
+
+        await Assert.That(back.Map["a"]["b"]).IsNull();
+        await Assert.That(back.Map["a"]["c"]).IsEqualTo(7);
+    }
+
+    [Test]
+    public async Task NestedDict_RoundTrip_NullStaysNull()
+    {
+        var model = new NestedNullableIntMap
+        {
+            Map = new()
+            {
+                ["a"] = new() { ["b"] = null, ["c"] = 7 },
+            },
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
+        var back = JsonSerializer.Deserialize<NestedNullableIntMap>(bytes);
+
+        await Assert.That(back.Map["a"]["b"]).IsNull();
+        await Assert.That(back.Map["a"]["c"]).IsEqualTo(7);
     }
 }

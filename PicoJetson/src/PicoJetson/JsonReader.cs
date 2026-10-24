@@ -334,7 +334,15 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
         // retained token spans any more, so hand them back to the pool now
         // instead of holding them until Dispose.
         if (!ok && !_needsMoreData)
+        {
             ReturnBuffer();
+            // The pooled arrays are gone: any span still pointing into them
+            // (ValueSpan / GetStringRaw) would alias memory the pool may
+            // already have handed to the next renter. Fail closed instead.
+            _valueSpan = default;
+            _tokenValueStart = 0;
+            _tokenValueEnd = 0;
+        }
         return ok;
     }
 

@@ -1541,7 +1541,18 @@ internal static class GenInfrastructure
             IsRecursiveRef: isRecursiveDictValue,
             ElementTypeFullName: innerValType.ToDisplayString(
                 SymbolDisplayFormat.FullyQualifiedFormat
-            )
+            ),
+            // The inner dict's value nullability must survive the chain, exactly
+            // like the nested-list wrapper above: without these two flags the
+            // generated inner helper cannot tell Dictionary<string, int?> from
+            // Dictionary<string, int> and coerces a JSON null into 0.
+            ElementIsNullableReference: innerValType.NullableAnnotation
+                == NullableAnnotation.Annotated,
+            ElementIsNullableValue: innerValType
+                is INamedTypeSymbol
+                {
+                    OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
+                }
         );
 
         return ImmutableArray.Create(wrapper);
