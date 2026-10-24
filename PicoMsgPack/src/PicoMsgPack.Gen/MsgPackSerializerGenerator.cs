@@ -407,6 +407,8 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         // (merged) property sets, and surface per-format skips as PICOSERDE003.
         PicoSerDe.Gen.GenInfrastructure.SeedRecursiveTargets(validTypes, nestedTypes);
         PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
+        // PICOSERDE004: surface extraction-time drops (see the JSON generator note).
+        PicoSerDe.Gen.GenInfrastructure.ReportUnsupportedMembers(spc, validTypes);
 
         var hintNames = new HashSet<string>();
         foreach (var kv in nestedDictTypes)
@@ -3745,5 +3747,4 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
         return s.ToString();
     }
-
 }

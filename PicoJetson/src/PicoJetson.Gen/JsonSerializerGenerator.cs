@@ -539,6 +539,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         // (merged) property sets, and surface per-format skips as PICOSERDE003.
         PicoSerDe.Gen.GenInfrastructure.SeedRecursiveTargets(validTypes, nestedTypes);
         PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
+        // PICOSERDE004: a member the format cannot express was dropped at extraction
+        // time. YAML/TOML/INI always reported it; JSON and MsgPack collected the same
+        // skip list but never surfaced it, so their drops were silent.
+        PicoSerDe.Gen.GenInfrastructure.ReportUnsupportedMembers(spc, validTypes);
 
         // Collect nested Dictionary types (e.g. Dictionary<string, Dictionary<string, Foo>>)
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();

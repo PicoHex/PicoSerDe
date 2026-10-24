@@ -5,7 +5,7 @@
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
 <IsPackable>false</IsPackable>
-    <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
+    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE004</NoWarn>
     <!-- Compile-time guard: generated code must preserve reference-nullability
          annotations in declaration positions (List<string?>,
          Dictionary<string,object?>, record ctor params) — a regression fails the
