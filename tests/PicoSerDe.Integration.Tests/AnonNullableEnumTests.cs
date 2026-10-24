@@ -24,6 +24,12 @@ public enum LongLevel : long
     High = 0x1_0000_0002,
 }
 
+public enum ShortLevel : short
+{
+    Low = 3,
+    High = 0x1234,
+}
+
 public class AnonLevelHolder
 {
     public Level? L { get; set; }
@@ -216,6 +222,116 @@ public class AnonNullableEnumTests
         var json = JsonSerializer.Serialize(new { A = (Level?)null, B = 42 });
         await Assert.That(json).Contains("\"A\":null");
         await Assert.That(json).Contains("\"B\":42");
+    }
+
+    // ── Fix round 1: the slot is per underlying width, never a fixed one ──
+
+    // An int-backed (8/4) and a byte-backed (2/1) Nullable<enum> in one anonymous
+    // type. A single conservative slot for "nullable enum" (pointer-sized, or the
+    // int32 width) puts at least one of them, or the sentinel that follows, at the
+    // wrong offset — and a wrong offset reads garbage that cannot print as the
+    // expected enum name.
+    [Test]
+    public async Task Json_IntAndByteBackedNullableEnums_Mixed_AllValuesExact()
+    {
+        var json = JsonSerializer.Serialize(
+            new
+            {
+                A = (Level?)Level.High,
+                B = (ByteLevel?)ByteLevel.High,
+                C = 0x11223344,
+                D = (ByteLevel?)ByteLevel.Low,
+                E = 0x1122334455667788L,
+            }
+        );
+        await Assert.That(json).Contains("\"A\":\"High\"");
+        await Assert.That(json).Contains("\"B\":\"High\"");
+        await Assert.That(json).Contains($"\"C\":{0x11223344}");
+        await Assert.That(json).Contains("\"D\":\"Low\"");
+        await Assert.That(json).Contains($"\"E\":{0x1122334455667788}");
+    }
+
+    // All four enum underlying widths of the CLR (byte/short/int/long) in one
+    // layout: 2/1, 4/2, 8/4 and 16/8. Each one has to land on its own width — no
+    // fixed slot can be right for more than one of them.
+    [Test]
+    public async Task Json_FourUnderlyingWidthsMixed_AllValuesExact()
+    {
+        var json = JsonSerializer.Serialize(
+            new
+            {
+                A = (ByteLevel?)ByteLevel.High,
+                B = (ShortLevel?)ShortLevel.High,
+                C = (Level?)Level.High,
+                D = (LongLevel?)LongLevel.High,
+                E = (int?)0x55667788,
+            }
+        );
+        await Assert.That(json).Contains("\"A\":\"High\"");
+        await Assert.That(json).Contains("\"B\":\"High\"");
+        await Assert.That(json).Contains("\"C\":\"High\"");
+        await Assert.That(json).Contains("\"D\":\"High\"");
+        await Assert.That(json).Contains($"\"E\":{0x55667788}");
+    }
+
+    // The mixed-width case in the section formats too: the layout is computed once
+    // in shared/Gen and consumed by all five generators, so a wrong slot corrupts
+    // every format equally.
+    [Test]
+    public async Task NonJson_IntAndByteBackedNullableEnums_Mixed_AllValuesExact()
+    {
+        var toml = TomlSerializer.Serialize(
+            new
+            {
+                A = (Level?)Level.High,
+                B = (ByteLevel?)ByteLevel.High,
+                C = 0x11223344,
+            }
+        );
+        await Assert.That(toml).Contains("A = \"High\"");
+        await Assert.That(toml).Contains("B = \"High\"");
+        await Assert.That(toml).Contains($"C = {0x11223344}");
+
+        var yaml = YamlSerializer.Serialize(
+            new
+            {
+                A = (Level?)Level.Low,
+                B = (ByteLevel?)ByteLevel.High,
+                C = 0x11223344,
+            }
+        );
+        await Assert.That(yaml).Contains("A: Low");
+        await Assert.That(yaml).Contains("B: High");
+        await Assert.That(yaml).Contains($"C: {0x11223344}");
+    }
+
+    // Level? and int? have the *same* physical slot (8/4) but different semantics, so
+    // this is the pair most likely to poison each other: the enum must still be
+    // written as an enum (its name) and the int as an int, alternating, nulls
+    // included.
+    [Test]
+    public async Task Json_NullableEnumAndNullableIntInterleaved_NoPollution()
+    {
+        var json = JsonSerializer.Serialize(
+            new
+            {
+                A = (Level?)Level.High,
+                B = (int?)11,
+                C = (Level?)Level.Low,
+                D = (int?)22,
+                E = (Level?)null,
+                F = (int?)null,
+            }
+        );
+        await Assert.That(json).Contains("\"A\":\"High\"");
+        await Assert.That(json).Contains("\"B\":11");
+        await Assert.That(json).Contains("\"C\":\"Low\"");
+        await Assert.That(json).Contains("\"D\":22");
+        await Assert.That(json).Contains("\"E\":null");
+        await Assert.That(json).Contains("\"F\":null");
+        // A name must never leak into an int slot (or the int into a name slot).
+        await Assert.That(json).DoesNotContain("\"B\":\"");
+        await Assert.That(json).DoesNotContain("\"D\":\"");
     }
 
     // ── Non-enum nullable value types are untouched by this fix ──

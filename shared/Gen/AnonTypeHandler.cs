@@ -144,13 +144,16 @@ internal static class AnonTypeHandler
         ["nullable_timeonly"] = (16, 8, false),
         ["nullable_timespan"] = (16, 8, false),
         ["nullable_guid"] = (20, 4, false),
-        // Nullable<enum> (F4). Present so a nullable enum is a first-class kind
-        // instead of being collapsed onto `int?` (which lost the enum name on both
-        // sides). The *physical* slot is per underlying width and comes from
-        // AnonFieldInfo.LayoutKind ("nullable_byte" … "nullable_int64", i.e. the
-        // measured Nullable<T> entries above); this entry is only the conservative
-        // IntPtr-sized fallback and is never reached by a built field.
-        ["nullable_enum"] = (8, 8, false),
+        // Nullable<enum> (F4) is a first-class *semantic* kind, but it deliberately has
+        // no row here (fix round 1). A nullable enum has one physical slot per
+        // underlying width — 2/1 for byte, 4/2 for short, 8/4 for int, 16/8 for long —
+        // so no single row can be both conservative and correct: the old (8, 8) row
+        // happened to fit an int32-backed enum and left every narrower one (and the
+        // neighbours that follow it) at a wrong offset. The width is resolved per
+        // field into AnonFieldInfo.LayoutKind ("nullable_byte" … "nullable_int64",
+        // i.e. the measured Nullable<T> rows above), and a field's layout key *is*
+        // that LayoutKind. A field whose LayoutKind cannot be resolved is refused by
+        // BuildAnonTypeInfo, so this table is never asked for "nullable_enum".
     };
 
     private static bool IsNullableKind(string kind) =>
@@ -170,13 +173,31 @@ internal static class AnonTypeHandler
         IsNullableKind(f.TypeKind) ? 0 : LayoutOf(f).Align;
 
     /// <summary>
-    /// Physical (size, align, isRef) of a member. <see cref="AnonFieldInfo.LayoutKind"/>
-    /// overrides the semantic kind where the two differ: a
-    /// <c>Nullable&lt;byteBackedEnum&gt;</c> is 2 bytes/align 1 even though its
-    /// semantic kind is <c>nullable_enum</c> (F4).
+    /// Key of a member's physical slot in <see cref="TypeLayout"/>.
+    /// <see cref="AnonFieldInfo.LayoutKind"/> overrides the semantic kind where the
+    /// two differ: a <c>Nullable&lt;byteBackedEnum&gt;</c> is 2 bytes/align 1 even
+    /// though its semantic kind is <c>nullable_enum</c> (F4).
     /// </summary>
+    private static string LayoutKey(string typeKind, string? layoutKind) => layoutKind ?? typeKind;
+
+    private static string LayoutKey(AnonFieldInfo f) => LayoutKey(f.TypeKind, f.LayoutKind);
+
+    /// <summary>
+    /// Physical (size, align, isRef) of a member, keyed by <see cref="LayoutKey"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The member has no measurable slot. <see cref="BuildAnonTypeInfo"/> already
+    /// refuses such a member (it skips the whole anonymous type), so this is a
+    /// generator-invariant assert rather than a reachable path — guessing a slot
+    /// here is exactly the silent misalignment fix round 1 removed.
+    /// </exception>
     private static (int Size, int Align, bool IsRef) LayoutOf(AnonFieldInfo f) =>
-        TypeLayout[f.LayoutKind ?? f.TypeKind];
+        TypeLayout.TryGetValue(LayoutKey(f), out var layout)
+            ? layout
+            : throw new InvalidOperationException(
+                $"PicoSerDe generator invariant violated: no layout for kind '{LayoutKey(f)}' "
+                    + $"(member '{f.Name}', semantic kind '{f.TypeKind}')."
+            );
 
     internal static ImmutableArray<AnonFieldInfo> ComputeFieldLayout(List<AnonFieldInfo> fields)
     {
@@ -235,6 +256,12 @@ internal static class AnonTypeHandler
                         SymbolDisplayFormat.FullyQualifiedFormat
                     );
                     layoutKind = NullableEnumLayoutKind(valueType);
+                    // Fix round 1: a nullable enum has no fixed slot, so a member
+                    // whose width cannot be resolved has no safe layout at all. Skip
+                    // the anonymous type (the same policy as the unknown-kind guard
+                    // below) instead of falling back to a guessed slot.
+                    if (layoutKind is null)
+                        return null;
                 }
             }
             AnonTypeInfo? nested = null;
@@ -244,13 +271,14 @@ internal static class AnonTypeHandler
                 continue;
             if (tk is null)
                 tk = "object";
-            // Unknown kinds cannot be laid out safely — skip the whole
-            // anonymous type instead of crashing the generator with a
-            // KeyNotFoundException (a crash discards EVERY generated
-            // serializer in the compilation).
-            if (!TypeLayout.ContainsKey(tk))
+            // Unknown kinds — and any member whose slot is not measurable (a nullable
+            // enum whose underlying width could not be resolved) — cannot be laid out
+            // safely: skip the whole anonymous type instead of crashing the generator
+            // with a KeyNotFoundException (a crash discards EVERY generated serializer
+            // in the compilation) or, worse, guessing an offset.
+            if (!TypeLayout.TryGetValue(LayoutKey(tk, layoutKind), out var layout))
                 return null;
-            bool isRef = TypeLayout.TryGetValue(tk, out var l) && l.IsRef;
+            bool isRef = layout.IsRef;
             string jn =
                 attrs.GetCustomName?.Invoke(p)
                 ?? (attrs.HasCamelCase(anonType) ? GenInfrastructure.ToCamelCase(p.Name) : p.Name);
@@ -359,21 +387,31 @@ internal static class AnonTypeHandler
     /// field offset, which is why the width is still honoured — only the *kind*
     /// stopped lying about the value being an enum.
     /// </summary>
-    private static string NullableEnumLayoutKind(ITypeSymbol type)
+    /// <returns>
+    /// The nullable numeric kind with the same width, or <c>null</c> when the width
+    /// cannot be determined (an enum whose <c>EnumUnderlyingType</c> is unknown, or a
+    /// symbol that is not an enum at all). Never a guessed width: the caller turns
+    /// <c>null</c> into "this anonymous type cannot be laid out".
+    /// </returns>
+    private static string? NullableEnumLayoutKind(ITypeSymbol type)
     {
-        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
-            return enumType.EnumUnderlyingType?.SpecialType switch
-            {
-                SpecialType.System_Byte => "nullable_byte",
-                SpecialType.System_SByte => "nullable_sbyte",
-                SpecialType.System_Int16 => "nullable_int16",
-                SpecialType.System_UInt16 => "nullable_uint16",
-                SpecialType.System_UInt32 => "nullable_uint32",
-                SpecialType.System_Int64 => "nullable_int64",
-                SpecialType.System_UInt64 => "nullable_uint64",
-                _ => "nullable_int32",
-            };
-        return "nullable_int32";
+        if (type is not INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
+            return null;
+        return enumType.EnumUnderlyingType?.SpecialType switch
+        {
+            SpecialType.System_Byte => "nullable_byte",
+            SpecialType.System_SByte => "nullable_sbyte",
+            SpecialType.System_Int16 => "nullable_int16",
+            SpecialType.System_UInt16 => "nullable_uint16",
+            SpecialType.System_Int32 => "nullable_int32",
+            SpecialType.System_UInt32 => "nullable_uint32",
+            SpecialType.System_Int64 => "nullable_int64",
+            SpecialType.System_UInt64 => "nullable_uint64",
+            // An enum whose underlying width cannot be determined (error type, broken
+            // declaration) has no safe slot: report "unknown" instead of guessing the
+            // 4-byte case, which is what silently misaligned every narrower enum.
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -845,7 +883,7 @@ internal static class AnonTypeHandler
         }
         else
         {
-            bool isRef = TypeLayout[f.TypeKind].IsRef;
+            bool isRef = LayoutOf(f).IsRef;
             bool skipNull = !afc.HasNullLiteral;
             if (isRef && skipNull)
             {
