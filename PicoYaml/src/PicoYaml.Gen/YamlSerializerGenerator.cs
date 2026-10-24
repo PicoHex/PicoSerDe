@@ -938,9 +938,25 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 );
                 break;
             case "timespan":
+                // C-14: TimeSpan has no ToString(IFormatProvider); the "c" format is
+                // the invariant one the reader expects.
+                s.Append(ind);
+                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(accessor);
+                s.AppendLine(
+                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
+            case "decimal":
+                // C-14: decimal.ToString() is culture-sensitive ("1,5" under de-DE)
+                // while the reader parses invariantly, so 1.5m round-tripped to 15.
+                s.Append(ind);
+                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(accessor);
+                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                break;
             case "guid":
             case "enum":
-            case "decimal":
                 s.Append(ind);
                 s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
                 s.Append(accessor);
@@ -2382,7 +2398,25 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
                     );
                     break;
+                case "timespan":
+                    // C-14: TimeSpan has no ToString(IFormatProvider); "c" is invariant.
+                    s.Append(ind);
+                    s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(valAccessor);
+                    s.AppendLine(
+                        ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    );
+                    break;
+                case "decimal":
+                    // C-14: culture-sensitive ToString() emits "1,5" under de-DE
+                    // while the reader parses invariantly (round-trip gives 15).
+                    s.Append(ind);
+                    s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(valAccessor);
+                    s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                    break;
                 default:
+                    // guid/enum: ToString() is already culture-independent.
                     s.Append(ind);
                     s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
                     s.Append(valAccessor);
@@ -2497,7 +2531,29 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
                     );
                     break;
+                case "timespan":
+                    // C-14: TimeSpan has no ToString(IFormatProvider); "c" is invariant.
+                    s.Append(ind);
+                    s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(
+                        ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    );
+                    break;
+                case "decimal":
+                    // C-14: culture-sensitive ToString() emits "1,5" under de-DE
+                    // while the reader parses invariantly (round-trip gives 15).
+                    s.Append(ind);
+                    s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                    break;
                 default:
+                    // guid/enum: ToString() is already culture-independent.
                     s.Append(ind);
                     s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
                     s.Append(target);
