@@ -2192,11 +2192,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(".ToString(\"O\")");
                 break;
             case "timespan":
+                // C-14: TOML numbers are locale-free, and the reader parses
+                // invariantly — so write invariantly too.
                 s.Append(accessor);
-                s.Append(".ToString()");
+                s.Append(".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)");
+                break;
+            case "decimal":
+                // C-14: de-DE used to emit "1,5" (not valid TOML).
+                s.Append(accessor);
+                s.Append(".ToString(System.Globalization.CultureInfo.InvariantCulture)");
                 break;
             case "guid":
-            case "decimal":
             case "enum":
                 s.Append(accessor);
                 s.Append(".ToString()");
