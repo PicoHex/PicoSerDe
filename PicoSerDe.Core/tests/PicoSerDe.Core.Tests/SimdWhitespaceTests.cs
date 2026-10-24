@@ -148,6 +148,50 @@ public class SimdWhitespaceTests
 
     // ── Performance throughput tests (large data) ──
 
+    // These are REGRESSION FENCES, not benchmarks: the solution runs 9 test
+    // assemblies concurrently, so the mean of one timed batch is not a stable
+    // signal. Any OS preemption that lands inside the window is charged to every
+    // iteration - observed in 1 of 17 full-suite runs: a ~0.5 s deschedule turned
+    // a healthy ~50 μs/call scan into 578 μs/call and tripped the old 500 μs
+    // bound (see .superpowers/sdd/followups/flake-report.md). Measurement hygiene:
+    //   * discarded warm-up -> JIT tier-0 never lands inside a sample;
+    //   * MEDIAN of batches -> a preempted batch is rejected instead of
+    //                          poisoning the number the assertion sees;
+    //   * wide bound        -> only a catastrophic (super-linear) regression can
+    //                          trip it, which is the only claim a wall-clock
+    //                          assertion inside a unit suite can honestly make.
+    private const int WarmupIterations = 256;
+    private const int SampleBatches = 5;
+    private const int IterationsPerBatch = 256;
+
+    // 5 ms/call is ~100x the healthy ~50 μs/call reading measured on the dev box.
+    private const double MaxNanosPerCall = 5_000_000.0;
+
+    /// <summary>
+    /// Runs <paramref name="scan"/> after a discarded warm-up and returns the
+    /// MEDIAN nanoseconds per call across <see cref="SampleBatches"/> timed
+    /// batches. The median (not the mean) keeps a single scheduler stall from
+    /// being smeared over the whole sample and read as a throughput regression.
+    /// </summary>
+    private static double MedianNanosPerCall(Action scan)
+    {
+        for (var i = 0; i < WarmupIterations; i++)
+            scan();
+
+        var samples = new double[SampleBatches];
+        for (var batch = 0; batch < SampleBatches; batch++)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (var i = 0; i < IterationsPerBatch; i++)
+                scan();
+            sw.Stop();
+            samples[batch] = sw.Elapsed.TotalNanoseconds / IterationsPerBatch;
+        }
+
+        Array.Sort(samples);
+        return samples[SampleBatches / 2];
+    }
+
     [Test]
     public async Task SkipWhitespace_Throughput_LargeBuffer_64KB()
     {
@@ -156,42 +200,35 @@ public class SimdWhitespaceTests
         Array.Fill(data, (byte)0x20);
         data[65535] = (byte)'x';
 
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        const int iterations = 1000;
-        for (int iter = 0; iter < iterations; iter++)
-        {
-            var pos = SimdHelpers.SkipWhitespace(data, 0);
-        }
-        sw.Stop();
+        // Correctness first, so the wall-clock fence below is never the only signal.
+        await Assert.That(SimdHelpers.SkipWhitespace(data, 0)).IsEqualTo(65535);
 
-        var perCall = sw.Elapsed.TotalNanoseconds / iterations;
-        await Assert.That(perCall).IsLessThan(500_000.0); // sub-500μs per 64KB
+        var perCall = MedianNanosPerCall(() => SimdHelpers.SkipWhitespace(data, 0));
+
         // Log for manual inspection
         Console.WriteLine(
-            $"SkipWhitespace 64KB: {perCall / 1000:F1}μs/call ({iterations} iterations)"
+            $"SkipWhitespace 64KB: {perCall / 1000:F1}μs/call "
+                + $"(median of {SampleBatches}x{IterationsPerBatch}, {WarmupIterations} warm-up)"
         );
+        await Assert.That(perCall).IsLessThan(MaxNanosPerCall);
     }
 
     [Test]
     public async Task SkipSpacesAndTabs_Throughput_LargeBuffer_64KB()
     {
         var data = new byte[65536];
-        for (int i = 0; i < 65535; i++)
+        for (var i = 0; i < 65535; i++)
             data[i] = (byte)(i % 2 == 0 ? 0x20 : 0x09);
         data[65535] = (byte)'x';
 
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        const int iterations = 1000;
-        for (int iter = 0; iter < iterations; iter++)
-        {
-            var pos = SimdHelpers.SkipSpacesAndTabs(data, 0);
-        }
-        sw.Stop();
+        await Assert.That(SimdHelpers.SkipSpacesAndTabs(data, 0)).IsEqualTo(65535);
 
-        var perCall = sw.Elapsed.TotalNanoseconds / iterations;
-        await Assert.That(perCall).IsLessThan(500_000.0);
+        var perCall = MedianNanosPerCall(() => SimdHelpers.SkipSpacesAndTabs(data, 0));
+
         Console.WriteLine(
-            $"SkipSpacesAndTabs 64KB: {perCall / 1000:F1}μs/call ({iterations} iterations)"
+            $"SkipSpacesAndTabs 64KB: {perCall / 1000:F1}μs/call "
+                + $"(median of {SampleBatches}x{IterationsPerBatch}, {WarmupIterations} warm-up)"
         );
+        await Assert.That(perCall).IsLessThan(MaxNanosPerCall);
     }
 }
