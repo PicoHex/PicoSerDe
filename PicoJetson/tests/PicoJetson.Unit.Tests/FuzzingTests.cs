@@ -1,44 +1,67 @@
+using System.Globalization;
+
 namespace PicoJetson.Tests;
 
+/// <summary>
+/// Review I-23: these tests used to end in <c>Assert.That(true).IsTrue()</c> with a
+/// bare <c>catch (FormatException) { }</c>, so they passed no matter what the reader
+/// did. Every assertion below is value-based:
+/// <list type="bullet">
+/// <item>valid inputs must produce an exact first token and token count;</item>
+/// <item>the random round-trip only asserts on JSON the generator itself produced,
+/// and compares the parsed values against the generated model.</item>
+/// </list>
+/// </summary>
 public class FuzzingTests
 {
-    [Test]
-    public async Task SimpleValues_ParseWithoutException()
+    private static List<TokenType> ReadAllTokens(string json)
     {
-        var inputs = new[]
-        {
-            "null",
-            "true",
-            "false",
-            "42",
-            "-17",
-            "3.14",
-            "1.5e10",
-            "-2.0E-3",
-            "\"hello\"",
-            "\"\"",
-            "\"escaped\\nstring\"",
-            "\"unicode\\u0041\"",
-            "{}",
-            "{\"a\":1}",
-            "{\"a\":1,\"b\":\"x\"}",
-            "[]",
-            "[1,2,3]",
-            "[true, false, null]",
-            "{\"nested\":{\"deep\":[1,2]}}",
-            "{\"a\":[],\"b\":{}}",
-        };
-        foreach (var input in inputs)
-        {
-            var r = new JsonReader(Encoding.UTF8.GetBytes(input));
-            while (r.Read()) { }
-            // Valid JSON must parse without FormatException
-        }
-        await Assert.That(true).IsTrue();
+        var reader = new JsonReader(Encoding.UTF8.GetBytes(json));
+        var tokens = new List<TokenType>();
+        while (reader.Read())
+            tokens.Add(reader.TokenType);
+        return tokens;
     }
 
     [Test]
-    public async Task MalformedJson_ThrowsFormatException()
+    public async Task SimpleValues_ProduceExactFirstTokenAndCount()
+    {
+        var cases = new (string Json, TokenType FirstToken, int TokenCount)[]
+        {
+            ("null", TokenType.Null, 1),
+            ("true", TokenType.Bool, 1),
+            ("false", TokenType.Bool, 1),
+            ("42", TokenType.Int32, 1),
+            ("-17", TokenType.Int32, 1),
+            ("3.14", TokenType.Float64, 1),
+            ("1.5e10", TokenType.Float64, 1),
+            ("-2.0E-3", TokenType.Float64, 1),
+            ("\"hello\"", TokenType.String, 1),
+            ("\"\"", TokenType.String, 1),
+            ("\"escaped\\nstring\"", TokenType.String, 1),
+            ("\"unicode\\u0041\"", TokenType.String, 1),
+            ("{}", TokenType.ObjectStart, 2),
+            ("{\"a\":1}", TokenType.ObjectStart, 4),
+            ("{\"a\":1,\"b\":\"x\"}", TokenType.ObjectStart, 6),
+            ("[]", TokenType.ArrayStart, 2),
+            ("[1,2,3]", TokenType.ArrayStart, 5),
+            ("[true, false, null]", TokenType.ArrayStart, 5),
+            ("{\"nested\":{\"deep\":[1,2]}}", TokenType.ObjectStart, 10),
+            ("{\"a\":[],\"b\":{}}", TokenType.ObjectStart, 8),
+        };
+
+        foreach (var (json, firstToken, tokenCount) in cases)
+        {
+            var tokens = ReadAllTokens(json);
+            await Assert.That(tokens.Count).IsGreaterThan(0).Because($"input: {json}");
+            var actualFirst = tokens.Count > 0 ? tokens[0] : TokenType.None;
+            await Assert.That(actualFirst).IsEqualTo(firstToken).Because($"input: {json}");
+            await Assert.That(tokens.Count).IsEqualTo(tokenCount).Because($"input: {json}");
+        }
+    }
+
+    [Test]
+    public void MalformedJson_ThrowsFormatException()
     {
         var inputs = new[]
         {
@@ -52,59 +75,140 @@ public class FuzzingTests
         };
         foreach (var input in inputs)
         {
-            try
-            {
-                var r = new JsonReader(Encoding.UTF8.GetBytes(input));
-                while (r.Read()) { }
-            }
-            catch (FormatException)
-            {
-                continue;
-            }
-            throw new Exception($"Expected FormatException for input: {input}");
+            var json = input;
+            Assert.Throws<FormatException>(() => ReadAllTokens(json));
         }
-        await Assert.That(true).IsTrue();
     }
 
     [Test]
     public async Task RandomJson_RoundTrip()
     {
         var rng = new Random(42);
-        for (int i = 0; i < 100; i++)
+        for (var i = 0; i < 100; i++)
         {
-            var json = GenerateRandomJson(rng, depth: 3);
-            try
-            {
-                var r = new JsonReader(Encoding.UTF8.GetBytes(json));
-                while (r.Read()) { }
-            }
-            catch (FormatException) { }
+            // The generator emits structurally valid JSON plus the model it was
+            // rendered from, so every assertion below has a concrete expected value.
+            var value = GenerateRandomValue(rng, depth: 3);
+            var json = Render(value);
+
+            var tokens = ReadAllTokens(json); // throws FormatException if the generator emitted broken JSON
+            await Assert.That(tokens.Count).IsEqualTo(CountTokens(value)).Because($"json: {json}");
+
+            var doc = PicoDocument.Parse(Encoding.UTF8.GetBytes(json));
+            await AssertSameValue(value, doc.RootElement);
         }
-        await Assert.That(true).IsTrue();
     }
 
-    private static string GenerateRandomJson(Random rng, int depth)
+    // ── Random JSON model: rendered to JSON, then compared against the parsed DOM ──
+
+    private abstract record JsonValue;
+
+    private sealed record JsonNumber(int Value) : JsonValue;
+
+    private sealed record JsonString(string Value) : JsonValue;
+
+    private sealed record JsonBool(bool Value) : JsonValue;
+
+    private sealed record JsonNull : JsonValue;
+
+    private sealed record JsonArray(IReadOnlyList<JsonValue> Items) : JsonValue;
+
+    private sealed record JsonObject(IReadOnlyList<KeyValuePair<string, JsonValue>> Props)
+        : JsonValue;
+
+    private static JsonValue GenerateRandomValue(Random rng, int depth)
     {
         if (depth <= 0)
-            return GetRandomValue(rng);
+            return GenerateScalar(rng);
 
-        return rng.Next(4) switch
+        switch (rng.Next(4))
         {
-            0 => GetRandomValue(rng),
-            1 => "{" + GenerateRandomJson(rng, depth - 1) + "}",
-            2 => "[" + GenerateRandomJson(rng, depth - 1) + "]",
-            _ => "{ \"a\": " + GenerateRandomJson(rng, depth - 1) + " }",
-        };
+            case 0:
+            {
+                var count = rng.Next(1, 4);
+                var props = new List<KeyValuePair<string, JsonValue>>(count);
+                for (var i = 0; i < count; i++)
+                    props.Add(new($"k{i}", GenerateRandomValue(rng, depth - 1)));
+                return new JsonObject(props);
+            }
+            case 1:
+            {
+                var count = rng.Next(0, 4);
+                var items = new List<JsonValue>(count);
+                for (var i = 0; i < count; i++)
+                    items.Add(GenerateRandomValue(rng, depth - 1));
+                return new JsonArray(items);
+            }
+            default:
+                return GenerateScalar(rng);
+        }
     }
 
-    private static string GetRandomValue(Random rng) =>
-        rng.Next(6) switch
+    private static JsonValue GenerateScalar(Random rng) =>
+        rng.Next(4) switch
         {
-            0 => "\"string\"",
-            1 => rng.Next(1000).ToString(),
-            2 => rng.NextDouble().ToString("F2"),
-            3 => "true",
-            4 => "false",
-            _ => "null",
+            0 => new JsonNumber(rng.Next(-1000, 1000)),
+            1 => new JsonString($"s{rng.Next(10)}"),
+            2 => new JsonBool(rng.Next(2) == 0),
+            _ => new JsonNull(),
         };
+
+    private static string Render(JsonValue value) =>
+        value switch
+        {
+            JsonNumber n => n.Value.ToString(CultureInfo.InvariantCulture),
+            JsonString s => $"\"{s.Value}\"",
+            JsonBool b => b.Value ? "true" : "false",
+            JsonNull => "null",
+            JsonArray a => "[" + string.Join(",", a.Items.Select(Render)) + "]",
+            JsonObject o => "{"
+                + string.Join(",", o.Props.Select(p => $"\"{p.Key}\":{Render(p.Value)}"))
+                + "}",
+            _ => throw new InvalidOperationException($"unhandled model node {value}"),
+        };
+
+    private static int CountTokens(JsonValue value) =>
+        value switch
+        {
+            JsonArray a => 2 + a.Items.Sum(CountTokens),
+            JsonObject o => 2 + o.Props.Sum(p => 1 + CountTokens(p.Value)),
+            _ => 1,
+        };
+
+    private static async Task AssertSameValue(JsonValue expected, PicoElement actual)
+    {
+        switch (expected)
+        {
+            case JsonNumber n:
+                await Assert.That(actual.ValueKind).IsEqualTo(PicoValueKind.Number);
+                await Assert.That(actual.GetInt32()).IsEqualTo(n.Value);
+                break;
+            case JsonString s:
+                await Assert.That(actual.ValueKind).IsEqualTo(PicoValueKind.String);
+                await Assert.That(actual.GetString()).IsEqualTo(s.Value);
+                break;
+            case JsonBool b:
+                await Assert
+                    .That(actual.ValueKind)
+                    .IsEqualTo(b.Value ? PicoValueKind.True : PicoValueKind.False);
+                await Assert.That(actual.GetBoolean()).IsEqualTo(b.Value);
+                break;
+            case JsonNull:
+                await Assert.That(actual.ValueKind).IsEqualTo(PicoValueKind.Null);
+                break;
+            case JsonArray a:
+                await Assert.That(actual.ValueKind).IsEqualTo(PicoValueKind.Array);
+                await Assert.That(actual.GetArrayLength()).IsEqualTo(a.Items.Count);
+                for (var i = 0; i < a.Items.Count; i++)
+                    await AssertSameValue(a.Items[i], actual[i]);
+                break;
+            case JsonObject o:
+                await Assert.That(actual.ValueKind).IsEqualTo(PicoValueKind.Object);
+                foreach (var (key, child) in o.Props)
+                    await AssertSameValue(child, actual[key]);
+                break;
+            default:
+                throw new InvalidOperationException($"unhandled model node {expected}");
+        }
+    }
 }

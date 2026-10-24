@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace PicoJetson.Tests;
 
 public class JsonSerializerTests
@@ -162,8 +164,10 @@ public class JsonSerializerTests
     [Test]
     public async Task GenericCache_ConcurrentRegistrations_ThreadSafe()
     {
+        const int Workers = 10;
+        var results = new ConcurrentBag<Person>();
         var tasks = new List<Task>();
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < Workers; i++)
         {
             tasks.Add(
                 Task.Run(() =>
@@ -175,11 +179,20 @@ public class JsonSerializerTests
                     var person = new Person { Name = "Concurrent", Age = 42 };
                     var json = JsonSerializer.Serialize(person);
                     var result = JsonSerializer.Deserialize<Person>(Encoding.UTF8.GetBytes(json));
+                    results.Add(result!);
                 })
             );
         }
         await Task.WhenAll(tasks);
-        await Assert.That(true).IsTrue();
+
+        // Every worker's round-trip must yield the object it started from.
+        await Assert.That(results.Count).IsEqualTo(Workers);
+        foreach (var result in results)
+        {
+            await Assert.That(result).IsNotNull();
+            await Assert.That(result.Name).IsEqualTo("Concurrent");
+            await Assert.That(result.Age).IsEqualTo(42);
+        }
     }
 
     [Test]
