@@ -19,7 +19,19 @@ internal readonly record struct AnonFieldInfo(
     string? ElementTypeName,
     // Nullable<T> member (review C-26). Optional so existing positional and
     // named call sites stay source-compatible.
-    bool IsNullable = false
+    bool IsNullable = false,
+    // F4: a Nullable<enum> member carries three separate facts that must not be
+    // conflated.
+    //   TypeKind     = "nullable_enum" — enum semantics (name, Enum.TryParse);
+    //   EnumTypeName = the real enum type, e.g. "global::Ns.Level";
+    //   LayoutKind   = e.g. "nullable_byte" — the measured Nullable<T> slot.
+    // A single fixed slot cannot serve every enum width (measured on .NET 10/x64:
+    // Nullable<T> is sized exactly like Nullable<underlying>, so a byte-backed
+    // Nullable<enum> is 2 bytes/align 1, not a pointer-sized slot), and collapsing
+    // the member onto the underlying numeric kind is what printed 2 instead of
+    // "High" on both sides.
+    string? EnumTypeName = null,
+    string? LayoutKind = null
 );
 
 internal sealed class AnonTypeInfo : IEquatable<AnonTypeInfo>
@@ -132,6 +144,13 @@ internal static class AnonTypeHandler
         ["nullable_timeonly"] = (16, 8, false),
         ["nullable_timespan"] = (16, 8, false),
         ["nullable_guid"] = (20, 4, false),
+        // Nullable<enum> (F4). Present so a nullable enum is a first-class kind
+        // instead of being collapsed onto `int?` (which lost the enum name on both
+        // sides). The *physical* slot is per underlying width and comes from
+        // AnonFieldInfo.LayoutKind ("nullable_byte" … "nullable_int64", i.e. the
+        // measured Nullable<T> entries above); this entry is only the conservative
+        // IntPtr-sized fallback and is never reached by a built field.
+        ["nullable_enum"] = (8, 8, false),
     };
 
     private static bool IsNullableKind(string kind) =>
@@ -147,14 +166,24 @@ internal static class AnonTypeHandler
     /// nullable value fields — which sort after <em>every</em> non-nullable field
     /// and keep declaration order among themselves.
     /// </summary>
-    private static int SortAlign(string kind) => IsNullableKind(kind) ? 0 : TypeLayout[kind].Align;
+    private static int SortAlign(AnonFieldInfo f) =>
+        IsNullableKind(f.TypeKind) ? 0 : LayoutOf(f).Align;
+
+    /// <summary>
+    /// Physical (size, align, isRef) of a member. <see cref="AnonFieldInfo.LayoutKind"/>
+    /// overrides the semantic kind where the two differ: a
+    /// <c>Nullable&lt;byteBackedEnum&gt;</c> is 2 bytes/align 1 even though its
+    /// semantic kind is <c>nullable_enum</c> (F4).
+    /// </summary>
+    private static (int Size, int Align, bool IsRef) LayoutOf(AnonFieldInfo f) =>
+        TypeLayout[f.LayoutKind ?? f.TypeKind];
 
     internal static ImmutableArray<AnonFieldInfo> ComputeFieldLayout(List<AnonFieldInfo> fields)
     {
         var refFields = fields.Where(f => f.IsReferenceType).ToList();
         var valFields = fields
             .Where(f => !f.IsReferenceType)
-            .OrderByDescending(f => SortAlign(f.TypeKind))
+            .OrderByDescending(SortAlign)
             .ThenBy(f => fields.IndexOf(f))
             .ToList();
         var ordered = new List<AnonFieldInfo>(refFields);
@@ -163,7 +192,7 @@ internal static class AnonTypeHandler
         var result = ImmutableArray.CreateBuilder<AnonFieldInfo>(ordered.Count);
         foreach (var f in ordered)
         {
-            var (size, align, _) = TypeLayout[f.TypeKind];
+            var (size, align, _) = LayoutOf(f);
             offset += (align - (offset % align)) % align;
             result.Add(f with { RuntimeOffset = offset });
             offset += size;
@@ -190,10 +219,24 @@ internal static class AnonTypeHandler
                 config.FormatTag
             );
             var tk = resolvedKind;
+            string? enumTypeName = null;
+            string? layoutKind = null;
             // Nullable<T> members carry a dedicated kind so the reader/layout
             // knows the extra hasValue byte (review C-26).
             if (tk is not null && isNullable)
-                tk = NullableKind(tk, innerType ?? p.Type);
+            {
+                var valueType = innerType ?? p.Type;
+                tk = NullableKind(tk, valueType);
+                if (tk == NullableEnumKind)
+                {
+                    // F4: keep the enum itself (name on write, Enum.TryParse
+                    // semantics on read) and its measured Nullable<T> slot.
+                    enumTypeName = valueType.ToDisplayString(
+                        SymbolDisplayFormat.FullyQualifiedFormat
+                    );
+                    layoutKind = NullableEnumLayoutKind(valueType);
+                }
+            }
             AnonTypeInfo? nested = null;
             if (p.Type is INamedTypeSymbol pn && pn.IsAnonymousType)
                 nested = BuildAnonTypeInfo(pn, ctx, config, attrs);
@@ -247,7 +290,19 @@ internal static class AnonTypeHandler
                 }
             }
             fields.Add(
-                new AnonFieldInfo(p.Name, jn, tk, 0, isRef, nested, elemKind, elemName, isNullable)
+                new AnonFieldInfo(
+                    p.Name,
+                    jn,
+                    tk,
+                    0,
+                    isRef,
+                    nested,
+                    elemKind,
+                    elemName,
+                    isNullable,
+                    enumTypeName,
+                    layoutKind
+                )
             );
         }
         var ordered = ComputeFieldLayout(fields);
@@ -278,15 +333,33 @@ internal static class AnonTypeHandler
         );
     }
 
+    /// <summary>Semantic kind of a <c>Nullable&lt;enum&gt;</c> member (F4).</summary>
+    private const string NullableEnumKind = "nullable_enum";
+
     /// <summary>
-    /// Maps a <c>Nullable&lt;T&gt;</c> member to its nullable layout kind. Enums are
-    /// sized by <see cref="INamedTypeSymbol.EnumUnderlyingType"/>: a
-    /// <c>Nullable&lt;longBackedEnum&gt;</c> is 16 bytes/align 8, a
-    /// <c>Nullable&lt;intBackedEnum&gt;</c> 8/4, and narrower underlying types keep
-    /// their real width — one uniform 32-bit mapping would corrupt every
-    /// following field offset.
+    /// Maps a <c>Nullable&lt;T&gt;</c> member to its nullable kind. An enum keeps its
+    /// enum semantics (<see cref="NullableEnumKind"/>) instead of being flattened
+    /// onto the underlying integer — that flattening is what wrote <c>2</c> and read
+    /// <c>2</c> where the named-DTO path writes and reads <c>"High"</c>. The physical
+    /// slot no longer has to be guessed here: it is recorded separately per field by
+    /// <see cref="NullableEnumLayoutKind"/>.
     /// </summary>
-    private static string NullableKind(string kind, ITypeSymbol type)
+    private static string NullableKind(string kind, ITypeSymbol type) =>
+        type is INamedTypeSymbol { TypeKind: TypeKind.Enum }
+            ? NullableEnumKind
+            : "nullable_" + kind;
+
+    /// <summary>
+    /// The physical slot of a <c>Nullable&lt;enum&gt;</c>, expressed as the nullable
+    /// numeric kind with the same width. Measured on .NET 10/x64: the CLR lays
+    /// Nullable&lt;T&gt; out exactly like Nullable&lt;T's underlying type&gt;, so a
+    /// <c>Nullable&lt;longBackedEnum&gt;</c> is 16 bytes/align 8, an
+    /// <c>Nullable&lt;intBackedEnum&gt;</c> 8/4 and a <c>Nullable&lt;byteBackedEnum&gt;</c>
+    /// 2/1. One uniform slot (pointer-sized or 32-bit) corrupts every following
+    /// field offset, which is why the width is still honoured — only the *kind*
+    /// stopped lying about the value being an enum.
+    /// </summary>
+    private static string NullableEnumLayoutKind(ITypeSymbol type)
     {
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
             return enumType.EnumUnderlyingType?.SpecialType switch
@@ -300,7 +373,32 @@ internal static class AnonTypeHandler
                 SpecialType.System_UInt64 => "nullable_uint64",
                 _ => "nullable_int32",
             };
-        return "nullable_" + kind;
+        return "nullable_int32";
+    }
+
+    /// <summary>
+    /// Reader method name for a member. Enum readers are keyed by the enum *type*:
+    /// one anonymous type may hold two different nullable enums, and a single
+    /// <c>Read_nullable_enum</c> returning one of them would not compile for the
+    /// other.
+    /// </summary>
+    private static string ReaderMethodName(AnonFieldInfo f) =>
+        f.TypeKind == NullableEnumKind && !string.IsNullOrEmpty(f.EnumTypeName)
+            ? "Read_nullable_enum_" + StableTypeKey(f.EnumTypeName!)
+            : "Read_" + f.TypeKind;
+
+    private static string StableTypeKey(string typeName)
+    {
+        unchecked
+        {
+            uint hash = 2166136261;
+            foreach (char c in typeName)
+            {
+                hash ^= c;
+                hash *= 16777619;
+            }
+            return "E" + (hash & 0x7FFFFFFF).ToString("X8");
+        }
     }
 
     internal static string GenerateReaderClass(
@@ -315,16 +413,21 @@ internal static class AnonTypeHandler
                 "// <auto-generated/>\n#nullable enable\nusing System;\nusing System.Runtime.CompilerServices;\n"
             );
         sb.AppendLine($"file unsafe static class __AnonReaders_{fmtTag}_{info.UniqueId}\n{{");
-        foreach (var kind in info.Fields.Select(f => f.TypeKind).Distinct())
+        foreach (
+            var group in info.Fields.GroupBy(f => (f.TypeKind, EnumType: f.EnumTypeName ?? ""))
+        )
         {
-            if (IsNullableKind(kind))
+            var rep = group.First();
+            if (IsNullableKind(rep.TypeKind))
             {
-                AppendNullableReader(sb, kind);
+                AppendNullableReader(sb, rep);
                 continue;
             }
-            var (_, _, isRef) = TypeLayout[kind];
-            var ct = KindToCSharp(kind);
-            sb.AppendLine($"    internal static {ct} Read_{kind}(object obj, int offset)\n    {{");
+            var (_, _, isRef) = LayoutOf(rep);
+            var ct = KindToCSharp(rep.TypeKind, rep.EnumTypeName);
+            sb.AppendLine(
+                $"    internal static {ct} {ReaderMethodName(rep)}(object obj, int offset)\n    {{"
+            );
             AppendReaderPrologue(sb);
             if (isRef)
             {
@@ -352,13 +455,13 @@ internal static class AnonTypeHandler
     /// hasValue byte and returns garbage (review C-26), so the reader checks
     /// hasValue at byte 0 and reads the value at T's alignment.
     /// </summary>
-    private static void AppendNullableReader(StringBuilder sb, string kind)
+    private static void AppendNullableReader(StringBuilder sb, AnonFieldInfo f)
     {
-        var (_, align, _) = TypeLayout[kind];
-        var valueType = KindToCSharp(StripNullableKind(kind));
-        var nullableType = KindToCSharp(kind);
+        var (_, align, _) = LayoutOf(f);
+        var valueType = KindToCSharp(StripNullableKind(f.TypeKind), f.EnumTypeName);
+        var nullableType = KindToCSharp(f.TypeKind, f.EnumTypeName);
         sb.AppendLine(
-            $"    internal static {nullableType} Read_{kind}(object obj, int offset)\n    {{"
+            $"    internal static {nullableType} {ReaderMethodName(f)}(object obj, int offset)\n    {{"
         );
         AppendReaderPrologue(sb);
         sb.AppendLine("        if (!Unsafe.Read<bool>(data))");
@@ -367,10 +470,10 @@ internal static class AnonTypeHandler
         sb.AppendLine("    }\n");
     }
 
-    private static string KindToCSharp(string k)
+    private static string KindToCSharp(string k, string? enumTypeName = null)
     {
         if (IsNullableKind(k))
-            return KindToCSharp(StripNullableKind(k)) + "?";
+            return KindToCSharp(StripNullableKind(k), enumTypeName) + "?";
         return k switch
         {
             "string" => "string",
@@ -392,7 +495,10 @@ internal static class AnonTypeHandler
             "timeonly" => "System.TimeOnly",
             "timespan" => "System.TimeSpan",
             "guid" => "System.Guid",
-            "enum" => "int",
+            // F4: an enum member is read as the real enum type; "int" is only the
+            // fallback for the legacy non-nullable enum path (which does not carry
+            // the type name yet).
+            "enum" => string.IsNullOrEmpty(enumTypeName) ? "int" : enumTypeName!,
             _ => "object",
         };
     }
@@ -665,7 +771,7 @@ internal static class AnonTypeHandler
 
         sb.AppendLine($"{indent}{{");
         sb.AppendLine(
-            $"{body}var {valueVar} = {readers}.Read_{f.TypeKind}(obj, {f.RuntimeOffset});"
+            $"{body}var {valueVar} = {readers}.{ReaderMethodName(f)}(obj, {f.RuntimeOffset});"
         );
 
         if (f.NestedAnonType is { } nested)
@@ -687,6 +793,31 @@ internal static class AnonTypeHandler
                 EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");
             EmitCollectionSerialize(sb, wv, f, emitField, body + "    ", valueVar);
             AppendNullBranchEnd(sb, wv, afc.HasNullLiteral, body);
+        }
+        else if (f.TypeKind == NullableEnumKind)
+        {
+            // F4: a nullable enum member is written the way the named-DTO path
+            // writes an enum — as its *name* ("High"), never as the underlying
+            // number. The name is materialised here and handed to the format's
+            // string arm: every Emit*Value emitter would otherwise fall through to
+            // its generic arm with an enum value (JSON's would print `int?`, and its
+            // enum arm is not nullable-safe). Null keeps the format's null
+            // semantics, identical to the other nullable kinds below.
+            sb.AppendLine($"{body}if ({valueVar}.HasValue) {{");
+            if (!afc.EmbedsKeyInValue)
+                EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");
+            sb.AppendLine($"{body}    var {unwrappedVar} = {valueVar}.Value;");
+            sb.AppendLine($"{body}    var {unwrappedVar}Name = {unwrappedVar}.ToString();");
+            var nameField = f with { TypeKind = "string", IsNullable = false };
+            sb.AppendLine($"{body}    {emitField(nameField, unwrappedVar + "Name", wv)}");
+            if (afc.HasNullLiteral)
+            {
+                sb.AppendLine($"{body}}} else {{");
+                if (!afc.EmbedsKeyInValue)
+                    EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");
+                sb.AppendLine($"{body}    {wv}.WriteNull();");
+            }
+            sb.AppendLine($"{body}}}");
         }
         else if (f.IsNullable && IsNullableKind(f.TypeKind))
         {
