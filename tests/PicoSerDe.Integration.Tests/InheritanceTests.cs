@@ -57,7 +57,7 @@ public class InheritanceTests
     {
         var back = JsonSerializer.Deserialize<DerivedDto>(
             Encoding.UTF8.GetBytes("{\"A\":10,\"B\":20,\"C\":30}")
-        );
+        )!;
         await Assert.That(back.A).IsEqualTo(10);
         await Assert.That(back.B).IsEqualTo(20);
         await Assert.That(back.C).IsEqualTo(30);
@@ -75,7 +75,7 @@ public class InheritanceTests
     {
         var back = MsgPackSerializer.Deserialize<ShadowDerived>(
             MsgPackSerializer.SerializeToUtf8Bytes(new ShadowDerived())
-        );
+        )!;
         await Assert.That(back.Value).IsEqualTo(2);
     }
 
@@ -100,7 +100,7 @@ public class InheritanceTests
                 MsgPackSerializer
                     .Deserialize<DerivedDto>(
                         MsgPackSerializer.SerializeToUtf8Bytes(new DerivedDto())
-                    )
+                    )!
                     .A
             )
             .IsEqualTo(1);
