@@ -1533,9 +1533,12 @@ internal static class GenInfrastructure
     /// Walks a <c>List&lt;List&lt;...&lt;T&gt;&gt;&gt;</c> / <c>List&lt;T[]&gt;</c> element type down to the
     /// element that is actually written per item (<c>int?</c> for both
     /// <c>List&lt;List&lt;int?&gt;&gt;</c> and <c>List&lt;int?[]&gt;</c>). The walk mirrors
-    /// <see cref="BuildNestedListElement"/>: it descends while the element itself is a
-    /// list/array and stops at the first non-collection element. A non-collection input
-    /// is returned unchanged, so callers can use this unconditionally.
+    /// <see cref="BuildNestedListElement"/>: it descends while the CURRENT type is a
+    /// list/array and stops at the first non-collection element, which is returned
+    /// unchanged. So a non-collection input — including an object that merely carries a
+    /// single generic argument (<c>List&lt;Wrapper&lt;int?&gt;&gt;</c>, <c>List&lt;Box&lt;int&gt;&gt;</c>) — is
+    /// never unwrapped: its generic argument is not a sequence element. Callers can use
+    /// this unconditionally.
     /// </summary>
     private static ITypeSymbol InnermostCollectionElement(ITypeSymbol elementType, string formatTag)
     {
@@ -1543,6 +1546,11 @@ internal static class GenInfrastructure
         // Depth guard: a pathological generic chain must not hang the generator.
         for (var guard = 0; guard < 32; guard++)
         {
+            // Only an actual collection has an element that the writer emits per item;
+            // descending through any other single-type-argument generic would treat an
+            // object's type argument as a nested sequence element (F5 fix round 2, A).
+            if (TypeKindResolver.Resolve(current, formatTag).Kind is not ("list" or "array"))
+                return current;
             ITypeSymbol? inner = current switch
             {
                 IArrayTypeSymbol arr => arr.ElementType,
@@ -1551,8 +1559,6 @@ internal static class GenInfrastructure
             };
             if (inner is null)
                 return current;
-            if (TypeKindResolver.Resolve(inner, formatTag).Kind is not ("list" or "array"))
-                return inner;
             current = inner;
         }
         return current;

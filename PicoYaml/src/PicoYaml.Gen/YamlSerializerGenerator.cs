@@ -515,8 +515,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         );
         sb.AppendLine("using PicoSerDe.Core; using PicoYaml;");
 
+        // A generic type name (it contains '<') makes InnerClassName emit the helper at
+        // GLOBAL scope, so this file must not declare a namespace — declaring the type's
+        // own namespace here (as for plain names) put the class out of reach of every
+        // `global::<name>YamlInner` reference and the caller failed with CS0400. The
+        // signature below uses the fully qualified name, which resolves from global scope.
         var lastDot = fullName.LastIndexOf('.');
-        if (lastDot > 0)
+        if (!fullName.Contains('<') && lastDot > 0)
         {
             sb.AppendLine();
             sb.Append("namespace ");
@@ -821,25 +826,41 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     /// <summary>
     /// Emits the property loop shared by YamlInner Serialize/SerializeBlock.
     /// Nullable properties (including nullable collections) are wrapped in a
-    /// DefaultIgnoreCondition guard for parity with the top-level emit path.
+    /// DefaultIgnoreCondition guard for parity with the top-level emit path, and a
+    /// nullable VALUE type member is written through <c>.Value</c> exactly like a
+    /// top-level DTO member — null is omitted, the underlying value is written
+    /// otherwise.
     /// </summary>
     private static void EmitInnerSerializeProps(
         StringBuilder sb,
         ImmutableArray<PropertyInfo> props
     )
     {
+        // A reference-typed nullable is already null-guarded, so it keeps the plain
+        // accessor; a nullable value type must be unwrapped for the writers.
+        const string baseAccessor = "value.";
         foreach (var prop in props)
         {
             bool guard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
                 sb,
                 prop,
-                "value." + prop.Name,
+                baseAccessor + prop.Name,
                 "        "
             );
             sb.Append("        yw.WritePropertyName(\"");
             sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
             sb.AppendLine("\"u8);");
-            EmitSerializeInline(sb, prop, "value." + prop.Name, "        ");
+            // B (fix round 2): the inner helper used to pass `int?` / `MyEnum?` straight
+            // to WriteNumber(int) / GetBytes(ToString()): `T?` has no implicit conversion
+            // to `T`, so every object element carrying a nullable value member failed
+            // with CS1503 (and a nullable enum with CS8604) on main as well. `.Value` is
+            // only used inside the `!= null` guard emitted above, which is the same null
+            // handling a top-level YAML DTO member gets.
+            var accessor =
+                prop.IsNullable && !prop.IsNullableReference
+                    ? baseAccessor + prop.Name + ".Value"
+                    : baseAccessor + prop.Name;
+            EmitSerializeInline(sb, prop, accessor, "        ");
             if (guard)
                 sb.AppendLine("        }");
         }

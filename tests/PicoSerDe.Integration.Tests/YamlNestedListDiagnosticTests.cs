@@ -124,6 +124,78 @@ public class YamlNestedListDiagnosticTests
         await Assert.That(generated).Contains("Name").Because("the sibling member must survive");
     }
 
+    /// <summary>
+    /// F5 fix round 2 (A): `List&lt;Wrapper&lt;int?&gt;&gt;` is a list of OBJECTS. Round 1 walked the
+    /// element chain through every single-type-argument generic, so the innermost element was
+    /// computed as `int?` and the member was dropped with PICOSERDE004 — even though the
+    /// element is an object whose own `int?` member is representable. Only a collection
+    /// element may be descended into.
+    /// </summary>
+    [Test]
+    public async Task Yaml_ListOfPlainGenericObject_ReportsNoDiagnostic()
+    {
+        const string source = """
+            using PicoYaml;
+
+            public class ProbeWrap<T>
+            {
+                public string Name { get; set; } = "";
+                public T? Value { get; set; }
+            }
+
+            public class ProbeDoc
+            {
+                public string Name { get; set; } = "";
+                public System.Collections.Generic.List<ProbeWrap<int?>> Items { get; set; } = new();
+                public int Count { get; set; } = 5;
+            }
+
+            public static class Probe
+            {
+                public static string Run() => YamlSerializer.Serialize(new ProbeDoc());
+            }
+            """;
+
+        var (ids, generated) = RunGenerator(source);
+        await Assert.That(ids).DoesNotContain(Id);
+        await Assert.That(generated).Contains("Items").Because("the member must be emitted");
+    }
+
+    /// <summary>
+    /// The over-drop fix must not re-open the genuinely unrepresentable shape: an object
+    /// element is kept, a nested nullable sequence is still dropped — in the same document.
+    /// </summary>
+    [Test]
+    public async Task Yaml_ObjectElementKept_NestedNullableElementStillDropped()
+    {
+        const string source = """
+            using PicoYaml;
+
+            public class ProbeWrap<T>
+            {
+                public string Name { get; set; } = "";
+                public T? Value { get; set; }
+            }
+
+            public class ProbeDoc
+            {
+                public string Name { get; set; } = "";
+                public System.Collections.Generic.List<ProbeWrap<int?>> Items { get; set; } = new();
+                public System.Collections.Generic.List<System.Collections.Generic.List<int?>> Grid { get; set; } = new();
+            }
+
+            public static class Probe
+            {
+                public static string Run() => YamlSerializer.Serialize(new ProbeDoc());
+            }
+            """;
+
+        var (ids, generated) = RunGenerator(source);
+        await Assert.That(ids).Contains(Id).Because("the nested nullable sequence stays dropped");
+        await Assert.That(generated).Contains("Items").Because("the object list must be emitted");
+        await Assert.That(generated).DoesNotContain("Grid").Because("Grid must stay dropped");
+    }
+
     private static (string[] DiagnosticIds, string Generated) RunGenerator(string source)
     {
         var compilation = CSharpCompilation.Create(
