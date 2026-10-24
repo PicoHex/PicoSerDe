@@ -16,6 +16,22 @@ public ref struct JsonWriter
     /// <summary>Exposes the underlying buffer for converter support in nested helpers.</summary>
     public IBufferWriter<byte> Buffer => _buffer;
 
+    /// <summary>
+    /// Declares that a complete value was written straight into <see cref="Buffer"/>
+    /// — the route taken by <see cref="IJsonConverter{T}"/> implementations and by
+    /// <c>JsonSerializer.SerializeCustom&lt;T&gt;</c>, both of which only receive the
+    /// raw buffer and therefore never pass through the writer's value bookkeeping.
+    /// Clears the pending property-name flag so the enclosing
+    /// <see cref="WriteEndObject"/> / <see cref="WriteEndArray"/> accepts the value
+    /// and so the next value still gets its separator. Idempotent: when no property
+    /// name is pending (for example a raw array element) nothing changes.
+    /// </summary>
+    public void NotifyRawValueWritten()
+    {
+        if (_afterPropertyName)
+            _afterPropertyName = false;
+    }
+
     /// <summary>Options supplied at construction, or null when default behavior is desired.</summary>
     public JsonOptions? Options => _options;
 

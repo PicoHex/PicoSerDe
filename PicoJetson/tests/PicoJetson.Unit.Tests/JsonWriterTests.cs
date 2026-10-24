@@ -505,4 +505,64 @@ public class JsonWriterTests
         await Assert.That(afterFailedClose).IsEqualTo("{\n  \"a\": ");
         await Assert.That(afterValue).IsEqualTo("{\n  \"a\": 1\n}");
     }
+
+    // === F1 fix round 1: values written straight into Buffer ===
+    // IJsonConverter<T>.Write only receives the bare IBufferWriter<byte>, and
+    // JsonSerializer.SerializeCustom<T> is called with jw.Buffer as well, so those
+    // values never pass through BeforeWriteValue. NotifyRawValueWritten() is the
+    // explicit "the value is on the wire" signal the generator emits right after
+    // every jw.Buffer write; without it the pending-property-name flag survives and
+    // the next close (or the next value) is rejected/corrupted on valid JSON.
+
+    [Test]
+    public async Task NotifyRawValueWritten_AfterBufferValue_AllowsEndObject()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+        w.Buffer.Write("\"2024-06-15\""u8); // converter-style direct buffer write
+        w.NotifyRawValueWritten();
+        w.WriteEndObject();
+        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"a\":\"2024-06-15\"}");
+    }
+
+    [Test]
+    public async Task NotifyRawValueWritten_AfterBufferValue_NextTopLevelObjectGetsComma()
+    {
+        var buf = new ArrayBufferWriter<byte>(256);
+        var w = new JsonWriter(buf);
+        w.WriteStartObject();
+        w.WritePropertyName("A"u8);
+        w.Buffer.Write("\"2024-06-15\""u8);
+        w.NotifyRawValueWritten();
+        w.WriteEndObject();
+
+        // Second top-level value on the SAME writer instance: a stale
+        // _afterPropertyName flag makes BeforeWriteValue consume the comma slot,
+        // so the two documents would run together without the ',' below.
+        w.WriteStartObject();
+        w.WritePropertyName("B"u8);
+        w.WriteNumber(1);
+        w.WriteEndObject();
+        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"A\":\"2024-06-15\"},{\"B\":1}");
+    }
+
+    [Test]
+    public async Task NotifyRawValueWritten_WithoutPendingPropertyName_IsIdempotentNoOp()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteStartArray();
+        w.Buffer.Write("1"u8); // raw array element: no property name pending
+        var bytesBeforeNotify = w.BytesWritten;
+        w.NotifyRawValueWritten();
+        w.NotifyRawValueWritten();
+        var bytesAfterNotify = w.BytesWritten;
+        w.WriteEndArray();
+        var json = GetWrittenString(w, buf);
+
+        await Assert.That(bytesAfterNotify).IsEqualTo(bytesBeforeNotify);
+        await Assert.That(json).IsEqualTo("[1]");
+    }
 }
