@@ -69,6 +69,23 @@ public class NullLiteralTests
         );
 
     [Test]
+    public void NonNullableInt_NullLiteral_Throws_InToml()
+    {
+        Assert.Throws<FormatException>(() =>
+            TomlSerializer.Deserialize<NullLiteralNonNullInt>(Encoding.UTF8.GetBytes("V = null"))
+        );
+        Assert.Throws<FormatException>(() =>
+            TomlSerializer.Deserialize<NullLiteralNonNullInt>(Encoding.UTF8.GetBytes("V = "))
+        );
+    }
+
+    [Test]
+    public void NonNullableInt_NullLiteral_Throws_InIni() =>
+        Assert.Throws<FormatException>(() =>
+            IniSerializer.Deserialize<NullLiteralNonNullInt>(Encoding.UTF8.GetBytes("V = null"))
+        );
+
+    [Test]
     public async Task QuotedEmptyString_IsNotNull()
     {
         await Assert.That(TomlStr("V = \"\"").V).IsEqualTo("");
@@ -81,6 +98,10 @@ public class NullLiteralTests
         await Assert.That(TomlStr("V = \"null\"").V).IsEqualTo("null");
         await Assert.That(YamlStr("V: \"null\"").V).IsEqualTo("null");
     }
+
+    [Test]
+    public async Task Ini_QuotedNullText_StaysString() =>
+        await Assert.That(IniStr("V = \"null\"").V).IsEqualTo("null");
 
     [Test]
     public async Task OrdinaryValues_StillParse()
