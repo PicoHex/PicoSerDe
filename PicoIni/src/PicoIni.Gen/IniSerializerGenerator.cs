@@ -526,8 +526,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         var typeComment = type.Properties.Select(p => p.Comment).FirstOrDefault(c => c is not null);
         if (typeComment is not null)
         {
+            // Comment text is arbitrary user text (it may carry quotes or
+            // backslashes): it has to be escaped into the C# literal, not pasted
+            // raw (review C-16).
             s.Append("        iw.WriteComment(\"");
-            s.Append(typeComment);
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(typeComment));
             s.AppendLine("\");");
         }
 
@@ -540,7 +543,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             if (p.Comment is not null)
             {
                 s.Append("        iw.WriteComment(\"");
-                s.Append(p.Comment);
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.Comment));
                 s.AppendLine("\");");
             }
             bool checkNull = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
@@ -624,7 +627,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             var objPad = nullGuard ? "            " : "        ";
             if (!first)
                 s.AppendLine(objPad + "iw.WriteBlankLine();");
-            var sn = p.SectionName ?? p.JsonName;
+            // [IniSection("...")] is arbitrary user text — escape it like any
+            // other emitted literal (review C-16).
+            var sn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(
+                p.SectionName ?? p.JsonName
+            );
             s.Append(objPad + "iw.WriteSection(\"");
             s.Append(sn);
             s.AppendLine("\"u8);");
@@ -698,7 +705,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             {
                 var cp = type.CtorParams[ci];
                 var tn = cp.TypeFullName;
-                var def = cp.TypeKind == "string" ? "\"\"" : "default";
+                // 'default' (not 'default!') on a reference-typed parameter is a
+                // CS8600 in the generated code; every non-string parameter is
+                // overwritten before the constructor call, so the suppression is
+                // accurate — mirroring the poly path's initializer.
+                var def = cp.TypeKind == "string" ? "\"\"" : "default!";
                 s.Append("        ");
                 s.Append(tn);
                 s.Append(" __cp_");
@@ -940,7 +951,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
 
             for (int i = 0; i < sec.Count; i++)
             {
-                var sn = sec[i].SectionName ?? sec[i].JsonName;
+                var sn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(
+                    sec[i].SectionName ?? sec[i].JsonName
+                );
                 s.Append("                ");
                 s.Append(i == 0 ? "if" : "else if");
                 s.Append(" (TextHelpers.Eq(reader.GetStringRaw(), \"");
@@ -1576,6 +1589,27 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         EmitRead(s, p, target, pad);
     }
 
+    /// <summary>
+    /// Emits the left-hand side of a read assignment: the constructor parameter
+    /// itself (<c>__cp_N</c>) for <c>[IniConstructor]</c>/record types, otherwise
+    /// the property accessor on the instance (<c>target.Prop</c>). Emitting
+    /// <c>target.Prop</c> unconditionally produced CS1061 on a <c>__cp_N</c>
+    /// target for every kind whose case forgot the branch (review C-15).
+    /// </summary>
+    private static void EmitAssignTarget(
+        StringBuilder s,
+        PropertyInfo p,
+        string target,
+        bool ctorAssign
+    )
+    {
+        s.Append(target);
+        if (ctorAssign)
+            return;
+        s.Append('.');
+        s.Append(p.Name);
+    }
+
     private static void EmitRead(
         StringBuilder s,
         PropertyInfo p,
@@ -1592,14 +1626,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(pad);
-            if (ctorAssign)
-                s.Append(target);
-            else
-            {
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-            }
+            EmitAssignTarget(s, p, target, ctorAssign);
             s.AppendLine(" = __c.Read(reader.GetStringRaw());");
             return;
         }
@@ -1620,14 +1647,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         {
             case "string":
                 s.Append(pad);
-                if (ctorAssign)
-                    s.Append(target);
-                else
-                {
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                }
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
                 break;
             case "int32":
@@ -1636,14 +1656,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                if (ctorAssign)
-                    s.Append(target);
-                else
-                {
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                }
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __v;");
                 break;
             case "int64":
@@ -1652,9 +1665,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetInt64(out var __v)) throw new System.FormatException($\"Expected a 64-bit integer at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __v;");
                 break;
             case "int16":
@@ -1663,14 +1674,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                if (ctorAssign)
-                    s.Append(target);
-                else
-                {
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                }
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = checked((short)__v);");
                 break;
             case "uint16":
@@ -1679,14 +1683,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                if (ctorAssign)
-                    s.Append(target);
-                else
-                {
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                }
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = checked((ushort)__v);");
                 break;
             case "sbyte":
@@ -1695,14 +1692,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                if (ctorAssign)
-                    s.Append(target);
-                else
-                {
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                }
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = checked((sbyte)__v);");
                 break;
             case "byte":
@@ -1711,14 +1701,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetInt32(out var __v)) throw new System.FormatException($\"Expected an integer at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                if (ctorAssign)
-                    s.Append(target);
-                else
-                {
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                }
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = checked((byte)__v);");
                 break;
             case "uint32":
@@ -1735,14 +1718,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("}");
                 s.Append(pad);
-                if (ctorAssign)
-                    s.Append(target);
-                else
-                {
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                }
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = checked((uint)__v);");
                 break;
             case "uint64":
@@ -1751,14 +1727,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetUInt64(out var __v)) throw new System.FormatException($\"Expected a 64-bit unsigned integer at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                if (ctorAssign)
-                    s.Append(target);
-                else
-                {
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                }
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __v;");
                 break;
             case "float32":
@@ -1767,9 +1736,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetFloat64(out var __v)) throw new System.FormatException($\"Expected a floating-point number at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = (float)__v;");
                 break;
             case "float64":
@@ -1778,9 +1745,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetFloat64(out var __v)) throw new System.FormatException($\"Expected a floating-point number at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __v;");
                 break;
             case "boolean":
@@ -1789,9 +1754,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!reader.TryGetBool(out var __v)) throw new System.FormatException($\"Expected a boolean at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __v;");
                 break;
             case "decimal":
@@ -1800,9 +1763,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "if (!System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out decimal __v, out _)) throw new System.FormatException($\"Invalid decimal at offset {reader.BytesConsumed}\");"
                 );
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __v;");
                 break;
             case "datetime":
@@ -1836,9 +1797,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     );
                 }
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __v;");
                 break;
             case "guid":
@@ -1851,9 +1810,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "reader.GetStringRaw()"
                 );
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __v;");
                 break;
             case "enum":
@@ -1868,28 +1825,17 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "reader.GetStringRaw()"
                 );
                 s.Append(pad);
-                if (ctorAssign)
-                    s.Append(target);
-                else
-                {
-                    s.Append(target);
-                    s.Append('.');
-                    s.Append(p.Name);
-                }
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __ev;");
                 break;
             case "dateonly":
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = DateOnly.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()));");
                 break;
             case "timeonly":
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = TimeOnly.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()));");
                 break;
             case "timespan":
@@ -1902,16 +1848,12 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     "reader.GetStringRaw()"
                 );
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.AppendLine(" = __v;");
                 break;
             case "list":
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.Append(" = new System.Collections.Generic.List<");
                 s.Append(p.ElementTypeName);
                 s.AppendLine(">(16);");
@@ -1932,9 +1874,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 );
                 s.Append(pad);
                 s.Append("        ");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.Append(".Add(");
                 EmitReadValueStrict(s, elemP);
                 s.AppendLine(");");
@@ -1954,9 +1894,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 );
                 s.Append(pad);
                 s.Append("    ");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.Append(".Add(");
                 EmitReadValueStrict(s, elemP);
                 s.AppendLine(");");
@@ -2013,9 +1951,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("}");
                 s.Append(pad);
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
+                EmitAssignTarget(s, p, target, ctorAssign);
                 s.Append(" = __tmpList_");
                 s.Append(p.Name);
                 s.AppendLine(".ToArray();");

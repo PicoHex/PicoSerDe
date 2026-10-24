@@ -855,10 +855,20 @@ internal static class GenInfrastructure
         && type.ContainingNamespace?.ToDisplayString() == "System";
 
     /// <summary>Dictionary key kinds the format generators know how to parse.</summary>
-    private static bool IsSupportedDictKeyKind(string kind) =>
-        kind
-            is "string"
-                or "int32"
+    /// <param name="formatTag">
+    /// Format currently being generated. INI reads a key as raw line text, so only
+    /// <c>string</c> keys are representable there; the restriction is scoped to that
+    /// tag on purpose — narrowing the shared set would silently drop JSON
+    /// <c>Dictionary&lt;int, string&gt;</c> support.
+    /// </param>
+    private static bool IsSupportedDictKeyKind(string kind, string formatTag = "")
+    {
+        if (kind == "string")
+            return true;
+        if (formatTag == "ini")
+            return false;
+        return kind
+            is "int32"
                 or "int64"
                 or "int16"
                 or "uint16"
@@ -868,6 +878,7 @@ internal static class GenInfrastructure
                 or "uint64"
                 or "guid"
                 or "enum";
+    }
 
     /// <summary>
     /// Extracts serializable properties from <paramref name="type"/>.
@@ -1188,9 +1199,16 @@ internal static class GenInfrastructure
                     if (kk is null || vk is null)
                         continue;
                     // Generators only emit key parsing for this kind set — drop dicts
-                    // with other keys instead of emitting non-compiling code.
-                    if (!IsSupportedDictKeyKind(kk))
+                    // with other keys instead of emitting non-compiling code. INI
+                    // narrows the set to string keys; that format limitation is
+                    // reported through the shared PICOSERDE004 diagnostic, while the
+                    // other formats keep their historical silent skip unchanged.
+                    if (!IsSupportedDictKeyKind(kk, formatTag))
+                    {
+                        if (formatTag == "ini")
+                            skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                         continue;
+                    }
                     // Dict values that are collections are not representable by
                     // the generated dict emitters yet (they silently produced
                     // non-compiling or lossy code); drop them with the shared
