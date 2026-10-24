@@ -37,6 +37,9 @@ public class JsonConverterTests
             jw.WriteString(Encoding.UTF8.GetBytes(value.Name));
             jw.WritePropertyName("Date"u8);
             converter.Write(writer, value.Date);
+            // Mirrors the SG emit: the converter only gets the raw buffer, so the
+            // value has to be declared written on the outer writer.
+            jw.NotifyRawValueWritten();
             jw.WriteEndObject();
         }
     }

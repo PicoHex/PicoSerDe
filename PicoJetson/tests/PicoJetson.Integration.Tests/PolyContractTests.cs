@@ -32,6 +32,29 @@ public class PolyCtorLeaf : PolyNode
     public int Count { get; }
 }
 
+/// <summary>
+/// Object that carries a polymorphic property. The poly inner helper writes the
+/// derived value straight into <c>jw.Buffer</c>, so the pending-property-name flag
+/// has to be cleared explicitly (the value never reaches BeforeWriteValue).
+/// </summary>
+public class PolyHolder
+{
+    public int Head { get; set; }
+    public PolyBase Item { get; set; } = new DeclaredLeaf();
+    public int Tail { get; set; }
+}
+
+/// <summary>
+/// Poly property written LAST: nothing after it consumes the pending flag, so
+/// closing the object is the failure site (the value never reaches
+/// BeforeWriteValue because it goes through jw.Buffer).
+/// </summary>
+public class PolyTailHolder
+{
+    public int Head { get; set; }
+    public PolyBase Item { get; set; } = new DeclaredLeaf();
+}
+
 public class PolyContractTests
 {
     [Test]
@@ -57,6 +80,52 @@ public class PolyContractTests
         await Assert.That(back).IsTypeOf<PolyCtorLeaf>();
         await Assert.That(((PolyCtorLeaf)back).Label).IsEqualTo("label");
         await Assert.That(((PolyCtorLeaf)back).Count).IsEqualTo(7);
+    }
+
+    [Test]
+    public async Task PolyProperty_InsideObject_SerializesAndRoundTrips()
+    {
+        // "Item" is a poly property: the generated code delegates to
+        // PolyBaseJsonInner.Serialize, which writes into jw.Buffer. Closing the
+        // enclosing object used to throw (pending property name) and, when it did
+        // not, the following "Tail" property silently lost its separator.
+        var json = JsonSerializer.Serialize(
+            new PolyHolder
+            {
+                Head = 1,
+                Item = new DeclaredLeaf { Id = 2, Name = "x" },
+                Tail = 3,
+            }
+        );
+
+        await Assert.That(json).Contains("\"Item\":{");
+        await Assert.That(json).Contains("\"Tail\":3");
+
+        var back = JsonSerializer.Deserialize<PolyHolder>(Encoding.UTF8.GetBytes(json));
+        await Assert.That(back).IsNotNull();
+        await Assert.That(back!.Head).IsEqualTo(1);
+        await Assert.That(back!.Item).IsTypeOf<DeclaredLeaf>();
+        await Assert.That(back!.Tail).IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task PolyProperty_LastInObject_ClosesObject()
+    {
+        var json = JsonSerializer.Serialize(
+            new PolyTailHolder
+            {
+                Head = 1,
+                Item = new DeclaredLeaf { Id = 2, Name = "x" },
+            }
+        );
+
+        await Assert.That(json).Contains("\"Item\":{");
+        await Assert.That(json).EndsWith("}");
+
+        var back = JsonSerializer.Deserialize<PolyTailHolder>(Encoding.UTF8.GetBytes(json));
+        await Assert.That(back).IsNotNull();
+        await Assert.That(back!.Head).IsEqualTo(1);
+        await Assert.That(back!.Item).IsTypeOf<DeclaredLeaf>();
     }
 }
 

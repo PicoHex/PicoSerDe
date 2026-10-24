@@ -16,6 +16,22 @@ public ref struct JsonWriter
     /// <summary>Exposes the underlying buffer for converter support in nested helpers.</summary>
     public IBufferWriter<byte> Buffer => _buffer;
 
+    /// <summary>
+    /// Declares that a complete value was written straight into <see cref="Buffer"/>
+    /// — the route taken by <see cref="IJsonConverter{T}"/> implementations and by
+    /// <c>JsonSerializer.SerializeCustom&lt;T&gt;</c>, both of which only receive the
+    /// raw buffer and therefore never pass through the writer's value bookkeeping.
+    /// Clears the pending property-name flag so the enclosing
+    /// <see cref="WriteEndObject"/> / <see cref="WriteEndArray"/> accepts the value
+    /// and so the next value still gets its separator. Idempotent: when no property
+    /// name is pending (for example a raw array element) nothing changes.
+    /// </summary>
+    public void NotifyRawValueWritten()
+    {
+        if (_afterPropertyName)
+            _afterPropertyName = false;
+    }
+
     /// <summary>Options supplied at construction, or null when default behavior is desired.</summary>
     public JsonOptions? Options => _options;
 
@@ -449,6 +465,7 @@ public ref struct JsonWriter
 
     public void WriteEndObject()
     {
+        ThrowIfPropertyNamePending("object");
         _needsComma &= ~(1UL << _depth);
         _depth--;
         if (_indented)
@@ -467,11 +484,27 @@ public ref struct JsonWriter
 
     public void WriteEndArray()
     {
+        ThrowIfPropertyNamePending("array");
         _needsComma &= ~(1UL << _depth);
         _depth--;
         if (_indented)
             WriteIndent();
         WriteByte((byte)']');
+    }
+
+    /// <summary>
+    /// Rejects closing a container while a property name is still waiting for its
+    /// value: emitting the brace would produce illegal JSON such as
+    /// <c>{"a":}</c> instead of failing at the write site. Called before any
+    /// state mutation, so a failed close leaves neither a half-written brace nor
+    /// a changed depth behind.
+    /// </summary>
+    private readonly void ThrowIfPropertyNamePending(string containerName)
+    {
+        if (_afterPropertyName)
+            throw new FormatException(
+                $"Cannot close {containerName}: property name was written with no value."
+            );
     }
 
     private void BeforeWriteValue()

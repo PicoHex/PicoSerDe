@@ -723,9 +723,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("    internal static void Serialize(ref JsonWriter jw, ");
         sb.Append(fullName);
         sb.AppendLine(" value)");
-        sb.Append("        => ");
+        sb.AppendLine("    {");
+        sb.Append("        ");
         sb.Append(poly);
         sb.AppendLine("JsonPolySer.Serialize(jw.Buffer, value, jw.Options);");
+        // PolySerial writes the value straight into the buffer, bypassing
+        // BeforeWriteValue: tell the caller's writer the value is complete.
+        sb.AppendLine("        jw.NotifyRawValueWritten();");
+        sb.AppendLine("    }");
         sb.AppendLine();
         sb.Append("    internal static ");
         sb.Append(fullName);
@@ -1910,6 +1915,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append("__conv.Write(jw.Buffer, ");
             sb.Append(accessor);
             sb.AppendLine(");");
+            // The converter only sees the raw buffer: declare the value written so
+            // the pending property name is cleared on the caller's writer.
+            sb.Append(indent);
+            sb.AppendLine("jw.NotifyRawValueWritten();");
             return;
         }
 
@@ -2133,11 +2142,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(ct);
                 sb.AppendLine(">())");
                 sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
                 sb.Append("    global::PicoJetson.JsonSerializer.SerializeCustom<");
                 sb.Append(ct);
                 sb.Append(">(jw.Buffer, ");
                 sb.Append(effectiveAccessor);
                 sb.AppendLine(", jw.Options);");
+                // SerializeCustom<T> only gets the raw buffer, so the value never
+                // passes through BeforeWriteValue: declare it written here.
+                sb.Append(indent);
+                sb.AppendLine("    jw.NotifyRawValueWritten();");
+                sb.Append(indent);
+                sb.AppendLine("}");
                 sb.Append(indent);
                 sb.AppendLine("else");
                 sb.Append(indent);
@@ -2339,11 +2356,18 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(ct);
                 sb.AppendLine(">())");
                 sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
                 sb.Append("    global::PicoJetson.JsonSerializer.SerializeCustom<");
                 sb.Append(ct);
                 sb.Append(">(jw.Buffer, ");
                 sb.Append(itemVar);
                 sb.AppendLine(");");
+                // Same as the property path: the raw buffer write must be declared.
+                sb.Append(indent);
+                sb.AppendLine("    jw.NotifyRawValueWritten();");
+                sb.Append(indent);
+                sb.AppendLine("}");
                 sb.Append(indent);
                 sb.AppendLine("else");
                 sb.Append(indent);

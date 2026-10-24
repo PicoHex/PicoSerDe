@@ -98,6 +98,7 @@ M:PicoJetson.JsonSerializer.SerializeToUtf8Bytes``1(T value, PicoJetson.JsonOpti
 M:PicoJetson.JsonSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoJetson.JsonOptions options = null) : void static
 M:PicoJetson.JsonSerializer.Serialize``1(T value, PicoJetson.JsonOptions options = null) : string static
 M:PicoJetson.JsonWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, bool indented = false, int maxDepth = 63, PicoJetson.JsonOptions options = null) : void
+M:PicoJetson.JsonWriter.NotifyRawValueWritten() : void
 M:PicoJetson.JsonWriter.WriteBoolean(bool value) : void
 M:PicoJetson.JsonWriter.WriteEndArray() : void
 M:PicoJetson.JsonWriter.WriteEndObject() : void
