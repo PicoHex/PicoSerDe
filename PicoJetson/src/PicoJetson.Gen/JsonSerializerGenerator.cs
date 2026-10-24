@@ -1210,7 +1210,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(dp.KeyTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(dp.KeyTypeName!));
                 sb.AppendLine(">(__strValue, out var __dictKey);");
                 break;
             default:
@@ -1427,7 +1427,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(dp.ElementTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(dp.ElementTypeName!));
                 sb.AppendLine(">(__strValue, out var __ev);");
                 sb.Append(indent);
                 sb.Append(dictVar);
@@ -2890,7 +2890,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 );
                 sb.Append(indent);
                 sb.Append("if (!System.Enum.TryParse<");
-                sb.Append(cp.TypeFullName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(cp.TypeFullName));
                 sb.AppendLine(">(__rawStr, out var __ev))");
                 EmitThrowInvalidValue(sb, indent + "    ", prop, "an enum value");
                 sb.Append(indent);
@@ -3471,7 +3471,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("if (!System.Enum.TryParse<");
-                sb.Append(prop.TypeFullName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.TypeFullName));
                 sb.AppendLine(">(__strValue, out var __enumValue))");
                 EmitThrowInvalidValue(sb, indent + "    ", prop, "an enum value");
                 sb.Append(indent);
@@ -4075,7 +4075,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(prop.ElementTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.ElementTypeName!));
                 sb.AppendLine(">(__strValue, out var __enumValue);");
                 sb.Append(indent);
                 sb.Append(listVar);
@@ -4293,7 +4293,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("if (!System.Enum.TryParse<");
-                sb.Append(prop.KeyTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.KeyTypeName!));
                 sb.AppendLine(">(__strValue, out var __dictKey))");
                 sb.Append(indent);
                 sb.AppendLine(
@@ -4606,7 +4606,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(prop.ElementTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.ElementTypeName!));
                 sb.AppendLine(">(__strValue, out var __enumValue);");
                 sb.Append(indent);
                 sb.Append(dictVar);
@@ -6365,7 +6365,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(elemTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(elemTypeName));
                 sb.AppendLine(">(__strValue, out var __ev);");
                 sb.Append(indent);
                 sb.AppendLine("__list.Add(__ev);");

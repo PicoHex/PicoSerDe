@@ -602,6 +602,15 @@ internal static class GenInfrastructure
         return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
     }
 
+    /// <summary>
+    /// Enum.Parse/Enum.TryParse require a non-nullable <c>TEnum</c>, so a
+    /// nullable enum member (<c>Level?</c>) must pass the underlying type as
+    /// the generic argument — <c>Enum.TryParse&lt;Level?&gt;</c> is CS0453.
+    /// The parsed value is a plain <c>Level</c>, which widens implicitly into
+    /// the <c>Level?</c> member.
+    /// </summary>
+    public static string MapEnumReadType(string typeFullName) => typeFullName.TrimEnd('?');
+
     public static string ToCamelCase(string name)
     {
         if (name.Length == 0)

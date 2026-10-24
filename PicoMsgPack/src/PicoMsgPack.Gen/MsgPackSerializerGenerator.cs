@@ -2369,7 +2369,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("{");
                 s.Append(ind);
                 s.Append("    if (!Enum.TryParse<");
-                s.Append(typeFullName);
+                s.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(typeFullName!));
                 s.AppendLine(
                     ">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __e"
                         + id
@@ -2395,8 +2395,8 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append(dst);
                 s.Append(" = (");
-                s.Append(typeFullName);
-                s.AppendLine(")(object)__enumInt" + id + ";");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(typeFullName!));
+                s.AppendLine(")__enumInt" + id + ";");
                 s.Append(ind);
                 s.AppendLine("}");
                 s.Append(ind);

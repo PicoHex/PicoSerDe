@@ -2111,7 +2111,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
                 s.Append(pad);
                 s.Append("    System.Enum.TryParse<");
-                s.Append(dp.ElementTypeName ?? "object");
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(dp.ElementTypeName ?? "object")
+                );
                 s.AppendLine(">(__raw, out var __dv);");
                 s.Append(pad);
                 s.Append("    ");
@@ -2588,7 +2590,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append('.');
                     s.Append(p.Name);
                     s.Append(" = System.Enum.TryParse<");
-                    s.Append(p.TypeFullName);
+                    s.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(p.TypeFullName));
                     s.AppendLine(
                         ">(Encoding.UTF8.GetString(r.ValueSpan), out var __ev) ? __ev : default;"
                     );

@@ -1818,7 +1818,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s,
                     pad,
                     "Enum.TryParse<"
-                        + p.TypeFullName
+                        + PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(p.TypeFullName)
                         + ">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __ev)",
                     "enum value",
                     EscapeInterpolation(p.JsonName),
@@ -2541,7 +2541,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s,
                     pad,
                     "Enum.TryParse<"
-                        + typeFullName
+                        + PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(typeFullName)
                         + ">(Encoding.UTF8.GetString(__rv), out var __v)",
                     "enum value",
                     lbl,
@@ -2674,7 +2674,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append($"System.TimeSpan.Parse(Encoding.UTF8.GetString(__rv), {INV})");
                 break;
             case "enum":
-                s.Append($"System.Enum.Parse<{prop.TypeFullName}>(Encoding.UTF8.GetString(__rv))");
+                s.Append(
+                    $"System.Enum.Parse<{PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.TypeFullName)}>(Encoding.UTF8.GetString(__rv))"
+                );
                 break;
             default:
                 s.Append("Encoding.UTF8.GetString(__rv)");

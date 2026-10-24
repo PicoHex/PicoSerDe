@@ -1304,12 +1304,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "enum":
                 s.Append(pad);
+                s.AppendLine(
+                    "if (!Enum.TryParse<"
+                        + PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(p.TypeFullName)
+                        + ">(Encoding.UTF8.GetString(reader.ValueSpan), out var __ev)) throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.Append(" = Enum.Parse<");
-                s.Append(p.TypeFullName);
-                s.AppendLine(">(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(" = __ev;");
                 break;
             case "decimal":
                 s.Append(pad);
@@ -3144,10 +3148,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "enum":
                     s.Append(pad);
+                    s.AppendLine(
+                        "if (!System.Enum.TryParse<"
+                            + PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(p.TypeFullName)
+                            + ">(Encoding.UTF8.GetString(r.ValueSpan), out var __v)) throw new System.FormatException($\"Invalid enum value at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
                     EmitTgt();
-                    s.Append(" = System.Enum.Parse<");
-                    s.Append(p.TypeFullName);
-                    s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan));");
+                    s.AppendLine(" = __v;");
                     break;
                 case "decimal":
                     s.Append(pad);
@@ -3234,7 +3242,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "enum":
                 s.Append(pad);
                 s.Append("__tmpList.Add(System.Enum.Parse<");
-                s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "string");
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(
+                        p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "string"
+                    )
+                );
                 s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan)));");
                 break;
             case "string":
