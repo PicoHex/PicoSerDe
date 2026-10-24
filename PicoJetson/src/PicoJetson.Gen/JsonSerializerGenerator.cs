@@ -1018,15 +1018,43 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string indent
     )
     {
+        // Nullable values are emitted with the same two-step shape as
+        // EmitSerializeElement: JSON null for the empty case, the unwrapped
+        // (non-nullable) value for the typed core emission.
+        if (dp.ElementIsNullableValue)
+        {
+            sb.Append(indent);
+            sb.AppendLine("if (__kvp.Value == null)");
+            sb.Append(indent);
+            sb.AppendLine("    jw.WriteNull();");
+            sb.Append(indent);
+            sb.AppendLine("else");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            EmitDictInnerValueSerializeCore(sb, dp, "__kvp.Value.Value", indent + "    ");
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitDictInnerValueSerializeCore(sb, dp, "__kvp.Value", indent);
+    }
+
+    private static void EmitDictInnerValueSerializeCore(
+        StringBuilder sb,
+        PropertyInfo dp,
+        string valueExpr,
+        string indent
+    )
+    {
         switch (dp.ElementTypeKind)
         {
             case "string":
                 if (dp.ElementIsNullableReference)
                 {
                     sb.Append(indent);
-                    sb.AppendLine("if (__kvp.Value != null)");
+                    sb.AppendLine("if (" + valueExpr + " != null)");
                     sb.Append(indent);
-                    sb.AppendLine("    jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value));");
+                    sb.AppendLine("    jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + "));");
                     sb.Append(indent);
                     sb.AppendLine("else");
                     sb.Append(indent);
@@ -1035,7 +1063,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 else
                 {
                     sb.Append(indent);
-                    sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value));");
+                    sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + "));");
                 }
                 break;
             case "int32":
@@ -1049,26 +1077,28 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "float32":
             case "float64":
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteNumber(__kvp.Value);");
+                sb.AppendLine("jw.WriteNumber(" + valueExpr + ");");
                 break;
             case "boolean":
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteBoolean(__kvp.Value);");
+                sb.AppendLine("jw.WriteBoolean(" + valueExpr + ");");
                 break;
             case "datetime":
                 sb.Append(indent);
                 sb.AppendLine(
-                    "jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString(\"O\")));"
+                    "jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + ".ToString(\"O\")));"
                 );
                 break;
             case "guid":
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));");
+                sb.AppendLine(
+                    "jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + ".ToString()));"
+                );
                 break;
             case "decimal":
             case "enum":
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteNumber(__kvp.Value);");
+                sb.AppendLine("jw.WriteNumber(" + valueExpr + ");");
                 break;
             case "object":
             {
@@ -1077,9 +1107,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     dp.ElementTypeName!
                 );
                 sb.Append(indent);
-                sb.Append("if (__kvp.Value == null) jw.WriteNull(); else ");
+                sb.Append("if (" + valueExpr + " == null) jw.WriteNull(); else ");
                 sb.Append(sn);
-                sb.AppendLine(".Serialize(ref jw, __kvp.Value);");
+                sb.AppendLine(".Serialize(ref jw, " + valueExpr + ");");
                 break;
             }
             case "dict":
@@ -1090,20 +1120,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 );
                 sb.Append(indent);
                 sb.Append(sn);
-                sb.AppendLine(".Serialize(ref jw, __kvp.Value);");
+                sb.AppendLine(".Serialize(ref jw, " + valueExpr + ");");
                 break;
             }
             case "any":
-                EmitAnyValueSerialize(sb, "__kvp.Value", indent);
+                EmitAnyValueSerialize(sb, valueExpr, indent);
                 break;
             default:
                 if (
                     dp.ElementTypeKind is not null
-                    && EmitExtendedScalarWrite(sb, dp.ElementTypeKind, "__kvp.Value", indent)
+                    && EmitExtendedScalarWrite(sb, dp.ElementTypeKind, valueExpr, indent)
                 )
                     break;
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));");
+                sb.AppendLine(
+                    "jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + ".ToString()));"
+                );
                 break;
         }
     }
@@ -1178,7 +1210,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(dp.KeyTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(dp.KeyTypeName!));
                 sb.AppendLine(">(__strValue, out var __dictKey);");
                 break;
             default:
@@ -1188,7 +1220,37 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// Emits the value read of a nested-dictionary helper. Nullable value-type
+    /// elements get a null check first, like <see cref="EmitDeserializeElementAssign"/>.
+    /// </summary>
     private static void EmitDictInnerValueDeserialize(
+        StringBuilder sb,
+        PropertyInfo dp,
+        string dictVar,
+        string indent
+    )
+    {
+        if (dp.ElementIsNullableValue)
+        {
+            sb.Append(indent);
+            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+            sb.Append(indent);
+            sb.Append(dictVar);
+            sb.AppendLine("[__dictKey] = null;");
+            sb.Append(indent);
+            sb.AppendLine("else");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            EmitDictInnerValueDeserializeCore(sb, dp, dictVar, indent + "    ");
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitDictInnerValueDeserializeCore(sb, dp, dictVar, indent);
+    }
+
+    private static void EmitDictInnerValueDeserializeCore(
         StringBuilder sb,
         PropertyInfo dp,
         string dictVar,
@@ -1198,6 +1260,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         switch (dp.ElementTypeKind)
         {
             case "string":
+                // Aligned with EmitDeserializeElementAssignCore: a JSON null for a
+                // string value must stay null, not the string "null".
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.AppendLine("[__dictKey] = null!;");
+                sb.Append(indent);
+                sb.AppendLine("else");
                 sb.Append(indent);
                 sb.Append(dictVar);
                 sb.AppendLine("[__dictKey] = Encoding.UTF8.GetString(reader.GetStringRaw());");
@@ -1356,7 +1427,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(dp.ElementTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(dp.ElementTypeName!));
                 sb.AppendLine(">(__strValue, out var __ev);");
                 sb.Append(indent);
                 sb.Append(dictVar);
@@ -2819,7 +2890,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 );
                 sb.Append(indent);
                 sb.Append("if (!System.Enum.TryParse<");
-                sb.Append(cp.TypeFullName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(cp.TypeFullName));
                 sb.AppendLine(">(__rawStr, out var __ev))");
                 EmitThrowInvalidValue(sb, indent + "    ", prop, "an enum value");
                 sb.Append(indent);
@@ -3400,7 +3471,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("if (!System.Enum.TryParse<");
-                sb.Append(prop.TypeFullName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.TypeFullName));
                 sb.AppendLine(">(__strValue, out var __enumValue))");
                 EmitThrowInvalidValue(sb, indent + "    ", prop, "an enum value");
                 sb.Append(indent);
@@ -4004,7 +4075,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(prop.ElementTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.ElementTypeName!));
                 sb.AppendLine(">(__strValue, out var __enumValue);");
                 sb.Append(indent);
                 sb.Append(listVar);
@@ -4222,7 +4293,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("if (!System.Enum.TryParse<");
-                sb.Append(prop.KeyTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.KeyTypeName!));
                 sb.AppendLine(">(__strValue, out var __dictKey))");
                 sb.Append(indent);
                 sb.AppendLine(
@@ -4239,7 +4310,42 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// Emits one dictionary value. Nullable value-type elements (Dictionary&lt;string,int?&gt;)
+    /// get a null check first: the value readers below are all Try*-based, so a JSON
+    /// null used to be stored as 0 / Guid.Empty / DateTime.MinValue instead of null.
+    /// </summary>
     private static void EmitDeserializeElementAssign(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string dictVar,
+        string keyVar,
+        string indent,
+        int nestLevel
+    )
+    {
+        if (prop.ElementIsNullableValue)
+        {
+            sb.Append(indent);
+            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+            sb.Append(indent);
+            sb.Append(dictVar);
+            sb.Append("[");
+            sb.Append(keyVar);
+            sb.AppendLine("] = null;");
+            sb.Append(indent);
+            sb.AppendLine("else");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            EmitDeserializeElementAssignCore(sb, prop, dictVar, keyVar, indent + "    ", nestLevel);
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitDeserializeElementAssignCore(sb, prop, dictVar, keyVar, indent, nestLevel);
+    }
+
+    private static void EmitDeserializeElementAssignCore(
         StringBuilder sb,
         PropertyInfo prop,
         string dictVar,
@@ -4500,7 +4606,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(prop.ElementTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.ElementTypeName!));
                 sb.AppendLine(">(__strValue, out var __enumValue);");
                 sb.Append(indent);
                 sb.Append(dictVar);
@@ -4983,6 +5089,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("                    break;");
         }
 
+        // Unmapped runtime type: no [PicoDerivedType] case matches the value's
+        // concrete type. Without this default the discriminator was written and
+        // the switch fell through, emitting a truncated `{"$type":}` document
+        // that silently loses the object (review C-03). The message is built at
+        // generation time from the known base type name — GetType() would be
+        // reflection, which the generator avoids everywhere (AOT/trimming).
+        sb.AppendLine("                default:");
+        sb.Append(
+            "                    throw new System.FormatException(\"Unregistered derived type for polymorphic base '"
+        );
+        sb.Append(EscapeCSharpString(type.FullyQualifiedName ?? type.Name));
+        sb.AppendLine("'; add [PicoDerivedType] for the concrete type.\");");
+
         sb.AppendLine("            }");
         sb.AppendLine("            jw.WriteEndObject();");
         sb.AppendLine("        }");
@@ -5194,8 +5313,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    {");
         sb.Append("        result = partial;");
         sb.AppendLine();
-        sb.AppendLine("        string? __disc = reader.StreamState as string;");
-        sb.AppendLine();
 
         var dpn = type.DiscriminatorPropertyName ?? "$type";
         // Concrete bases get a synthesized discriminator so a base-typed
@@ -5206,6 +5323,40 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             : type.DerivedTypes.Add(
                 new PicoSerDe.Gen.DerivedTypeInfo(type.FullyQualifiedName!, __baseDisc)
             );
+
+        // Streaming state: the discriminator and every branch's ctor temps must
+        // survive chunk resumes, so they live in the reader's StreamState. A poly
+        // base never gets the regular `{Type}StreamingState` (only
+        // EmitStreamingDeserializer emits that one), hence its own holder —
+        // reusing the regular name would collide (CS0101) if both ever existed.
+        sb.Append("        var __st = (");
+        sb.Append(type.Name);
+        sb.Append("PolyStreamingState)(reader.StreamState ??= new ");
+        sb.Append(type.Name);
+        sb.AppendLine("PolyStreamingState());");
+        for (int i = 0; i < __cases.Length; i++)
+        {
+            var sti = derivedLookup.TryGetValue(__cases[i].FullyQualifiedName, out var stFound)
+                ? stFound
+                : default(TypeInfo);
+            if (sti.CtorParams.IsDefaultOrEmpty)
+                continue;
+            for (int ci = 0; ci < sti.CtorParams.Length; ci++)
+            {
+                sb.Append("        ref var __cp_");
+                sb.Append(i);
+                sb.Append('_');
+                sb.Append(ci);
+                sb.Append(" = ref __st.__cp_");
+                sb.Append(i);
+                sb.Append('_');
+                sb.Append(ci);
+                sb.AppendLine(";");
+            }
+        }
+        sb.AppendLine();
+        sb.AppendLine("        string? __disc = __st.Discriminator;");
+        sb.AppendLine();
 
         // ObjectStart read runs on the first invocation only.
         sb.AppendLine("        if (!reader.IsResumed)");
@@ -5239,7 +5390,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "            __disc = System.Text.Encoding.UTF8.GetString(reader.GetStringRaw());"
         );
-        sb.AppendLine("            reader.StreamState = __disc;");
+        sb.AppendLine("            __st.Discriminator = __disc;");
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -5273,40 +5424,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("();");
             }
 
-            if (hasCtor)
-            {
-                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
-                {
-                    var cp = dti.CtorParams[ci];
-                    // Use TypeFullName directly — MapTypeName with null type NREs
-                    // for complex kinds (object, enum, list, dict).
-                    var tn = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
-                    var dv = cp.TypeKind switch
-                    {
-                        "string" => "\"\"",
-                        "int32"
-                        or "int64"
-                        or "int16"
-                        or "uint16"
-                        or "sbyte"
-                        or "byte"
-                        or "uint32"
-                        or "uint64"
-                        or "float64" => "0",
-                        "boolean" => "false",
-                        _ => "default!",
-                    };
-                    sb.Append("        ");
-                    sb.Append(tn);
-                    sb.Append(" __cp_");
-                    sb.Append(i);
-                    sb.Append("_");
-                    sb.Append(ci);
-                    sb.Append(" = ");
-                    sb.Append(dv);
-                    sb.AppendLine(";");
-                }
-            }
+            // Ctor temps are `ref` aliases of __st.__cp_{branch}_{param} declared at
+            // method scope, so a chunk resume no longer resets them (review C-06).
 
             // Read remaining properties using streaming loop
             sb.AppendLine("            while (true)");
@@ -5380,6 +5499,55 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "        throw new System.FormatException($\"Unknown type discriminator: {__disc}\");"
         );
         sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        // Per-poly-type streaming state holder: the discriminator plus every
+        // branch's ctor temps survive chunk boundaries via JsonReader.StreamState.
+        // (Poly bases never get the regular `{Type}StreamingState`.)
+        sb.Append("file sealed class ");
+        sb.Append(type.Name);
+        sb.AppendLine("PolyStreamingState");
+        sb.AppendLine("{");
+        sb.AppendLine("    public string? Discriminator;");
+        for (int i = 0; i < __cases.Length; i++)
+        {
+            var sti = derivedLookup.TryGetValue(__cases[i].FullyQualifiedName, out var stFound)
+                ? stFound
+                : default(TypeInfo);
+            if (sti.CtorParams.IsDefaultOrEmpty)
+                continue;
+            for (int ci = 0; ci < sti.CtorParams.Length; ci++)
+            {
+                var cp = sti.CtorParams[ci];
+                // Use TypeFullName directly — MapTypeName with null type NREs
+                // for complex kinds (object, enum, list, dict).
+                var tn = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
+                var dv = cp.TypeKind switch
+                {
+                    "string" => "\"\"",
+                    "int32"
+                    or "int64"
+                    or "int16"
+                    or "uint16"
+                    or "sbyte"
+                    or "byte"
+                    or "uint32"
+                    or "uint64"
+                    or "float64" => "0",
+                    "boolean" => "false",
+                    _ => "default!",
+                };
+                sb.Append("    public ");
+                sb.Append(tn);
+                sb.Append(" __cp_");
+                sb.Append(i);
+                sb.Append('_');
+                sb.Append(ci);
+                sb.Append(" = ");
+                sb.Append(dv);
+                sb.AppendLine(";");
+            }
+        }
         sb.AppendLine("}");
     }
 
@@ -6197,7 +6365,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
                 sb.Append(indent);
                 sb.Append("System.Enum.TryParse<");
-                sb.Append(elemTypeName);
+                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(elemTypeName));
                 sb.AppendLine(">(__strValue, out var __ev);");
                 sb.Append(indent);
                 sb.AppendLine("__list.Add(__ev);");

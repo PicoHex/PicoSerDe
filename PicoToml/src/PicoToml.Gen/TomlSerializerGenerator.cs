@@ -512,7 +512,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("    internal static void Serialize(TomlWriter tw, ");
         s.Append(clean);
         s.AppendLine(" value) {");
-        foreach (var p in props.OrderBy(x => x.JsonName))
+        // Same ordering rule as the top level: everything that is not a table
+        // section first, then the sections. Sorted by key inside each pass so the
+        // output stays deterministic.
+        foreach (var p in props.OrderBy(x => EmitOrderKey(x)).ThenBy(x => x.JsonName))
             EmitSerializeProp(s, p, "value", "        ");
         s.AppendLine("    }");
 
@@ -526,8 +529,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         // re-emit ObjectStart with the *same* TablePath, so an inner helper
         // continues across PropertyName and same-section ObjectStart tokens, and
         // stops at the first token of another section (or EOF) — otherwise it
-        // swallows every following [section].
-        s.AppendLine("        var __section = r.TablePath;");
+        // swallows every following [section]. The name is copied out of the
+        // reader: a ReadOnlySpan<byte> must not outlive the Read() calls in the
+        // loop below (the reader re-points TablePath on every token).
+        s.AppendLine("        var __section = r.TablePath.ToArray();");
         s.AppendLine(
             "        while (r.Read() && (r.TokenType == TokenType.PropertyName || (r.TokenType == TokenType.ObjectStart && TextHelpers.Eq(r.TablePath, __section)))) {"
         );
@@ -783,7 +788,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
         s.AppendLine("        var __opts = (global::PicoToml.TomlOptions?)options;");
         s.AppendLine("        var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);");
-        foreach (var p in t.Properties)
+        foreach (var p in t.Properties.OrderBy(x => EmitOrderKey(x)))
             EmitSerializeProp(s, p, "v", "        ");
         s.AppendLine("    } }");
 
@@ -1557,6 +1562,25 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("}");
     }
 
+    /// <summary>
+    /// TOML ordering key for a member: <c>0</c> for values that stay on the current
+    /// table (scalars, arrays) and <c>1</c> for members that open a new section
+    /// (<c>[Name]</c> for a nested object or dictionary, <c>[[Name]]</c> for an
+    /// object list). A section header ends the current table, so every section has
+    /// to be written after the plain members — otherwise the members declared
+    /// after it are emitted into that section and lost (C-11).
+    /// </summary>
+    private static int EmitOrderKey(PropertyInfo p) =>
+        p.TypeKind switch
+        {
+            "object" => p.NestedProperties.Length > 0 ? 1 : 0,
+            "dict" => 1,
+            "list" or "array" => p.ElementTypeKind == "object" && p.NestedProperties.Length > 0
+                ? 1
+                : 0,
+            _ => 0,
+        };
+
     private static void EmitSerializeProp(
         StringBuilder s,
         PropertyInfo p,
@@ -2087,7 +2111,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    var __raw = Encoding.UTF8.GetString(r.ValueSpan);");
                 s.Append(pad);
                 s.Append("    System.Enum.TryParse<");
-                s.Append(dp.ElementTypeName ?? "object");
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(dp.ElementTypeName ?? "object")
+                );
                 s.AppendLine(">(__raw, out var __dv);");
                 s.Append(pad);
                 s.Append("    ");
@@ -2168,11 +2194,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(".ToString(\"O\")");
                 break;
             case "timespan":
+                // C-14: TOML numbers are locale-free, and the reader parses
+                // invariantly — so write invariantly too.
                 s.Append(accessor);
-                s.Append(".ToString()");
+                s.Append(".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)");
+                break;
+            case "decimal":
+                // C-14: de-DE used to emit "1,5" (not valid TOML).
+                s.Append(accessor);
+                s.Append(".ToString(System.Globalization.CultureInfo.InvariantCulture)");
                 break;
             case "guid":
-            case "decimal":
             case "enum":
                 s.Append(accessor);
                 s.Append(".ToString()");
@@ -2366,6 +2398,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
         else
         {
+            // C-30: a null literal must not reach the scalar parsers. Dict and
+            // object members keep their existing empty-value behavior.
+            var __scalar = p.TypeKind is not ("dict" or "object");
+            if (__scalar)
+                EmitNullLiteralGuard(s, p, EmitAssign, pad);
             switch (p.TypeKind)
             {
                 case "string":
@@ -2558,7 +2595,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append('.');
                     s.Append(p.Name);
                     s.Append(" = System.Enum.TryParse<");
-                    s.Append(p.TypeFullName);
+                    s.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(p.TypeFullName));
                     s.AppendLine(
                         ">(Encoding.UTF8.GetString(r.ValueSpan), out var __ev) ? __ev : default;"
                     );
@@ -2770,7 +2807,59 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(" = Encoding.UTF8.GetString(r.ValueSpan);");
                     break;
             }
+            if (__scalar)
+            {
+                s.Append(pad);
+                s.AppendLine("}");
+            }
         }
+    }
+
+    /// <summary>
+    /// Review C-30: emits the null-literal guard that protects the scalar parse
+    /// branch. A nullable member takes <c>null</c>, a non-nullable value type
+    /// fails loudly, and a non-nullable string keeps the existing NRT-lenient
+    /// contract (<c>null!</c>). The guard opens an <c>else</c> block the caller
+    /// must close after the parse branch.
+    /// </summary>
+    private static void EmitNullLiteralGuard(
+        StringBuilder s,
+        PropertyInfo p,
+        System.Action emitTarget,
+        string pad
+    )
+    {
+        s.Append(pad);
+        s.AppendLine("if (r.IsNullLiteral)");
+        s.Append(pad);
+        s.AppendLine("{");
+        if (p.IsNullable || p.IsNullableReference)
+        {
+            s.Append(pad);
+            s.Append("    ");
+            emitTarget();
+            s.AppendLine(" = null;");
+        }
+        else if (PicoSerDe.Gen.GenInfrastructure.IsValueTypeKind(p.TypeKind))
+        {
+            s.Append(pad);
+            s.Append("    throw new System.FormatException($\"null value for non-nullable member ");
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+            s.AppendLine("\");");
+        }
+        else
+        {
+            s.Append(pad);
+            s.Append("    ");
+            emitTarget();
+            s.AppendLine(" = null!;");
+        }
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else");
+        s.Append(pad);
+        s.AppendLine("{");
     }
 
     private static void EmitDeserializeListElementTemp(StringBuilder s, PropertyInfo p, string pad)
@@ -2940,7 +3029,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("            case ");
             s.Append(ds);
             s.AppendLine(" __v:");
-            foreach (var prop in dti.Properties)
+            foreach (var prop in dti.Properties.OrderBy(x => EmitOrderKey(x)))
             {
                 // The shared member emitter covers scalars, nested objects/dicts
                 // ('[Section]') and object collections ('[[key]]') — the poly

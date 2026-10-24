@@ -56,6 +56,19 @@ var user = MsgPackSerializer.Deserialize<User>(bytes);
 
 - Empty payloads and bytes after the root value throw `FormatException`
 - Deeply nested objects (3+ levels) round-trip
+- Member values are type-checked: a `nil` maps to `null` for a nullable member
+  and throws `FormatException` for a non-nullable one, and a wrong-typed value
+  (e.g. a string where an `int` is declared) throws instead of silently
+  becoming a default
+
+## Streaming
+
+`DeserializeFromStreamAsync<T>(stream, ct)` is a **buffering** implementation:
+each read is appended to an internal accumulator and the whole buffer is
+re-parsed from the beginning until the value is complete. It is correct and
+resumes cleanly across chunk boundaries, but it is not incremental (O(n²) in
+the number of chunks), and unlike the other formats the overload takes no
+options argument.
 
 ## Options
 

@@ -215,7 +215,7 @@ jw.WriteRawValue(value.PreSerializedJson);  // pre-validated UTF-8 JSON
 jw.WriteEndObject();
 ```
 
-All `WriteNumber` overloads format with `CultureInfo.InvariantCulture` — output never depends on the ambient culture.
+All `WriteNumber` overloads format with `CultureInfo.InvariantCulture` — output never depends on the ambient culture. `WriteNumber(float)` emits the shortest round-trippable single-precision text, so a `float` keeps its own precision instead of being widened to `double` and printing the widened value.
 
 ## Packages
 

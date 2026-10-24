@@ -105,6 +105,7 @@ P:PicoToml.TomlOptions.Indented : bool { get; set; }
 P:PicoToml.TomlReader.BytesConsumed : long { get; }
 P:PicoToml.TomlReader.Depth : int { get; }
 P:PicoToml.TomlReader.IsArrayTable : bool { get; }
+P:PicoToml.TomlReader.IsNullLiteral : bool { get; }
 P:PicoToml.TomlReader.IsResumed : bool { get; }
 P:PicoToml.TomlReader.KeySpan : System.ReadOnlySpan`1<byte> { get; }
 P:PicoToml.TomlReader.NeedsMoreData : bool { get; }

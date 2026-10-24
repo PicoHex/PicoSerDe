@@ -549,30 +549,51 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
         sb.Append("    internal static ");
         sb.Append(fullName);
-        sb.AppendLine(" Deserialize(ref YamlReader reader)");
+        sb.AppendLine(" Deserialize(ref YamlReader r)");
         sb.AppendLine("    {");
         sb.Append("        var obj = new ");
         sb.Append(fullName);
         sb.AppendLine("();");
-        sb.AppendLine("        if (reader.Read() && reader.TokenType == TokenType.ObjectStart)");
+        sb.AppendLine("        if (r.Read() && r.TokenType == TokenType.ObjectStart)");
         sb.AppendLine("        {");
-        sb.AppendLine(
-            "            while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
-        );
+        // EmitDeserialize leaves the reader ON the next member token, so the loop
+        // must inspect the current token instead of reading at the top. It exits on
+        // this mapping's own ObjectEnd, leaving that token for the caller — reading
+        // past it would consume the enclosing mapping's next key. Sharing this one
+        // emitter is what gives nested members the same element types as top-level
+        // ones (C-22), and the token check keeps a list member from ending the loop
+        // early, which used to silently drop every following member.
+        sb.AppendLine("            while (true)");
         sb.AppendLine("            {");
-        sb.AppendLine("                var nk = reader.KeySpan;");
+        sb.AppendLine("                if (r.TokenType is TokenType.ObjectEnd or TokenType.None)");
+        sb.AppendLine("                    break;");
+        sb.AppendLine(
+            "                if (r.TokenType != TokenType.PropertyName) { if (!r.Read()) break; continue; }"
+        );
+        sb.AppendLine("                var k = r.KeySpan;");
         for (int i = 0; i < props.Length; i++)
         {
             var np = props[i];
             var kw = i == 0 ? "if" : "else if";
             sb.Append("                ");
             sb.Append(kw);
-            sb.Append(" (TextHelpers.Eq(nk, \"");
+            sb.Append(" (TextHelpers.Eq(k, \"");
             sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
             sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
-            EmitDeserializeInline(sb, np, "obj", "                    ");
+            EmitDeserialize(sb, np, "obj", "                    ");
             sb.AppendLine("                }");
+        }
+        if (props.Length == 0)
+            sb.AppendLine(
+                "                if (!r.Read()) break; // unknown member: skip its value"
+            );
+        else
+        {
+            sb.AppendLine("                else");
+            sb.AppendLine(
+                "                { if (!r.Read()) break; } // unknown member: skip its value"
+            );
         }
         sb.AppendLine("            }");
         sb.AppendLine("        }");
@@ -938,9 +959,25 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 );
                 break;
             case "timespan":
+                // C-14: TimeSpan has no ToString(IFormatProvider); the "c" format is
+                // the invariant one the reader expects.
+                s.Append(ind);
+                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(accessor);
+                s.AppendLine(
+                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
+            case "decimal":
+                // C-14: decimal.ToString() is culture-sensitive ("1,5" under de-DE)
+                // while the reader parses invariantly, so 1.5m round-tripped to 15.
+                s.Append(ind);
+                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(accessor);
+                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                break;
             case "guid":
             case "enum":
-            case "decimal":
                 s.Append(ind);
                 s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
                 s.Append(accessor);
@@ -982,25 +1019,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(")");
                     s.Append(ind);
                     s.AppendLine("{");
-                    if (p.ElementTypeKind == "string" && p.ElementIsNullableReference)
-                    {
-                        s.Append(ind);
-                        s.AppendLine("    if (__item != null)");
-                        s.Append(ind);
-                        s.AppendLine(
-                            "        yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item));"
-                        );
-                    }
-                    else
-                    {
-                        s.Append(ind);
-                        s.Append("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
-                        if (p.ElementTypeKind == "string")
-                            s.Append("__item");
-                        else
-                            s.Append("__item.ToString()");
-                        s.AppendLine("));");
-                    }
+                    // Same element writer as a top-level list member: `__item.ToString()`
+                    // wrote booleans as "True" and dates in the ambient culture, which
+                    // the reader could not read back (the C-22 write half).
+                    EmitSerializeListElement(s, p, ind + "    ");
                     s.Append(ind);
                     s.AppendLine("}");
                 }
@@ -1282,12 +1304,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "enum":
                 s.Append(pad);
+                s.AppendLine(
+                    "if (!Enum.TryParse<"
+                        + PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(p.TypeFullName)
+                        + ">(Encoding.UTF8.GetString(reader.ValueSpan), out var __ev)) throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
+                );
+                s.Append(pad);
                 s.Append(tgt);
                 s.Append('.');
                 s.Append(p.Name);
-                s.Append(" = Enum.Parse<");
-                s.Append(p.TypeFullName);
-                s.AppendLine(">(Encoding.UTF8.GetString(reader.ValueSpan));");
+                s.AppendLine(" = __ev;");
                 break;
             case "decimal":
                 s.Append(pad);
@@ -2382,7 +2408,25 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
                     );
                     break;
+                case "timespan":
+                    // C-14: TimeSpan has no ToString(IFormatProvider); "c" is invariant.
+                    s.Append(ind);
+                    s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(valAccessor);
+                    s.AppendLine(
+                        ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    );
+                    break;
+                case "decimal":
+                    // C-14: culture-sensitive ToString() emits "1,5" under de-DE
+                    // while the reader parses invariantly (round-trip gives 15).
+                    s.Append(ind);
+                    s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(valAccessor);
+                    s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                    break;
                 default:
+                    // guid/enum: ToString() is already culture-independent.
                     s.Append(ind);
                     s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
                     s.Append(valAccessor);
@@ -2497,7 +2541,29 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
                     );
                     break;
+                case "timespan":
+                    // C-14: TimeSpan has no ToString(IFormatProvider); "c" is invariant.
+                    s.Append(ind);
+                    s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(
+                        ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    );
+                    break;
+                case "decimal":
+                    // C-14: culture-sensitive ToString() emits "1,5" under de-DE
+                    // while the reader parses invariantly (round-trip gives 15).
+                    s.Append(ind);
+                    s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                    break;
                 default:
+                    // guid/enum: ToString() is already culture-independent.
                     s.Append(ind);
                     s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
                     s.Append(target);
@@ -2570,6 +2636,28 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.AppendLine("yw.WriteSequenceItem(__item);");
                 break;
+            case "boolean":
+                s.Append(ind);
+                s.AppendLine("yw.WriteSequenceItem(__item ? \"true\"u8 : \"false\"u8);");
+                break;
+            case "datetime":
+                s.Append(ind);
+                s.AppendLine(
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
+            case "dateonly":
+                s.Append(ind);
+                s.AppendLine(
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString(\"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
+            case "timeonly":
+                s.Append(ind);
+                s.AppendLine(
+                    "yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
+                break;
             default:
                 s.Append(ind);
                 s.AppendLine("yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item.ToString()));");
@@ -2623,45 +2711,54 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("var __tmpList = new System.Collections.Generic.List<");
             s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
             s.AppendLine(">(16);");
+            s.Append(pad);
+            s.AppendLine("bool __more;");
+            // The wrapper `ObjectStart` is optional: `Items:` followed by a sibling
+            // property has no wrapper at all, while an indented block sequence has
+            // one. Probing it must never consume the sibling `PropertyName` — that
+            // is C-21 — so the read is only kept when it really is the wrapper,
+            // and the reader is never marked (the streaming dispatcher owns the
+            // mark, and RewindToMark also clears NeedsMoreData). Both paths share
+            // this one shape, so sync and streaming cannot drift apart again.
+            s.Append(pad);
+            s.AppendLine("__more = r.Read();");
+            s.Append(pad);
+            s.AppendLine("if (!__more)");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine("    // The document ended at this key: there is no list to read.");
+            s.Append(pad);
+            s.AppendLine("}");
+            s.Append(pad);
+            s.AppendLine("else if (r.TokenType == TokenType.ObjectStart)");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine("    // Indented block sequence: the wrapper ObjectStart was consumed.");
             if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
             {
-                // Block sequence: PropertyName(NestedList) → ObjectStart → String("") → ObjectStart(item) → ...
-                // Skip the indentation ObjectStart; then loop: String("") → let Deserialize read ObjectStart(item)
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                     "YamlInner",
                     p.ElementTypeName ?? "object"
                 );
                 s.Append(pad);
-                s.AppendLine("bool __more;");
+                s.AppendLine("    while ((__more = r.Read()) && r.TokenType == TokenType.String)");
                 s.Append(pad);
-                s.AppendLine("r.Read(); // skip indentation ObjectStart after PropertyName");
+                s.AppendLine("    {");
                 s.Append(pad);
-                s.AppendLine("while ((__more = r.Read())) {");
-                s.Append(pad);
-                s.AppendLine(
-                    "    if (r.TokenType != TokenType.String) break; // String('') = sequence item; ObjectEnd = list end"
-                );
-                s.Append(pad);
-                s.Append("    var __item = ");
+                s.Append("        var __item = ");
                 s.Append(sn);
                 s.AppendLine(
                     ".Deserialize(ref r); // Deserialize reads ObjectStart(item) internally"
                 );
                 s.Append(pad);
-                s.AppendLine("    __tmpList.Add(__item);");
+                s.AppendLine("        __tmpList.Add(__item);");
                 s.Append(pad);
-                s.AppendLine("}");
+                s.AppendLine("    }");
             }
             else
             {
-                s.Append(pad);
-                s.AppendLine("bool __more = r.Read();");
-                s.Append(pad);
-                s.AppendLine("if (__more && r.TokenType == TokenType.ObjectStart)");
-                s.Append(pad);
-                s.AppendLine("{");
-                s.Append(pad);
-                s.AppendLine("    // Indented block sequence: skip the ObjectStart wrapper.");
                 s.Append(pad);
                 s.AppendLine("    while ((__more = r.Read()) && r.TokenType == TokenType.String)");
                 s.Append(pad);
@@ -2669,14 +2766,56 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 EmitDeserializeListElementTemp(s, p, pad + "        ");
                 s.Append(pad);
                 s.AppendLine("    }");
+            }
+            s.Append(pad);
+            s.AppendLine(
+                "    // Skip the wrapper ObjectEnd — but only when the loop really stopped on"
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    // it. `__more` then reports whether a member token is still available."
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();"
+            );
+            s.Append(pad);
+            s.AppendLine("}");
+            s.Append(pad);
+            s.AppendLine("else if (r.TokenType == TokenType.String)");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine(
+                "    // No wrapper: a flat sequence follows the key (`- item` at the same"
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    // indentation). The probe token belongs to the list, so consume it here."
+            );
+            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            {
+                var sn2 = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "YamlInner",
+                    p.ElementTypeName ?? "object"
+                );
                 s.Append(pad);
-                s.AppendLine("    if (__more) __more = r.Read(); // skip the wrapper ObjectEnd");
+                s.AppendLine("    do");
                 s.Append(pad);
-                s.AppendLine("}");
+                s.AppendLine("    {");
                 s.Append(pad);
-                s.AppendLine("else");
+                s.Append("        var __item = ");
+                s.Append(sn2);
+                s.AppendLine(".Deserialize(ref r);");
                 s.Append(pad);
-                s.AppendLine("{");
+                s.AppendLine("        __tmpList.Add(__item);");
+                s.Append(pad);
+                s.AppendLine(
+                    "    } while ((__more = r.Read()) && r.TokenType == TokenType.String);"
+                );
+            }
+            else
+            {
                 s.Append(pad);
                 s.AppendLine("    while (__more && r.TokenType == TokenType.String)");
                 s.Append(pad);
@@ -2686,9 +2825,27 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("        __more = r.Read();");
                 s.Append(pad);
                 s.AppendLine("    }");
-                s.Append(pad);
-                s.AppendLine("}");
             }
+            s.Append(pad);
+            s.AppendLine("}");
+            s.Append(pad);
+            s.AppendLine("else");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine(
+                "    // No wrapper and no sequence item: the list is empty and the probe token"
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    // is already the sibling property this member must not eat (C-21). It is"
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    // left in place, so `__more` stays true and the loop re-dispatches it."
+            );
+            s.Append(pad);
+            s.AppendLine("}");
             s.Append(pad);
             EmitTgt();
             s.Append(" = __tmpList");
@@ -2706,6 +2863,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(" = ");
             s.Append(sn);
             s.AppendLine(".Deserialize(ref r);");
+            s.Append(pad);
+            s.AppendLine("if (r.TokenType == TokenType.None) break; // document ended here");
         }
         else if (p.TypeKind is "dict")
         {
@@ -2717,7 +2876,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "int");
             s.AppendLine(">();");
             s.Append(pad);
-            s.AppendLine("if (r.Read() && r.TokenType == TokenType.ObjectStart) {");
+            s.AppendLine("if (!r.Read()) break; // document ended here");
+            s.Append(pad);
+            s.AppendLine("if (r.TokenType == TokenType.ObjectStart) {");
             s.Append(pad);
             s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName) {");
             s.Append(pad);
@@ -2846,6 +3007,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
         else
         {
+            // C-30: a null literal must not reach the scalar parsers.
+            EmitNullLiteralGuard(s, p, EmitTgt, pad);
             switch (p.TypeKind)
             {
                 case "string":
@@ -2987,10 +3150,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "enum":
                     s.Append(pad);
+                    s.AppendLine(
+                        "if (!System.Enum.TryParse<"
+                            + PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(p.TypeFullName)
+                            + ">(Encoding.UTF8.GetString(r.ValueSpan), out var __v)) throw new System.FormatException($\"Invalid enum value at offset {r.BytesConsumed}\");"
+                    );
+                    s.Append(pad);
                     EmitTgt();
-                    s.Append(" = System.Enum.Parse<");
-                    s.Append(p.TypeFullName);
-                    s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan));");
+                    s.AppendLine(" = __v;");
                     break;
                 case "decimal":
                     s.Append(pad);
@@ -3006,14 +3173,133 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     break;
             }
             s.Append(pad);
+            s.AppendLine("}");
+            s.Append(pad);
             s.AppendLine("if (!r.Read()) break;");
         }
+    }
+
+    /// <summary>
+    /// Review C-30: emits the null-literal guard that guards the scalar parse
+    /// branch. A nullable member takes <c>null</c>, a non-nullable value type
+    /// fails loudly, and a non-nullable string keeps the existing NRT-lenient
+    /// contract (<c>null!</c>). The guard opens an <c>else</c> block the caller
+    /// must close after the parse branch.
+    /// </summary>
+    private static void EmitNullLiteralGuard(
+        StringBuilder s,
+        PropertyInfo p,
+        System.Action emitTarget,
+        string pad
+    )
+    {
+        s.Append(pad);
+        s.AppendLine("if (r.IsNullLiteral)");
+        s.Append(pad);
+        s.AppendLine("{");
+        if (p.IsNullable || p.IsNullableReference)
+        {
+            s.Append(pad);
+            s.Append("    ");
+            emitTarget();
+            s.AppendLine(" = null;");
+        }
+        else if (PicoSerDe.Gen.GenInfrastructure.IsValueTypeKind(p.TypeKind))
+        {
+            s.Append(pad);
+            s.Append("    throw new System.FormatException($\"null value for non-nullable member ");
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+            s.AppendLine("\");");
+        }
+        else
+        {
+            s.Append(pad);
+            s.Append("    ");
+            emitTarget();
+            s.AppendLine(" = null!;");
+        }
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else");
+        s.Append(pad);
+        s.AppendLine("{");
     }
 
     private static void EmitDeserializeListElementTemp(StringBuilder s, PropertyInfo p, string pad)
     {
         switch (p.ElementTypeKind)
         {
+            case "float32":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(float.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "float64":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(double.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "decimal":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(decimal.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "boolean":
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!r.TryGetBool(out var __evb)) throw new System.FormatException($\"Expected a boolean at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__evb);");
+                break;
+            case "guid":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(System.Guid.Parse(Encoding.UTF8.GetString(r.ValueSpan)));"
+                );
+                break;
+            case "datetime":
+                s.Append(pad);
+                s.AppendLine("var __eraw = Encoding.UTF8.GetString(r.ValueSpan);");
+                s.Append(pad);
+                s.AppendLine(
+                    "if (!System.DateTime.TryParse(__eraw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __edt)) throw new System.FormatException($\"Invalid DateTime at offset {r.BytesConsumed}\");"
+                );
+                s.Append(pad);
+                s.AppendLine("__tmpList.Add(__edt);");
+                break;
+            case "timespan":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(System.TimeSpan.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "dateonly":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(System.DateOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"yyyy-MM-dd\", System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "timeonly":
+                s.Append(pad);
+                s.AppendLine(
+                    "__tmpList.Add(System.TimeOnly.ParseExact(Encoding.UTF8.GetString(r.ValueSpan), \"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
+            case "enum":
+                s.Append(pad);
+                s.Append("__tmpList.Add(System.Enum.Parse<");
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(
+                        p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "string"
+                    )
+                );
+                s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan)));");
+                break;
             case "string":
                 s.Append(pad);
                 s.AppendLine("__tmpList.Add(Encoding.UTF8.GetString(r.ValueSpan));");

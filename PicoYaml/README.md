@@ -70,7 +70,21 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 `YamlSerializer.Serialize` / `Deserialize` accept `YamlOptions`:
 
 - `Indented` — additionally indents sequence items under their key (nested block mappings are always indented; default: compact sequence items)
-- `DefaultIgnoreCondition` — accepted for API uniformity; YAML has no null literal, so null values are always omitted
+- `DefaultIgnoreCondition` — accepted for API uniformity; YAML has no null value on the write side, so null members are always omitted
+
+## Null Handling
+
+- **Write:** a null member is omitted — YAML has no null value on the write
+  path (`key:` would read back as a default). Omission means a null does **not**
+  round-trip: the property keeps its initializer (or stays `null` when it has
+  none) on read.
+- **Read:** `Key:` with nothing after it, `~`, and the unquoted word `null`
+  (any case) are null literals and assign `null` to nullable members.
+- A quoted `""` is the empty string and a quoted `"null"` is the four-character
+  string — quoted scalars are never null.
+- A null literal aimed at a **non-nullable value type** throws
+  `FormatException`; an unannotated `string` member receives `null` (the
+  generators' NRT-lenient contract).
 
 ## Performance
 

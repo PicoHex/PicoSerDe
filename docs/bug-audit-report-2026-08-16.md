@@ -189,13 +189,13 @@
 |---|---|---|
 | BUG-01 / 02 / 03（P0 越界） | ✅ 已修 | YAML/INI/TOML 的 key 扫描已按行边界停靠（在本次审核基线之前完成） |
 | BUG-04（P1 `ThreadStatic` options） | ✅ 已修 | 环境态 options 已移除，options 显式贯穿 reader/writer 与生成代码 |
-| BUG-05（P2 TOML 溢出回绕） | ⚠️ 部分修复 | fast array 路径已加溢出守卫（`ed0c0fc`）；`TryReadNextInt32Span` 仍未加守卫（未找到经公共 API 可达的调用形态） |
+| BUG-05（P2 TOML 溢出回绕） | ⚠️ 仍部分修复（2026-10-24 复验） | fast array 路径有溢出守卫（`ed0c0fc`）；**`TryReadNextInt32Span` 仍是无检查的 `result * 10 + digit`**，且它经公共 `TomlReader.TryReadNextInt32` 的 Span 分支可达（原「未找到经公共 API 可达的调用形态」的判断不成立）。修复需改源码，不在本轮（只动文档/基线）范围内 |
 | BUG-06（P2 YAML fast array 溢出） | ✅ 已修 | `7c31df5`，并复活了被禁用的 fast-path 测试（`SetRawPos`） |
 | BUG-07（P2 int.MinValue 被拒） | ✅ 已修 | `ac81dca`；`-2147483648` 现在被接受 |
 | BUG-08（P2 前导逗号） | ✅ 已修 | `388e1d7`；`,5` / `[,1]` 抛 `FormatException` |
 | BUG-09（P2 非法转义/缺值） | ✅ 已修 | `ca8d28a`；未知转义（如 `\q`）抛错，`\b`/`\f` 正确解码 |
 | BUG-10（P2 ArrayPool 双重归还） | ✅ 已修 | `76c0964`；扩容不再提前归还，`TotalPoolReturns == TotalTrackedBuffers` 测试锁定 |
-| BUG-11（P3 seq 长数字 32 字节缓冲） | ❌ 仍开放 | `JsonReader.ReadNumberSeq` 仍固定 `Rent(32)` 且无增长检查，超长数字在 sequence 模式抛 `IndexOutOfRangeException` |
+| BUG-11（P3 seq 长数字 32 字节缓冲） | ✅ 已修（2026-10-24 复验） | `129b989`：`ReadNumberSeq` 先用只读探针量出 token 长度，再 `Rent(Math.Max(32, measured + 1))`，超长数字不再溢出缓冲；回归测试 `NumberBufferTests` |
 | BUG-12（P3 JSON 流式 O(n²)） | ⚠️ 部分缓解 | 流式已改为 reader 状态续传 + `partial` 结果保留（`StreamingFunc`/状态导出）；O(n²) 性能未重新测量 |
 | BUG-13（P3 构建告警） | ✅ 已修 | `76d29f8`；全量构建 **0 warning / 0 error** |
 | BUG-14（P3 ThreadStatic writer 不可重入） | 📝 已文档化 | `RentWriter` 注释保留；未改行为 |
@@ -213,7 +213,7 @@
 - 顶层标量 / `Nullable<T>` 目标不支持（响亮失败）。
 - INI/TOML 仅支持一层嵌套对象（更深抛 `NotSupportedException`）；INI 嵌套对象列表被忽略。
 - YAML flow 序列（`[a, b]`）尚未支持；flow 映射（`{k: v}`）部分支持。
-- BUG-11（sequence 模式超长数字）与 BUG-12（流式性能）见上表。
+- BUG-05（TOML `TryReadNextInt32Span` 溢出）与 BUG-12（流式性能）见上表。
 
 ## 修复状态更新（2026-09-17，流式根因批 + code review 遗留项）
 
