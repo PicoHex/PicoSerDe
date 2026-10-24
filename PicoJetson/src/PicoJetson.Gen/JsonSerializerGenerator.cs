@@ -1188,7 +1188,37 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// Emits the value read of a nested-dictionary helper. Nullable value-type
+    /// elements get a null check first, like <see cref="EmitDeserializeElementAssign"/>.
+    /// </summary>
     private static void EmitDictInnerValueDeserialize(
+        StringBuilder sb,
+        PropertyInfo dp,
+        string dictVar,
+        string indent
+    )
+    {
+        if (dp.ElementIsNullableValue)
+        {
+            sb.Append(indent);
+            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+            sb.Append(indent);
+            sb.Append(dictVar);
+            sb.AppendLine("[__dictKey] = null;");
+            sb.Append(indent);
+            sb.AppendLine("else");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            EmitDictInnerValueDeserializeCore(sb, dp, dictVar, indent + "    ");
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitDictInnerValueDeserializeCore(sb, dp, dictVar, indent);
+    }
+
+    private static void EmitDictInnerValueDeserializeCore(
         StringBuilder sb,
         PropertyInfo dp,
         string dictVar,
@@ -4239,7 +4269,42 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// Emits one dictionary value. Nullable value-type elements (Dictionary&lt;string,int?&gt;)
+    /// get a null check first: the value readers below are all Try*-based, so a JSON
+    /// null used to be stored as 0 / Guid.Empty / DateTime.MinValue instead of null.
+    /// </summary>
     private static void EmitDeserializeElementAssign(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string dictVar,
+        string keyVar,
+        string indent,
+        int nestLevel
+    )
+    {
+        if (prop.ElementIsNullableValue)
+        {
+            sb.Append(indent);
+            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+            sb.Append(indent);
+            sb.Append(dictVar);
+            sb.Append("[");
+            sb.Append(keyVar);
+            sb.AppendLine("] = null;");
+            sb.Append(indent);
+            sb.AppendLine("else");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            EmitDeserializeElementAssignCore(sb, prop, dictVar, keyVar, indent + "    ", nestLevel);
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitDeserializeElementAssignCore(sb, prop, dictVar, keyVar, indent, nestLevel);
+    }
+
+    private static void EmitDeserializeElementAssignCore(
         StringBuilder sb,
         PropertyInfo prop,
         string dictVar,
