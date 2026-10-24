@@ -53,17 +53,67 @@ public class SerializerFacadeTests
     }
 
     [Test]
-    public async Task Facade_InterfacePair_WrapsWithoutOptions()
+    public async Task Facade_OptionsAwareInterfacePair_ForwardsOptionsAndValue()
     {
         SerRegistry<FacadeFmt, int>.Handler = null;
         DesRegistry<FacadeFmt, int>.Deserializer = null;
-        SerOptions? captured = null;
-        SerializerFacade<FacadeFmt>.Register(
-            new FacadeSer(),
-            new FacadeDes()
-        );
-        SerializerFacade<FacadeFmt>.Serialize(new ArrayBufferWriter<byte>(), 5, new SerOptions());
-        await Assert.That(captured).IsNull(); // hand-written impls do not receive options
+
+        var probe = new OptionsAwareSerProbe();
+        SerializerFacade<FacadeFmt>.Register<int>(probe, new FacadeDes());
+
+        var opts = new SerOptions();
+        var buffer = new ArrayBufferWriter<byte>();
+        SerializerFacade<FacadeFmt>.Serialize(buffer, 5, opts);
+
+        // The compat path must detect IOptionsSerializer<T> and forward the
+        // per-call options — historically they were silently dropped.
+        await Assert.That(ReferenceEquals(probe.Captured, opts)).IsTrue();
+        await Assert.That(probe.Captured).IsNotNull();
+        await Assert.That(probe.SeenValue).IsEqualTo(5);
+        await Assert
+            .That(System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(buffer.WrittenSpan))
+            .IsEqualTo(5);
+    }
+
+    [Test]
+    public async Task Facade_PlainInterfacePair_StillWritesValue()
+    {
+        SerRegistry<FacadeFmt, int>.Handler = null;
+        DesRegistry<FacadeFmt, int>.Deserializer = null;
+
+        SerializerFacade<FacadeFmt>.Register(new FacadeSer(), new FacadeDes());
+
+        var buffer = new ArrayBufferWriter<byte>();
+        SerializerFacade<FacadeFmt>.Serialize(buffer, 7, new SerOptions());
+
+        await Assert
+            .That(System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(buffer.WrittenSpan))
+            .IsEqualTo(7);
+    }
+
+    /// <summary>
+    /// Probe implementing both interfaces: the facade must route through the
+    /// option-aware overload and hand it the caller's <see cref="SerOptions"/>.
+    /// </summary>
+    private sealed class OptionsAwareSerProbe : ISerializer<int>, IOptionsSerializer<int>
+    {
+        public SerOptions? Captured;
+        public int SeenValue;
+
+        public void Serialize(IBufferWriter<byte> writer, int value)
+        {
+            // Must not be reached: the facade prefers the options-aware overload.
+            SeenValue = -1;
+        }
+
+        public void Serialize(IBufferWriter<byte> writer, int value, SerOptions? options)
+        {
+            Captured = options;
+            SeenValue = value;
+            var span = writer.GetSpan(4);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(span, value);
+            writer.Advance(4);
+        }
     }
 
     private readonly struct FacadeSer : ISerializer<int>
