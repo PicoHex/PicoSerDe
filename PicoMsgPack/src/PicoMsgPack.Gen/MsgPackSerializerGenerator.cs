@@ -1653,10 +1653,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".ToString(\"O\")));");
                 break;
             case "timespan":
+                // C-14: pin the payload to the invariant culture so it never depends on the
+                // ambient culture (paired with the invariant reader below).
                 s.Append(ind);
                 s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
                 s.Append(a);
-                s.AppendLine(".ToString()));");
+                s.AppendLine(
+                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
                 break;
             case "dateonly":
             case "guid":
@@ -1665,6 +1669,15 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
                 s.Append(a);
                 s.AppendLine(".ToString()));");
+                break;
+            case "decimal":
+                // C-14: a plain ToString() writes "1,5" under de-DE, which the invariant
+                // reader rejects - always emit the invariant form ("1.5") instead of
+                // falling through to the culture-sensitive default: branch.
+                s.Append(ind);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
                 break;
             case "timeonly":
                 s.Append(ind);
@@ -1916,10 +1929,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".ToString(\"O\")));");
                 break;
             case "timespan":
+                // C-14: pin the payload to the invariant culture so it never depends on the
+                // ambient culture (paired with the invariant reader below).
                 s.Append(ind);
                 s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
                 s.Append(a);
-                s.AppendLine(".ToString()));");
+                s.AppendLine(
+                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                );
                 break;
             case "dateonly":
             case "guid":
@@ -1928,6 +1945,15 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
                 s.Append(a);
                 s.AppendLine(".ToString()));");
+                break;
+            case "decimal":
+                // C-14: a plain ToString() writes "1,5" under de-DE, which the invariant
+                // reader rejects - always emit the invariant form ("1.5") instead of
+                // falling through to the culture-sensitive default: branch.
+                s.Append(ind);
+                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(a);
+                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
                 break;
             case "timeonly":
                 s.Append(ind);
@@ -2191,7 +2217,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("{");
                 s.Append(ind);
                 s.AppendLine(
-                    "    if (!TimeSpan.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), out __ts"
+                    "    if (!TimeSpan.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.CultureInfo.InvariantCulture, out __ts"
                         + id
                         + ")) throw new System.FormatException($\"Invalid TimeSpan at offset {reader.BytesConsumed}\");"
                 );
@@ -2226,9 +2252,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(" = __ts" + id + ";");
                 break;
             case "decimal":
+                // C-14: NumberStyles.Number alone still allows group separators
+                // (AllowThousands), so "1,5" would silently read as 15 - the flag
+                // is cleared here, making a culture-scaled payload throw instead.
                 s.Append(ind);
                 s.AppendLine(
-                    "if (reader.TokenType != TokenType.String || !decimal.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decv"
+                    "if (reader.TokenType != TokenType.String || !decimal.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.NumberStyles.Number & ~System.Globalization.NumberStyles.AllowThousands, System.Globalization.CultureInfo.InvariantCulture, out var __decv"
                         + id
                         + ")) throw new System.FormatException($\"Invalid decimal at offset {reader.BytesConsumed}\");"
                 );
