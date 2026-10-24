@@ -532,8 +532,9 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         }
 
         // Top-level properties first
-        foreach (var p in type.Properties)
+        for (int pi = 0; pi < type.Properties.Length; pi++)
         {
+            var p = type.Properties[pi];
             if (p.TypeKind == "object" || p.TypeKind == "dict")
                 continue;
             if (p.Comment is not null)
@@ -555,17 +556,26 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 p.IsNullable && !p.IsNullableReference
                     ? $"value.{p.Name}!.Value"
                     : $"value.{p.Name}";
-            EmitWriteKeyValue(s, p.JsonName, p, acc, pad);
+            // The slot keeps converter locals unique across properties (C-1).
+            EmitWriteKeyValue(s, p.JsonName, p, acc, pad, slot: pi.ToString());
             if (checkNull)
                 s.AppendLine("        }");
         }
 
         // Dicts as sections (before objects)
+        var dictProps = type.Properties.Where(p => p.TypeKind == "dict").ToArray();
+        // Whether a section is actually written is a runtime fact once a null
+        // guard is involved, so the separator has to be runtime decidable there.
+        // Driving it from "dicts visited" emitted a leading blank line when the
+        // first dict was null (review I-4).
+        bool runtimeDictFlag =
+            dictProps.Length > 1
+            && dictProps.Any(PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable);
+        if (runtimeDictFlag)
+            s.AppendLine("        bool __wroteSection = false;");
         bool dictFirst = true;
-        foreach (var p in type.Properties)
+        foreach (var p in dictProps)
         {
-            if (p.TypeKind != "dict")
-                continue;
             // A null dictionary has no section to write (C-31). The guard also
             // owns the blank-line separator so a skipped dict leaves no stray
             // blank line behind.
@@ -576,7 +586,12 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 "        "
             );
             var dictPad = dictGuard ? "            " : "        ";
-            if (!dictFirst)
+            if (runtimeDictFlag)
+            {
+                s.AppendLine(dictPad + "if (__wroteSection) iw.WriteBlankLine();");
+                s.AppendLine(dictPad + "__wroteSection = true;");
+            }
+            else if (!dictFirst)
                 s.AppendLine(dictPad + "iw.WriteBlankLine();");
             s.Append(dictPad + "iw.WriteSection(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
@@ -606,20 +621,23 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 "value." + p.Name,
                 "        "
             );
+            var objPad = nullGuard ? "            " : "        ";
             if (!first)
-                s.AppendLine("        iw.WriteBlankLine();");
+                s.AppendLine(objPad + "iw.WriteBlankLine();");
             var sn = p.SectionName ?? p.JsonName;
-            s.Append("        iw.WriteSection(\"");
+            s.Append(objPad + "iw.WriteSection(\"");
             s.Append(sn);
             s.AppendLine("\"u8);");
-            foreach (var np in p.NestedProperties)
+            for (int npi = 0; npi < p.NestedProperties.Length; npi++)
             {
+                var np = p.NestedProperties[npi];
                 // INI sections are flat — a nested object inside a section cannot
                 // be represented. Fail loudly instead of writing "TypeName" text.
                 if (np.TypeKind == "object")
                 {
                     s.Append(
-                        "        throw new System.NotSupportedException(\"INI sections cannot represent nested objects deeper than one level yet.\");"
+                        objPad
+                            + "throw new System.NotSupportedException(\"INI sections cannot represent nested objects deeper than one level yet.\");"
                     );
                     s.AppendLine();
                     continue;
@@ -630,18 +648,18 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s,
                     np,
                     $"value.{p.Name}.{np.Name}",
-                    "        "
+                    objPad
                 );
-                s.Append("        iw.WriteKeyValue(\"");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
-                s.Append("\"u8, ");
-                if (np.IsNullable && !np.IsNullableReference)
-                    s.Append($"value.{p.Name}.{np.Name}!.Value");
-                else
-                    WriteValue(s, np, $"value.{p.Name}.{np.Name}");
-                s.AppendLine(");");
+                // Section members honour [IniConverter] on the write path, exactly
+                // like top-level properties (review C-3).
+                var npAcc =
+                    np.IsNullable && !np.IsNullableReference
+                        ? $"value.{p.Name}.{np.Name}!.Value"
+                        : $"value.{p.Name}.{np.Name}";
+                var npPad = npCheck ? objPad + "    " : objPad;
+                EmitWriteKeyValue(s, np.JsonName, np, npAcc, npPad, slot: npi.ToString());
                 if (npCheck)
-                    s.AppendLine("        }");
+                    s.AppendLine(objPad + "}");
             }
             if (nullGuard)
                 s.AppendLine("        }");
@@ -1311,31 +1329,49 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     /// rather than returning a formatted string.
     /// </summary>
     /// <param name="key">Raw key name; escaped into a <c>"..."u8</c> literal here.</param>
+    /// <param name="slot">
+    /// Unique stem for the locals declared here. Every converter property of a
+    /// type shares one C# scope (only null guards open blocks), so a fixed local
+    /// name is a CS0128 duplicate-local error as soon as a DTO has two of them
+    /// (review C-1).
+    /// </param>
     private static void EmitWriteKeyValue(
         StringBuilder s,
         string key,
         PropertyInfo p,
         string accessor,
-        string indent
+        string indent,
+        string slot = ""
     )
     {
         var keyText = "\"" + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(key) + "\"u8";
         if (p.ConverterTypeFullName is not null)
         {
+            var cVar = "__c" + slot;
+            var bwVar = "__bw" + slot;
             s.Append(indent);
-            s.Append("var __c = new ");
+            s.Append("var ");
+            s.Append(cVar);
+            s.Append(" = new ");
             s.Append(p.ConverterTypeFullName);
             s.AppendLine("();");
             s.Append(indent);
-            s.AppendLine("var __bw = new System.Buffers.ArrayBufferWriter<byte>();");
+            s.Append("var ");
+            s.Append(bwVar);
+            s.AppendLine(" = new System.Buffers.ArrayBufferWriter<byte>();");
             s.Append(indent);
-            s.Append("__c.Write(__bw, ");
+            s.Append(cVar);
+            s.Append(".Write(");
+            s.Append(bwVar);
+            s.Append(", ");
             s.Append(accessor);
             s.AppendLine(");");
             s.Append(indent);
             s.Append("iw.WriteKeyValue(");
             s.Append(keyText);
-            s.AppendLine(", __bw.WrittenSpan);");
+            s.Append(", ");
+            s.Append(bwVar);
+            s.AppendLine(".WrittenSpan);");
             return;
         }
         s.Append(indent);
@@ -1781,19 +1817,22 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                         "\", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime __v))"
                     );
                     s.Append(pad);
+                    s.Append("    throw new System.FormatException($\"Invalid DateTime for '");
+                    s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
                     s.AppendLine(
-                        "    throw new System.FormatException($\"Invalid DateTime at offset {reader.BytesConsumed}\");"
+                        "' at offset {reader.BytesConsumed}: '{(__dtStr.Length > 32 ? __dtStr[..32] : __dtStr)}'\");"
                     );
                 }
                 else
                 {
                     s.Append(pad);
-                    s.AppendLine(
-                        "if (!System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O'))"
-                    );
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    throw new System.FormatException($\"Invalid DateTime at offset {reader.BytesConsumed}\");"
+                    EmitInvalidValueThrow(
+                        s,
+                        pad,
+                        "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O')",
+                        "DateTime",
+                        EscapeInterpolation(p.JsonName),
+                        "reader.GetStringRaw()"
                     );
                 }
                 s.Append(pad);
@@ -1803,13 +1842,13 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(" = __v;");
                 break;
             case "guid":
-                s.Append(pad);
-                s.AppendLine(
-                    "if (!System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out Guid __v, out _, 'D'))"
-                );
-                s.Append(pad);
-                s.AppendLine(
-                    "    throw new System.FormatException($\"Invalid Guid at offset {reader.BytesConsumed}\");"
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out Guid __v, out _, 'D')",
+                    "Guid",
+                    EscapeInterpolation(p.JsonName),
+                    "reader.GetStringRaw()"
                 );
                 s.Append(pad);
                 s.Append(target);
@@ -1818,13 +1857,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(" = __v;");
                 break;
             case "enum":
-                s.Append(pad);
-                s.Append("if (!Enum.TryParse<");
-                s.Append(p.TypeFullName);
-                s.AppendLine(">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __ev))");
-                s.Append(pad);
-                s.AppendLine(
-                    "    throw new System.FormatException($\"Invalid enum value at offset {reader.BytesConsumed}\");"
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "Enum.TryParse<"
+                        + p.TypeFullName
+                        + ">(Encoding.UTF8.GetString(reader.GetStringRaw()), out var __ev)",
+                    "enum value",
+                    EscapeInterpolation(p.JsonName),
+                    "reader.GetStringRaw()"
                 );
                 s.Append(pad);
                 if (ctorAssign)
@@ -1852,13 +1893,13 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(" = TimeOnly.Parse(Encoding.UTF8.GetString(reader.GetStringRaw()));");
                 break;
             case "timespan":
-                s.Append(pad);
-                s.AppendLine(
-                    "if (!System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out TimeSpan __v, out _, 'c'))"
-                );
-                s.Append(pad);
-                s.AppendLine(
-                    "    throw new System.FormatException($\"Invalid TimeSpan at offset {reader.BytesConsumed}\");"
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out TimeSpan __v, out _, 'c')",
+                    "TimeSpan",
+                    EscapeInterpolation(p.JsonName),
+                    "reader.GetStringRaw()"
                 );
                 s.Append(pad);
                 s.Append(target);
@@ -2149,7 +2190,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.Append(" __cp_");
                     s.Append(ci);
                     s.Append(" = ");
-                    s.AppendLine(
+                    s.Append(
                         cp.TypeKind switch
                         {
                             "string" => "\"\"",
@@ -2161,11 +2202,16 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                             or "byte"
                             or "uint32"
                             or "uint64"
-                            or "float64" => "0",
+                            or "float32"
+                            or "float64"
+                            or "decimal" => "0",
                             "boolean" => "false",
                             _ => "default!",
                         }
                     );
+                    // This is a statement, not an argument list: the missing ';'
+                    // made every polymorphic constructor type fail to compile.
+                    s.AppendLine(";");
                 }
             }
             else
@@ -2212,22 +2258,29 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     if (matchIdx >= 0)
                     {
                         var cp = dti.CtorParams[matchIdx];
-                        s.Append("                        ");
-                        s.Append("__cp_");
-                        s.Append(matchIdx);
-                        s.Append(" = ");
-                        EmitReadCtorValue(s, cp);
-                        s.AppendLine(";");
+                        EmitReadPolyMember(
+                            s,
+                            cp.TypeKind,
+                            cp.TypeFullName,
+                            cp.DateTimeFormat,
+                            "__cp_" + matchIdx,
+                            "                        ",
+                            prop.JsonName
+                        );
                     }
                 }
                 else
                 {
                     s.AppendLine();
-                    s.Append("                        obj.");
-                    s.Append(prop.Name);
-                    s.Append(" = ");
-                    EmitReadValue(s, prop);
-                    s.AppendLine(";");
+                    EmitReadPolyMember(
+                        s,
+                        prop.TypeKind,
+                        prop.TypeFullName,
+                        prop.DateTimeFormat,
+                        "obj." + prop.Name,
+                        "                        ",
+                        prop.JsonName
+                    );
                 }
                 s.AppendLine("                    }");
             }
@@ -2285,86 +2338,336 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         return s.ToString();
     }
 
-    private static void EmitReadCtorValue(StringBuilder s, CtorParamInfo cp)
+    /// <summary>
+    /// Emits a fail-loud guard: when the TryParse-style expression
+    /// <paramref name="cond"/> (already evaluated) is false, an excerpt of the
+    /// offending text is materialised and a FormatException thrown. The message
+    /// names the owning key and shows what was actually read — a bare offset into
+    /// a 50-key file is not actionable (review I-5). The excerpt is built only on
+    /// the failure path, so the happy path stays allocation-free.
+    /// </summary>
+    /// <param name="label">Key name, already escaped for an interpolated string.</param>
+    private static void EmitInvalidValueThrow(
+        StringBuilder s,
+        string pad,
+        string cond,
+        string what,
+        string label,
+        string rawExpr
+    )
     {
-        if (cp.TypeKind == "string")
-            s.Append("Encoding.UTF8.GetString(__rv)");
-        else if (cp.TypeKind == "int32")
-        {
-            s.Append("int.TryParse(__rv, out var __iv) ? __iv : 0");
-        }
-        else if (cp.TypeKind == "int64")
-        {
-            s.Append("long.TryParse(__rv, out var __lv) ? __lv : 0");
-        }
-        else if (cp.TypeKind == "int16")
-            s.Append("short.TryParse(__rv, out var __v16) ? __v16 : (short)0");
-        else if (cp.TypeKind == "uint16")
-            s.Append("ushort.TryParse(__rv, out var __v16) ? __v16 : (ushort)0");
-        else if (cp.TypeKind == "sbyte")
-            s.Append("sbyte.TryParse(__rv, out var __v8) ? __v8 : (sbyte)0");
-        else if (cp.TypeKind == "byte")
-            s.Append("byte.TryParse(__rv, out var __v8) ? __v8 : (byte)0");
-        else if (cp.TypeKind == "uint32")
-            s.Append("uint.TryParse(__rv, out var __vu) ? __vu : 0u");
-        else if (cp.TypeKind == "uint64")
-            s.Append("ulong.TryParse(__rv, out var __vul) ? __vul : 0ul");
-        else if (cp.TypeKind == "float64")
-        {
-            s.Append("double.TryParse(__rv, out var __dv) ? __dv : 0");
-        }
-        else if (cp.TypeKind == "boolean")
-        {
-            s.Append("bool.TryParse(__rv, out var __bv) ? __bv : false");
-        }
-        else
-            s.Append("default");
+        s.Append(pad);
+        s.Append("if (!(");
+        s.Append(cond);
+        s.AppendLine("))");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.Append("    var __txt = Encoding.UTF8.GetString(");
+        s.Append(rawExpr);
+        s.AppendLine(");");
+        s.Append(pad);
+        s.Append("    throw new System.FormatException($\"Invalid ");
+        s.Append(what);
+        s.Append(" for '");
+        s.Append(label);
+        s.Append(
+            "' at offset {reader.BytesConsumed}: '{(__txt.Length > 32 ? __txt[..32] : __txt)}'\");"
+        );
+        s.AppendLine();
+        s.Append(pad);
+        s.AppendLine("}");
     }
 
-    private static void EmitReadValue(StringBuilder s, PropertyInfo prop)
+    /// <summary>Escapes text embedded inside a generated interpolated string.</summary>
+    private static string EscapeInterpolation(string text) =>
+        PicoSerDe
+            .Gen.GenInfrastructure.EscapeCSharpString(text)
+            .Replace("{", "{{")
+            .Replace("}", "}}");
+
+    /// <summary>
+    /// Strict single-member read for the polymorphic pipeline. <see cref="GenPoly"/>
+    /// emits its own member readers and never goes through <see cref="EmitRead"/>,
+    /// so C-18's fail-loud contract has to be mirrored here — otherwise a
+    /// <c>$type</c>-correct payload still silently defaulted Guid/DateTime/enum/
+    /// TimeSpan members (review C-2). Shapes with no single-value INI form fail
+    /// loudly at runtime instead of emitting uncompilable code.
+    /// </summary>
+    /// <param name="assignLeft">Assignment target, e.g. <c>obj.Id</c> or <c>__cp_0</c>.</param>
+    /// <param name="label">Key name this member is read from.</param>
+    private static void EmitReadPolyMember(
+        StringBuilder s,
+        string typeKind,
+        string typeFullName,
+        string? dateTimeFormat,
+        string assignLeft,
+        string pad,
+        string label
+    )
     {
-        if (prop.TypeKind == "string")
-            s.Append("Encoding.UTF8.GetString(__rv)");
-        else if (prop.TypeKind == "int32")
-            s.Append("int.TryParse(__rv, out var __iv) ? __iv : 0");
-        else if (prop.TypeKind == "int64")
-            s.Append("long.TryParse(__rv, out var __lv) ? __lv : 0");
-        else if (prop.TypeKind == "int16")
-            s.Append("short.TryParse(__rv, out var __v16) ? __v16 : (short)0");
-        else if (prop.TypeKind == "uint16")
-            s.Append("ushort.TryParse(__rv, out var __v16) ? __v16 : (ushort)0");
-        else if (prop.TypeKind == "sbyte")
-            s.Append("sbyte.TryParse(__rv, out var __v8) ? __v8 : (sbyte)0");
-        else if (prop.TypeKind == "byte")
-            s.Append("byte.TryParse(__rv, out var __v8) ? __v8 : (byte)0");
-        else if (prop.TypeKind == "uint32")
-            s.Append("uint.TryParse(__rv, out var __vu) ? __vu : 0u");
-        else if (prop.TypeKind == "uint64")
-            s.Append("ulong.TryParse(__rv, out var __vul) ? __vul : 0ul");
-        else if (prop.TypeKind == "float32" || prop.TypeKind == "float64")
-            s.Append(
-                $"double.TryParse(__rv, out var __dv) ? ({GetCSharpType(prop.TypeKind)})__dv : 0"
-            );
-        else if (prop.TypeKind == "boolean")
-            s.Append("__rv.SequenceEqual(\"true\"u8)");
-        else if (prop.TypeKind == "decimal")
-            s.Append(
-                "decimal.TryParse(Encoding.UTF8.GetString(__rv), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __dec) ? __dec : 0"
-            );
-        else if (prop.TypeKind == "datetime")
-            s.Append(
-                "System.DateTime.TryParse(Encoding.UTF8.GetString(__rv), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt) ? __dt : default"
-            );
-        else if (prop.TypeKind == "guid")
-            s.Append(
-                "System.Guid.TryParse(Encoding.UTF8.GetString(__rv), out var __g) ? __g : default"
-            );
-        else if (prop.TypeKind == "enum")
-            s.Append(
-                $"System.Enum.TryParse<{prop.TypeFullName}>(Encoding.UTF8.GetString(__rv), out var __ev) ? __ev : default"
-            );
-        else
-            s.Append("Encoding.UTF8.GetString(__rv)");
+        const string INV = "System.Globalization.CultureInfo.InvariantCulture";
+        const string DT = "System.Globalization.DateTimeStyles";
+        var lbl = EscapeInterpolation(label);
+
+        void Assign(string valueExpr)
+        {
+            s.Append(pad);
+            s.Append(assignLeft);
+            s.Append(" = ");
+            s.Append(valueExpr);
+            s.AppendLine(";");
+        }
+
+        switch (typeKind)
+        {
+            case "string":
+                Assign("Encoding.UTF8.GetString(__rv)");
+                return;
+            case "int32":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetInt32(out var __v)",
+                    "integer",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "int64":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetInt64(out var __v)",
+                    "64-bit integer",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "int16":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetInt32(out var __v)",
+                    "16-bit integer",
+                    lbl,
+                    "__rv"
+                );
+                Assign("checked((short)__v)");
+                return;
+            case "uint16":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetInt32(out var __v)",
+                    "16-bit unsigned integer",
+                    lbl,
+                    "__rv"
+                );
+                Assign("checked((ushort)__v)");
+                return;
+            case "sbyte":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetInt32(out var __v)",
+                    "8-bit integer",
+                    lbl,
+                    "__rv"
+                );
+                Assign("checked((sbyte)__v)");
+                return;
+            case "byte":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetInt32(out var __v)",
+                    "8-bit unsigned integer",
+                    lbl,
+                    "__rv"
+                );
+                Assign("checked((byte)__v)");
+                return;
+            case "uint32":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetUInt64(out var __v)",
+                    "32-bit unsigned integer",
+                    lbl,
+                    "__rv"
+                );
+                Assign("checked((uint)__v)");
+                return;
+            case "uint64":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetUInt64(out var __v)",
+                    "64-bit unsigned integer",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "float32":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetFloat64(out var __v)",
+                    "floating-point number",
+                    lbl,
+                    "__rv"
+                );
+                Assign("(float)__v");
+                return;
+            case "float64":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetFloat64(out var __v)",
+                    "floating-point number",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "boolean":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "reader.TryGetBool(out var __v)",
+                    "boolean",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "decimal":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "System.Buffers.Text.Utf8Parser.TryParse(__rv, out decimal __v, out _)",
+                    "decimal",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "datetime":
+                if (dateTimeFormat is not null)
+                {
+                    s.Append(pad);
+                    s.AppendLine("var __dtStr = Encoding.UTF8.GetString(__rv);");
+                    EmitInvalidValueThrow(
+                        s,
+                        pad,
+                        "System.DateTime.TryParseExact(__dtStr, \""
+                            + dateTimeFormat
+                            + "\", "
+                            + INV
+                            + ", "
+                            + DT
+                            + ".None, out DateTime __v)",
+                        "DateTime",
+                        lbl,
+                        "__rv"
+                    );
+                }
+                else
+                {
+                    EmitInvalidValueThrow(
+                        s,
+                        pad,
+                        "System.Buffers.Text.Utf8Parser.TryParse(__rv, out DateTime __v, out _, 'O')",
+                        "DateTime",
+                        lbl,
+                        "__rv"
+                    );
+                }
+                Assign("__v");
+                return;
+            case "guid":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "System.Buffers.Text.Utf8Parser.TryParse(__rv, out Guid __v, out _, 'D')",
+                    "Guid",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "enum":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "Enum.TryParse<"
+                        + typeFullName
+                        + ">(Encoding.UTF8.GetString(__rv), out var __v)",
+                    "enum value",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "dateonly":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "System.DateOnly.TryParse(Encoding.UTF8.GetString(__rv), "
+                        + INV
+                        + ", "
+                        + DT
+                        + ".None, out var __v)",
+                    "DateOnly",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "timeonly":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "System.TimeOnly.TryParse(Encoding.UTF8.GetString(__rv), "
+                        + INV
+                        + ", "
+                        + DT
+                        + ".None, out var __v)",
+                    "TimeOnly",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            case "timespan":
+                EmitInvalidValueThrow(
+                    s,
+                    pad,
+                    "System.Buffers.Text.Utf8Parser.TryParse(__rv, out TimeSpan __v, out _, 'c')",
+                    "TimeSpan",
+                    lbl,
+                    "__rv"
+                );
+                Assign("__v");
+                return;
+            default:
+                // Collections and any other shape have no single-value INI form
+                // here: reading the raw text would silently corrupt data, and
+                // emitting nothing would not compile.
+                s.Append(pad);
+                s.Append(
+                    "throw new System.NotSupportedException(\"INI polymorphism cannot read member '"
+                );
+                s.Append(lbl);
+                s.Append("' of kind ");
+                s.Append(typeKind);
+                s.AppendLine("\");");
+                return;
+        }
     }
 
     /// <summary>

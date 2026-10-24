@@ -855,7 +855,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
             var b = raw[i];
             if (b is not ((byte)';' or (byte)'#'))
                 continue;
-            if (i == 0 || raw[i - 1] is (byte)' ' or (byte)'	')
+            if (i == 0 || raw[i - 1] is (byte)' ' or (byte)'\t')
                 return i;
         }
         return -1;
