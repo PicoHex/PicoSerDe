@@ -2840,6 +2840,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(" = ");
             s.Append(sn);
             s.AppendLine(".Deserialize(ref r);");
+            s.Append(pad);
+            s.AppendLine("if (r.TokenType == TokenType.None) break; // document ended here");
         }
         else if (p.TypeKind is "dict")
         {
@@ -2851,7 +2853,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "int");
             s.AppendLine(">();");
             s.Append(pad);
-            s.AppendLine("if (r.Read() && r.TokenType == TokenType.ObjectStart) {");
+            s.AppendLine("if (!r.Read()) break; // document ended here");
+            s.Append(pad);
+            s.AppendLine("if (r.TokenType == TokenType.ObjectStart) {");
             s.Append(pad);
             s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName) {");
             s.Append(pad);

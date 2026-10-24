@@ -458,6 +458,10 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                     // more data) restarts exactly at this token.
                     RestoreMark(in _readMark);
                     _needsMoreData = !_isFinalBlock;
+                    // A failed read must not leave the previous token visible:
+                    // callers that loop on Read() would otherwise keep looking at
+                    // a stale PropertyName and spin.
+                    ClearToken();
                     return false;
                 }
                 // A token that reaches the sentinel may continue in the next
@@ -470,6 +474,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                 {
                     _position = __tokenStart;
                     _needsMoreData = true;
+                    ClearToken();
                     return false;
                 }
                 return true;
@@ -485,6 +490,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             {
                 RestoreMark(in _readMark);
                 _needsMoreData = true;
+                ClearToken();
                 return false;
             }
         }
@@ -492,7 +498,11 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         {
             var result = ReadImpl();
             if (!result)
+            {
                 _needsMoreData = !_isFinalBlock;
+                // Same as the span path: no token means no stale token type.
+                ClearToken();
+            }
             return result;
         }
         catch (IncompleteInputException)
@@ -502,6 +512,14 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             _needsMoreData = true;
             return false;
         }
+    }
+
+    /// <summary>Drops the current token so a failed <see cref="Read"/> leaves none behind.</summary>
+    private void ClearToken()
+    {
+        _tokenType = TokenType.None;
+        _keySpan = default;
+        _valueSpan = default;
     }
 
     /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>
@@ -829,7 +847,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                     && _data[_position] != (byte)'\r'
                 )
                     _position++;
-                _valueSpan = Trim(_data[vs.._position]);
+                _valueSpan = StripInlineComment(_data[vs.._position]);
             }
             if (_position >= _data.Length && !_isFinalBlock)
                 throw new IncompleteInputException();
@@ -867,7 +885,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                     && _data[_position] != (byte)'\r'
                 )
                     _position++;
-                _valueSpan = Trim(_data[cvStart.._position]);
+                _valueSpan = StripInlineComment(_data[cvStart.._position]);
             }
             SkipNewlineSpan();
             _tokenType = TokenType.PropertyName;
@@ -1138,7 +1156,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                     && _data[_position] != (byte)'\r'
                 )
                     _position++;
-                _valueSpan = Trim(_data[vs2.._position]);
+                _valueSpan = StripInlineComment(_data[vs2.._position]);
                 SkipNewlineSpan();
             }
         }
@@ -1214,7 +1232,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                 && _data[_position] != (byte)'\n'
             )
                 _position++;
-            _valueSpan = Trim(_data[vs.._position]);
+            _valueSpan = StripInlineComment(_data[vs.._position]);
         }
         _tokenType = TokenType.PropertyName;
         return true;
@@ -1641,7 +1659,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                     buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                     _seqReader.Advance(1);
                 }
-                _valueSpan = Trim(buf.AsSpan(0, di));
+                _valueSpan = StripInlineComment(buf.AsSpan(0, di));
                 SkipNewlineSeq();
                 _tokenType = TokenType.String;
                 return true;
@@ -1696,7 +1714,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                         cvBuf[cvd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                         _seqReader.Advance(1);
                     }
-                    _valueSpan = Trim(cvBuf.AsSpan(0, cvd));
+                    _valueSpan = StripInlineComment(cvBuf.AsSpan(0, cvd));
                 }
                 SkipNewlineSeq();
                 _tokenType = TokenType.PropertyName;
@@ -1854,7 +1872,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                     _seqReader.Advance(1);
                 }
             }
-            _valueSpan = Trim(valBuf.AsSpan(0, vd));
+            _valueSpan = StripInlineComment(valBuf.AsSpan(0, vd));
             SkipNewlineSeq();
             StoreAnchorIfNeeded();
             AccumulateMappingPair();
@@ -1937,7 +1955,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                 _seqReader.Advance(1);
             }
         }
-        _valueSpan = Trim(valBuf.AsSpan(0, di));
+        _valueSpan = StripInlineComment(valBuf.AsSpan(0, di));
         _tokenType = TokenType.PropertyName;
         return true;
     }
@@ -2026,6 +2044,28 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         while (e > st && s[e - 1] == (byte)' ')
             e--;
         return s[st..e];
+    }
+
+    private const byte Space = (byte)' ';
+    private const byte Tab = 9;
+
+    /// <summary>
+    /// Drops a trailing inline comment: a '#' that starts the span or follows
+    /// whitespace (the YAML rule — "v#note" stays intact). Quoted scalars never
+    /// reach here; they are scanned by the quoted-string readers.
+    /// </summary>
+    private static ReadOnlySpan<byte> StripInlineComment(ReadOnlySpan<byte> s)
+    {
+        var t = Trim(s);
+        for (int i = 0; i < t.Length; i++)
+        {
+            if (t[i] != (byte)'#')
+                continue;
+            if (i > 0 && t[i - 1] != Space && t[i - 1] != Tab)
+                continue;
+            return TrimEnd(t[..i]);
+        }
+        return t;
     }
 
     private bool IsAnchorMapping(int idx)
