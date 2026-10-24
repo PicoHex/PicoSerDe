@@ -611,7 +611,16 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         );
         s.AppendLine("            int __k;");
         s.AppendLine("            if (__isMap) {");
-        s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
+        s.AppendLine(
+            "                if (reader.TokenType != TokenType.Int32 && reader.TokenType != TokenType.Int64 && reader.TokenType != TokenType.UInt8 && reader.TokenType != TokenType.UInt16 && reader.TokenType != TokenType.UInt32 && reader.TokenType != TokenType.UInt64)"
+        );
+        s.AppendLine(
+            "                    throw new System.FormatException($\"Map keys must be integers at offset {reader.BytesConsumed}\");"
+        );
+        s.AppendLine(
+            "                if (!reader.TryGetInt32(out __k)) throw new System.FormatException($\"Map key out of range at offset {reader.BytesConsumed}\");"
+        );
+        s.AppendLine("                reader.Read();");
         s.AppendLine("            } else {");
         s.AppendLine("                __k = __pos;");
         s.AppendLine("            }");
@@ -627,6 +636,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("                default: if (__isMap) reader.TrySkip(); break; }");
         s.AppendLine("            __pos++;");
         s.AppendLine("        }");
+        s.AppendLine(
+            "        if (reader.Depth != 0) throw new System.FormatException(\"Truncated container: unexpected end of input\");"
+        );
         if (hasCtor)
         {
             s.Append("        return new ");
@@ -706,7 +718,18 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             );
             s.AppendLine("            int __k;");
             s.AppendLine("            if (__isMap) {");
-            s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
+            s.AppendLine(
+                "                if (reader.TokenType != TokenType.Int32 && reader.TokenType != TokenType.Int64 && reader.TokenType != TokenType.UInt8 && reader.TokenType != TokenType.UInt16 && reader.TokenType != TokenType.UInt32 && reader.TokenType != TokenType.UInt64)"
+            );
+            s.AppendLine(
+                "                    throw new System.FormatException($\"Map keys must be integers at offset {reader.BytesConsumed}\");"
+            );
+            s.AppendLine(
+                "                if (!reader.TryGetInt32(out __k)) throw new System.FormatException($\"Map key out of range at offset {reader.BytesConsumed}\");"
+            );
+            s.AppendLine(
+                "                if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
+            );
             s.AppendLine("            } else {");
             s.AppendLine("                __k = __pos;");
             s.AppendLine("            }");
@@ -722,6 +745,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.AppendLine("                default: if (__isMap) reader.TrySkip(); break; }");
             s.AppendLine("            __pos++;");
             s.AppendLine("        }");
+            // A chunk boundary is not truncation: only a complete-but-unclosed
+            // document is. Checking NeedsMoreData first keeps legal chunks readable.
+            s.AppendLine("        if (reader.NeedsMoreData) return ReadStatus.NeedMoreData;");
+            s.AppendLine(
+                "        if (reader.Depth != 0) throw new System.FormatException(\"Truncated container: unexpected end of input\");"
+            );
             s.AppendLine("        result = obj;");
             s.AppendLine("        return ReadStatus.Success;");
             s.AppendLine("    }");
@@ -1066,7 +1095,16 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("            int __k;");
         s.AppendLine("            if (__isMap)");
         s.AppendLine("            {");
-        s.AppendLine("                reader.TryGetInt32(out __k); reader.Read();");
+        s.AppendLine(
+            "                if (reader.TokenType != TokenType.Int32 && reader.TokenType != TokenType.Int64 && reader.TokenType != TokenType.UInt8 && reader.TokenType != TokenType.UInt16 && reader.TokenType != TokenType.UInt32 && reader.TokenType != TokenType.UInt64)"
+        );
+        s.AppendLine(
+            "                    throw new System.FormatException($\"Map keys must be integers at offset {reader.BytesConsumed}\");"
+        );
+        s.AppendLine(
+            "                if (!reader.TryGetInt32(out __k)) throw new System.FormatException($\"Map key out of range at offset {reader.BytesConsumed}\");"
+        );
+        s.AppendLine("                reader.Read();");
         s.AppendLine("            }");
         s.AppendLine("            else");
         s.AppendLine("            {");
