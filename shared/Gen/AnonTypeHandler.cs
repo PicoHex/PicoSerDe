@@ -16,7 +16,10 @@ internal readonly record struct AnonFieldInfo(
     bool IsReferenceType,
     AnonTypeInfo? NestedAnonType,
     string? ElementTypeKind,
-    string? ElementTypeName
+    string? ElementTypeName,
+    // Nullable<T> member (review C-26). Optional so existing positional and
+    // named call sites stay source-compatible.
+    bool IsNullable = false
 );
 
 internal sealed class AnonTypeInfo : IEquatable<AnonTypeInfo>
@@ -105,14 +108,53 @@ internal static class AnonTypeHandler
         ["array"] = (8, 8, true),
         ["any"] = (8, 8, true),
         ["bytes"] = (8, 8, true),
+        // ── Nullable<T> members (review C-26) ──
+        // Measured layout (.NET 10, x64): Nullable<T> keeps hasValue in byte 0
+        // and starts the value at T's alignment — Unsafe.SizeOf<Guid?>() == 20
+        // with the value at offset 4, Unsafe.SizeOf<decimal?>() == 24 with the
+        // value at offset 8. Each entry is (size, align); align doubles as the
+        // value offset inside the nullable.
+        ["nullable_int32"] = (8, 4, false),
+        ["nullable_int64"] = (16, 8, false),
+        ["nullable_int16"] = (4, 2, false),
+        ["nullable_uint16"] = (4, 2, false),
+        ["nullable_uint32"] = (8, 4, false),
+        ["nullable_uint64"] = (16, 8, false),
+        ["nullable_sbyte"] = (2, 1, false),
+        ["nullable_byte"] = (2, 1, false),
+        ["nullable_char"] = (4, 2, false),
+        ["nullable_float32"] = (8, 4, false),
+        ["nullable_float64"] = (16, 8, false),
+        ["nullable_boolean"] = (2, 1, false),
+        ["nullable_decimal"] = (24, 8, false),
+        ["nullable_datetime"] = (16, 8, false),
+        ["nullable_dateonly"] = (8, 4, false),
+        ["nullable_timeonly"] = (16, 8, false),
+        ["nullable_timespan"] = (16, 8, false),
+        ["nullable_guid"] = (20, 4, false),
     };
+
+    private static bool IsNullableKind(string kind) =>
+        kind.StartsWith("nullable_", StringComparison.Ordinal);
+
+    private static string StripNullableKind(string kind) =>
+        IsNullableKind(kind) ? kind.Substring("nullable_".Length) : kind;
+
+    /// <summary>
+    /// Descending sort key for value fields. The CLR reorders the fields of a
+    /// boxed anonymous type (measured on .NET 10/x64): reference fields first in
+    /// declaration order, then non-nullable value fields by alignment, then
+    /// nullable value fields — which sort after <em>every</em> non-nullable field
+    /// and keep declaration order among themselves.
+    /// </summary>
+    private static int SortAlign(string kind) => IsNullableKind(kind) ? 0 : TypeLayout[kind].Align;
 
     internal static ImmutableArray<AnonFieldInfo> ComputeFieldLayout(List<AnonFieldInfo> fields)
     {
         var refFields = fields.Where(f => f.IsReferenceType).ToList();
         var valFields = fields
             .Where(f => !f.IsReferenceType)
-            .OrderByDescending(f => TypeLayout[f.TypeKind].Align)
+            .OrderByDescending(f => SortAlign(f.TypeKind))
             .ThenBy(f => fields.IndexOf(f))
             .ToList();
         var ordered = new List<AnonFieldInfo>(refFields);
@@ -143,7 +185,15 @@ internal static class AnonTypeHandler
         {
             if (member is not IPropertySymbol p || p.IsStatic || p.IsIndexer || p.GetMethod is null)
                 continue;
-            var (tk, _, _) = TypeKindResolver.Resolve(p.Type, config.FormatTag);
+            var (resolvedKind, isNullable, innerType) = TypeKindResolver.Resolve(
+                p.Type,
+                config.FormatTag
+            );
+            var tk = resolvedKind;
+            // Nullable<T> members carry a dedicated kind so the reader/layout
+            // knows the extra hasValue byte (review C-26).
+            if (tk is not null && isNullable)
+                tk = NullableKind(tk, innerType ?? p.Type);
             AnonTypeInfo? nested = null;
             if (p.Type is INamedTypeSymbol pn && pn.IsAnonymousType)
                 nested = BuildAnonTypeInfo(pn, ctx, config, attrs);
@@ -196,7 +246,9 @@ internal static class AnonTypeHandler
                     elemName = va.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 }
             }
-            fields.Add(new AnonFieldInfo(p.Name, jn, tk, 0, isRef, nested, elemKind, elemName));
+            fields.Add(
+                new AnonFieldInfo(p.Name, jn, tk, 0, isRef, nested, elemKind, elemName, isNullable)
+            );
         }
         var ordered = ComputeFieldLayout(fields);
         var methodLoc = ctx.Node is InvocationExpressionSyntax inv
@@ -226,6 +278,31 @@ internal static class AnonTypeHandler
         );
     }
 
+    /// <summary>
+    /// Maps a <c>Nullable&lt;T&gt;</c> member to its nullable layout kind. Enums are
+    /// sized by <see cref="INamedTypeSymbol.EnumUnderlyingType"/>: a
+    /// <c>Nullable&lt;longBackedEnum&gt;</c> is 16 bytes/align 8, a
+    /// <c>Nullable&lt;intBackedEnum&gt;</c> 8/4, and narrower underlying types keep
+    /// their real width — one uniform 32-bit mapping would corrupt every
+    /// following field offset.
+    /// </summary>
+    private static string NullableKind(string kind, ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
+            return enumType.EnumUnderlyingType?.SpecialType switch
+            {
+                SpecialType.System_Byte => "nullable_byte",
+                SpecialType.System_SByte => "nullable_sbyte",
+                SpecialType.System_Int16 => "nullable_int16",
+                SpecialType.System_UInt16 => "nullable_uint16",
+                SpecialType.System_UInt32 => "nullable_uint32",
+                SpecialType.System_Int64 => "nullable_int64",
+                SpecialType.System_UInt64 => "nullable_uint64",
+                _ => "nullable_int32",
+            };
+        return "nullable_" + kind;
+    }
+
     internal static string GenerateReaderClass(
         AnonTypeInfo info,
         string fmtTag,
@@ -240,12 +317,15 @@ internal static class AnonTypeHandler
         sb.AppendLine($"file unsafe static class __AnonReaders_{fmtTag}_{info.UniqueId}\n{{");
         foreach (var kind in info.Fields.Select(f => f.TypeKind).Distinct())
         {
+            if (IsNullableKind(kind))
+            {
+                AppendNullableReader(sb, kind);
+                continue;
+            }
             var (_, _, isRef) = TypeLayout[kind];
             var ct = KindToCSharp(kind);
             sb.AppendLine($"    internal static {ct} Read_{kind}(object obj, int offset)\n    {{");
-            sb.AppendLine("        void* pRef = Unsafe.AsPointer(ref obj);");
-            sb.AppendLine("        IntPtr objPtr = *(IntPtr*)pRef;");
-            sb.AppendLine("        byte* data = (byte*)objPtr + IntPtr.Size + offset;");
+            AppendReaderPrologue(sb);
             if (isRef)
             {
                 sb.AppendLine($"        ref IntPtr slot = ref Unsafe.AsRef<IntPtr>(data);");
@@ -259,8 +339,39 @@ internal static class AnonTypeHandler
         return sb.ToString();
     }
 
-    private static string KindToCSharp(string k) =>
-        k switch
+    private static void AppendReaderPrologue(StringBuilder sb)
+    {
+        sb.AppendLine("        void* pRef = Unsafe.AsPointer(ref obj);");
+        sb.AppendLine("        IntPtr objPtr = *(IntPtr*)pRef;");
+        sb.AppendLine("        byte* data = (byte*)objPtr + IntPtr.Size + offset;");
+    }
+
+    /// <summary>
+    /// Reads a <c>Nullable&lt;T&gt;</c> member. A plain
+    /// <c>Unsafe.Read&lt;int&gt;</c> on a <c>Nullable&lt;int&gt;</c> field reads the
+    /// hasValue byte and returns garbage (review C-26), so the reader checks
+    /// hasValue at byte 0 and reads the value at T's alignment.
+    /// </summary>
+    private static void AppendNullableReader(StringBuilder sb, string kind)
+    {
+        var (_, align, _) = TypeLayout[kind];
+        var valueType = KindToCSharp(StripNullableKind(kind));
+        var nullableType = KindToCSharp(kind);
+        sb.AppendLine(
+            $"    internal static {nullableType} Read_{kind}(object obj, int offset)\n    {{"
+        );
+        AppendReaderPrologue(sb);
+        sb.AppendLine("        if (!Unsafe.Read<bool>(data))");
+        sb.AppendLine("            return null;");
+        sb.AppendLine($"        return Unsafe.Read<{valueType}>(data + {align});");
+        sb.AppendLine("    }\n");
+    }
+
+    private static string KindToCSharp(string k)
+    {
+        if (IsNullableKind(k))
+            return KindToCSharp(StripNullableKind(k)) + "?";
+        return k switch
         {
             "string" => "string",
             "int32" => "int",
@@ -284,6 +395,7 @@ internal static class AnonTypeHandler
             "enum" => "int",
             _ => "object",
         };
+    }
 
     internal static void GenerateInterceptorClass(
         SourceProductionContext spc,
@@ -393,110 +505,22 @@ internal static class AnonTypeHandler
                 sb.AppendLine($"        {wv}.{afc.ObjectStartMethod}();");
         }
 
+        var readers = $"__AnonReaders_{fmtTag}_{info.UniqueId}";
         foreach (var f in info.Fields)
-        {
-            sb.AppendLine("            {");
-            if (f.NestedAnonType is { } nested)
-            {
-                sb.AppendLine(
-                    $"                var __child = __AnonReaders_{fmtTag}_{info.UniqueId}.Read_{f.TypeKind}(obj, {f.RuntimeOffset});"
-                );
-                sb.AppendLine("                if (__child != null) {");
-                if (!afc.EmbedsKeyInValue)
-                    EmitAnonFieldKey(sb, wv, f, afc, ot, "                    ");
-                else if (afc.NestedSectionMethod is not null)
-                    sb.AppendLine(
-                        $"                    {wv}.{afc.NestedSectionMethod}(\"{PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(f.JsonName)}\");"
-                    );
-                if (afc.HasIndentedMaxDepth)
-                {
-                    if (afc.HasOptionsParam)
-                        sb.AppendLine(
-                            $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child, 1, options);"
-                        );
-                    else
-                        sb.AppendLine(
-                            $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child, 1);"
-                        );
-                }
-                else
-                {
-                    if (afc.HasOptionsParam)
-                        sb.AppendLine(
-                            $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child, options);"
-                        );
-                    else
-                        sb.AppendLine(
-                            $"                    __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __child);"
-                        );
-                }
-                sb.AppendLine("                } else {");
-                if (afc.HasNullLiteral)
-                    sb.AppendLine($"                    {wv}.WriteNull();");
-                sb.AppendLine("                }");
-                sb.AppendLine("            }");
-                continue;
-            }
-            if (f.TypeKind is "list" or "array" or "dict" && afc.ObjectStartMethod is not null)
-            {
-                sb.AppendLine(
-                    $"                var __col = __AnonReaders_{fmtTag}_{info.UniqueId}.Read_{f.TypeKind}(obj, {f.RuntimeOffset});"
-                );
-                sb.AppendLine("                if (__col != null) {");
-                if (!afc.EmbedsKeyInValue)
-                    EmitAnonFieldKey(sb, wv, f, afc, ot, "                    ");
-                EmitCollectionSerialize(sb, wv, f, fmtTag, emitField);
-                sb.AppendLine("                } else {");
-                if (afc.HasNullLiteral)
-                    sb.AppendLine($"                    {wv}.WriteNull();");
-                sb.AppendLine("                }");
-                sb.AppendLine("            }");
-                continue;
-            }
-            sb.AppendLine(
-                $"                var __v = __AnonReaders_{fmtTag}_{info.UniqueId}.Read_{f.TypeKind}(obj, {f.RuntimeOffset});"
+            EmitAnonMember(
+                sb,
+                f,
+                fmtTag,
+                afc,
+                ot,
+                wv,
+                readers,
+                "            ",
+                "__v",
+                "__vv",
+                "1",
+                emitField
             );
-            bool isRef = TypeLayout[f.TypeKind].IsRef;
-            bool skipNull = !afc.HasNullLiteral;
-            if (isRef && skipNull)
-            {
-                sb.AppendLine("                if (__v != null) {");
-                if (!afc.EmbedsKeyInValue)
-                    EmitAnonFieldKey(sb, wv, f, afc, ot, "                    ");
-                sb.AppendLine($"                    {emitField(f, "__v", wv)}");
-                sb.AppendLine("                }");
-            }
-            else if (isRef)
-            {
-                if (afc.HasOptionsParam)
-                {
-                    sb.AppendLine(
-                        $"                if (__v != null || options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingNull) {{"
-                    );
-                    if (!afc.EmbedsKeyInValue)
-                        EmitAnonFieldKey(sb, wv, f, afc, ot, "                    ");
-                    sb.AppendLine("                    if (__v != null) {");
-                    sb.AppendLine($"                        {emitField(f, "__v", wv)}");
-                    sb.AppendLine($"                    }} else {{ {wv}.WriteNull(); }}");
-                    sb.AppendLine("                }");
-                }
-                else
-                {
-                    if (!afc.EmbedsKeyInValue)
-                        EmitAnonFieldKey(sb, wv, f, afc, ot, "                ");
-                    sb.AppendLine("                if (__v != null) {");
-                    sb.AppendLine($"                    {emitField(f, "__v", wv)}");
-                    sb.AppendLine($"                }} else {{ {wv}.WriteNull(); }}");
-                }
-            }
-            else
-            {
-                if (!afc.EmbedsKeyInValue)
-                    EmitAnonFieldKey(sb, wv, f, afc, ot, "                ");
-                sb.AppendLine($"                {emitField(f, "__v", wv)}");
-            }
-            sb.AppendLine("            }");
-        }
 
         // Format-specific write end
         if (afc.ObjectEndMethod is not null)
@@ -547,33 +571,214 @@ internal static class AnonTypeHandler
         }
     }
 
+    private static bool IsCollectionKind(string kind) => kind is "list" or "array" or "dict";
+
+    /// <summary>
+    /// The anonymous interceptor can only emit collection members for writers
+    /// that expose a standalone array API. TOML/INI embed the key in every
+    /// scalar call and YAML only offers per-item <c>WriteSequenceItem</c> calls.
+    /// </summary>
+    private static bool SupportsAnonCollections(string fmtTag) => fmtTag is "json" or "msgpack";
+
+    /// <summary>
+    /// Emits one anonymous-type member. Shared by the top-level interceptor and
+    /// the nested-anonymous helper so both honour the same null, collection and
+    /// nullable rules (review C-02, C-26).
+    /// </summary>
+    private static void EmitAnonMember(
+        StringBuilder sb,
+        AnonFieldInfo f,
+        string fmtTag,
+        AnonFormatConfig afc,
+        string ot,
+        string wv,
+        string readers,
+        string indent,
+        string valueVar,
+        string unwrappedVar,
+        string depthArg,
+        Func<AnonFieldInfo, string, string, string> emitField
+    )
+    {
+        string body = indent + "    ";
+        // Review C-02: for formats with a null literal the key belongs to the
+        // member, not to its non-null branch — otherwise a null collection or a
+        // null nested object emits a bare `null` and corrupts the document
+        // (review C-02: `new { Xs = (List<int>?)null }` produced `{null}`).
+        bool keyBeforeNullCheck = afc.HasNullLiteral && !afc.EmbedsKeyInValue;
+
+        if (IsCollectionKind(f.TypeKind) && !SupportsAnonCollections(fmtTag))
+        {
+            sb.AppendLine(
+                $"{indent}// {f.Name}: collection members cannot be represented in {fmtTag} anonymous types — omitted"
+            );
+            return;
+        }
+
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine(
+            $"{body}var {valueVar} = {readers}.Read_{f.TypeKind}(obj, {f.RuntimeOffset});"
+        );
+
+        if (f.NestedAnonType is { } nested)
+        {
+            if (keyBeforeNullCheck)
+                EmitAnonFieldKey(sb, wv, f, afc, ot, body);
+            sb.AppendLine($"{body}if ({valueVar} != null) {{");
+            if (!keyBeforeNullCheck)
+                EmitNestedMemberKey(sb, wv, f, afc, ot, body + "    ");
+            EmitNestedSerialize(sb, wv, nested, valueVar, afc, body + "    ", depthArg);
+            AppendNullBranchEnd(sb, wv, afc.HasNullLiteral, body);
+        }
+        else if (IsCollectionKind(f.TypeKind))
+        {
+            if (keyBeforeNullCheck)
+                EmitAnonFieldKey(sb, wv, f, afc, ot, body);
+            sb.AppendLine($"{body}if ({valueVar} != null) {{");
+            if (!keyBeforeNullCheck && !afc.EmbedsKeyInValue)
+                EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");
+            EmitCollectionSerialize(sb, wv, f, fmtTag, emitField, body + "    ", valueVar);
+            AppendNullBranchEnd(sb, wv, afc.HasNullLiteral, body);
+        }
+        else if (f.IsNullable && IsNullableKind(f.TypeKind))
+        {
+            // Review C-26: unwrap before handing the value to the format emitter —
+            // every Emit*Value overload takes the non-nullable type, and JSON's
+            // fallback arm would stringify an `int?` (5 → "5").
+            var valueField = f with
+            {
+                TypeKind = StripNullableKind(f.TypeKind),
+                IsNullable = false,
+            };
+            sb.AppendLine($"{body}if ({valueVar}.HasValue) {{");
+            if (!afc.EmbedsKeyInValue)
+                EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");
+            sb.AppendLine($"{body}    var {unwrappedVar} = {valueVar}.Value;");
+            sb.AppendLine($"{body}    {emitField(valueField, unwrappedVar, wv)}");
+            if (afc.HasNullLiteral)
+            {
+                sb.AppendLine($"{body}}} else {{");
+                if (!afc.EmbedsKeyInValue)
+                    EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");
+                sb.AppendLine($"{body}    {wv}.WriteNull();");
+            }
+            sb.AppendLine($"{body}}}");
+        }
+        else
+        {
+            bool isRef = TypeLayout[f.TypeKind].IsRef;
+            bool skipNull = !afc.HasNullLiteral;
+            if (isRef && skipNull)
+            {
+                sb.AppendLine($"{body}if ({valueVar} != null) {{");
+                if (!afc.EmbedsKeyInValue)
+                    EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");
+                sb.AppendLine($"{body}    {emitField(f, valueVar, wv)}");
+                sb.AppendLine($"{body}}}");
+            }
+            else if (isRef)
+            {
+                if (afc.HasOptionsParam)
+                {
+                    sb.AppendLine(
+                        $"{body}if ({valueVar} != null || options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingNull) {{"
+                    );
+                    if (!afc.EmbedsKeyInValue)
+                        EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");
+                    sb.AppendLine($"{body}    if ({valueVar} != null) {{");
+                    sb.AppendLine($"{body}        {emitField(f, valueVar, wv)}");
+                    sb.AppendLine($"{body}    }} else {{ {wv}.WriteNull(); }}");
+                    sb.AppendLine($"{body}}}");
+                }
+                else
+                {
+                    if (!afc.EmbedsKeyInValue)
+                        EmitAnonFieldKey(sb, wv, f, afc, ot, body);
+                    sb.AppendLine($"{body}if ({valueVar} != null) {{");
+                    sb.AppendLine($"{body}    {emitField(f, valueVar, wv)}");
+                    sb.AppendLine($"{body}}} else {{ {wv}.WriteNull(); }}");
+                }
+            }
+            else
+            {
+                if (!afc.EmbedsKeyInValue)
+                    EmitAnonFieldKey(sb, wv, f, afc, ot, body);
+                sb.AppendLine($"{body}{emitField(f, valueVar, wv)}");
+            }
+        }
+        sb.AppendLine($"{indent}}}");
+    }
+
+    private static void AppendNullBranchEnd(
+        StringBuilder sb,
+        string wv,
+        bool hasNullLiteral,
+        string body
+    )
+    {
+        if (hasNullLiteral)
+        {
+            sb.AppendLine($"{body}}} else {{");
+            sb.AppendLine($"{body}    {wv}.WriteNull();");
+        }
+        sb.AppendLine($"{body}}}");
+    }
+
+    private static void EmitNestedMemberKey(
+        StringBuilder sb,
+        string wv,
+        AnonFieldInfo f,
+        AnonFormatConfig afc,
+        string ot,
+        string indent
+    )
+    {
+        if (!afc.EmbedsKeyInValue)
+            EmitAnonFieldKey(sb, wv, f, afc, ot, indent);
+        else if (afc.NestedSectionMethod is not null)
+            sb.AppendLine(
+                $"{indent}{wv}.{afc.NestedSectionMethod}(\"{PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(f.JsonName)}\");"
+            );
+    }
+
+    private static void EmitNestedSerialize(
+        StringBuilder sb,
+        string wv,
+        AnonTypeInfo nested,
+        string valueVar,
+        AnonFormatConfig afc,
+        string indent,
+        string depthArg
+    )
+    {
+        var args = afc.HasIndentedMaxDepth ? $"{valueVar}, {depthArg}" : valueVar;
+        var opts = afc.HasOptionsParam ? ", options" : "";
+        sb.AppendLine($"{indent}__AnonInner_{nested.UniqueId}.Serialize(ref {wv}, {args}{opts});");
+    }
+
     private static void EmitCollectionSerialize(
         StringBuilder sb,
         string wv,
         AnonFieldInfo f,
         string fmtTag,
-        Func<AnonFieldInfo, string, string, string> emitField
+        Func<AnonFieldInfo, string, string, string> emitField,
+        string indent,
+        string valueVar
     )
     {
-        string start = fmtTag switch
-        {
-            "yaml" => "WriteStartSequence",
-            _ => "WriteStartArray",
-        };
-        string end = fmtTag switch
-        {
-            "yaml" => "WriteEndSequence",
-            _ => "WriteEndArray",
-        };
+        // Only JSON/MsgPack reach this method (see SupportsAnonCollections), and
+        // both writers expose a standalone array API.
+        const string start = "WriteStartArray";
+        const string end = "WriteEndArray";
 
         if (f.TypeKind == "dict")
         {
-            sb.AppendLine($"                    {wv}.WriteStartObject();");
+            sb.AppendLine($"{indent}{wv}.WriteStartObject();");
             sb.AppendLine(
-                "                    foreach (System.Collections.DictionaryEntry __de in (System.Collections.IDictionary)__col)"
+                $"{indent}foreach (System.Collections.DictionaryEntry __de in (System.Collections.IDictionary){valueVar})"
             );
-            sb.AppendLine("                    {");
-            sb.AppendLine($"                        {wv}.WritePropertyName((string)__de.Key);");
+            sb.AppendLine($"{indent}{{");
+            sb.AppendLine($"{indent}    {wv}.WritePropertyName((string)__de.Key);");
             if (f.ElementTypeKind is not null && f.ElementTypeKind != "any")
             {
                 var ct = KindToCSharp(f.ElementTypeKind);
@@ -587,24 +792,24 @@ internal static class AnonTypeHandler
                     null,
                     null
                 );
-                sb.AppendLine($"                        var __dv = ({ct})__de.Value;");
-                sb.AppendLine($"                        {emitField(elemField, "__dv", wv)}");
+                sb.AppendLine($"{indent}    var __dv = ({ct})__de.Value;");
+                sb.AppendLine($"{indent}    {emitField(elemField, "__dv", wv)}");
             }
             else
             {
                 var elemField = new AnonFieldInfo("", "", "any", 0, true, null, null, null);
-                sb.AppendLine($"                        {emitField(elemField, "__de.Value", wv)}");
+                sb.AppendLine($"{indent}    {emitField(elemField, "__de.Value", wv)}");
             }
-            sb.AppendLine("                    }");
-            sb.AppendLine($"                    {wv}.WriteEndObject();");
+            sb.AppendLine($"{indent}}}");
+            sb.AppendLine($"{indent}{wv}.WriteEndObject();");
             return;
         }
 
-        sb.AppendLine($"                    {wv}.{start}();");
+        sb.AppendLine($"{indent}{wv}.{start}();");
         sb.AppendLine(
-            "                    foreach (var __item in (System.Collections.IEnumerable)__col)"
+            $"{indent}foreach (var __item in (System.Collections.IEnumerable){valueVar})"
         );
-        sb.AppendLine("                    {");
+        sb.AppendLine($"{indent}{{");
         if (f.ElementTypeKind is not null && f.ElementTypeKind != "any")
         {
             var ct = KindToCSharp(f.ElementTypeKind);
@@ -618,16 +823,16 @@ internal static class AnonTypeHandler
                 null,
                 null
             );
-            sb.AppendLine($"                        var __iv = ({ct})__item;");
-            sb.AppendLine($"                        {emitField(elemField, "__iv", wv)}");
+            sb.AppendLine($"{indent}    var __iv = ({ct})__item;");
+            sb.AppendLine($"{indent}    {emitField(elemField, "__iv", wv)}");
         }
         else
         {
             var elemField = new AnonFieldInfo("", "", "any", 0, true, null, null, null);
-            sb.AppendLine($"                        {emitField(elemField, "__item", wv)}");
+            sb.AppendLine($"{indent}    {emitField(elemField, "__item", wv)}");
         }
-        sb.AppendLine("                    }");
-        sb.AppendLine($"                    {wv}.{end}();");
+        sb.AppendLine($"{indent}}}");
+        sb.AppendLine($"{indent}{wv}.{end}();");
     }
 
     private static List<AnonTypeInfo> CollectNestedTypes(ImmutableArray<AnonFieldInfo> fields)
@@ -681,81 +886,20 @@ internal static class AnonTypeHandler
         foreach (var f in info.Fields)
         {
             var vi = fi++;
-            sb.AppendLine("    {");
-            sb.AppendLine(
-                $"        var __v{vi} = __AnonReaders_{fmtTag}_{info.UniqueId}.Read_{f.TypeKind}(obj, {f.RuntimeOffset});"
+            EmitAnonMember(
+                sb,
+                f,
+                fmtTag,
+                afc,
+                ot,
+                wv,
+                $"__AnonReaders_{fmtTag}_{info.UniqueId}",
+                "    ",
+                $"__v{vi}",
+                $"__vv{vi}",
+                "__depth + 1",
+                emitField
             );
-            if (f.NestedAnonType is { } nested)
-            {
-                sb.AppendLine($"        if (__v{vi} != null) {{");
-                if (!afc.EmbedsKeyInValue)
-                    EmitAnonFieldKey(sb, wv, f, afc, ot, "            ");
-                else if (afc.NestedSectionMethod is not null)
-                    sb.AppendLine(
-                        $"            {wv}.{afc.NestedSectionMethod}(\"{PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(f.JsonName)}\");"
-                    );
-                if (afc.HasIndentedMaxDepth)
-                    if (afc.HasOptionsParam)
-                        sb.AppendLine(
-                            $"            __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __v{vi}, __depth + 1, options);"
-                        );
-                    else
-                        sb.AppendLine(
-                            $"            __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __v{vi}, __depth + 1);"
-                        );
-                else if (afc.HasOptionsParam)
-                    sb.AppendLine(
-                        $"            __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __v{vi}, options);"
-                    );
-                else
-                    sb.AppendLine(
-                        $"            __AnonInner_{nested.UniqueId}.Serialize(ref {wv}, __v{vi});"
-                    );
-                sb.AppendLine("        }");
-            }
-            else
-            {
-                bool isRef = TypeLayout[f.TypeKind].IsRef;
-                bool skipNull = !afc.HasNullLiteral;
-                if (isRef && skipNull)
-                {
-                    sb.AppendLine($"        if (__v{vi} != null) {{");
-                    if (!afc.EmbedsKeyInValue)
-                        EmitAnonFieldKey(sb, wv, f, afc, ot, "            ");
-                    sb.AppendLine($"            {emitField(f, $"__v{vi}", wv)}");
-                    sb.AppendLine("        }");
-                }
-                else if (isRef)
-                {
-                    if (afc.HasOptionsParam)
-                    {
-                        sb.AppendLine(
-                            $"        if (__v{vi} != null || options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingNull) {{"
-                        );
-                        if (!afc.EmbedsKeyInValue)
-                            EmitAnonFieldKey(sb, wv, f, afc, ot, "            ");
-                        sb.AppendLine($"            if (__v{vi} != null) {{");
-                        sb.AppendLine($"                {emitField(f, $"__v{vi}", wv)}");
-                        sb.AppendLine($"            }} else {{ {wv}.WriteNull(); }}");
-                        sb.AppendLine("        }");
-                    }
-                    else
-                    {
-                        if (!afc.EmbedsKeyInValue)
-                            EmitAnonFieldKey(sb, wv, f, afc, ot, "        ");
-                        sb.AppendLine($"        if (__v{vi} != null) {{");
-                        sb.AppendLine($"            {emitField(f, $"__v{vi}", wv)}");
-                        sb.AppendLine($"        }} else {{ {wv}.WriteNull(); }}");
-                    }
-                }
-                else
-                {
-                    if (!afc.EmbedsKeyInValue)
-                        EmitAnonFieldKey(sb, wv, f, afc, ot, "        ");
-                    sb.AppendLine($"        {emitField(f, $"__v{vi}", wv)}");
-                }
-            }
-            sb.AppendLine("    }");
         }
         sb.AppendLine("    }");
         sb.AppendLine("}");
