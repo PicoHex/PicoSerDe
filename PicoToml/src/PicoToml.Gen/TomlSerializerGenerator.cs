@@ -1665,7 +1665,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(")");
                 s.Append(indent);
                 s.AppendLine("{");
-                EmitSerializeListElement(s, p, indent + "    ");
+                if (IsNestedCollectionMember(p))
+                    EmitSerializeNestedArrayLevel(s, p, "__item", indent + "    ", 1);
+                else
+                    EmitSerializeListElement(s, p, indent + "    ");
                 s.Append(indent);
                 s.AppendLine("}");
                 s.Append(indent);
@@ -2219,23 +2222,34 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
     }
 
-    private static void EmitSerializeListElement(StringBuilder s, PropertyInfo p, string indent)
+    private static void EmitSerializeListElement(
+        StringBuilder s,
+        PropertyInfo p,
+        string indent,
+        string itemVar = "__item"
+    )
     {
         // TOML has no null type: null scalar elements are skipped (YAML does the
         // same), so a nullable string element needs a guard before the writer.
         if (p.ElementIsNullableReference && p.ElementTypeKind is "string")
         {
             s.Append(indent);
-            s.AppendLine("if (__item != null)");
+            s.Append("if (");
+            s.Append(itemVar);
+            s.AppendLine(" != null)");
             s.Append(indent);
-            s.AppendLine("    tw.WriteArrayValue(__item);");
+            s.Append("    tw.WriteArrayValue(");
+            s.Append(itemVar);
+            s.AppendLine(");");
             return;
         }
         switch (p.ElementTypeKind)
         {
             case "string":
                 s.Append(indent);
-                s.AppendLine("tw.WriteArrayValue(__item);");
+                s.Append("tw.WriteArrayValue(");
+                s.Append(itemVar);
+                s.AppendLine(");");
                 break;
             case "int32":
             case "int64":
@@ -2248,11 +2262,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             case "float32":
             case "float64":
                 s.Append(indent);
-                s.AppendLine("tw.WriteArrayValue(__item);");
+                s.Append("tw.WriteArrayValue(");
+                s.Append(itemVar);
+                s.AppendLine(");");
                 break;
             case "boolean":
                 s.Append(indent);
-                s.AppendLine("tw.WriteArrayValue(__item);");
+                s.Append("tw.WriteArrayValue(");
+                s.Append(itemVar);
+                s.AppendLine(");");
                 break;
             case "dict":
             {
@@ -2262,7 +2280,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 );
                 s.Append(indent);
                 s.Append(sn);
-                s.AppendLine(".SerializeContent(tw, __item);");
+                s.Append(".SerializeContent(tw, ");
+                s.Append(itemVar);
+                s.AppendLine(");");
                 break;
             }
             case "object":
@@ -2273,14 +2293,74 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 );
                 s.Append(indent);
                 s.Append(sn);
-                s.AppendLine(".Serialize(tw, __item);");
+                s.Append(".Serialize(tw, ");
+                s.Append(itemVar);
+                s.AppendLine(");");
                 break;
             }
             default:
                 s.Append(indent);
-                s.AppendLine("tw.WriteArrayValue(__item.ToString());");
+                s.Append("tw.WriteArrayValue(");
+                s.Append(itemVar);
+                s.AppendLine(".ToString());");
                 break;
         }
+    }
+
+    /// <summary>
+    /// True for a collection member whose elements are themselves collections
+    /// (<c>List&lt;List&lt;int&gt;&gt;</c>, <c>List&lt;int[]&gt;</c>,
+    /// <c>List&lt;List&lt;List&lt;int&gt;&gt;&gt;</c>). TOML encodes those as an inline
+    /// array of inline arrays (F6); object/dict leaves never get here because the
+    /// shared extractor drops them with PICOSERDE004.
+    /// </summary>
+    private static bool IsNestedCollectionMember(PropertyInfo p) =>
+        p.TypeKind is "list" or "array"
+        && p.ElementTypeKind is "list" or "array"
+        && p.NestedProperties.Length > 0;
+
+    /// <summary>
+    /// Emits the body of the <c>foreach (var __itemN in ...)</c> that runs per
+    /// element of one nesting level: either another bracketed level
+    /// (<c>tw.WriteStartArray("")</c> … <c>tw.WriteEndArray()</c>) or the scalar
+    /// leaf write, which reuses the flat list element emitter.
+    /// </summary>
+    private static void EmitSerializeNestedArrayLevel(
+        StringBuilder s,
+        PropertyInfo node,
+        string itemVar,
+        string indent,
+        int depth
+    )
+    {
+        if (node.ElementTypeKind is "list" or "array" && node.NestedProperties.Length > 0)
+        {
+            var innerVar =
+                "__item" + depth.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            s.Append(indent);
+            s.AppendLine("tw.WriteStartArray(\"\"u8);");
+            s.Append(indent);
+            s.Append("foreach (var ");
+            s.Append(innerVar);
+            s.Append(" in ");
+            s.Append(itemVar);
+            s.AppendLine(")");
+            s.Append(indent);
+            s.AppendLine("{");
+            EmitSerializeNestedArrayLevel(
+                s,
+                node.NestedProperties[0],
+                innerVar,
+                indent + "    ",
+                depth + 1
+            );
+            s.Append(indent);
+            s.AppendLine("}");
+            s.Append(indent);
+            s.AppendLine("tw.WriteEndArray();");
+            return;
+        }
+        EmitSerializeListElement(s, node, indent, itemVar);
     }
 
     /// <summary>Dispatch to <see cref="EmitDeserializeProp"/> or generate constructor param assign.</summary>
@@ -2383,7 +2463,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    while (r.Read() && r.TokenType != TokenType.ArrayEnd)");
                 s.Append(pad);
                 s.AppendLine("    {");
-                EmitDeserializeListElementTemp(s, p, pad + "        ");
+                if (IsNestedCollectionMember(p))
+                    EmitDeserializeNestedArrayLevel(s, p, "__tmpList", pad + "        ", 1);
+                else
+                    EmitDeserializeListElementTemp(s, p, pad + "        ");
                 s.Append(pad);
                 s.AppendLine("    }");
                 s.Append(pad);
@@ -2862,79 +2945,96 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("{");
     }
 
-    private static void EmitDeserializeListElementTemp(StringBuilder s, PropertyInfo p, string pad)
+    private static void EmitDeserializeListElementTemp(
+        StringBuilder s,
+        PropertyInfo p,
+        string pad,
+        string listVar = "__tmpList"
+    )
     {
         switch (p.ElementTypeKind)
         {
             case "string":
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(Encoding.UTF8.GetString(r.ValueSpan));");
+                s.Append(listVar);
+                s.AppendLine(".Add(Encoding.UTF8.GetString(r.ValueSpan));");
                 break;
             case "int32":
                 s.Append(pad);
                 s.AppendLine("r.TryGetInt32(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__ev);");
+                s.Append(listVar);
+                s.AppendLine(".Add(__ev);");
                 break;
             case "int64":
                 s.Append(pad);
                 s.AppendLine("r.TryGetInt64(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__ev);");
+                s.Append(listVar);
+                s.AppendLine(".Add(__ev);");
                 break;
             case "int16":
                 s.Append(pad);
                 s.AppendLine("r.TryGetInt32(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((short)__ev));");
+                s.Append(listVar);
+                s.AppendLine(".Add(checked((short)__ev));");
                 break;
             case "uint16":
                 s.Append(pad);
                 s.AppendLine("r.TryGetInt32(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((ushort)__ev));");
+                s.Append(listVar);
+                s.AppendLine(".Add(checked((ushort)__ev));");
                 break;
             case "sbyte":
                 s.Append(pad);
                 s.AppendLine("r.TryGetInt32(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((sbyte)__ev));");
+                s.Append(listVar);
+                s.AppendLine(".Add(checked((sbyte)__ev));");
                 break;
             case "byte":
                 s.Append(pad);
                 s.AppendLine("r.TryGetInt32(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((byte)__ev));");
+                s.Append(listVar);
+                s.AppendLine(".Add(checked((byte)__ev));");
                 break;
             case "uint32":
                 s.Append(pad);
                 s.AppendLine("r.TryGetInt64(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(checked((uint)__ev));");
+                s.Append(listVar);
+                s.AppendLine(".Add(checked((uint)__ev));");
                 break;
             case "uint64":
                 s.Append(pad);
                 s.AppendLine("r.TryGetUInt64(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__ev);");
+                s.Append(listVar);
+                s.AppendLine(".Add(__ev);");
                 break;
             case "float32":
                 s.Append(pad);
                 s.AppendLine("r.TryGetFloat64(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add((float)__ev);");
+                s.Append(listVar);
+                s.AppendLine(".Add((float)__ev);");
                 break;
             case "float64":
                 s.Append(pad);
                 s.AppendLine("r.TryGetFloat64(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__ev);");
+                s.Append(listVar);
+                s.AppendLine(".Add(__ev);");
                 break;
             case "boolean":
                 s.Append(pad);
                 s.AppendLine("r.TryGetBool(out var __ev);");
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(__ev);");
+                s.Append(listVar);
+                s.AppendLine(".Add(__ev);");
                 break;
             case "dict":
             {
@@ -2943,16 +3043,83 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     p.ElementTypeName!
                 );
                 s.Append(pad);
-                s.Append("__tmpList.Add(");
+                s.Append(listVar);
+                s.Append(".Add(");
                 s.Append(sn);
                 s.AppendLine(".Deserialize(ref r));");
                 break;
             }
             default:
                 s.Append(pad);
-                s.AppendLine("__tmpList.Add(Encoding.UTF8.GetString(r.ValueSpan));");
+                s.Append(listVar);
+                s.AppendLine(".Add(Encoding.UTF8.GetString(r.ValueSpan));");
                 break;
         }
+    }
+
+    /// <summary>
+    /// Emits the body that reads ONE element of the collection described by
+    /// <paramref name="node"/> into <paramref name="listVar"/>. For a nested level the
+    /// reader is already positioned on the opening <c>[</c> of the inner inline array
+    /// (the caller's <c>r.Read()</c> advanced onto it), so the level reads its own
+    /// bracket pair into a fresh accumulator and adds that accumulator to the
+    /// enclosing list — <c>ToArray()</c> when the level is a real array.
+    /// </summary>
+    private static void EmitDeserializeNestedArrayLevel(
+        StringBuilder s,
+        PropertyInfo node,
+        string listVar,
+        string pad,
+        int depth
+    )
+    {
+        if (node.ElementTypeKind is not ("list" or "array") || node.NestedProperties.Length == 0)
+        {
+            EmitDeserializeListElementTemp(s, node, pad, listVar);
+            return;
+        }
+        var innerVar =
+            "__tmpList" + depth.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        s.Append(pad);
+        s.AppendLine("if (r.TokenType == TokenType.ArrayStart)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.Append("    var ");
+        s.Append(innerVar);
+        // The accumulator holds the ELEMENT type of the level being entered,
+        // which is described by the next node in the chain (node describes this
+        // level, so node.ElementTypeName* is still the enclosing element type).
+        s.Append(" = new System.Collections.Generic.List<");
+        s.Append(
+            node.NestedProperties[0].ElementTypeNameAnnotated
+                ?? node.NestedProperties[0].ElementTypeName
+                ?? "object"
+        );
+        s.AppendLine(">(16);");
+        s.Append(pad);
+        s.AppendLine("    while (r.Read() && r.TokenType != TokenType.ArrayEnd)");
+        s.Append(pad);
+        s.AppendLine("    {");
+        EmitDeserializeNestedArrayLevel(
+            s,
+            node.NestedProperties[0],
+            innerVar,
+            pad + "        ",
+            depth + 1
+        );
+        s.Append(pad);
+        s.AppendLine("    }");
+        s.Append(pad);
+        s.Append("    ");
+        s.Append(listVar);
+        s.Append(".Add(");
+        s.Append(innerVar);
+        if (node.ElementTypeKind == "array")
+            s.Append(".ToArray()");
+        s.AppendLine(");");
+        s.Append(pad);
+        s.AppendLine("}");
     }
 
     static string GenPoly(TypeInfo type, Dictionary<string, TypeInfo> typeMap)
