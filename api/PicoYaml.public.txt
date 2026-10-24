@@ -61,6 +61,7 @@ M:PicoYaml.YamlWriter.WriteBoolean(bool value) : void
 M:PicoYaml.YamlWriter.WriteComment(string text) : void
 M:PicoYaml.YamlWriter.WriteDouble(double value) : void
 M:PicoYaml.YamlWriter.WriteEndMapping() : void
+M:PicoYaml.YamlWriter.WriteEndSequence() : void
 M:PicoYaml.YamlWriter.WriteEndSequenceBlock() : void
 M:PicoYaml.YamlWriter.WriteInt64(long value) : void
 M:PicoYaml.YamlWriter.WriteNumber(int value) : void
@@ -72,6 +73,7 @@ M:PicoYaml.YamlWriter.WriteSequenceItem(float value) : void
 M:PicoYaml.YamlWriter.WriteSequenceItem(int value) : void
 M:PicoYaml.YamlWriter.WriteSequenceItem(long value) : void
 M:PicoYaml.YamlWriter.WriteStartMapping() : void
+M:PicoYaml.YamlWriter.WriteStartSequence() : void
 M:PicoYaml.YamlWriter.WriteStartSequenceBlock() : void
 M:PicoYaml.YamlWriter.WriteString(System.ReadOnlySpan`1<byte> utf8Value) : void
 M:PicoYaml.YamlWriter.WriteString(System.ReadOnlySpan`1<char> value) : void

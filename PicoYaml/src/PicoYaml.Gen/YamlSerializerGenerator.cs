@@ -1011,6 +1011,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 }
                 else
                 {
+                    // The start/end pair is what makes an empty list write " []":
+                    // without it a zero-item loop left the writer "after a key" and
+                    // the next property name continued on the same line.
+                    s.Append(ind);
+                    s.AppendLine("yw.WriteStartSequence();");
                     s.Append(ind);
                     s.Append("foreach (var __item in ");
                     s.Append(accessor);
@@ -1025,6 +1030,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     EmitSerializeListElement(s, p, ind + "    ");
                     s.Append(ind);
                     s.AppendLine("}");
+                    s.Append(ind);
+                    s.AppendLine("yw.WriteEndSequence();");
                 }
                 break;
             case "dict":
@@ -2124,6 +2131,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             else
             {
                 s.Append(ind);
+                s.AppendLine("yw.WriteStartSequence();");
+                s.Append(ind);
                 s.Append("foreach (var __item in ");
                 s.Append(target);
                 s.Append('.');
@@ -2143,6 +2152,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 EmitSerializeListElement(s, p, ind + "    ");
                 s.Append(ind);
                 s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("yw.WriteEndSequence();");
             }
             if (collGuard)
             {

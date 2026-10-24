@@ -9,6 +9,14 @@ public ref struct YamlWriter
     private bool _afterKey;
     private readonly bool _indented;
 
+    // WriteStartSequence()/WriteEndSequence() bookkeeping: one bit per open level
+    // so a sequence still knows whether it received an item after its own inner
+    // sequences ran. The block pair (WriteStartSequenceBlock) keeps using _depth
+    // and never touches these.
+    private const int MaxSequenceNesting = 64;
+    private int _sequenceDepth;
+    private ulong _sequenceWroteContent;
+
     public long BytesWritten => _bytesWritten;
 
     public YamlWriter(IBufferWriter<byte> buffer, int maxDepth = 256, bool indented = false)
@@ -19,6 +27,8 @@ public ref struct YamlWriter
         _depth = 0;
         _afterKey = false;
         _indented = indented;
+        _sequenceDepth = 0;
+        _sequenceWroteContent = 0;
     }
 
     public void WriteComment(string text)
@@ -220,6 +230,7 @@ public ref struct YamlWriter
 
     public void WriteSequenceItem(ReadOnlySpan<byte> utf8Value)
     {
+        MarkSequenceContent();
         if (_afterKey)
         {
             WriteNewLine();
@@ -266,6 +277,7 @@ public ref struct YamlWriter
 
     private void WriteSequencePrefix()
     {
+        MarkSequenceContent();
         if (_afterKey)
         {
             WriteNewLine();
@@ -277,9 +289,68 @@ public ref struct YamlWriter
         WriteRaw("- "u8);
     }
 
+    /// <summary>
+    /// Opens a sequence whose items are written with <see cref="WriteSequenceItem(ReadOnlySpan{byte})"/>
+    /// and friends. It writes no bytes: a block sequence is only its "- item" lines.
+    /// The matching <see cref="WriteEndSequence"/> emits " []" when no item was
+    /// written, so an empty sequence still occupies the key's line instead of leaving
+    /// the writer "after a key", which glued the next property onto the same line
+    /// ("D:Count: 5"). Nesting is tracked per level and shares no state with
+    /// <see cref="WriteStartSequenceBlock"/>/<see cref="WriteEndSequenceBlock"/>.
+    /// </summary>
+    public void WriteStartSequence()
+    {
+        if (_sequenceDepth >= MaxSequenceNesting)
+            throw new FormatException(
+                $"Maximum sequence nesting depth of {MaxSequenceNesting} exceeded"
+            );
+        _sequenceWroteContent &= ~(1UL << _sequenceDepth);
+        _sequenceDepth++;
+    }
+
+    /// <summary>
+    /// Closes the sequence opened by <see cref="WriteStartSequence"/>. A sequence that
+    /// received no item writes "[]" (" []" right after a key) followed by a line
+    /// break; a non-empty one only clears its state, because its items already ended
+    /// their lines.
+    /// </summary>
+    public void WriteEndSequence()
+    {
+        if (_sequenceDepth == 0)
+            throw new InvalidOperationException(
+                "WriteEndSequence() without a matching WriteStartSequence()."
+            );
+        _sequenceDepth--;
+        if ((_sequenceWroteContent & (1UL << _sequenceDepth)) == 0)
+        {
+            if (_afterKey)
+            {
+                WriteByte((byte)' ');
+                _afterKey = false;
+            }
+            else
+            {
+                for (var i = 0; i < _depth; i++)
+                    WriteRaw("  "u8);
+            }
+            WriteRaw("[]"u8);
+            WriteNewLine();
+        }
+        // A sequence is itself a value of the enclosing one, so that level is no
+        // longer empty whatever this sequence wrote.
+        MarkSequenceContent();
+    }
+
+    private void MarkSequenceContent()
+    {
+        if (_sequenceDepth > 0)
+            _sequenceWroteContent |= 1UL << (_sequenceDepth - 1);
+    }
+
     /// <summary>Writes a block sequence item that starts a mapping (-\n indented properties).</summary>
     public void WriteStartSequenceBlock()
     {
+        MarkSequenceContent();
         if (_afterKey)
         {
             WriteNewLine();
