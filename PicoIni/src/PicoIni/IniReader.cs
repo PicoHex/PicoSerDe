@@ -615,8 +615,15 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
                 else
                     buf[di++] = _data[_position++];
             }
-            if (_position < _data.Length)
-                _position++;
+            // An unterminated quote means the document was truncated: fail
+            // loudly on a final block, ask for more data otherwise.
+            if (_position >= _data.Length)
+            {
+                if (!_isFinalBlock)
+                    throw new IncompleteInputException();
+                throw new FormatException("Unterminated quoted value at end of input");
+            }
+            _position++;
             _pendingValue = buf.AsSpan(0, di);
         }
         else
@@ -629,12 +636,9 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
             )
                 _position++;
             var raw = _data[valStart.._position];
-            var semiIdx = raw.IndexOf((byte)';');
-            var hashIdx = raw.IndexOf((byte)'#');
-            var commentIdx =
-                semiIdx < 0 ? hashIdx
-                : hashIdx < 0 ? semiIdx
-                : Math.Min(semiIdx, hashIdx);
+            // ';' and '#' only open a comment at the start of a line or after
+            // whitespace, so URL fragments and in-value hashes survive.
+            var commentIdx = FindCommentStart(raw);
             if (commentIdx >= 0)
                 raw = TrimEnd(raw[..commentIdx]);
             _pendingValue = Trim(raw);
@@ -801,8 +805,15 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
                     _seqReader.Advance(1);
                 }
             }
-            if (!_seqReader.End)
-                _seqReader.Advance(1); // skip closing quote
+            // An unterminated quote means the document was truncated: fail
+            // loudly on a final block, ask for more data otherwise.
+            if (_seqReader.End)
+            {
+                if (!_isFinalBlock)
+                    throw new IncompleteInputException();
+                throw new FormatException("Unterminated quoted value at end of input");
+            }
+            _seqReader.Advance(1); // skip closing quote
             _pendingValue = buf.AsSpan(0, di);
         }
         else
@@ -818,12 +829,9 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
                 _seqReader.Advance(1);
             }
             var raw = (ReadOnlySpan<byte>)buf.AsSpan(0, di);
-            var semiIdx = raw.IndexOf((byte)';');
-            var hashIdx = raw.IndexOf((byte)'#');
-            var commentIdx =
-                semiIdx < 0 ? hashIdx
-                : hashIdx < 0 ? semiIdx
-                : Math.Min(semiIdx, hashIdx);
+            // ';' and '#' only open a comment at the start of a line or after
+            // whitespace, so URL fragments and in-value hashes survive.
+            var commentIdx = FindCommentStart(raw);
             if (commentIdx >= 0)
                 raw = TextHelpers.TrimEnd(raw[..commentIdx]);
             _pendingValue = TextHelpers.Trim(raw);
@@ -834,6 +842,24 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader
     }
 
     // ── Helpers ──
+
+    /// <summary>
+    /// Index of the first ';'/'#' that starts an inline comment, or -1 when the
+    /// value has none. A marker only opens a comment at the start of the value
+    /// or after whitespace, so "http://x#frag" and "a#b" stay intact.
+    /// </summary>
+    private static int FindCommentStart(ReadOnlySpan<byte> raw)
+    {
+        for (int i = 0; i < raw.Length; i++)
+        {
+            var b = raw[i];
+            if (b is not ((byte)';' or (byte)'#'))
+                continue;
+            if (i == 0 || raw[i - 1] is (byte)' ' or (byte)'\t')
+                return i;
+        }
+        return -1;
+    }
 
     private void SkipToNextLineSpan()
     {
