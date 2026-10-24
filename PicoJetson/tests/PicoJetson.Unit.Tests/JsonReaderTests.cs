@@ -634,8 +634,9 @@ public class JsonReaderTests
         foreach (var v in capturedValues)
             await Assert.That(v).IsEqualTo("\n");
 
-        // Prove >8 buffers were tracked (overflowed the 8-slot tracking array)
-        await Assert.That(capturedPeak).IsGreaterThan(8);
+        // Peak *live* buffers stays bounded: the reader holds at most the buffer
+        // backing the current span plus the one backing the previous span (C-05).
+        await Assert.That(capturedPeak).IsLessThanOrEqualTo(2);
 
         // Prove all tracked buffers were returned (LeakedBufferCount == 0)
         await Assert.That(capturedLeaked).IsEqualTo(0);

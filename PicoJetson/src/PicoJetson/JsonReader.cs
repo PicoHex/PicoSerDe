@@ -41,16 +41,20 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
     private ReadOnlySpan<byte> _valueSpan;
     private int _tokenValueStart;
     private int _tokenValueEnd;
+
+    // ── Rented buffer ownership (C-05) ──
+    // A buffer rented from the pool must stay alive while a span still points into
+    // it, and no longer. Three slots hold every live buffer:
+    //   _spanBuffer   owns the span published by the latest Read();
+    //   _lastBuffer   owns the span published by the previous Read() (consumer code
+    //                 keeps a property-name span while it reads the value token, so
+    //                 the superseded span must survive exactly one more Read());
+    //   _rentedBuffer owns the buffer being filled for the token in progress.
+    // Steady state is therefore two live buffers. The previous model kept an
+    // 8-slot rolling array whose evicted buffers were never returned at all.
     private byte[]? _rentedBuffer;
-    private byte[]? _rb0,
-        _rb1,
-        _rb2,
-        _rb3,
-        _rb4,
-        _rb5,
-        _rb6,
-        _rb7;
-    private int _bufCount;
+    private byte[]? _spanBuffer;
+    private byte[]? _lastBuffer;
 
     // Streaming support: isFinalBlock tells the reader whether more data may arrive.
     // When false, IsAtEnd() sets _needsMoreData instead of signaling end-of-document.
@@ -216,8 +220,8 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
         _options = options;
         _valueSpan = default;
         _rentedBuffer = null;
-        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
-        _bufCount = 0;
+        _spanBuffer = null;
+        _lastBuffer = null;
     }
 
     public JsonReader(
@@ -240,8 +244,8 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
         _maxDepth = maxDepth;
         _valueSpan = default;
         _rentedBuffer = null;
-        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
-        _bufCount = 0;
+        _spanBuffer = null;
+        _lastBuffer = null;
     }
 
     public TokenType TokenType => _tokenType;
@@ -251,10 +255,14 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
 
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
 
-    /// <summary>For testing: number of tracked rented buffers (0 after Dispose).</summary>
-    internal int TrackedBufferCount => _bufCount;
+    /// <summary>For testing: number of rented buffers still live (0 after Dispose).</summary>
+    internal int TrackedBufferCount => LiveBufferCount();
 
-    /// <summary>For testing: peak tracked count during reading.</summary>
+    /// <summary>
+    /// For testing: peak number of rented buffers alive at the same time.
+    /// Since C-05 this counts <em>live</em> buffers (rented and not yet returned)
+    /// instead of filled slots, so the expected bound is 2 — not 8.
+    /// </summary>
     internal int PeakTrackedBufferCount { get; private set; }
 
     /// <summary>
@@ -322,6 +330,11 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
             _tokenProduced = true;
         if (!ok && _needsMoreData)
             _incomplete = true;
+        // End of document (not a chunk boundary): no consumer can observe the
+        // retained token spans any more, so hand them back to the pool now
+        // instead of holding them until Dispose.
+        if (!ok && !_needsMoreData)
+            ReturnBuffer();
         return ok;
     }
 
@@ -1101,6 +1114,7 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
                 }
             }
 
+            OwnSpan(buf);
             _valueSpan = buf.AsSpan(0, di);
             _tokenValueStart = 0;
             _tokenValueEnd = di;
@@ -1325,6 +1339,7 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
                 else
                     decoded[di++] = _valueSpan[si];
             }
+            OwnSpan(decoded);
             _valueSpan = decoded.AsSpan(0, di);
         }
         catch
@@ -1484,6 +1499,7 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
                     _seqReader.Advance(1);
                 }
             }
+            OwnSpan(buf);
             _valueSpan = buf.AsSpan(0, di);
             _tokenValueStart = 0;
             _tokenValueEnd = di;
@@ -1552,6 +1568,7 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
                 buf[i] = expected[i];
                 _seqReader.Advance(1);
             }
+            OwnSpan(buf);
             _valueSpan = buf.AsSpan(0, expected.Length);
             _tokenType = token;
             return true;
@@ -1660,25 +1677,20 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
 
     private void ReturnBuffer()
     {
-        ReturnBuf(ref _rb0);
-        ReturnBuf(ref _rb1);
-        ReturnBuf(ref _rb2);
-        ReturnBuf(ref _rb3);
-        ReturnBuf(ref _rb4);
-        ReturnBuf(ref _rb5);
-        ReturnBuf(ref _rb6);
-        ReturnBuf(ref _rb7);
-        _bufCount = 0;
+        // A buffer can serve more than one slot (e.g. the same array backs two
+        // consecutive spans), so each array is returned at most once.
+        var rented = _rentedBuffer;
+        var last = _lastBuffer;
+        var span = _spanBuffer;
         _rentedBuffer = null;
-    }
-
-    private void ReturnBuf(ref byte[]? buf)
-    {
-        if (buf is null)
-            return;
-        ReturnPooled(buf);
-        buf = null;
-        LeakedBufferCount--;
+        _lastBuffer = null;
+        _spanBuffer = null;
+        if (rented is not null)
+            ReturnPooled(rented);
+        if (last is not null && !ReferenceEquals(last, rented))
+            ReturnPooled(last);
+        if (span is not null && !ReferenceEquals(span, rented) && !ReferenceEquals(span, last))
+            ReturnPooled(span);
     }
 
     /// <summary>Single funnel for pool returns so tests can count them.</summary>
@@ -1686,43 +1698,82 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
     {
         ArrayPool<byte>.Shared.Return(buf);
         TotalPoolReturns++;
+        LeakedBufferCount--;
     }
 
     private void TrackBuffer(byte[] buf)
     {
         LeakedBufferCount++;
         TotalTrackedBuffers++;
-        if (_bufCount > PeakTrackedBufferCount)
-            PeakTrackedBufferCount = _bufCount;
-        switch (_bufCount++)
+        // A new token is starting: the span published two Read() calls ago can no
+        // longer be observed, so recycle its buffer instead of letting it pile up.
+        ReleaseLastBuffer(buf);
+        // A token that outgrows its buffer copies into a larger one; the
+        // superseded buffer holds no span, so recycle it right away.
+        if (_rentedBuffer is not null && !ReferenceEquals(_rentedBuffer, buf))
         {
-            case 0:
-                _rb0 = buf;
-                break;
-            case 1:
-                _rb1 = buf;
-                break;
-            case 2:
-                _rb2 = buf;
-                break;
-            case 3:
-                _rb3 = buf;
-                break;
-            case 4:
-                _rb4 = buf;
-                break;
-            case 5:
-                _rb5 = buf;
-                break;
-            case 6:
-                _rb6 = buf;
-                break;
-            default:
-                ReturnBuf(ref _rb7);
-                _rb7 = buf;
-                break;
+            var stale = _rentedBuffer;
+            _rentedBuffer = null;
+            ReturnPooled(stale);
         }
         _rentedBuffer = buf;
+        UpdatePeak();
+    }
+
+    /// <summary>
+    /// Publishes <paramref name="buf"/> as the owner of the span returned for the
+    /// token in progress. The span of the previous token is rotated into
+    /// <see cref="_lastBuffer"/> rather than released: consumer code holds a
+    /// property-name span while it reads the value token, so it must survive
+    /// exactly one more Read().
+    /// </summary>
+    private void OwnSpan(byte[] buf)
+    {
+        ReleaseLastBuffer(buf);
+        _lastBuffer = _spanBuffer;
+        _spanBuffer = buf;
+        _rentedBuffer = null;
+        UpdatePeak();
+    }
+
+    /// <summary>
+    /// Releases the span buffer that just became two generations old — unless it is
+    /// the buffer being rented right now (<paramref name="keep"/>) or the current
+    /// span owner, both of which are still observable.
+    /// </summary>
+    private void ReleaseLastBuffer(byte[]? keep)
+    {
+        var last = _lastBuffer;
+        if (last is null)
+            return;
+        _lastBuffer = null;
+        if (ReferenceEquals(last, keep) || ReferenceEquals(last, _spanBuffer))
+            return;
+        ReturnPooled(last);
+    }
+
+    /// <summary>Number of rented buffers that are still observable (0..3, steady state 2).</summary>
+    private int LiveBufferCount()
+    {
+        var live = 0;
+        if (_rentedBuffer is not null)
+            live++;
+        if (_lastBuffer is not null && !ReferenceEquals(_lastBuffer, _rentedBuffer))
+            live++;
+        if (
+            _spanBuffer is not null
+            && !ReferenceEquals(_spanBuffer, _rentedBuffer)
+            && !ReferenceEquals(_spanBuffer, _lastBuffer)
+        )
+            live++;
+        return live;
+    }
+
+    private void UpdatePeak()
+    {
+        var live = LiveBufferCount();
+        if (live > PeakTrackedBufferCount)
+            PeakTrackedBufferCount = live;
     }
 
     public void Dispose()
