@@ -349,4 +349,160 @@ public class JsonWriterTests
         w.WriteString(new byte[] { (byte)'x', 0x1B, (byte)'y' });
         await Assert.That(GetWrittenString(w, buf)).IsEqualTo("\"x\\u001By\"");
     }
+
+    // === F1: closing a container while a property name is pending ===
+    // A writer that emitted a property name but no value used to close the
+    // container anyway, producing the illegal JSON {"a":} instead of failing
+    // at the write site.
+    //
+    // JsonWriter is a ref struct, so every writer use has to finish before the
+    // first await (CS4007): snapshots are taken into locals, assertions last.
+
+    [Test]
+    public async Task WriteEndObject_AfterPropertyNameWithoutValue_Throws()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+
+        FormatException? caught = null;
+        try
+        {
+            w.WriteEndObject();
+        }
+        catch (FormatException ex)
+        {
+            caught = ex;
+        }
+
+        // The failed close wrote no '}'.
+        var afterFailedClose = GetWrittenString(w, buf);
+        // _depth is untouched, so writing the value now still yields a
+        // well-formed object instead of a half-closed one.
+        w.WriteNumber(1);
+        w.WriteEndObject();
+        var afterValue = GetWrittenString(w, buf);
+
+        await Assert.That(caught).IsNotNull();
+        await Assert.That(caught!.Message).Contains("property name");
+        await Assert.That(caught!.Message).Contains("no value");
+        await Assert.That(afterFailedClose).IsEqualTo("{\"a\":");
+        await Assert.That(afterValue).IsEqualTo("{\"a\":1}");
+    }
+
+    [Test]
+    public async Task WriteEndArray_AfterPropertyNameWithoutValue_Throws()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteStartArray();
+        w.WritePropertyName("a"u8);
+
+        FormatException? caught = null;
+        try
+        {
+            w.WriteEndArray();
+        }
+        catch (FormatException ex)
+        {
+            caught = ex;
+        }
+
+        var afterFailedClose = GetWrittenString(w, buf);
+        w.WriteNumber(1); // _depth unchanged -> still inside the array
+        w.WriteEndArray();
+        var afterValue = GetWrittenString(w, buf);
+
+        await Assert.That(caught).IsNotNull();
+        await Assert.That(caught!.Message).Contains("property name");
+        await Assert.That(caught!.Message).Contains("no value");
+        await Assert.That(afterFailedClose).IsEqualTo("[\"a\":");
+        await Assert.That(afterValue).IsEqualTo("[\"a\":1]");
+    }
+
+    [Test]
+    public async Task WriteEndObject_WithoutPropertyName_WritesCorrectly()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteStartObject();
+        w.WriteEndObject();
+        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{}");
+    }
+
+    [Test]
+    public async Task WriteEndObject_AfterPropertyNameWithValue_WritesCorrectly()
+    {
+        var buf = new ArrayBufferWriter<byte>(128);
+        var w = new JsonWriter(buf);
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+        w.WriteNumber(1);
+        w.WriteEndObject();
+        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"a\":1}");
+    }
+
+    [Test]
+    public async Task WriteEndObject_AfterFailedClose_DoesNotPolluteNextObject()
+    {
+        var buf = new ArrayBufferWriter<byte>(256);
+        var w = new JsonWriter(buf);
+
+        w.WriteStartArray();
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+
+        var threw = false;
+        try
+        {
+            w.WriteEndObject();
+        }
+        catch (FormatException)
+        {
+            threw = true;
+        }
+
+        // Finish the damaged object, then write a second one on the same writer
+        // instance: depth/comma state must be intact (no stray '}' or ',').
+        w.WriteNumber(1);
+        w.WriteEndObject();
+        w.WriteStartObject();
+        w.WritePropertyName("b"u8);
+        w.WriteNumber(2);
+        w.WriteEndObject();
+        w.WriteEndArray();
+        var json = GetWrittenString(w, buf);
+
+        await Assert.That(threw).IsTrue();
+        await Assert.That(json).IsEqualTo("[{\"a\":1},{\"b\":2}]");
+    }
+
+    [Test]
+    public async Task WriteEndObject_AfterFailedClose_Indented_WritesNoBraceOrIndent()
+    {
+        var buf = new ArrayBufferWriter<byte>(256);
+        var w = new JsonWriter(buf, indented: true);
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+
+        var threw = false;
+        try
+        {
+            w.WriteEndObject();
+        }
+        catch (FormatException)
+        {
+            threw = true;
+        }
+
+        var afterFailedClose = GetWrittenString(w, buf);
+        w.WriteNumber(1);
+        w.WriteEndObject();
+        var afterValue = GetWrittenString(w, buf);
+
+        await Assert.That(threw).IsTrue();
+        await Assert.That(afterFailedClose).IsEqualTo("{\n  \"a\": ");
+        await Assert.That(afterValue).IsEqualTo("{\n  \"a\": 1\n}");
+    }
 }

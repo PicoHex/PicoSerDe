@@ -449,6 +449,7 @@ public ref struct JsonWriter
 
     public void WriteEndObject()
     {
+        ThrowIfPropertyNamePending("object");
         _needsComma &= ~(1UL << _depth);
         _depth--;
         if (_indented)
@@ -467,11 +468,27 @@ public ref struct JsonWriter
 
     public void WriteEndArray()
     {
+        ThrowIfPropertyNamePending("array");
         _needsComma &= ~(1UL << _depth);
         _depth--;
         if (_indented)
             WriteIndent();
         WriteByte((byte)']');
+    }
+
+    /// <summary>
+    /// Rejects closing a container while a property name is still waiting for its
+    /// value: emitting the brace would produce illegal JSON such as
+    /// <c>{"a":}</c> instead of failing at the write site. Called before any
+    /// state mutation, so a failed close leaves neither a half-written brace nor
+    /// a changed depth behind.
+    /// </summary>
+    private readonly void ThrowIfPropertyNamePending(string containerName)
+    {
+        if (_afterPropertyName)
+            throw new FormatException(
+                $"Cannot close {containerName}: property name was written with no value."
+            );
     }
 
     private void BeforeWriteValue()
