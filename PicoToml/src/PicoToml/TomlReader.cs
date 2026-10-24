@@ -1023,6 +1023,14 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
             keyStart = ++_position;
             _keySpan = ReadBasicStringSpan();
         }
+        else if (_position < _data.Length && _data[_position] == (byte)'\'')
+        {
+            // A literal-string key is a quoted key too: 'a.b' is the single key
+            // a.b — no escape processing and no dotted-key splitting.
+            quotedKey = true;
+            keyStart = ++_position;
+            _keySpan = ReadLiteralStringSpan();
+        }
         else
         {
             // Line-bound key scan: never consume past \n/\r (audit BUG-03).
@@ -1456,6 +1464,27 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
         if (!hasEscape)
             return content;
         return UnescapeBasicString(content);
+    }
+
+    /// <summary>
+    /// Reads a literal string, the opening <c>'</c> already consumed. A literal
+    /// string has no escape processing at all: every byte up to the closing
+    /// <c>'</c> is taken verbatim, so a backslash is just a backslash.
+    /// </summary>
+    private ReadOnlySpan<byte> ReadLiteralStringSpan()
+    {
+        int start = _position;
+        while (_position < _data.Length && _data[_position] != (byte)'\'')
+            _position++;
+        if (_position >= _data.Length)
+        {
+            if (!_isFinalBlock)
+                throw new IncompleteInputException();
+            throw new FormatException("Invalid TOML line: unterminated literal string.");
+        }
+        var content = _data[start.._position];
+        _position++; // consume closing quote
+        return content;
     }
 
     private ReadOnlySpan<byte> UnescapeBasicString(ReadOnlySpan<byte> src)
