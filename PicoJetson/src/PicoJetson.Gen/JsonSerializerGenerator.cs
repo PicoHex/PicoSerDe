@@ -1018,15 +1018,43 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string indent
     )
     {
+        // Nullable values are emitted with the same two-step shape as
+        // EmitSerializeElement: JSON null for the empty case, the unwrapped
+        // (non-nullable) value for the typed core emission.
+        if (dp.ElementIsNullableValue)
+        {
+            sb.Append(indent);
+            sb.AppendLine("if (__kvp.Value == null)");
+            sb.Append(indent);
+            sb.AppendLine("    jw.WriteNull();");
+            sb.Append(indent);
+            sb.AppendLine("else");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            EmitDictInnerValueSerializeCore(sb, dp, "__kvp.Value.Value", indent + "    ");
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitDictInnerValueSerializeCore(sb, dp, "__kvp.Value", indent);
+    }
+
+    private static void EmitDictInnerValueSerializeCore(
+        StringBuilder sb,
+        PropertyInfo dp,
+        string valueExpr,
+        string indent
+    )
+    {
         switch (dp.ElementTypeKind)
         {
             case "string":
                 if (dp.ElementIsNullableReference)
                 {
                     sb.Append(indent);
-                    sb.AppendLine("if (__kvp.Value != null)");
+                    sb.AppendLine("if (" + valueExpr + " != null)");
                     sb.Append(indent);
-                    sb.AppendLine("    jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value));");
+                    sb.AppendLine("    jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + "));");
                     sb.Append(indent);
                     sb.AppendLine("else");
                     sb.Append(indent);
@@ -1035,7 +1063,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 else
                 {
                     sb.Append(indent);
-                    sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value));");
+                    sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + "));");
                 }
                 break;
             case "int32":
@@ -1049,26 +1077,28 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "float32":
             case "float64":
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteNumber(__kvp.Value);");
+                sb.AppendLine("jw.WriteNumber(" + valueExpr + ");");
                 break;
             case "boolean":
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteBoolean(__kvp.Value);");
+                sb.AppendLine("jw.WriteBoolean(" + valueExpr + ");");
                 break;
             case "datetime":
                 sb.Append(indent);
                 sb.AppendLine(
-                    "jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString(\"O\")));"
+                    "jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + ".ToString(\"O\")));"
                 );
                 break;
             case "guid":
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));");
+                sb.AppendLine(
+                    "jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + ".ToString()));"
+                );
                 break;
             case "decimal":
             case "enum":
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteNumber(__kvp.Value);");
+                sb.AppendLine("jw.WriteNumber(" + valueExpr + ");");
                 break;
             case "object":
             {
@@ -1077,9 +1107,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     dp.ElementTypeName!
                 );
                 sb.Append(indent);
-                sb.Append("if (__kvp.Value == null) jw.WriteNull(); else ");
+                sb.Append("if (" + valueExpr + " == null) jw.WriteNull(); else ");
                 sb.Append(sn);
-                sb.AppendLine(".Serialize(ref jw, __kvp.Value);");
+                sb.AppendLine(".Serialize(ref jw, " + valueExpr + ");");
                 break;
             }
             case "dict":
@@ -1090,20 +1120,22 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 );
                 sb.Append(indent);
                 sb.Append(sn);
-                sb.AppendLine(".Serialize(ref jw, __kvp.Value);");
+                sb.AppendLine(".Serialize(ref jw, " + valueExpr + ");");
                 break;
             }
             case "any":
-                EmitAnyValueSerialize(sb, "__kvp.Value", indent);
+                EmitAnyValueSerialize(sb, valueExpr, indent);
                 break;
             default:
                 if (
                     dp.ElementTypeKind is not null
-                    && EmitExtendedScalarWrite(sb, dp.ElementTypeKind, "__kvp.Value", indent)
+                    && EmitExtendedScalarWrite(sb, dp.ElementTypeKind, valueExpr, indent)
                 )
                     break;
                 sb.Append(indent);
-                sb.AppendLine("jw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value.ToString()));");
+                sb.AppendLine(
+                    "jw.WriteString(Encoding.UTF8.GetBytes(" + valueExpr + ".ToString()));"
+                );
                 break;
         }
     }
@@ -1188,7 +1220,37 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// Emits the value read of a nested-dictionary helper. Nullable value-type
+    /// elements get a null check first, like <see cref="EmitDeserializeElementAssign"/>.
+    /// </summary>
     private static void EmitDictInnerValueDeserialize(
+        StringBuilder sb,
+        PropertyInfo dp,
+        string dictVar,
+        string indent
+    )
+    {
+        if (dp.ElementIsNullableValue)
+        {
+            sb.Append(indent);
+            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+            sb.Append(indent);
+            sb.Append(dictVar);
+            sb.AppendLine("[__dictKey] = null;");
+            sb.Append(indent);
+            sb.AppendLine("else");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            EmitDictInnerValueDeserializeCore(sb, dp, dictVar, indent + "    ");
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitDictInnerValueDeserializeCore(sb, dp, dictVar, indent);
+    }
+
+    private static void EmitDictInnerValueDeserializeCore(
         StringBuilder sb,
         PropertyInfo dp,
         string dictVar,
@@ -1198,6 +1260,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         switch (dp.ElementTypeKind)
         {
             case "string":
+                // Aligned with EmitDeserializeElementAssignCore: a JSON null for a
+                // string value must stay null, not the string "null".
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+                sb.Append(indent);
+                sb.Append(dictVar);
+                sb.AppendLine("[__dictKey] = null!;");
+                sb.Append(indent);
+                sb.AppendLine("else");
                 sb.Append(indent);
                 sb.Append(dictVar);
                 sb.AppendLine("[__dictKey] = Encoding.UTF8.GetString(reader.GetStringRaw());");
@@ -4239,7 +4310,42 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// Emits one dictionary value. Nullable value-type elements (Dictionary&lt;string,int?&gt;)
+    /// get a null check first: the value readers below are all Try*-based, so a JSON
+    /// null used to be stored as 0 / Guid.Empty / DateTime.MinValue instead of null.
+    /// </summary>
     private static void EmitDeserializeElementAssign(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string dictVar,
+        string keyVar,
+        string indent,
+        int nestLevel
+    )
+    {
+        if (prop.ElementIsNullableValue)
+        {
+            sb.Append(indent);
+            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+            sb.Append(indent);
+            sb.Append(dictVar);
+            sb.Append("[");
+            sb.Append(keyVar);
+            sb.AppendLine("] = null;");
+            sb.Append(indent);
+            sb.AppendLine("else");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            EmitDeserializeElementAssignCore(sb, prop, dictVar, keyVar, indent + "    ", nestLevel);
+            sb.Append(indent);
+            sb.AppendLine("}");
+            return;
+        }
+        EmitDeserializeElementAssignCore(sb, prop, dictVar, keyVar, indent, nestLevel);
+    }
+
+    private static void EmitDeserializeElementAssignCore(
         StringBuilder sb,
         PropertyInfo prop,
         string dictVar,
