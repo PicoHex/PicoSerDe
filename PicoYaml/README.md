@@ -6,7 +6,8 @@ block mappings/sequences, anchors & aliases, and multi-document streams.
 
 **Coverage:** Core YAML 1.2 subset. Complex block scalar combinations,
 advanced merge key patterns, full tag resolution, and flow sequences (`[a, b]`)
-are not yet supported. Flow mappings (`{key: value}`) are partially supported.
+are not yet supported (the writer only emits the empty-sequence marker `[]`, which the
+reader accepts). Flow mappings (`{key: value}`) are partially supported.
 
 [![NuGet](https://img.shields.io/nuget/v/PicoYaml)](https://www.nuget.org/packages/PicoYaml)
 
@@ -85,6 +86,43 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 - A null literal aimed at a **non-nullable value type** throws
   `FormatException`; an unannotated `string` member receives `null` (the
   generators' NRT-lenient contract).
+
+## Limits
+
+Nested sequences are **supported** and written as block sequences (there is no flow `[a, b]`
+syntax on the write side):
+
+- `List<Dto>` — one `- ` item per row, each an indented block mapping.
+- `List<List<int>>` / `List<int[]>` — an item whose value is the following indented sequence.
+  The dash stands alone on its line (the writer emits no trailing space):
+
+  ```yaml
+  Grid:
+  -
+    - 1
+    - 2
+  -
+    - 3
+  Count: 5
+  ```
+
+- An **empty inner sequence** is `- []` on its own item line; an **empty outer sequence** is
+  `Grid: []`.
+- A *string* that looks like the marker is quoted, so `- "[]"` is the two-character string `[]`,
+  not an empty sequence.
+- `List<List<Dto>>` (objects at the innermost level) round-trips the same way.
+
+Not representable, dropped at generation time with a warning (never emitted as code that would
+not compile):
+
+- a **nullable value leaf** in a nested chain — `List<List<int?>>`, `List<List<MyEnum?>>`,
+  `List<List<Dto?>>`, `Dictionary<string, List<int?>>` report `PICOSERDE004`;
+- a **recursive member** (`Node Child` on `Node`) reports `PICOSERDE003`.
+
+A nullable *reference* leaf stays supported: `List<List<string?>>` round-trips and null string
+items are skipped on write (YAML writes no null). The generator diagnostic is the authority for
+your build — `dotnet build 2>&1 | grep PICOSERDE`. The full five-format matrix lives in the
+[root README](../README.md#format-limits-what-each-wire-format-cannot-express).
 
 ## Performance
 

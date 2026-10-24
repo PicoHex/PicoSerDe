@@ -83,9 +83,18 @@ var ini = IniSerializer.Serialize(config);
   `FormatException`; an unannotated `string` member receives `null` (the
   generators' NRT-lenient contract).
 
-## Limitations
+## Limits
 
-- Nested object lists (`List<SomeDto>` as a property) cannot be represented by flat INI sections and are ignored.
+- **No object-list *members*.** INI has no array-of-tables syntax, so a `List<SomeDto>` property
+  cannot be represented and is dropped. This is the one unsupported shape that is currently
+  **not** reported: no `PICOSERDE004` warning is emitted for it, so check the member with a
+  round-trip test if a list mysteriously comes back empty. If you need an object list inside a
+  DTO, use **TOML**, **YAML** or **JSON** instead.
+- **A top-level `List<SomeDto>` does round-trip** — each item is written as a numbered section
+  (`[0]`, `[1]`, ...).
+- **Nested lists, nullable elements and recursion are reported.** `List<List<int>>`, `List<int?>`
+  and a recursive member (`Node Child` on `Node`) are dropped with `PICOSERDE004` /
+  `PICOSERDE003` — visible in the build log, not silent.
 - Objects nested deeper than one level throw `NotSupportedException` instead of silently losing data.
 - List values parse strictly and culture-invariantly: malformed elements throw `FormatException`; `List<int>`, `List<bool>`, `List<DateOnly>`, `List<TimeSpan>`, etc. round-trip.
 - Enum values parse strictly too: an unparseable enum text throws `FormatException` naming the member and offset. It previously fell back silently to the default (`0`) enum member.

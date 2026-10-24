@@ -289,8 +289,11 @@ attribute.
 
 Field-level object arrays (`TObject[]`, `List<TObject[]>`, `TObject[][]`) round-trip
 in JSON, MsgPack, TOML and YAML (INI drops object collections because its format
-is flat). A YAML nested-object member that itself contains an object sequence is
-dropped with `PICOSERDE004` (the inner helper cannot read it); TOML keeps its
+is flat — see
+[Format limits](#format-limits-what-each-wire-format-cannot-express) for which
+of those drops surface as a build warning). An object sequence *inside* a nested
+object round-trips in YAML too (block sequences; see
+[PicoYaml → Limits](PicoYaml/README.md#limits)). TOML keeps its
 documented loud "nested tables deeper than one level" error. TOML arrays of tables have no chunk-resume strategy, so their streaming
 delegate is not registered — `DeserializeFromStreamAsync` then buffers the stream
 and uses the synchronous path (correct, just not incremental). Dictionaries accept
@@ -302,10 +305,77 @@ generating broken code.
 
 `List<int?>`, `List<string?>`, `List<TObject?>`, `Dictionary<string, TObject?>`
 and nested lists of objects round-trip in JSON and MsgPack, including null
-elements. TOML and YAML have no null type: null *scalar* elements are skipped
-on write, while shapes they cannot express (`List<int?>`, nullable object/dict
-elements, nested lists) are dropped with the `PICOSERDE004` warning. INI cannot
+elements. TOML and YAML have no null *type*: null *scalar elements* are skipped
+on write, and a **nullable element** (`List<int?>`, a nullable object/dict
+element, or `int?` at any depth of a nested chain) is dropped with the
+`PICOSERDE004` warning. Nested lists themselves are a separate axis — TOML and
+YAML both express them (see
+[Format limits](#format-limits-what-each-wire-format-cannot-express)). INI cannot
 represent any nullable element and drops those members the same way.
+
+### Format limits: what each wire format cannot express
+
+Not every C# shape has a wire representation in every format. The matrix below is
+the boundary of the five generated serializers. Every ❌ is enforced at
+**generation time**, never at runtime. A member the format cannot express is left
+out of the generated serializer and the build reports `PICOSERDE004` —
+`Member 'X.Y' cannot be represented by this format — it will be ignored` — while a
+self-referencing member reports `PICOSERDE003` —
+`Member 'X.Y' is recursive/self-referencing and cannot be represented by this format — it will be ignored`.
+The rest of the document is written and read as usual, so the drop shows up in the
+build log instead of surfacing later as a mysteriously empty property.
+
+| Shape (C#) | JSON | MsgPack | TOML | YAML | INI |
+|---|---|:---:|---|---|---|
+| `List<Dto>` — list of objects | ✅ | ✅ | ✅ `[[Table]]` | ✅ block sequence of mappings | ❌ see ¹ |
+| `List<List<int>>` — nested primitive list | ✅ | ✅ | ✅ `G = [[1, 2], [3]]` | ✅ nested block sequence | ❌ `PICOSERDE004` |
+| `List<List<Dto>>` — list of lists of objects | ✅ | ✅ | ❌ `PICOSERDE004` | ✅ nested block sequence | ❌ `PICOSERDE004` |
+| `List<List<int?>>` — nullable leaf in a nested list | ✅ | ✅ | ❌ `PICOSERDE004` | ❌ `PICOSERDE004` ² | ❌ `PICOSERDE004` |
+| Recursive member (`Node? Child`, `List<Node>` on `Node`) | ✅ | ✅ | ❌ `PICOSERDE003` | ❌ `PICOSERDE003` ³ | ❌ `PICOSERDE003` |
+
+✅ means the generated code both writes and reads the shape, and each ✅ shape is
+exercised by a round-trip test in the suite. Both diagnostics are
+`Warning`-severity and are created with `Location.None`, so
+`#pragma warning disable` cannot silence them — suppress them by id in `NoWarn`
+only if you accept the data loss.
+
+**How to confirm, in one command** (the default build prints them):
+
+```bash
+dotnet build 2>&1 | grep PICOSERDE
+# PowerShell: dotnet build 2>&1 | Select-String PICOSERDE
+```
+
+¹ **INI object lists are the one silent drop today.** INI has no array-of-tables
+syntax, so a `List<SomeDto>` **member** cannot be represented, and the extractor
+drops it before it reaches the `PICOSERDE004` path — no warning is emitted for
+this shape (see [PicoIni → Limits](PicoIni/README.md#limits)). A **top-level**
+`List<SomeDto>` does round-trip in INI: each item becomes a numbered section
+(`[0]`, `[1]`, …). For an object list *inside* a DTO use TOML, YAML or JSON.
+
+² **YAML nullable leaves.** `List<List<int?>>`, `List<List<MyEnum?>>`,
+`List<List<Dto?>>` and `Dictionary<string, List<int?>>` have no representation and
+are dropped. A nullable *reference* leaf is still written — `List<List<string?>>`
+round-trips, and null string items are skipped on write (YAML writes no null).
+The generator diagnostic, not this table, is the authority for your build.
+
+³ **Recursion.** The self-referencing *member* is dropped; the type's other
+members still round-trip, which is why a recursive DTO still serializes
+"partially" in the section-based formats. JSON and MsgPack keep the member
+(cycle-safe extraction + seeded helpers, including on polymorphic bases) — see
+[Streaming](#streaming-incremental-chunked).
+
+Two shapes sit outside this matrix. A **collection dictionary value**
+(`Dictionary<string, List<T>>`; nested dictionaries are fine) is dropped in
+**every** format with `PICOSERDE004`. A **top-level scalar** target is not dropped
+at all but refused outright — `Serialize<Guid>()`, `Deserialize<int?>()` and friends fail
+loudly with `InvalidOperationException` ("no serializer registered").
+
+The wire shape behind each ✅ is documented per format:
+[PicoToml](PicoToml/README.md#limits) (`[[Table]]`, `G = [[1, 2], [3]]`),
+[PicoYaml](PicoYaml/README.md#limits) (block sequences, `- []` vs `- "[]"`),
+[PicoIni](PicoIni/README.md#limits), [PicoJetson](PicoJetson/README.md#limits),
+[PicoMsgPack](PicoMsgPack/README.md#limits).
 
 ### Streaming (incremental, chunked)
 
@@ -357,12 +427,18 @@ members (`List<T>`, `Dictionary<string,T>`) of derived types in JSON, MsgPack,
 TOML and YAML (previously dropped or non-compiling in the discriminator
 branches); INI ignores nested members because its format is flat.
 
-**Diagnostics** (warnings, emitted by all five generators):
+**Diagnostics** (warnings):
+`PICOSERDE001` — a property type the generator cannot resolve was ignored.
 `PICOSERDE002` — two distinct types produced the same generated file name
 (main hint); internal helper names get a stable hash suffix (`UniqueName`).
 `PICOSERDE003` — a recursive member was skipped by a section-based format.
-`PICOSERDE004` — a member shape the format cannot represent (nested list,
-nullable value-type element, null object element) was skipped.
+`PICOSERDE004` — a member shape the format cannot represent (a nested list the
+format has no syntax for, a nullable value-type element, a null object element,
+a collection dictionary value) was skipped.
+`PICOSERDE005` — an anonymous-type collection member was skipped by a format
+whose writer cannot emit one (JSON is the only writer that can).
+See [Format limits](#format-limits-what-each-wire-format-cannot-express) for the
+support matrix behind `PICOSERDE003`/`PICOSERDE004`.
 
 **Custom/advanced registration** (scripts or hand-written serializers):
 `JsonSerializer.RegisterStreaming<T>(StreamingFunc<JsonReader, T> func)` with
@@ -412,7 +488,7 @@ PicoJetson tests are split into Unit / Integration / Functional projects with cl
 - **Top-level arrays** — `Serialize<T[]>()` / `Deserialize<T[]>()` with streaming (v2026.3.2)
 - **Top-level scalars / `Nullable<T>` are not supported** — `Serialize<Guid>(...)`, `Deserialize<int?>(...)` etc. fail loudly with `InvalidOperationException` ("no serializer registered") instead of emitting an empty object or non-compiling generated code
 - **Deep object nesting** — JSON/YAML/MsgPack round-trip objects nested 3+ levels; INI/TOML currently support a single nested level and throw `NotSupportedException` beyond that (loudly, instead of silently losing data).
-- **INI nested object lists** — a `List<SomeDto>` property cannot be represented by INI's flat sections and is ignored by `IniSerializer` (no compile break); scalar lists (`List<int>`, `List<string>`, ...) round-trip.
+- **INI nested object lists** — a `List<SomeDto>` property cannot be represented by INI's flat sections and is dropped by `IniSerializer` (no compile break; unlike the other unsupported shapes, this one is currently *not* reported — `PICOSERDE004` covers `List<List<T>>` and nullable elements, see [Format limits](#format-limits-what-each-wire-format-cannot-express)); scalar lists (`List<int>`, `List<string>`, ...) round-trip.
 
 ### PicoJetson JsonOptions
 
