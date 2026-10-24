@@ -157,15 +157,18 @@ public class AnonNullableTests
         await Assert.That(mixed).Contains("\"L\":9");
     }
 
-    // Review Task 2 (Minor, documented behaviour): a Nullable<enum> member is read
-    // through its underlying integer kind, so JSON writes the number and not the enum
-    // name (the non-nullable enum member path is a separate, pre-existing defect).
+    // F4 changed the documented behaviour asserted here: a Nullable<enum> member
+    // used to be read through its underlying integer kind (review Task 2 recorded
+    // that as "the non-nullable enum member path is a separate, pre-existing
+    // defect"). It now keeps enum semantics and writes the enum name, matching the
+    // other four formats and the named-DTO round trip. Full coverage lives in
+    // AnonNullableEnumTests.
     [Test]
-    public async Task Json_AnonNullableEnum_WritesUnderlyingNumber()
+    public async Task Json_AnonNullableEnum_WritesEnumName()
     {
         await Assert
             .That(JsonSerializer.Serialize(new { E = (AnonProbeEnum?)AnonProbeEnum.Second }))
-            .IsEqualTo("{\"E\":1}");
+            .IsEqualTo("{\"E\":\"Second\"}");
         await Assert
             .That(JsonSerializer.Serialize(new { E = (AnonProbeEnum?)null }))
             .IsEqualTo("{\"E\":null}");
