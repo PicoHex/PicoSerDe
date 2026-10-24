@@ -512,7 +512,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("    internal static void Serialize(TomlWriter tw, ");
         s.Append(clean);
         s.AppendLine(" value) {");
-        foreach (var p in props.OrderBy(x => x.JsonName))
+        // Same ordering rule as the top level: everything that is not a table
+        // section first, then the sections. Sorted by key inside each pass so the
+        // output stays deterministic.
+        foreach (var p in props.OrderBy(x => EmitOrderKey(x)).ThenBy(x => x.JsonName))
             EmitSerializeProp(s, p, "value", "        ");
         s.AppendLine("    }");
 
@@ -526,8 +529,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         // re-emit ObjectStart with the *same* TablePath, so an inner helper
         // continues across PropertyName and same-section ObjectStart tokens, and
         // stops at the first token of another section (or EOF) — otherwise it
-        // swallows every following [section].
-        s.AppendLine("        var __section = r.TablePath;");
+        // swallows every following [section]. The name is copied out of the
+        // reader: a ReadOnlySpan<byte> must not outlive the Read() calls in the
+        // loop below (the reader re-points TablePath on every token).
+        s.AppendLine("        var __section = r.TablePath.ToArray();");
         s.AppendLine(
             "        while (r.Read() && (r.TokenType == TokenType.PropertyName || (r.TokenType == TokenType.ObjectStart && TextHelpers.Eq(r.TablePath, __section)))) {"
         );
@@ -783,7 +788,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
         s.AppendLine("        var __opts = (global::PicoToml.TomlOptions?)options;");
         s.AppendLine("        var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);");
-        foreach (var p in t.Properties)
+        foreach (var p in t.Properties.OrderBy(x => EmitOrderKey(x)))
             EmitSerializeProp(s, p, "v", "        ");
         s.AppendLine("    } }");
 
@@ -1557,6 +1562,25 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("}");
     }
 
+    /// <summary>
+    /// TOML ordering key for a member: <c>0</c> for values that stay on the current
+    /// table (scalars, arrays) and <c>1</c> for members that open a new section
+    /// (<c>[Name]</c> for a nested object or dictionary, <c>[[Name]]</c> for an
+    /// object list). A section header ends the current table, so every section has
+    /// to be written after the plain members — otherwise the members declared
+    /// after it are emitted into that section and lost (C-11).
+    /// </summary>
+    private static int EmitOrderKey(PropertyInfo p) =>
+        p.TypeKind switch
+        {
+            "object" => p.NestedProperties.Length > 0 ? 1 : 0,
+            "dict" => 1,
+            "list" or "array" => p.ElementTypeKind == "object" && p.NestedProperties.Length > 0
+                ? 1
+                : 0,
+            _ => 0,
+        };
+
     private static void EmitSerializeProp(
         StringBuilder s,
         PropertyInfo p,
@@ -2168,11 +2192,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(".ToString(\"O\")");
                 break;
             case "timespan":
+                // C-14: TOML numbers are locale-free, and the reader parses
+                // invariantly — so write invariantly too.
                 s.Append(accessor);
-                s.Append(".ToString()");
+                s.Append(".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)");
+                break;
+            case "decimal":
+                // C-14: de-DE used to emit "1,5" (not valid TOML).
+                s.Append(accessor);
+                s.Append(".ToString(System.Globalization.CultureInfo.InvariantCulture)");
                 break;
             case "guid":
-            case "decimal":
             case "enum":
                 s.Append(accessor);
                 s.Append(".ToString()");
@@ -2940,7 +2970,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("            case ");
             s.Append(ds);
             s.AppendLine(" __v:");
-            foreach (var prop in dti.Properties)
+            foreach (var prop in dti.Properties.OrderBy(x => EmitOrderKey(x)))
             {
                 // The shared member emitter covers scalars, nested objects/dicts
                 // ('[Section]') and object collections ('[[key]]') — the poly
