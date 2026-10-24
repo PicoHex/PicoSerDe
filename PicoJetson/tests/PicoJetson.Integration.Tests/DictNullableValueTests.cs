@@ -38,7 +38,7 @@ public class DictNullableValueTests
         await Assert
             .That(
                 JsonSerializer
-                    .Deserialize<IntMap>(Encoding.UTF8.GetBytes("{\"Map\":{\"b\":null}}"))
+                    .Deserialize<IntMap>(Encoding.UTF8.GetBytes("{\"Map\":{\"b\":null}}"))!
                     .Map["b"]
             )
             .IsNull();
@@ -48,7 +48,7 @@ public class DictNullableValueTests
         await Assert
             .That(
                 JsonSerializer
-                    .Deserialize<DecimalMap>(Encoding.UTF8.GetBytes("{\"Map\":{\"b\":null}}"))
+                    .Deserialize<DecimalMap>(Encoding.UTF8.GetBytes("{\"Map\":{\"b\":null}}"))!
                     .Map["b"]
             )
             .IsNull();
@@ -59,14 +59,14 @@ public class DictNullableValueTests
         await Assert
             .That(
                 JsonSerializer
-                    .Deserialize<GuidMap>(Encoding.UTF8.GetBytes("{\"Map\":{\"b\":null}}"))
+                    .Deserialize<GuidMap>(Encoding.UTF8.GetBytes("{\"Map\":{\"b\":null}}"))!
                     .Map["b"]
             )
             .IsNull();
         await Assert
             .That(
                 JsonSerializer
-                    .Deserialize<DateTimeMap>(Encoding.UTF8.GetBytes("{\"Map\":{\"b\":null}}"))
+                    .Deserialize<DateTimeMap>(Encoding.UTF8.GetBytes("{\"Map\":{\"b\":null}}"))!
                     .Map["b"]
             )
             .IsNull();
@@ -79,7 +79,7 @@ public class DictNullableValueTests
     {
         var back = JsonSerializer.Deserialize<NestedNullableIntMap>(
             Encoding.UTF8.GetBytes("{\"Map\":{\"a\":{\"b\":null,\"c\":7}}}")
-        );
+        )!;
 
         await Assert.That(back.Map["a"]["b"]).IsNull();
         await Assert.That(back.Map["a"]["c"]).IsEqualTo(7);
@@ -96,7 +96,7 @@ public class DictNullableValueTests
             },
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model);
-        var back = JsonSerializer.Deserialize<NestedNullableIntMap>(bytes);
+        var back = JsonSerializer.Deserialize<NestedNullableIntMap>(bytes)!;
 
         await Assert.That(back.Map["a"]["b"]).IsNull();
         await Assert.That(back.Map["a"]["c"]).IsEqualTo(7);
