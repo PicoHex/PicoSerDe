@@ -5089,6 +5089,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("                    break;");
         }
 
+        // Unmapped runtime type: no [PicoDerivedType] case matches the value's
+        // concrete type. Without this default the discriminator was written and
+        // the switch fell through, emitting a truncated `{"$type":}` document
+        // that silently loses the object (review C-03). The message is built at
+        // generation time from the known base type name — GetType() would be
+        // reflection, which the generator avoids everywhere (AOT/trimming).
+        sb.AppendLine("                default:");
+        sb.Append(
+            "                    throw new System.FormatException(\"Unregistered derived type for polymorphic base '"
+        );
+        sb.Append(EscapeCSharpString(type.FullyQualifiedName ?? type.Name));
+        sb.AppendLine("'; add [PicoDerivedType] for the concrete type.\");");
+
         sb.AppendLine("            }");
         sb.AppendLine("            jw.WriteEndObject();");
         sb.AppendLine("        }");
@@ -5300,8 +5313,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    {");
         sb.Append("        result = partial;");
         sb.AppendLine();
-        sb.AppendLine("        string? __disc = reader.StreamState as string;");
-        sb.AppendLine();
 
         var dpn = type.DiscriminatorPropertyName ?? "$type";
         // Concrete bases get a synthesized discriminator so a base-typed
@@ -5312,6 +5323,40 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             : type.DerivedTypes.Add(
                 new PicoSerDe.Gen.DerivedTypeInfo(type.FullyQualifiedName!, __baseDisc)
             );
+
+        // Streaming state: the discriminator and every branch's ctor temps must
+        // survive chunk resumes, so they live in the reader's StreamState. A poly
+        // base never gets the regular `{Type}StreamingState` (only
+        // EmitStreamingDeserializer emits that one), hence its own holder —
+        // reusing the regular name would collide (CS0101) if both ever existed.
+        sb.Append("        var __st = (");
+        sb.Append(type.Name);
+        sb.Append("PolyStreamingState)(reader.StreamState ??= new ");
+        sb.Append(type.Name);
+        sb.AppendLine("PolyStreamingState());");
+        for (int i = 0; i < __cases.Length; i++)
+        {
+            var sti = derivedLookup.TryGetValue(__cases[i].FullyQualifiedName, out var stFound)
+                ? stFound
+                : default(TypeInfo);
+            if (sti.CtorParams.IsDefaultOrEmpty)
+                continue;
+            for (int ci = 0; ci < sti.CtorParams.Length; ci++)
+            {
+                sb.Append("        ref var __cp_");
+                sb.Append(i);
+                sb.Append('_');
+                sb.Append(ci);
+                sb.Append(" = ref __st.__cp_");
+                sb.Append(i);
+                sb.Append('_');
+                sb.Append(ci);
+                sb.AppendLine(";");
+            }
+        }
+        sb.AppendLine();
+        sb.AppendLine("        string? __disc = __st.Discriminator;");
+        sb.AppendLine();
 
         // ObjectStart read runs on the first invocation only.
         sb.AppendLine("        if (!reader.IsResumed)");
@@ -5345,7 +5390,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "            __disc = System.Text.Encoding.UTF8.GetString(reader.GetStringRaw());"
         );
-        sb.AppendLine("            reader.StreamState = __disc;");
+        sb.AppendLine("            __st.Discriminator = __disc;");
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -5379,40 +5424,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("();");
             }
 
-            if (hasCtor)
-            {
-                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
-                {
-                    var cp = dti.CtorParams[ci];
-                    // Use TypeFullName directly — MapTypeName with null type NREs
-                    // for complex kinds (object, enum, list, dict).
-                    var tn = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
-                    var dv = cp.TypeKind switch
-                    {
-                        "string" => "\"\"",
-                        "int32"
-                        or "int64"
-                        or "int16"
-                        or "uint16"
-                        or "sbyte"
-                        or "byte"
-                        or "uint32"
-                        or "uint64"
-                        or "float64" => "0",
-                        "boolean" => "false",
-                        _ => "default!",
-                    };
-                    sb.Append("        ");
-                    sb.Append(tn);
-                    sb.Append(" __cp_");
-                    sb.Append(i);
-                    sb.Append("_");
-                    sb.Append(ci);
-                    sb.Append(" = ");
-                    sb.Append(dv);
-                    sb.AppendLine(";");
-                }
-            }
+            // Ctor temps are `ref` aliases of __st.__cp_{branch}_{param} declared at
+            // method scope, so a chunk resume no longer resets them (review C-06).
 
             // Read remaining properties using streaming loop
             sb.AppendLine("            while (true)");
@@ -5486,6 +5499,55 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "        throw new System.FormatException($\"Unknown type discriminator: {__disc}\");"
         );
         sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        // Per-poly-type streaming state holder: the discriminator plus every
+        // branch's ctor temps survive chunk boundaries via JsonReader.StreamState.
+        // (Poly bases never get the regular `{Type}StreamingState`.)
+        sb.Append("file sealed class ");
+        sb.Append(type.Name);
+        sb.AppendLine("PolyStreamingState");
+        sb.AppendLine("{");
+        sb.AppendLine("    public string? Discriminator;");
+        for (int i = 0; i < __cases.Length; i++)
+        {
+            var sti = derivedLookup.TryGetValue(__cases[i].FullyQualifiedName, out var stFound)
+                ? stFound
+                : default(TypeInfo);
+            if (sti.CtorParams.IsDefaultOrEmpty)
+                continue;
+            for (int ci = 0; ci < sti.CtorParams.Length; ci++)
+            {
+                var cp = sti.CtorParams[ci];
+                // Use TypeFullName directly — MapTypeName with null type NREs
+                // for complex kinds (object, enum, list, dict).
+                var tn = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
+                var dv = cp.TypeKind switch
+                {
+                    "string" => "\"\"",
+                    "int32"
+                    or "int64"
+                    or "int16"
+                    or "uint16"
+                    or "sbyte"
+                    or "byte"
+                    or "uint32"
+                    or "uint64"
+                    or "float64" => "0",
+                    "boolean" => "false",
+                    _ => "default!",
+                };
+                sb.Append("    public ");
+                sb.Append(tn);
+                sb.Append(" __cp_");
+                sb.Append(i);
+                sb.Append('_');
+                sb.Append(ci);
+                sb.Append(" = ");
+                sb.Append(dv);
+                sb.AppendLine(";");
+            }
+        }
         sb.AppendLine("}");
     }
 
