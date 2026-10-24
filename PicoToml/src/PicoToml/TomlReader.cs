@@ -414,33 +414,135 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
 
     public bool TryGetInt32(out int v)
     {
+        v = 0;
         if (_valueSpan.IsEmpty)
-        {
-            v = 0;
             return false;
-        }
-        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+        if (!TryParseTomlInteger(_valueSpan, out var l) || l < int.MinValue || l > int.MaxValue)
+            return false;
+        v = (int)l;
+        return true;
     }
 
     public bool TryGetInt64(out long v)
     {
+        v = 0;
         if (_valueSpan.IsEmpty)
-        {
-            v = 0;
             return false;
-        }
-        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+        return TryParseTomlInteger(_valueSpan, out v);
     }
 
     public bool TryGetUInt64(out ulong v)
     {
+        v = 0;
         if (_valueSpan.IsEmpty)
-        {
-            v = 0;
             return false;
-        }
-        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+        if (!TryParseTomlUnsigned(_valueSpan, out var magnitude, out var negative) || negative)
+            return false;
+        v = magnitude;
+        return true;
     }
+
+    /// <summary>
+    /// Parses a complete TOML integer token — optional sign, decimal digits or a
+    /// <c>0x</c>/<c>0o</c>/<c>0b</c> prefixed integer, with single '_' digit
+    /// separators. The token must be consumed in full: a trailing byte makes the
+    /// parse fail instead of silently returning a prefix value (C-12).
+    /// </summary>
+    private static bool TryParseTomlInteger(ReadOnlySpan<byte> s, out long value)
+    {
+        value = 0;
+        if (!TryParseTomlUnsigned(s, out var magnitude, out var negative))
+            return false;
+        if (negative)
+        {
+            // long.MinValue is representable as a magnitude of 2^63.
+            if (magnitude > 9223372036854775808UL)
+                return false;
+            value = magnitude == 9223372036854775808UL ? long.MinValue : -(long)magnitude;
+            return true;
+        }
+        if (magnitude > long.MaxValue)
+            return false;
+        value = (long)magnitude;
+        return true;
+    }
+
+    /// <summary>
+    /// Parses a TOML integer token into its magnitude plus sign, honouring the
+    /// radix prefixes and '_' separators. Underscores must sit between digits.
+    /// </summary>
+    private static bool TryParseTomlUnsigned(
+        ReadOnlySpan<byte> s,
+        out ulong magnitude,
+        out bool negative
+    )
+    {
+        magnitude = 0;
+        negative = false;
+        if (s.IsEmpty)
+            return false;
+
+        int i = 0;
+        if (s[0] is (byte)'+' or (byte)'-')
+        {
+            negative = s[0] == (byte)'-';
+            i++;
+        }
+        if (i >= s.Length)
+            return false;
+
+        ulong radix = 10;
+        if (s.Length - i > 2 && s[i] == (byte)'0')
+        {
+            switch (s[i + 1])
+            {
+                case (byte)'x':
+                    radix = 16;
+                    i += 2;
+                    break;
+                case (byte)'o':
+                    radix = 8;
+                    i += 2;
+                    break;
+                case (byte)'b':
+                    radix = 2;
+                    i += 2;
+                    break;
+            }
+        }
+        if (i >= s.Length)
+            return false;
+
+        bool anyDigit = false;
+        for (; i < s.Length; i++)
+        {
+            byte b = s[i];
+            if (b == (byte)'_')
+            {
+                // '_' is only a separator: it needs a digit on both sides.
+                if (!anyDigit || i + 1 >= s.Length || s[i + 1] == (byte)'_')
+                    return false;
+                continue;
+            }
+            int d = HexValue(b);
+            if (d < 0 || (ulong)d >= radix)
+                return false;
+            if (magnitude > (ulong.MaxValue - (ulong)d) / radix)
+                return false;
+            magnitude = magnitude * radix + (ulong)d;
+            anyDigit = true;
+        }
+        return anyDigit;
+    }
+
+    private static int HexValue(byte b) =>
+        b switch
+        {
+            >= (byte)'0' and <= (byte)'9' => b - (byte)'0',
+            >= (byte)'a' and <= (byte)'f' => b - (byte)'a' + 10,
+            >= (byte)'A' and <= (byte)'F' => b - (byte)'A' + 10,
+            _ => -1,
+        };
 
     public bool TryGetBool(out bool v)
     {
@@ -485,7 +587,16 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
             v = double.NaN;
             return true;
         }
-        return Utf8Parser.TryParse(_valueSpan, out v, out _);
+        // The whole token must be consumed: "1.5abc" is not a TOML float.
+        if (
+            !Utf8Parser.TryParse(_valueSpan, out v, out var consumed)
+            || consumed != _valueSpan.Length
+        )
+        {
+            v = 0;
+            return false;
+        }
+        return true;
     }
 
     public bool TryReadNextInt32(out int v)
@@ -624,6 +735,17 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
             ArrayPool<byte>.Shared.Return(buf);
             buf = null;
         }
+    }
+
+    /// <summary>
+    /// Cuts a bare (unquoted) value span at an inline comment. A '#' that starts
+    /// a token begins a comment that runs to the end of the line; quoted values
+    /// never reach here, so a '#' inside a string is untouched.
+    /// </summary>
+    private static ReadOnlySpan<byte> StripComment(ReadOnlySpan<byte> raw)
+    {
+        int hash = raw.IndexOf((byte)'#');
+        return hash < 0 ? raw : raw[..hash];
     }
 
     // ── Span-mode Read ──
@@ -871,9 +993,14 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
     private bool ReadKeyValueSpan()
     {
         int keyStart = _position; // offset in _data; used by else branch and TrySplitDottedKey
+        // A quoted key is a single literal key: its content never takes part in
+        // dotted-key splitting ("a.b" is the key a.b, not a table a), so the
+        // recorded offsets must start at the content, not at the opening quote.
+        bool quotedKey = false;
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
-            _position++;
+            quotedKey = true;
+            keyStart = ++_position;
             _keySpan = ReadBasicStringSpan();
         }
         else
@@ -930,7 +1057,8 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
 
         ReadValueSpan();
         SkipLineSpan();
-        TrySplitDottedKey(_keySpan, keyStart);
+        if (!quotedKey)
+            TrySplitDottedKey(_keySpan, keyStart);
         if (_dottedActive)
         {
             // Emit first dotted token directly (next Read() will drain the rest)
@@ -1030,7 +1158,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
                 _position++;
             if (_position >= _data.Length && !_isFinalBlock)
                 throw new IncompleteInputException();
-            _valueSpan = _data[vs.._position];
+            _valueSpan = Trim(StripComment(_data[vs.._position]));
         }
     }
 
@@ -1097,7 +1225,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
                 && _data[_position] != (byte)'\n'
             )
                 _position++;
-            _valueSpan = Trim(_data[vs.._position]);
+            _valueSpan = Trim(StripComment(_data[vs.._position]));
         }
         _tokenType = TokenType.PropertyName;
         return true;
@@ -1184,7 +1312,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
                 && _data[_position] != (byte)'\r'
             )
                 _position++;
-            _valueSpan = Trim(_data[vs.._position]);
+            _valueSpan = Trim(StripComment(_data[vs.._position]));
         }
         _tokenType = TokenType.String;
         return true;
@@ -1602,7 +1730,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
                 buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                 _seqReader.Advance(1);
             }
-            _valueSpan = buf.AsSpan(0, di);
+            _valueSpan = Trim(StripComment(buf.AsSpan(0, di)));
         }
     }
 
@@ -1679,7 +1807,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
             buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
         }
-        _valueSpan = Trim(buf.AsSpan(0, di));
+        _valueSpan = Trim(StripComment(buf.AsSpan(0, di)));
         _tokenType = TokenType.PropertyName;
         return true;
     }
@@ -1776,7 +1904,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
                 _seqReader.Advance(1);
             }
         }
-        _valueSpan = buf.AsSpan(0, di);
+        _valueSpan = Trim(StripComment(buf.AsSpan(0, di)));
         _tokenType = TokenType.String;
         return true;
     }
