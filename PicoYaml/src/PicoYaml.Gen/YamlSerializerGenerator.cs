@@ -3721,13 +3721,37 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    {");
         s.Append(pad);
         s.AppendLine(
-            "        throw new System.FormatException($\"Expected a nested sequence at offset {r.BytesConsumed}\");"
+            "        // A dash with no indented block below it (\"-\", \"- # note\"): the item has no"
+        );
+        s.Append(pad);
+        s.AppendLine(
+            "        // value, so it reads like an empty inner sequence instead of failing."
         );
         s.Append(pad);
         s.AppendLine("    }");
-        EmitYamlSequenceReadLoop(s, inner, itemVar, pad + "    ", depth + 1, readFirst: true);
         s.Append(pad);
-        s.AppendLine("    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();");
+        s.AppendLine("    else");
+        s.Append(pad);
+        s.AppendLine("    {");
+        EmitYamlSequenceReadLoop(s, inner, itemVar, pad + "        ", depth + 1, readFirst: true);
+        s.Append(pad);
+        s.AppendLine(
+            "        if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();"
+        );
+        s.Append(pad);
+        s.AppendLine("    }");
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else if (r.IsNullLiteral)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine(
+            "    // A null item (\"- null\", \"- *alias\"): no element for the inner sequence."
+        );
+        s.Append(pad);
+        s.AppendLine("    __more = r.Read();");
         s.Append(pad);
         s.AppendLine("}");
         s.Append(pad);

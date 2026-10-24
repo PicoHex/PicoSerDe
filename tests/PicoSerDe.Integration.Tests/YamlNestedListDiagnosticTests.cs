@@ -77,6 +77,53 @@ public class YamlNestedListDiagnosticTests
         await Assert.That(generated).Contains("WriteEndSequence()");
     }
 
+    /// <summary>
+    /// F5 review I-3: the innermost element's nullability decides representability. Before
+    /// the fix only the outermost element was inspected, so <c>List&lt;List&lt;int?&gt;&gt;</c> slipped
+    /// through and the generated <c>WriteSequenceItem(int?)</c> did not compile (CS1503) —
+    /// a hard build break where the pre-F5 contract was PICOSERDE004 + dropped member.
+    /// Each shape below must report the diagnostic and leave no code behind.
+    /// </summary>
+    [Test]
+    [Arguments("System.Collections.Generic.List<System.Collections.Generic.List<int?>>")]
+    [Arguments("System.Collections.Generic.List<int?[]>")]
+    [Arguments("System.Collections.Generic.List<System.Collections.Generic.List<ProbeEnum?>>")]
+    [Arguments("System.Collections.Generic.List<System.Collections.Generic.List<ProbeObj?>>")]
+    [Arguments(
+        "System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int?>>"
+    )]
+    [Arguments(
+        "System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int?[]>>"
+    )]
+    public async Task Yaml_NestedNullableElementMember_IsDroppedWithTheDiagnostic(string shape)
+    {
+        var source =
+            """
+                using PicoYaml;
+
+                public enum ProbeEnum { A, B }
+
+                public class ProbeObj { public string Name { get; set; } = ""; }
+
+                public class ProbeDoc
+                {
+                    public string Name { get; set; } = "";
+                    public
+                """
+            + "\n"
+            + shape
+            + " Member { get; set; } = new();\n}\n\n"
+            + "public static class Probe { public static string Run() => YamlSerializer.Serialize(new ProbeDoc()); }";
+
+        var (ids, generated) = RunGenerator(source);
+        await Assert.That(ids).Contains(Id).Because("shape=" + shape + " ids=" + ids.Length);
+        await Assert
+            .That(generated)
+            .DoesNotContain("Member")
+            .Because("the unrepresentable member must not be emitted (shape=" + shape + ")");
+        await Assert.That(generated).Contains("Name").Because("the sibling member must survive");
+    }
+
     private static (string[] DiagnosticIds, string Generated) RunGenerator(string source)
     {
         var compilation = CSharpCompilation.Create(

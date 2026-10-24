@@ -1245,21 +1245,32 @@ internal static class GenInfrastructure
                 // object/dict elements (they skip null *scalars*); INI has no null
                 // representation at all, so every nullable element is dropped.
                 // YAML used to be in the nested-list group as well; it has its own
-                // block-sequence encoding for them now (F5), and its element list
-                // carries the innermost element's nullability instead.
-                var elementIsNullableValueType =
-                    elementType is INamedTypeSymbol
-                    {
-                        OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
-                    };
+                // block-sequence encoding for them now (F5).
+                //
+                // The element list carries the element of THIS level, but a nested
+                // chain (List<List<int?>>, List<int?[]>) hides the nullability that
+                // actually reaches the writer at its innermost level — checking only
+                // the outermost wrapper let `int?` through to
+                // YamlWriter.WriteSequenceItem(int?), which has no such overload, so
+                // the generated file stopped compiling (F5 review I-3). Walk to the
+                // innermost element and apply the same rule there: the member is
+                // dropped with PICOSERDE004 instead of emitting broken code.
+                var leafElement = InnermostCollectionElement(elementType, formatTag);
+                var elementIsNullableValueType = IsNullableValueType(elementType);
                 var elementIsAnnotated =
                     elementType.NullableAnnotation == NullableAnnotation.Annotated;
+                var leafIsNullableValueType = IsNullableValueType(leafElement);
+                var leafIsAnnotated =
+                    leafElement.NullableAnnotation == NullableAnnotation.Annotated;
+                var leafKind = TypeKindResolver.Resolve(leafElement, formatTag).Kind;
                 var nestedListUnsupported = formatTag is "toml" or "ini" && ek is "list" or "array";
                 var nullableElementUnsupported =
                     formatTag is "toml" or "yaml" or "ini"
                     && (
                         elementIsNullableValueType
+                        || leafIsNullableValueType
                         || elementIsAnnotated && (formatTag == "ini" || ek is "object" or "dict")
+                        || leafIsAnnotated && (formatTag == "ini" || leafKind is "object" or "dict")
                     );
                 if (nestedListUnsupported || nullableElementUnsupported)
                 {
@@ -1509,6 +1520,42 @@ internal static class GenInfrastructure
             );
         }
         return list;
+    }
+
+    /// <summary>
+    /// True when <paramref name="t"/> is <c>Nullable&lt;T&gt;</c>: the one shape whose
+    /// null cannot be written by the section-based formats' scalar writers.
+    /// </summary>
+    private static bool IsNullableValueType(ITypeSymbol t) =>
+        t is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };
+
+    /// <summary>
+    /// Walks a <c>List&lt;List&lt;...&lt;T&gt;&gt;&gt;</c> / <c>List&lt;T[]&gt;</c> element type down to the
+    /// element that is actually written per item (<c>int?</c> for both
+    /// <c>List&lt;List&lt;int?&gt;&gt;</c> and <c>List&lt;int?[]&gt;</c>). The walk mirrors
+    /// <see cref="BuildNestedListElement"/>: it descends while the element itself is a
+    /// list/array and stops at the first non-collection element. A non-collection input
+    /// is returned unchanged, so callers can use this unconditionally.
+    /// </summary>
+    private static ITypeSymbol InnermostCollectionElement(ITypeSymbol elementType, string formatTag)
+    {
+        var current = elementType;
+        // Depth guard: a pathological generic chain must not hang the generator.
+        for (var guard = 0; guard < 32; guard++)
+        {
+            ITypeSymbol? inner = current switch
+            {
+                IArrayTypeSymbol arr => arr.ElementType,
+                INamedTypeSymbol nts when nts.TypeArguments.Length == 1 => nts.TypeArguments[0],
+                _ => null,
+            };
+            if (inner is null)
+                return current;
+            if (TypeKindResolver.Resolve(inner, formatTag).Kind is not ("list" or "array"))
+                return inner;
+            current = inner;
+        }
+        return current;
     }
 
     /// <summary>

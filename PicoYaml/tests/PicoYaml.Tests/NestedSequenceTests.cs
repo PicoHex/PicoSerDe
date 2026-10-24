@@ -7,7 +7,9 @@
 // path possible at all.
 //
 // Wire shape this file pins (a block sequence item whose value is the following
-// indented sequence — valid YAML, verifiable with YamlDotNet):
+// indented sequence — valid YAML, verifiable with YamlDotNet). The item dash stands
+// alone on its line: the writer emits no trailing space (review I-1), and the reader
+// accepts a bare "-" followed by a line break:
 //
 //     Grid:
 //     -
@@ -153,6 +155,22 @@ public class NestedSeqNullableHolder
     public int Count { get; set; } = 5;
 }
 
+/// <summary>
+/// I-3 (F5 review): a nullable *reference* element stays supported — it is the nullable
+/// *value* element (<c>int?</c>, <c>MyEnum?</c>) that YAML cannot carry, because the
+/// scalar writers have no null representation.
+/// </summary>
+public class NestedSeqNullableStringHolder
+{
+    public List<List<string?>> Grid { get; set; } =
+        new()
+        {
+            new() { "a", null, "b" },
+            new() { null },
+        };
+    public int Count { get; set; } = 5;
+}
+
 public class NestedSeqTests
 {
     private static string RoundTripText(string text) => text.Replace("\r\n", "\n");
@@ -167,7 +185,7 @@ public class NestedSeqTests
         await Assert.That(text).Contains("Grid:").Because("actual=" + text);
         await Assert
             .That(text)
-            .IsEqualTo("Grid:\n- \n  - 1\n  - 2\n- \n  - 3\nCount: 5\n")
+            .IsEqualTo("Grid:\n-\n  - 1\n  - 2\n-\n  - 3\nCount: 5\n")
             .Because("actual=" + text);
 
         var back = YamlSerializer.Deserialize<NestedSeqIntHolder>(Encoding.UTF8.GetBytes(text));
@@ -273,7 +291,7 @@ public class NestedSeqTests
         var text = RoundTripText(YamlSerializer.Serialize(new NestedSeqEmptyInnerHolder()));
         await Assert
             .That(text)
-            .IsEqualTo("Grid:\n- []\n- \n  - 1\nCount: 5\n")
+            .IsEqualTo("Grid:\n- []\n-\n  - 1\nCount: 5\n")
             .Because("actual=" + text);
 
         var back = YamlSerializer.Deserialize<NestedSeqEmptyInnerHolder>(
@@ -285,7 +303,55 @@ public class NestedSeqTests
         await Assert.That(back.Count).IsEqualTo(5);
     }
 
-    // ── Nested object containing lists (the removed YAML-only drop) ──
+    /// <summary>
+    /// Minor-1 (F5 review): every inner sequence is empty, so the outer sequence has
+    /// items but no nested block at all — two "- []" lines and no wrapper.
+    /// </summary>
+    [Test]
+    public async Task AllInnerSequencesEmpty_WritesTwoFlowMarkers_AndRoundTrips()
+    {
+        var value = new NestedSeqEmptyInnerHolder
+        {
+            Grid = new() { new(), new() },
+        };
+        var text = RoundTripText(YamlSerializer.Serialize(value));
+        await Assert
+            .That(text)
+            .IsEqualTo("Grid:\n- []\n- []\nCount: 5\n")
+            .Because("actual=" + text);
+
+        var back = YamlSerializer.Deserialize<NestedSeqEmptyInnerHolder>(
+            Encoding.UTF8.GetBytes(text)
+        );
+        await Assert.That(back!.Grid.Count).IsEqualTo(2);
+        await Assert.That(back.Grid[0]).IsEmpty();
+        await Assert.That(back.Grid[1]).IsEmpty();
+        await Assert.That(back.Count).IsEqualTo(5);
+    }
+
+    /// <summary>
+    /// <c>List&lt;List&lt;string?&gt;&gt;</c> is representable: a null reference element is simply
+    /// not written, exactly like the flat <c>List&lt;string?&gt;</c> member — the nested chain
+    /// keeps that behavior instead of being dropped.
+    /// </summary>
+    [Test]
+    public async Task NestedNullableStringGrid_RoundTrips()
+    {
+        var text = RoundTripText(YamlSerializer.Serialize(new NestedSeqNullableStringHolder()));
+        await Assert.That(text).Contains("Grid:").Because("actual=" + text);
+
+        var back = YamlSerializer.Deserialize<NestedSeqNullableStringHolder>(
+            Encoding.UTF8.GetBytes(text)
+        );
+        await Assert.That(back!.Grid.Count).IsEqualTo(2).Because("actual=" + text);
+        await Assert.That(back.Grid[0]!.Count).IsEqualTo(2).Because("actual=" + text);
+        await Assert.That(back.Grid[0]![0]).IsEqualTo("a");
+        await Assert.That(back.Grid[0]![1]).IsEqualTo("b");
+        await Assert.That(back.Grid[1]).IsEmpty();
+        await Assert.That(back.Count).IsEqualTo(5);
+    }
+
+    // ── Nested objects containing lists (the removed YAML-only drop) ──
 
     [Test]
     public async Task NestedObjectWithObjectSequence_IsNoLongerDropped()

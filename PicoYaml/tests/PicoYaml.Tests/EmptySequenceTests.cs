@@ -158,7 +158,7 @@ public class EmptySequenceTests
         var text = Encoding.UTF8.GetString(buf.WrittenSpan);
         await Assert
             .That(text)
-            .IsEqualTo("Items:\n  - \n    Name: a\nEmpty: []\nTail: 1\n")
+            .IsEqualTo("Items:\n  -\n    Name: a\nEmpty: []\nTail: 1\n")
             .Because("actual=" + text);
     }
 
@@ -282,7 +282,7 @@ public class EmptySequenceTests
         await Assert.That(text).Contains("Grid").Because("actual=" + text);
         await Assert
             .That(text)
-            .IsEqualTo("Name: n\nGrid:\n- \n  - 1\n  - 2\nCount: 5\n")
+            .IsEqualTo("Name: n\nGrid:\n-\n  - 1\n  - 2\nCount: 5\n")
             .Because("actual=" + text);
 
         var back = YamlSerializer.Deserialize<NestedSeqInts>(Encoding.UTF8.GetBytes(text));
