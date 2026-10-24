@@ -32,6 +32,12 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
     // True when the current value came from explicit quoting (or a block
     // scalar): an empty quoted scalar is "" — never a null literal.
     private bool _valueWasQuoted;
+
+    // True when the current value is a bare sequence dash ("-" alone on its
+    // line, optionally followed by a comment): the item's value is the block
+    // below, not an inline scalar. Explicit state, so a null item that merely
+    // *looks* empty ("- # note", "- *alias") cannot be mistaken for it.
+    private bool _seqItemWasBareDash;
     private int _depth;
     private readonly int _maxDepth;
     private int[] _indentStack;
@@ -360,6 +366,34 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
     public ReadOnlySpan<byte> ValueSpan => _valueSpan;
 
     /// <summary>
+    /// True when the current value came from an explicitly quoted scalar (or a block
+    /// scalar). An empty quoted scalar is the empty string, never a null literal and
+    /// never a sequence marker — which is what lets the generated nested-sequence code
+    /// tell <c>- ""</c> from a bare <c>-</c>.
+    /// </summary>
+    public bool ValueWasQuoted => _valueWasQuoted;
+
+    /// <summary>
+    /// True when the current item token is a bare sequence dash: the dash line carries
+    /// no inline value, so the item's value is the indented block that follows (if any).
+    /// Read from an explicit flag, not inferred from an empty value: a quoted
+    /// <c>- ""</c>, a comment-only <c>- # note</c> and an alias <c>- *m</c> are all
+    /// different things.
+    /// </summary>
+    public bool IsNestedSequenceItem => _seqItemWasBareDash;
+
+    /// <summary>
+    /// True when the current item token carries the unquoted flow-empty marker
+    /// (<c>- []</c>): a nested sequence with no elements. A quoted "[]" is a string
+    /// element and is never reported here.
+    /// </summary>
+    public bool IsEmptySequenceMarker =>
+        !_valueWasQuoted
+        && _valueSpan.Length == 2
+        && _valueSpan[0] == (byte)'['
+        && _valueSpan[1] == (byte)']';
+
+    /// <summary>
     /// True when the current value is a YAML null literal: <c>null</c> (any
     /// case), <c>~</c>, or a missing value (<c>Key:</c> with nothing after the
     /// colon). A quoted scalar is never null — <c>V: ""</c> is the empty
@@ -546,6 +580,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         _keySpan = default;
         _valueSpan = default;
         _valueWasQuoted = false;
+        _seqItemWasBareDash = false;
     }
 
     /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>
@@ -560,6 +595,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
     private bool ReadImpl()
     {
         _valueWasQuoted = false;
+        _seqItemWasBareDash = false;
         if (++_tokenCount > MaxTokens)
             throw new FormatException(
                 $"Exceeded maximum token count of {MaxTokens}; likely an infinite loop in YAML parsing"
@@ -843,11 +879,15 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         }
         if (
             _data[_position] == (byte)'-'
-            && _position + 1 < _data.Length
-            && _data[_position + 1] == (byte)' '
+            && (
+                _position + 1 >= _data.Length
+                || _data[_position + 1] is (byte)' ' or (byte)'\n' or (byte)'\r'
+            )
         )
         {
-            _position += 2;
+            _position++;
+            if (_position < _data.Length && _data[_position] == (byte)' ')
+                _position++;
             if (_position < _data.Length && _data[_position] == (byte)'"')
             {
                 _position++;
@@ -867,6 +907,32 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                 _valueWasQuoted = true;
                 _valueSpan = ReadSingleQuotedStringSpan();
             }
+            else if (_position < _data.Length && _data[_position] == (byte)'*')
+            {
+                // An alias item carries no inline scalar: reuse the scalar the anchor
+                // holds when there is one, and the same empty value the mapping-value
+                // alias path exposes for a mapping anchor. Either way the item is never
+                // a bare-dash marker (I-2).
+                _position++;
+                int aliasStart = _position;
+                while (
+                    _position < _data.Length
+                    && _data[_position] is not ((byte)' ' or (byte)'\n' or (byte)'\r')
+                )
+                    _position++;
+                var aliasName = Encoding.UTF8.GetString(_data[aliasStart.._position]);
+                int anchorIdx = FindAnchorIdx(aliasName);
+                _valueSpan =
+                    anchorIdx >= 0 && !IsAnchorMapping(anchorIdx)
+                        ? GetAnchorScalar(anchorIdx)
+                        : default;
+                while (
+                    _position < _data.Length
+                    && _data[_position] != (byte)'\n'
+                    && _data[_position] != (byte)'\r'
+                )
+                    _position++;
+            }
             else
             {
                 int vs = _position;
@@ -876,7 +942,13 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                     && _data[_position] != (byte)'\r'
                 )
                     _position++;
-                _valueSpan = StripInlineComment(_data[vs.._position]);
+                var itemText = _data[vs.._position];
+                _valueSpan = StripInlineComment(itemText);
+                // I-2: an explicit flag instead of inferring "nested block" from an
+                // empty span — a dash followed only by whitespace and/or an inline
+                // comment has no inline value, so its value is the block below (if
+                // any). A quoted or aliased item never sets this.
+                _seqItemWasBareDash = HasNoInlineValue(itemText);
             }
             if (_position >= _data.Length && !_isFinalBlock)
                 throw new IncompleteInputException();
@@ -2114,6 +2186,25 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             2 => _a2IsMapping,
             _ => _a3IsMapping,
         };
+    }
+
+    /// <summary>
+    /// True when a sequence item's text (everything after the dash, up to the line end)
+    /// carries no inline value: only whitespace, or whitespace and a trailing comment.
+    /// That is exactly the "my value is the block below" case — <c>-</c>, <c>-   </c> and
+    /// <c>- # note</c>, but never <c>- ""</c>, <c>- *alias</c> or <c>- 1</c>.
+    /// </summary>
+    private static bool HasNoInlineValue(ReadOnlySpan<byte> itemText)
+    {
+        foreach (var b in itemText)
+        {
+            if (b is Space or Tab or (byte)'\r')
+                continue;
+            // A '#' here opens an inline comment (the dash already consumed its
+            // separator), so the rest of the line is trivia, not a value.
+            return b == (byte)'#';
+        }
+        return true;
     }
 
     private int GetAnchorPairCount(int idx)

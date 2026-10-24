@@ -60,6 +60,7 @@ M:PicoYaml.YamlWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, int max
 M:PicoYaml.YamlWriter.WriteBoolean(bool value) : void
 M:PicoYaml.YamlWriter.WriteComment(string text) : void
 M:PicoYaml.YamlWriter.WriteDouble(double value) : void
+M:PicoYaml.YamlWriter.WriteEmptySequenceItem() : void
 M:PicoYaml.YamlWriter.WriteEndMapping() : void
 M:PicoYaml.YamlWriter.WriteEndSequence() : void
 M:PicoYaml.YamlWriter.WriteEndSequenceBlock() : void
@@ -84,6 +85,8 @@ P:PicoYaml.YamlOptions.DefaultIgnoreCondition : PicoYaml.YamlIgnoreCondition { g
 P:PicoYaml.YamlOptions.Indented : bool { get; set; }
 P:PicoYaml.YamlReader.BytesConsumed : long { get; }
 P:PicoYaml.YamlReader.Depth : int { get; }
+P:PicoYaml.YamlReader.IsEmptySequenceMarker : bool { get; }
+P:PicoYaml.YamlReader.IsNestedSequenceItem : bool { get; }
 P:PicoYaml.YamlReader.IsNullLiteral : bool { get; }
 P:PicoYaml.YamlReader.IsResumed : bool { get; }
 P:PicoYaml.YamlReader.KeySpan : System.ReadOnlySpan`1<byte> { get; }
@@ -92,6 +95,7 @@ P:PicoYaml.YamlReader.RawPos : int { get; }
 P:PicoYaml.YamlReader.TokenStart : long { get; }
 P:PicoYaml.YamlReader.TokenType : PicoSerDe.Core.TokenType { get; }
 P:PicoYaml.YamlReader.ValueSpan : System.ReadOnlySpan`1<byte> { get; }
+P:PicoYaml.YamlReader.ValueWasQuoted : bool { get; }
 P:PicoYaml.YamlTagAttribute.Tag : string { get; }
 P:PicoYaml.YamlWriter.BytesWritten : long { get; }
 T:class PicoYaml.PicoYamlSerializableAttribute

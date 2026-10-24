@@ -88,7 +88,6 @@ public class NestedListOfObjectsTests
 
     [Test]
     [Arguments("toml")]
-    [Arguments("yaml")]
     [Arguments("ini")]
     public async Task SectionFormats_DropNestedListMember(string format)
     {
@@ -102,7 +101,6 @@ public class NestedListOfObjectsTests
         var text = format switch
         {
             "toml" => TomlSerializer.Serialize(root),
-            "yaml" => YamlSerializer.Serialize(root),
             _ => IniSerializer.Serialize(root),
         };
         await Assert.That(text).DoesNotContain("Rows");
@@ -111,17 +109,46 @@ public class NestedListOfObjectsTests
         var doc = format switch
         {
             "toml" => "Name = \"root\"\n"u8.ToArray(),
-            "yaml" => "Name: root\n"u8.ToArray(),
             _ => "Name = root\n"u8.ToArray(),
         };
         var back = format switch
         {
             "toml" => TomlSerializer.Deserialize<NestedListPlain>(doc),
-            "yaml" => YamlSerializer.Deserialize<NestedListPlain>(doc),
             _ => IniSerializer.Deserialize<NestedListPlain>(doc),
         };
         await Assert.That(back!.Name).IsEqualTo("root");
         await Assert.That(back.Rows.Count).IsEqualTo(0).Because(format);
+    }
+
+    /// <summary>
+    /// YAML no longer belongs to the dropping group (F5): a nested list of objects is
+    /// written as nested block sequences and read back with its inner objects intact.
+    /// </summary>
+    [Test]
+    public async Task Yaml_NestedListOfPlainObjects_RoundTrips()
+    {
+        var root = new NestedListPlain
+        {
+            Name = "root",
+            Rows = new List<List<NestedPlain>>
+            {
+                new()
+                {
+                    new NestedPlain { Name = "a" },
+                    new NestedPlain { Name = "b" },
+                },
+                new() { new NestedPlain { Name = "c" } },
+            },
+        };
+
+        var text = YamlSerializer.Serialize(root);
+        await Assert.That(text).Contains("Rows").Because("yaml=" + text);
+
+        var back = YamlSerializer.Deserialize<NestedListPlain>(Encoding.UTF8.GetBytes(text));
+        await Assert.That(back!.Name).IsEqualTo("root").Because("yaml=" + text);
+        await Assert.That(back.Rows.Count).IsEqualTo(2).Because("yaml=" + text);
+        await Assert.That(back.Rows[0][1].Name).IsEqualTo("b");
+        await Assert.That(back.Rows[1][0].Name).IsEqualTo("c");
     }
 
     [Test]

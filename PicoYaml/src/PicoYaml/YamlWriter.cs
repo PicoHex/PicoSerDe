@@ -310,9 +310,13 @@ public ref struct YamlWriter
 
     /// <summary>
     /// Closes the sequence opened by <see cref="WriteStartSequence"/>. A sequence that
-    /// received no item writes "[]" (" []" right after a key) followed by a line
-    /// break; a non-empty one only clears its state, because its items already ended
-    /// their lines.
+    /// received no item writes " []" right after its key; a non-empty one only clears its
+    /// state, because its items already ended their lines.
+    ///
+    /// An empty sequence that is a *block item* (no key pending: it sits under a
+    /// <see cref="WriteStartSequenceBlock"/> dash) writes nothing at all: the dash line
+    /// already ended, and a bare "[]" line would be a keyless line no mapping reader can
+    /// place. The item then reads back as an empty inner sequence.
     /// </summary>
     public void WriteEndSequence()
     {
@@ -327,14 +331,21 @@ public ref struct YamlWriter
             {
                 WriteByte((byte)' ');
                 _afterKey = false;
+                WriteRaw("[]"u8);
+                WriteNewLine();
+            }
+            else if (_depth > 0)
+            {
+                // The sequence is a block item (under a dash) and wrote nothing: the
+                // item stays empty on the wire. A keyless "[]" line here would be a
+                // line no mapping reader could place, so writing nothing is what keeps
+                // the document readable ("-" alone reads back as an empty sequence).
             }
             else
             {
-                for (var i = 0; i < _depth; i++)
-                    WriteRaw("  "u8);
+                WriteRaw("[]"u8);
+                WriteNewLine();
             }
-            WriteRaw("[]"u8);
-            WriteNewLine();
         }
         // A sequence is itself a value of the enclosing one, so that level is no
         // longer empty whatever this sequence wrote.
@@ -347,7 +358,26 @@ public ref struct YamlWriter
             _sequenceWroteContent |= 1UL << (_sequenceDepth - 1);
     }
 
-    /// <summary>Writes a block sequence item that starts a mapping (-\n indented properties).</summary>
+    /// <summary>
+    /// Writes an empty nested sequence as its own item line (<c>- []</c>): the value of a
+    /// nested sequence item that has no elements. The flow marker is written raw — passing
+    /// it through <see cref="WriteSequenceItem(ReadOnlySpan{byte})"/> would quote it and turn
+    /// the empty nested sequence into the scalar "[]". A scalar item whose text is literally
+    /// [] is quoted by the writer, so the reader can tell the two apart.
+    /// </summary>
+    public void WriteEmptySequenceItem()
+    {
+        WriteSequencePrefix();
+        WriteRaw("[]"u8);
+        WriteNewLine();
+    }
+
+    /// <summary>
+    /// Writes a block sequence item that starts a nested block (a mapping or another
+    /// sequence, <c>-</c> then the indented content below it). The dash stands alone: no
+    /// trailing space, so the emitted document is the shape every other YAML
+    /// implementation writes and reads (I-1).
+    /// </summary>
     public void WriteStartSequenceBlock()
     {
         MarkSequenceContent();
@@ -359,10 +389,10 @@ public ref struct YamlWriter
         var pad = _depth + (_indented ? 1 : 0);
         for (var i = 0; i < pad; i++)
             WriteRaw("  "u8);
-        WriteRaw("- "u8);
+        WriteByte((byte)'-');
         WriteNewLine();
         // Indented sequences keep the item content one extra level deep so the
-        // mapping under a "- " item aligns past the dash.
+        // mapping under a "-" item aligns past the dash.
         _depth += _indented ? 2 : 1;
     }
 

@@ -1240,28 +1240,39 @@ internal static class GenInfrastructure
                 var (ek, _, _) = TypeKindResolver.Resolve(elementType, formatTag);
                 if (ek is null)
                     continue;
-                // Section-based formats cannot represent a nested list at all;
-                // drop the member with a shared PICOSERDE004 diagnostic instead
-                // of emitting non-compiling or lossy element code.
                 // Section-based formats cannot express nested lists or nullable
                 // value-type elements. TOML/YAML additionally cannot express null
                 // object/dict elements (they skip null *scalars*); INI has no null
                 // representation at all, so every nullable element is dropped.
-                var elementIsNullableValueType =
-                    elementType is INamedTypeSymbol
-                    {
-                        OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
-                    };
+                // YAML used to be in the nested-list group as well; it has its own
+                // block-sequence encoding for them now (F5).
+                //
+                // The element list carries the element of THIS level, but a nested
+                // chain (List<List<int?>>, List<int?[]>) hides the nullability that
+                // actually reaches the writer at its innermost level — checking only
+                // the outermost wrapper let `int?` through to
+                // YamlWriter.WriteSequenceItem(int?), which has no such overload, so
+                // the generated file stopped compiling (F5 review I-3). Walk to the
+                // innermost element and apply the same rule there: the member is
+                // dropped with PICOSERDE004 instead of emitting broken code.
+                var leafElement = InnermostCollectionElement(elementType, formatTag);
+                var elementIsNullableValueType = IsNullableValueType(elementType);
                 var elementIsAnnotated =
                     elementType.NullableAnnotation == NullableAnnotation.Annotated;
-                if (
+                var leafIsNullableValueType = IsNullableValueType(leafElement);
+                var leafIsAnnotated =
+                    leafElement.NullableAnnotation == NullableAnnotation.Annotated;
+                var leafKind = TypeKindResolver.Resolve(leafElement, formatTag).Kind;
+                var nestedListUnsupported = formatTag is "toml" or "ini" && ek is "list" or "array";
+                var nullableElementUnsupported =
                     formatTag is "toml" or "yaml" or "ini"
                     && (
-                        ek is "list" or "array"
-                        || elementIsNullableValueType
+                        elementIsNullableValueType
+                        || leafIsNullableValueType
                         || elementIsAnnotated && (formatTag == "ini" || ek is "object" or "dict")
-                    )
-                )
+                        || leafIsAnnotated && (formatTag == "ini" || leafKind is "object" or "dict")
+                    );
+                if (nestedListUnsupported || nullableElementUnsupported)
                 {
                     skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                     continue;
@@ -1457,22 +1468,6 @@ internal static class GenInfrastructure
                 );
             }
 
-            // YAML's inner helper cannot read an object member that itself
-            // contains an object sequence (it silently produced an empty list);
-            // drop the outer member with the shared diagnostic instead.
-            if (
-                formatTag == "yaml"
-                && typeKind == "object"
-                && nestedProperties.Any(x =>
-                    (x.TypeKind is "list" or "array")
-                    && x.ElementTypeKind == "object"
-                    && x.NestedProperties.Length > 0
-                )
-            )
-            {
-                skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
-                continue;
-            }
             if (recursiveRef && formatTag is not ("json" or "msgpack"))
             {
                 // TOML/YAML/INI cannot represent arbitrarily deep nesting; drop
@@ -1525,6 +1520,48 @@ internal static class GenInfrastructure
             );
         }
         return list;
+    }
+
+    /// <summary>
+    /// True when <paramref name="t"/> is <c>Nullable&lt;T&gt;</c>: the one shape whose
+    /// null cannot be written by the section-based formats' scalar writers.
+    /// </summary>
+    private static bool IsNullableValueType(ITypeSymbol t) =>
+        t is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };
+
+    /// <summary>
+    /// Walks a <c>List&lt;List&lt;...&lt;T&gt;&gt;&gt;</c> / <c>List&lt;T[]&gt;</c> element type down to the
+    /// element that is actually written per item (<c>int?</c> for both
+    /// <c>List&lt;List&lt;int?&gt;&gt;</c> and <c>List&lt;int?[]&gt;</c>). The walk mirrors
+    /// <see cref="BuildNestedListElement"/>: it descends while the CURRENT type is a
+    /// list/array and stops at the first non-collection element, which is returned
+    /// unchanged. So a non-collection input — including an object that merely carries a
+    /// single generic argument (<c>List&lt;Wrapper&lt;int?&gt;&gt;</c>, <c>List&lt;Box&lt;int&gt;&gt;</c>) — is
+    /// never unwrapped: its generic argument is not a sequence element. Callers can use
+    /// this unconditionally.
+    /// </summary>
+    private static ITypeSymbol InnermostCollectionElement(ITypeSymbol elementType, string formatTag)
+    {
+        var current = elementType;
+        // Depth guard: a pathological generic chain must not hang the generator.
+        for (var guard = 0; guard < 32; guard++)
+        {
+            // Only an actual collection has an element that the writer emits per item;
+            // descending through any other single-type-argument generic would treat an
+            // object's type argument as a nested sequence element (F5 fix round 2, A).
+            if (TypeKindResolver.Resolve(current, formatTag).Kind is not ("list" or "array"))
+                return current;
+            ITypeSymbol? inner = current switch
+            {
+                IArrayTypeSymbol arr => arr.ElementType,
+                INamedTypeSymbol nts when nts.TypeArguments.Length == 1 => nts.TypeArguments[0],
+                _ => null,
+            };
+            if (inner is null)
+                return current;
+            current = inner;
+        }
+        return current;
     }
 
     /// <summary>
