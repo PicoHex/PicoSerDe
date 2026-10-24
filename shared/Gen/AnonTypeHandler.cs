@@ -415,6 +415,7 @@ internal static class AnonTypeHandler
         var prefix = GenInfrastructure.AssemblyPrefix ?? "__PicoSerDe";
         sb.AppendLine($"namespace {prefix};\n");
         var fmtTag = config.FormatTag;
+        var scope = new AnonEmitScope(spc, fmtTag);
         sb.Append(GenerateReaderClass(info, fmtTag));
         var nestedTypes = CollectNestedTypes(info.Fields);
         foreach (var nt in nestedTypes)
@@ -499,8 +500,13 @@ internal static class AnonTypeHandler
         // Format-specific write start
         if (afc.ObjectStartMethod is not null)
         {
+            // A counted header (msgpack map) must announce only the members that are
+            // actually written — a dropped collection member would otherwise make the
+            // header promise an entry the payload never emits.
             if (afc.ObjectStartNeedsCount)
-                sb.AppendLine($"        {wv}.{afc.ObjectStartMethod}({info.Fields.Length});");
+                sb.AppendLine(
+                    $"        {wv}.{afc.ObjectStartMethod}({scope.EmittedFieldCount(info)});"
+                );
             else
                 sb.AppendLine($"        {wv}.{afc.ObjectStartMethod}();");
         }
@@ -510,7 +516,7 @@ internal static class AnonTypeHandler
             EmitAnonMember(
                 sb,
                 f,
-                fmtTag,
+                scope,
                 afc,
                 ot,
                 wv,
@@ -538,7 +544,7 @@ internal static class AnonTypeHandler
         foreach (var nt in nestedTypes)
         {
             sb.AppendLine();
-            sb.Append(GenerateNestedHelper(nt, config, afc, fmtTag, ot, wt, wv, emitField));
+            sb.Append(GenerateNestedHelper(nt, config, afc, scope, ot, wt, wv, emitField));
         }
 
         spc.AddSource(
@@ -574,11 +580,49 @@ internal static class AnonTypeHandler
     private static bool IsCollectionKind(string kind) => kind is "list" or "array" or "dict";
 
     /// <summary>
-    /// The anonymous interceptor can only emit collection members for writers
-    /// that expose a standalone array API. TOML/INI embed the key in every
-    /// scalar call and YAML only offers per-item <c>WriteSequenceItem</c> calls.
+    /// The anonymous interceptor can only emit collection members for writers that
+    /// expose a count-free standalone array API. JSON is the only one: MsgPack's
+    /// <c>WriteStartArray(int count)</c>/<c>WriteStartObject(int count)</c> require
+    /// the element count up front (a parameterless call is CS7036), TOML/INI embed
+    /// the key in every scalar call and YAML writes per-item sequence entries.
+    /// Members of the other formats are dropped — loudly, PICOSERDE005.
     /// </summary>
-    private static bool SupportsAnonCollections(string fmtTag) => fmtTag is "json" or "msgpack";
+    private static bool SupportsAnonCollections(string fmtTag) => fmtTag is "json";
+
+    /// <summary>
+    /// Per-interceptor emission state: the generation context for the
+    /// "anonymous collection member dropped" diagnostic (PICOSERDE005) plus a
+    /// dedupe set, so a member is reported once per generated interceptor instead
+    /// of once per nested occurrence.
+    /// </summary>
+    private sealed class AnonEmitScope
+    {
+        private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
+
+        public AnonEmitScope(SourceProductionContext spc, string fmtTag)
+        {
+            Spc = spc;
+            FmtTag = fmtTag;
+            SupportsCollections = SupportsAnonCollections(fmtTag);
+        }
+
+        public SourceProductionContext Spc { get; }
+        public string FmtTag { get; }
+        public bool SupportsCollections { get; }
+
+        /// <summary>True when this member is a collection this format cannot emit.</summary>
+        public bool IsDropped(AnonFieldInfo f) =>
+            !SupportsCollections && IsCollectionKind(f.TypeKind);
+
+        /// <summary>Number of members a msgpack-style counted header must announce.</summary>
+        public int EmittedFieldCount(AnonTypeInfo info) => info.Fields.Count(f => !IsDropped(f));
+
+        public void ReportDroppedCollection(AnonFieldInfo f)
+        {
+            if (_reported.Add(f.Name))
+                GenInfrastructure.ReportUnsupportedAnonCollectionMember(Spc, FmtTag, f.Name);
+        }
+    }
 
     /// <summary>
     /// Emits one anonymous-type member. Shared by the top-level interceptor and
@@ -588,7 +632,7 @@ internal static class AnonTypeHandler
     private static void EmitAnonMember(
         StringBuilder sb,
         AnonFieldInfo f,
-        string fmtTag,
+        AnonEmitScope scope,
         AnonFormatConfig afc,
         string ot,
         string wv,
@@ -607,11 +651,15 @@ internal static class AnonTypeHandler
         // (review C-02: `new { Xs = (List<int>?)null }` produced `{null}`).
         bool keyBeforeNullCheck = afc.HasNullLiteral && !afc.EmbedsKeyInValue;
 
-        if (IsCollectionKind(f.TypeKind) && !SupportsAnonCollections(fmtTag))
+        if (scope.IsDropped(f))
         {
+            // Review Task 2 (Important 2): the member cannot be represented, so it is
+            // dropped — but never silently: PICOSERDE005 makes the loss visible in the
+            // build log (previously only a comment in generated code recorded it).
             sb.AppendLine(
-                $"{indent}// {f.Name}: collection members cannot be represented in {fmtTag} anonymous types — omitted"
+                $"{indent}// {f.Name}: collection members cannot be represented in {scope.FmtTag} anonymous types — omitted (PICOSERDE005)"
             );
+            scope.ReportDroppedCollection(f);
             return;
         }
 
@@ -637,7 +685,7 @@ internal static class AnonTypeHandler
             sb.AppendLine($"{body}if ({valueVar} != null) {{");
             if (!keyBeforeNullCheck && !afc.EmbedsKeyInValue)
                 EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");
-            EmitCollectionSerialize(sb, wv, f, fmtTag, emitField, body + "    ", valueVar);
+            EmitCollectionSerialize(sb, wv, f, emitField, body + "    ", valueVar);
             AppendNullBranchEnd(sb, wv, afc.HasNullLiteral, body);
         }
         else if (f.IsNullable && IsNullableKind(f.TypeKind))
@@ -760,14 +808,15 @@ internal static class AnonTypeHandler
         StringBuilder sb,
         string wv,
         AnonFieldInfo f,
-        string fmtTag,
         Func<AnonFieldInfo, string, string, string> emitField,
         string indent,
         string valueVar
     )
     {
-        // Only JSON/MsgPack reach this method (see SupportsAnonCollections), and
-        // both writers expose a standalone array API.
+        // JSON is the only format that reaches this method (see
+        // SupportsAnonCollections): its writer exposes count-free WriteStartArray() /
+        // WriteStartObject(). Every other writer needs the element count up front and
+        // its anonymous collection members are dropped with PICOSERDE005 instead.
         const string start = "WriteStartArray";
         const string end = "WriteEndArray";
 
@@ -858,7 +907,7 @@ internal static class AnonTypeHandler
         AnonTypeInfo info,
         FormatConfig config,
         AnonFormatConfig afc,
-        string fmtTag,
+        AnonEmitScope scope,
         string ot,
         string wt,
         string wv,
@@ -889,11 +938,11 @@ internal static class AnonTypeHandler
             EmitAnonMember(
                 sb,
                 f,
-                fmtTag,
+                scope,
                 afc,
                 ot,
                 wv,
-                $"__AnonReaders_{fmtTag}_{info.UniqueId}",
+                $"__AnonReaders_{scope.FmtTag}_{info.UniqueId}",
                 "    ",
                 $"__v{vi}",
                 $"__vv{vi}",

@@ -7,8 +7,10 @@
 <IsPackable>false</IsPackable>
     <!-- IL2026/IL3050: TUnit reflection (test-only). PICOSERDE002: the hint-name
          collision fixtures intentionally collide. PICOSERDE003: recursive fixtures
-         intentionally exercise the TOML/YAML/INI limitation; all three warnings are the tested behavior. -->
-    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE002;PICOSERDE003;PICOSERDE004</NoWarn>
+         intentionally exercise the TOML/YAML/INI limitation; PICOSERDE005: the anonymous
+         collection fixtures intentionally exercise the non-JSON limitation; all of these
+         warnings are the tested behavior. -->
+    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE002;PICOSERDE003;PICOSERDE004;PICOSERDE005</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Generated code must be nullability-clean (review P2-1). -->
@@ -20,6 +22,9 @@
   <ItemGroup>
     <PackageReference Include="TUnit" />
     <PackageReference Include="MessagePack" />
+    <!-- Generator-driver tests (anonymous collection diagnostics) need Roslyn
+         and the generator assemblies as normal references. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
   <!-- All 5 format libraries -->
@@ -32,32 +37,33 @@
     <ProjectReference Include="..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
   </ItemGroup>
 
-  <!-- All 5 source generators -->
+  <!-- All 5 source generators. ReferenceOutputAssembly="true" so
+       AnonCollectionDiagnosticTests can drive each generator in-proc. -->
   <ItemGroup>
     <ProjectReference
       Include="..\..\PicoJetson\src\PicoJetson.Gen\PicoJetson.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false"
+      ReferenceOutputAssembly="true"
     />
     <ProjectReference
       Include="..\..\PicoIni\src\PicoIni.Gen\PicoIni.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false"
+      ReferenceOutputAssembly="true"
     />
     <ProjectReference
       Include="..\..\PicoToml\src\PicoToml.Gen\PicoToml.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false"
+      ReferenceOutputAssembly="true"
     />
     <ProjectReference
       Include="..\..\PicoYaml\src\PicoYaml.Gen\PicoYaml.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false"
+      ReferenceOutputAssembly="true"
     />
     <ProjectReference
       Include="..\..\PicoMsgPack\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"
       OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false"
+      ReferenceOutputAssembly="true"
     />
   </ItemGroup>
 
