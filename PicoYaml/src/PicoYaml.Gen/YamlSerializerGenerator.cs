@@ -549,30 +549,51 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
         sb.Append("    internal static ");
         sb.Append(fullName);
-        sb.AppendLine(" Deserialize(ref YamlReader reader)");
+        sb.AppendLine(" Deserialize(ref YamlReader r)");
         sb.AppendLine("    {");
         sb.Append("        var obj = new ");
         sb.Append(fullName);
         sb.AppendLine("();");
-        sb.AppendLine("        if (reader.Read() && reader.TokenType == TokenType.ObjectStart)");
+        sb.AppendLine("        if (r.Read() && r.TokenType == TokenType.ObjectStart)");
         sb.AppendLine("        {");
-        sb.AppendLine(
-            "            while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
-        );
+        // EmitDeserialize leaves the reader ON the next member token, so the loop
+        // must inspect the current token instead of reading at the top. It exits on
+        // this mapping's own ObjectEnd, leaving that token for the caller — reading
+        // past it would consume the enclosing mapping's next key. Sharing this one
+        // emitter is what gives nested members the same element types as top-level
+        // ones (C-22), and the token check keeps a list member from ending the loop
+        // early, which used to silently drop every following member.
+        sb.AppendLine("            while (true)");
         sb.AppendLine("            {");
-        sb.AppendLine("                var nk = reader.KeySpan;");
+        sb.AppendLine("                if (r.TokenType is TokenType.ObjectEnd or TokenType.None)");
+        sb.AppendLine("                    break;");
+        sb.AppendLine(
+            "                if (r.TokenType != TokenType.PropertyName) { if (!r.Read()) break; continue; }"
+        );
+        sb.AppendLine("                var k = r.KeySpan;");
         for (int i = 0; i < props.Length; i++)
         {
             var np = props[i];
             var kw = i == 0 ? "if" : "else if";
             sb.Append("                ");
             sb.Append(kw);
-            sb.Append(" (TextHelpers.Eq(nk, \"");
+            sb.Append(" (TextHelpers.Eq(k, \"");
             sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(np.JsonName));
             sb.AppendLine("\"u8))");
             sb.AppendLine("                {");
-            EmitDeserializeInline(sb, np, "obj", "                    ");
+            EmitDeserialize(sb, np, "obj", "                    ");
             sb.AppendLine("                }");
+        }
+        if (props.Length == 0)
+            sb.AppendLine(
+                "                if (!r.Read()) break; // unknown member: skip its value"
+            );
+        else
+        {
+            sb.AppendLine("                else");
+            sb.AppendLine(
+                "                { if (!r.Read()) break; } // unknown member: skip its value"
+            );
         }
         sb.AppendLine("            }");
         sb.AppendLine("        }");
@@ -998,25 +1019,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine(")");
                     s.Append(ind);
                     s.AppendLine("{");
-                    if (p.ElementTypeKind == "string" && p.ElementIsNullableReference)
-                    {
-                        s.Append(ind);
-                        s.AppendLine("    if (__item != null)");
-                        s.Append(ind);
-                        s.AppendLine(
-                            "        yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item));"
-                        );
-                    }
-                    else
-                    {
-                        s.Append(ind);
-                        s.Append("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(");
-                        if (p.ElementTypeKind == "string")
-                            s.Append("__item");
-                        else
-                            s.Append("__item.ToString()");
-                        s.AppendLine("));");
-                    }
+                    // Same element writer as a top-level list member: `__item.ToString()`
+                    // wrote booleans as "True" and dates in the ambient culture, which
+                    // the reader could not read back (the C-22 write half).
+                    EmitSerializeListElement(s, p, ind + "    ");
                     s.Append(ind);
                     s.AppendLine("}");
                 }
@@ -1850,7 +1856,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 sb.Append(" (TextHelpers.Eq(k, \"");
                 sb.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
                 sb.AppendLine("\"u8)) {");
-                EmitDeserialize(sb, p, "o", "                ", ctorMap: ctorMap, streaming: true);
+                EmitDeserialize(sb, p, "o", "                ", ctorMap: ctorMap);
                 // A member dispatch (e.g. a nested-object helper) may stop on a
                 // chunk boundary without breaking the loop; rewind to the member.
                 sb.AppendLine("                if (r.NeedsMoreData) {");
@@ -2661,14 +2667,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         string tgt,
         string pad,
         bool ctorAssign = false,
-        IReadOnlyDictionary<string, int>? ctorMap = null,
-        bool streaming = false
+        IReadOnlyDictionary<string, int>? ctorMap = null
     )
     {
         // If property is in ctorMap, redirect to __cp_N
         if (!ctorAssign && ctorMap is not null && ctorMap.TryGetValue(p.Name, out var __ci))
         {
-            EmitDeserialize(s, p, $"__cp_{__ci}", pad, ctorAssign: true, streaming: streaming);
+            EmitDeserialize(s, p, $"__cp_{__ci}", pad, ctorAssign: true);
             return;
         }
         void EmitTgt()
@@ -2702,130 +2707,54 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("var __tmpList = new System.Collections.Generic.List<");
             s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
             s.AppendLine(">(16);");
+            s.Append(pad);
+            s.AppendLine("bool __more;");
+            // The wrapper `ObjectStart` is optional: `Items:` followed by a sibling
+            // property has no wrapper at all, while an indented block sequence has
+            // one. Probing it must never consume the sibling `PropertyName` — that
+            // is C-21 — so the read is only kept when it really is the wrapper,
+            // and the reader is never marked (the streaming dispatcher owns the
+            // mark, and RewindToMark also clears NeedsMoreData). Both paths share
+            // this one shape, so sync and streaming cannot drift apart again.
+            s.Append(pad);
+            s.AppendLine("__more = r.Read();");
+            s.Append(pad);
+            s.AppendLine("if (!__more)");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine("    // The document ended at this key: there is no list to read.");
+            s.Append(pad);
+            s.AppendLine("}");
+            s.Append(pad);
+            s.AppendLine("else if (r.TokenType == TokenType.ObjectStart)");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine("    // Indented block sequence: the wrapper ObjectStart was consumed.");
             if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
             {
-                // Block sequence: PropertyName(NestedList) → ObjectStart → String("") → ObjectStart(item) → ...
-                // Skip the indentation ObjectStart; then loop: String("") → let Deserialize read ObjectStart(item)
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                     "YamlInner",
                     p.ElementTypeName ?? "object"
                 );
                 s.Append(pad);
-                s.AppendLine("bool __more;");
-                if (streaming)
-                {
-                    // Streaming never touches the reader mark: the dispatcher rewinds to it
-                    // to resume at this member when a chunk ends mid-value. The shape here
-                    // is the pre-existing one so chunked input keeps its behaviour.
-                    s.Append(pad);
-                    s.AppendLine("r.Read(); // skip indentation ObjectStart after PropertyName");
-                    s.Append(pad);
-                    s.AppendLine("while ((__more = r.Read())) {");
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    if (r.TokenType != TokenType.String) break; // String('') = item; ObjectEnd = list end"
-                    );
-                    s.Append(pad);
-                    s.Append("    var __item = ");
-                    s.Append(sn);
-                    s.AppendLine(".Deserialize(ref r);");
-                    s.Append(pad);
-                    s.AppendLine("    __tmpList.Add(__item);");
-                    s.Append(pad);
-                    s.AppendLine("}");
-                }
-                else
-                {
-                    s.Append(pad);
-                    s.AppendLine(
-                        "r.Mark(); // YamlReader has no push-back: probe the wrapper, then rewind"
-                    );
-                    s.Append(pad);
-                    s.AppendLine("if (r.Read() && r.TokenType == TokenType.ObjectStart)");
-                    s.Append(pad);
-                    s.AppendLine("{");
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    // Indented block sequence: the wrapper ObjectStart was consumed."
-                    );
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    while ((__more = r.Read()) && r.TokenType == TokenType.String)"
-                    );
-                    s.Append(pad);
-                    s.AppendLine("    {");
-                    s.Append(pad);
-                    s.Append("        var __item = ");
-                    s.Append(sn);
-                    s.AppendLine(
-                        ".Deserialize(ref r); // Deserialize reads ObjectStart(item) internally"
-                    );
-                    s.Append(pad);
-                    s.AppendLine("        __tmpList.Add(__item);");
-                    s.Append(pad);
-                    s.AppendLine("    }");
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    if (__more) __more = r.Read(); // skip the wrapper ObjectEnd"
-                    );
-                    s.Append(pad);
-                    s.AppendLine("}");
-                    s.Append(pad);
-                    s.AppendLine("else");
-                    s.Append(pad);
-                    s.AppendLine("{");
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    // No wrapper: the list is empty or a flat sequence follows. Rewinding"
-                    );
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    // first keeps the sibling PropertyName an eager read would eat."
-                    );
-                    s.Append(pad);
-                    s.AppendLine("    r.RewindToMark();");
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    while ((__more = r.Read()) && r.TokenType == TokenType.String)"
-                    );
-                    s.Append(pad);
-                    s.AppendLine("    {");
-                    s.Append(pad);
-                    s.Append("        var __item = ");
-                    s.Append(sn);
-                    s.AppendLine(".Deserialize(ref r);");
-                    s.Append(pad);
-                    s.AppendLine("        __tmpList.Add(__item);");
-                    s.Append(pad);
-                    s.AppendLine("    }");
-                    s.Append(pad);
-                    s.AppendLine("}");
-                }
+                s.AppendLine("    while ((__more = r.Read()) && r.TokenType == TokenType.String)");
+                s.Append(pad);
+                s.AppendLine("    {");
+                s.Append(pad);
+                s.Append("        var __item = ");
+                s.Append(sn);
+                s.AppendLine(
+                    ".Deserialize(ref r); // Deserialize reads ObjectStart(item) internally"
+                );
+                s.Append(pad);
+                s.AppendLine("        __tmpList.Add(__item);");
+                s.Append(pad);
+                s.AppendLine("    }");
             }
             else
             {
-                s.Append(pad);
-                s.AppendLine("bool __more;");
-                if (streaming)
-                {
-                    s.Append(pad);
-                    s.AppendLine("__more = r.Read();");
-                }
-                else
-                {
-                    s.Append(pad);
-                    s.AppendLine(
-                        "r.Mark(); // YamlReader has no push-back: probe the wrapper, then rewind"
-                    );
-                    s.Append(pad);
-                    s.AppendLine("__more = r.Read();");
-                }
-                s.Append(pad);
-                s.AppendLine("if (__more && r.TokenType == TokenType.ObjectStart)");
-                s.Append(pad);
-                s.AppendLine("{");
-                s.Append(pad);
-                s.AppendLine("    // Indented block sequence: skip the ObjectStart wrapper.");
                 s.Append(pad);
                 s.AppendLine("    while ((__more = r.Read()) && r.TokenType == TokenType.String)");
                 s.Append(pad);
@@ -2833,52 +2762,86 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 EmitDeserializeListElementTemp(s, p, pad + "        ");
                 s.Append(pad);
                 s.AppendLine("    }");
-                s.Append(pad);
-                s.AppendLine("    if (__more) __more = r.Read(); // skip the wrapper ObjectEnd");
-                s.Append(pad);
-                s.AppendLine("}");
-                s.Append(pad);
-                s.AppendLine("else");
-                s.Append(pad);
-                s.AppendLine("{");
-                s.Append(pad);
-                if (streaming)
-                {
-                    s.AppendLine("    while (__more && r.TokenType == TokenType.String)");
-                    s.Append(pad);
-                    s.AppendLine("    {");
-                    EmitDeserializeListElementTemp(s, p, pad + "        ");
-                    s.Append(pad);
-                    s.AppendLine("        __more = r.Read();");
-                    s.Append(pad);
-                    s.AppendLine("    }");
-                }
-                else
-                {
-                    s.AppendLine(
-                        "    // No wrapper ObjectStart: the list is empty or flat. Rewinding first"
-                    );
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    // keeps the sibling PropertyName that the probing read would eat;"
-                    );
-                    s.Append(pad);
-                    s.AppendLine("    // the loop then re-reads from the mark.");
-                    s.Append(pad);
-                    s.AppendLine("    r.RewindToMark();");
-                    s.Append(pad);
-                    s.AppendLine(
-                        "    while ((__more = r.Read()) && r.TokenType == TokenType.String)"
-                    );
-                    s.Append(pad);
-                    s.AppendLine("    {");
-                    EmitDeserializeListElementTemp(s, p, pad + "        ");
-                    s.Append(pad);
-                    s.AppendLine("    }");
-                }
-                s.Append(pad);
-                s.AppendLine("}");
             }
+            s.Append(pad);
+            s.AppendLine(
+                "    // Skip the wrapper ObjectEnd — but only when the loop really stopped on"
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    // it. `__more` then reports whether a member token is still available."
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();"
+            );
+            s.Append(pad);
+            s.AppendLine("}");
+            s.Append(pad);
+            s.AppendLine("else if (r.TokenType == TokenType.String)");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine(
+                "    // No wrapper: a flat sequence follows the key (`- item` at the same"
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    // indentation). The probe token belongs to the list, so consume it here."
+            );
+            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            {
+                var sn2 = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "YamlInner",
+                    p.ElementTypeName ?? "object"
+                );
+                s.Append(pad);
+                s.AppendLine("    do");
+                s.Append(pad);
+                s.AppendLine("    {");
+                s.Append(pad);
+                s.Append("        var __item = ");
+                s.Append(sn2);
+                s.AppendLine(".Deserialize(ref r);");
+                s.Append(pad);
+                s.AppendLine("        __tmpList.Add(__item);");
+                s.Append(pad);
+                s.AppendLine(
+                    "    } while ((__more = r.Read()) && r.TokenType == TokenType.String);"
+                );
+            }
+            else
+            {
+                s.Append(pad);
+                s.AppendLine("    while (__more && r.TokenType == TokenType.String)");
+                s.Append(pad);
+                s.AppendLine("    {");
+                EmitDeserializeListElementTemp(s, p, pad + "        ");
+                s.Append(pad);
+                s.AppendLine("        __more = r.Read();");
+                s.Append(pad);
+                s.AppendLine("    }");
+            }
+            s.Append(pad);
+            s.AppendLine("}");
+            s.Append(pad);
+            s.AppendLine("else");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine(
+                "    // No wrapper and no sequence item: the list is empty and the probe token"
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    // is already the sibling property this member must not eat (C-21). It is"
+            );
+            s.Append(pad);
+            s.AppendLine(
+                "    // left in place, so `__more` stays true and the loop re-dispatches it."
+            );
+            s.Append(pad);
+            s.AppendLine("}");
             s.Append(pad);
             EmitTgt();
             s.Append(" = __tmpList");
