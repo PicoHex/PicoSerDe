@@ -10,6 +10,11 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Generated code must stay nullability-clean across the whole solution:
+         promote the reference-nullability warnings to errors here so any format
+         or generator regression fails the build, not just the two test projects
+         that opted in individually. -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS8619;CS8620;CS8625</WarningsAsErrors>
   </PropertyGroup>
 
   <PropertyGroup>
