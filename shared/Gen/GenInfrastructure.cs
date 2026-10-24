@@ -1239,7 +1239,13 @@ internal static class GenInfrastructure
 
                 var (ek, _, _) = TypeKindResolver.Resolve(elementType, formatTag);
                 if (ek is null)
+                {
+                    // The element kind is not expressible in THIS format (extended
+                    // collections resolve for json only, for example). Dropping it
+                    // silently was the fourth and last silent loss in this extractor.
+                    skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                     continue;
+                }
                 // Section-based formats cannot express nested lists or nullable
                 // value-type elements. TOML/YAML additionally cannot express null
                 // object/dict elements (they skip null *scalars*); INI has no null
@@ -1310,7 +1316,9 @@ internal static class GenInfrastructure
                     continue;
                 }
                 // Extended collection kinds are not supported as nested elements yet —
-                // drop (instead of emitting element code that does not compile).
+                // drop (instead of emitting element code that does not compile) and
+                // report it: this used to be a bare `continue`, which lost the member in
+                // every format (JSON included) with no diagnostic at all.
                 if (
                     ek
                     is "hashset"
@@ -1321,12 +1329,20 @@ internal static class GenInfrastructure
                         or "memory"
                         or "readonlymemory"
                 )
+                {
+                    skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                     continue;
-                // INI cannot represent a nested object list (its sections are
-                // flat) — drop the property instead of emitting non-compiling
-                // or garbage round-trip code (review follow-up).
+                }
+                // INI cannot represent a nested object list (its sections are flat) —
+                // drop the property instead of emitting non-compiling or garbage
+                // round-trip code. Reported like every other unrepresentable shape:
+                // this used to be a bare `continue`, so an INI DTO with a List<Dto>
+                // member lost the member silently.
                 if (formatTag == "ini" && ek == "object")
+                {
+                    skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                     continue;
+                }
                 elementTypeKind = ek;
                 elementTypeFullName = elementType.ToDisplayString(
                     SymbolDisplayFormat.FullyQualifiedFormat
@@ -1382,7 +1398,12 @@ internal static class GenInfrastructure
                     var (kk, _, _) = TypeKindResolver.Resolve(keyType, formatTag);
                     var (vk, _, _) = TypeKindResolver.Resolve(valType, formatTag);
                     if (kk is null || vk is null)
+                    {
+                        // Same rule as the element path: a key/value kind that this
+                        // format cannot express is reported, never dropped silently.
+                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                         continue;
+                    }
                     // Generators only emit key parsing for this kind set — drop dicts
                     // with other keys instead of emitting non-compiling code. INI
                     // narrows the set to string keys; that format limitation is
@@ -1425,7 +1446,8 @@ internal static class GenInfrastructure
                         continue;
                     }
                     // Extended collection kinds are not supported as dict values yet —
-                    // drop (instead of emitting value code that does not compile).
+                    // drop (instead of emitting value code that does not compile) and
+                    // report it: a bare `continue` here lost the member silently.
                     if (
                         vk
                         is "hashset"
@@ -1436,7 +1458,10 @@ internal static class GenInfrastructure
                             or "memory"
                             or "readonlymemory"
                     )
+                    {
+                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                         continue;
+                    }
                     keyTypeKind = kk;
                     keyTypeName = TypeKindResolver.MapTypeName(kk, keyType);
                     elementTypeKind = vk;
