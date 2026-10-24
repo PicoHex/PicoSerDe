@@ -920,8 +920,11 @@ internal static class GenInfrastructure
     }
 
     /// <summary>
-    /// Extracts serializable properties. If <paramref name="diagnostics"/> is provided,
-    /// emits warnings for skipped members (unsupported types, etc.).
+    /// Extracts serializable properties, merging the members of every inherited
+    /// base type (most-base first). A derived member hides/overrides a base one
+    /// of the same name: the derived value wins and keeps its derived position.
+    /// If <paramref name="diagnostics"/> is provided, emits warnings for skipped
+    /// members (unsupported types, etc.).
     /// </summary>
     private static List<PropertyInfo> ExtractProperties(
         INamedTypeSymbol type,
@@ -936,8 +939,103 @@ internal static class GenInfrastructure
         List<string>? skippedUnsupported = null
     )
     {
-        var list = new List<PropertyInfo>();
+        // Base chain, most-base first: inherited members precede the derived
+        // ones, so every format emits and reads them in the same order.
+        var chain = new List<INamedTypeSymbol> { type };
+        for (
+            var current = type.BaseType;
+            current is not null && IsMergeableBaseType(current, formatTag);
+            current = current.BaseType
+        )
+            chain.Add(current);
+        chain.Reverse();
+
+        var merged = new List<PropertyInfo>();
+        // One counter for the whole chain: a per-level counter would restart at
+        // 0 and hand out duplicate auto field ids to inherited members.
         int autoKey = 0;
+        foreach (var level in chain)
+        {
+            // A type's own members always see that type as "in progress": a
+            // self-referencing member (Base? Next) must become a recursive ref
+            // instead of being expanded inline (which would emit `new` on an
+            // abstract base or loop forever). Transient on purpose — a member of
+            // a plain base type may still be expanded normally.
+            bool seeded = visiting is not null && visiting.Add(level);
+            List<PropertyInfo> declared;
+            try
+            {
+                declared = ExtractDeclaredProperties(
+                    level,
+                    formatTag,
+                    attrs,
+                    includeReadOnlyProperties,
+                    useCamelCase,
+                    diagnostics,
+                    ref autoKey,
+                    includeFields,
+                    visiting,
+                    skippedRecursive,
+                    skippedUnsupported
+                );
+            }
+            finally
+            {
+                if (seeded)
+                    visiting!.Remove(level);
+            }
+            // Derived (later) level wins on a name collision; its position is
+            // the merge position because we replace in place.
+            foreach (var declaredProp in declared)
+            {
+                int existing = merged.FindIndex(x => x.Name == declaredProp.Name);
+                if (existing >= 0)
+                    merged[existing] = declaredProp;
+                else
+                    merged.Add(declaredProp);
+            }
+        }
+        return merged;
+    }
+
+    /// <summary>
+    /// True when <paramref name="type"/> is a user-declared, object-shaped base
+    /// type whose members belong to the serialized shape of a derived type.
+    /// Framework and collection base types are excluded — their members are not
+    /// part of that shape.
+    /// </summary>
+    private static bool IsMergeableBaseType(INamedTypeSymbol type, string formatTag)
+    {
+        if (type.SpecialType != SpecialType.None)
+            return false;
+        var ns = type.ContainingNamespace?.ToDisplayString() ?? "";
+        if (ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal))
+            return false;
+        var (kind, _, _) = TypeKindResolver.Resolve(type, formatTag);
+        return kind == "object";
+    }
+
+    /// <summary>
+    /// Extracts the members declared directly on <paramref name="type"/>; the
+    /// inheritance walk lives in <see cref="ExtractProperties"/>.
+    /// <paramref name="autoKey"/> continues across the base chain so auto-assigned
+    /// field ids stay unique in the merged list.
+    /// </summary>
+    private static List<PropertyInfo> ExtractDeclaredProperties(
+        INamedTypeSymbol type,
+        string formatTag,
+        AttributeHelpers attrs,
+        bool includeReadOnlyProperties,
+        bool useCamelCase,
+        List<Diagnostic>? diagnostics,
+        ref int autoKey,
+        bool includeFields = false,
+        HashSet<INamedTypeSymbol>? visiting = null,
+        List<string>? skippedRecursive = null,
+        List<string>? skippedUnsupported = null
+    )
+    {
+        var list = new List<PropertyInfo>();
 
         foreach (var member in type.GetMembers())
         {
@@ -1974,30 +2072,16 @@ internal static class GenInfrastructure
             if (!ti.HasValue)
                 continue;
 
-            // Merge inherited properties from base classes including the poly root.
-            // Without this, poly deserialization loses base class properties.
+            // Inherited members (poly root included) are already part of
+            // ti.Value.Properties: ExtractProperties walks the base chain itself
+            // and merges it most-base-first. No extra merge is needed here.
             var mergedProps = ti.Value.Properties;
-            var current = dt.BaseType;
-            while (current is not null)
-            {
-                if (current.SpecialType == SpecialType.System_Object)
-                    break;
-                var baseProps = ExtractNestedProperties(current, attrs, config.FormatTag);
-                foreach (var bp in baseProps)
-                {
-                    if (!mergedProps.Any(p => p.Name == bp.Name))
-                        mergedProps = mergedProps.Insert(0, bp);
-                }
-                // Stop after processing the poly root base
-                if (SymbolEqualityComparer.Default.Equals(current, baseType))
-                    break;
-                current = current.BaseType;
-            }
 
-            // The base extraction restarted its auto-key counter at 0, so the
-            // merged list can hold duplicate keys (MsgPack field ids). Renumber
-            // positionally in merged order; the emitters order by IntKey, so
-            // serializer and deserializer stay in agreement.
+            // Keep the merged list free of duplicate auto field ids (MsgPack
+            // field ids). ExtractProperties already hands out unique keys via one
+            // counter across the chain, so this is a positional safety net that
+            // also keeps explicit [IntKey] ordering contiguous; the emitters sort
+            // by IntKey, so serializer and deserializer stay in agreement.
             if (mergedProps.Any(p => p.IntKey is not null))
             {
                 for (int mi = 0; mi < mergedProps.Length; mi++)
