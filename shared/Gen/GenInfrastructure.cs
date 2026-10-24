@@ -922,7 +922,9 @@ internal static class GenInfrastructure
     /// <summary>
     /// Extracts serializable properties, merging the members of every inherited
     /// base type (most-base first). A derived member hides/overrides a base one
-    /// of the same name: the derived value wins and keeps its derived position.
+    /// of the same name: the derived value wins, and the position is kept at the
+    /// base declaration slot — stable, it does not drift as derived members are
+    /// added or removed.
     /// If <paramref name="diagnostics"/> is provided, emits warnings for skipped
     /// members (unsupported types, etc.).
     /// </summary>
@@ -984,8 +986,9 @@ internal static class GenInfrastructure
                 if (seeded)
                     visiting!.Remove(level);
             }
-            // Derived (later) level wins on a name collision; its position is
-            // the merge position because we replace in place.
+            // Derived (later) level wins on a name collision; the replacement is
+            // in place, so the merged slot stays where the most-base declaration
+            // put it (stable, independent of the derived member count).
             foreach (var declaredProp in declared)
             {
                 int existing = merged.FindIndex(x => x.Name == declaredProp.Name);
