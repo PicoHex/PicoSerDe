@@ -262,6 +262,38 @@ internal static class GenInfrastructure
         }
     }
 
+    /// <summary>
+    /// An anonymous-type collection member can only be emitted by the JSON writer:
+    /// MsgPack's array/map headers require an element count up front, TOML/INI embed
+    /// the key in every scalar call and YAML writes per-item sequence entries. Such a
+    /// member is dropped with this diagnostic instead of vanishing silently (review
+    /// Task 2 / Important 2 — anonymous collection members are not supported by the
+    /// section-based formats).
+    /// </summary>
+    private static readonly DiagnosticDescriptor UnsupportedAnonCollectionMemberWarning = new(
+        id: "PICOSERDE005",
+        title: "Anonymous-type collection member skipped by this format",
+        messageFormat: "Anonymous-type member '{0}' cannot be serialized by {1} — it will be ignored; use a named DTO instead",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// Reports PICOSERDE005 for an anonymous-type collection member the format's
+    /// writer cannot emit. Called from <c>AnonTypeHandler</c> while generating the
+    /// interceptor, so the drop is visible in the build log instead of silently
+    /// losing the member's data.
+    /// </summary>
+    public static void ReportUnsupportedAnonCollectionMember(
+        SourceProductionContext spc,
+        string formatTag,
+        string memberName
+    ) =>
+        spc.ReportDiagnostic(
+            Diagnostic.Create(UnsupportedAnonCollectionMemberWarning, null, memberName, formatTag)
+        );
+
     /// <summary>Reports a skipped type whose generated file name collided.</summary>
     public static void ReportHintNameCollision(
         SourceProductionContext spc,
