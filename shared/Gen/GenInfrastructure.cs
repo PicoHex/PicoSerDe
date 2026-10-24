@@ -1263,7 +1263,39 @@ internal static class GenInfrastructure
                 var leafIsAnnotated =
                     leafElement.NullableAnnotation == NullableAnnotation.Annotated;
                 var leafKind = TypeKindResolver.Resolve(leafElement, formatTag).Kind;
-                var nestedListUnsupported = formatTag is "toml" or "ini" && ek is "list" or "array";
+                // A nested collection chain (List<List<T>>, T[][], ...) needs a
+                // per-element encoding for the inner collection. TOML has one: an
+                // inline array of inline arrays (`G = [[1, 2], [3]]`), so a scalar
+                // leaf is representable (F6). Only the array-of-tables form has no
+                // nested equivalent ("array table of array tables"), so an object or
+                // dict leaf stays dropped — that is the only part of the old blanket
+                // rule that was actually true for TOML. Leaf kinds that neither the
+                // TOML list writer nor the TOML list reader has a case for (enum,
+                // decimal, Guid, DateTime, ...) stay dropped as well, exactly as
+                // before. INI has no array syntax at all and keeps dropping every
+                // nested chain.
+                var tomlNestedLeafRepresentable =
+                    leafKind
+                    is "string"
+                        or "int32"
+                        or "int64"
+                        or "int16"
+                        or "uint16"
+                        or "sbyte"
+                        or "byte"
+                        or "uint32"
+                        or "uint64"
+                        or "float32"
+                        or "float64"
+                        or "boolean";
+                var nestedListUnsupported =
+                    formatTag is "ini" && ek is "list" or "array"
+                    || formatTag == "toml"
+                        && ek is "list" or "array"
+                        && (
+                            !tomlNestedLeafRepresentable
+                            || HasNullableCollectionLevel(elementType, formatTag)
+                        );
                 var nullableElementUnsupported =
                     formatTag is "toml" or "yaml" or "ini"
                     && (
@@ -1562,6 +1594,37 @@ internal static class GenInfrastructure
             current = inner;
         }
         return current;
+    }
+
+    /// <summary>
+    /// True when a collection level <em>inside</em> a nested chain is itself a nullable
+    /// reference (<c>List&lt;List&lt;int&gt;?&gt;</c>, <c>int[]?[]</c>). TOML has no null at all,
+    /// so there is nothing to write for a null inner array and nothing to skip that
+    /// would not silently change the element count — such a chain is unrepresentable.
+    /// The nullability of the innermost <em>scalar</em> element is a different case and
+    /// is handled by the per-element skip/null rules.
+    /// </summary>
+    private static bool HasNullableCollectionLevel(ITypeSymbol elementType, string formatTag)
+    {
+        var current = elementType;
+        // Same depth guard as InnermostCollectionElement.
+        for (var guard = 0; guard < 32; guard++)
+        {
+            if (TypeKindResolver.Resolve(current, formatTag).Kind is not ("list" or "array"))
+                return false;
+            if (current.NullableAnnotation == NullableAnnotation.Annotated)
+                return true;
+            ITypeSymbol? inner = current switch
+            {
+                IArrayTypeSymbol arr => arr.ElementType,
+                INamedTypeSymbol nts when nts.TypeArguments.Length == 1 => nts.TypeArguments[0],
+                _ => null,
+            };
+            if (inner is null)
+                return false;
+            current = inner;
+        }
+        return false;
     }
 
     /// <summary>
