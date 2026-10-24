@@ -417,3 +417,6 @@ docs/beta-issues.md
 
 # Benchmark publish output
 out/
+
+# Git worktrees for parallel implementation lanes
+.worktrees/
