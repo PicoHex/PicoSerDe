@@ -64,39 +64,77 @@ The spec is a vision document; its silence is not permission. These are the fail
 ### Task 1: 能力模型进 `shared/Gen`（internal）
 
 **Files:**
-- Create: `shared/Gen/FormatCapabilities.cs`（把 spike 的 `CapacityTable` 迁过来，改为 `internal`）
-- Create: `shared/Gen/DecisionTables.cs`（现状值 + 通路，见上）
-- Test: `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`（spike 的两个测试原样迁入）
+- Create: `shared/Gen/FormatCapabilities.cs` —— **类型 + 入口**：`Decision` 枚举、`Effect` 枚举、`FormatCapabilities` 静态类（`Decide` / `DecideShape` / `AllowedDictKeyKinds` / `AllFormatTags` / `Rules` / `Paths` 的**引用**）
+- Create: `shared/Gen/DecisionTables.cs` —— **纯数据**：`Rules`（现状：`(格式, 判定点) → Effect`）与 `Paths`（`shapeId → Decision[]`），以及 `TargetRules`（R2 的目标值）
+- Modify: **5 个 `*.Gen.csproj`** 各加一行 `<Compile Include="..\..\shared\Gen\FormatCapabilities.cs" Link="FormatCapabilities.cs" />`（`DecisionTables.cs` 同）—— 仓库既有做法，`shared/Gen` 的每个文件都要显式 Link
+- Modify: `tests/PicoSerDe.Integration.Tests/PicoSerDe.Integration.Tests.csproj` —— **把这两个文件 `<Compile Include>` 进测试项目**（与 `shared/CrossValidationModels.cs` 同一先例）；这样测试直接编译同一份源码，**不需要 `InternalsVisibleTo`**（`shared/Gen` 被链进 5 个程序集，`internal` 会有 5 份副本，IVT 要加 5 处且仍拿不到"同一个"类型）
+- Test: `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`（迁移 spike 的两个测试）
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces:
+- Produces（**这就是 Task 3/8 唯一可用的入口**）：
   ```csharp
   namespace PicoSerDe.Gen;
 
-  internal enum Decision { ExtendedKindResolves, ExtendedKindAsElement, ScalarKindResolves,
-      ByteArrayAsBinary, NestedScalarContainer, NestedObjectContainer, NullableValueLeaf,
-      NullableRefLeaf, ObjectListInMember, DictKeys, DictValueCollection,
-      RecursiveSelf, RecursiveMutual }
+  internal enum Decision
+  {
+      ExtendedKindResolves, ExtendedKindAsElement, ScalarKindResolves, ConcurrentDictResolves,
+      NestedScalarContainer, NestedObjectContainer, NullableValueLeaf, NullableRefLeaf,
+      ObjectListInMember, DictValueCollection, RecursiveSelf, RecursiveMutual
+  }   // 12 个
 
   internal enum Effect { Supported, DropMember, DropElement }
 
   internal static class FormatCapabilities
   {
-      public static Effect Decide(string formatTag, Decision d);   // 现状查表
-      public static Effect DecideShape(string formatTag, string shapeId); // 走通路，取最严
-      public static IReadOnlyList<string> AllFormatTags { get; }
+      internal static Effect Decide(string formatTag, Decision d);            // 现状
+      internal static Effect DecideShape(string formatTag, string shapeId);   // 走 Paths，取最严
+      internal static Effect DecideTarget(string formatTag, Decision d);      // R2 目标
+      internal static IReadOnlySet<string> AllowedDictKeyKinds(string formatTag); // 限制，不是 Effect
+      internal static IReadOnlyList<string> AllFormatTags { get; }            // ["json","msgpack","toml","yaml","ini"]
+      internal static IReadOnlyList<string> AllShapeIds { get; }              // 14 个：S1..S13, S11a, S11b
   }
   ```
+- **`DictKeyKinds` 不进 `Decision`**：它是**限制**（哪些键 kind 允许），不是三值效果。`AllowedDictKeyKinds` 返回集合：全部格式除 `ini` 外返回 `{"string","int32","int64","guid","enum"}`，`ini` 只返回 `{"string"}`（依据：`GenInfrastructure.cs:1414` 的 INI 收窄）。
 
-- [ ] **Step 1: 迁移**：把 spike 的两份文件搬到 `shared/Gen/` 与测试项目，`namespace` 改为 `PicoSerDe.Gen`（测试仍可直接读表）。
-- [ ] **Step 2: 运行迁移后的测试**：`dotnet test tests/PicoSerDe.Integration.Tests -- --treenode-filter "/*/*/FormatCapabilitiesTests/*"`，期望 **3 passed**（70 格复现 + 通路完备 + 粒度完备）。
-- [ ] **Step 3: 加一条终态断言**：`§6 目标矩阵` 的每一格必须由**新表**（把 `Effect.DropMember/Element` 改 `Supported` 的"目标表"）算出 `Supported`，除非 `§3` 判 ❌。这条把「目标矩阵」也纳入同一来源。
-- [ ] **Step 4: Commit**
+- [ ] **Step 1: 迁移 spike 的两份文件并按上面的边界拆分**（spike 的 `CapacityTable` 一个文件里含枚举/Rules/Paths/API；拆成 2 个文件 + 2 个 Link + 1 个测试 Link）。
+- [ ] **Step 2: 补齐 12 个判定点的现状值**（spike 只有 9 个有值，缺 `ScalarKindResolves`、`ConcurrentDictResolves`，且 `DictKeys` 已移出）。取值依据**必须是代码现状**，逐条注释出处：
+
+  | 判定点 | json | msgpack | toml | yaml | ini | 依据 |
+  |---|---|---|---|---|---|---|
+  | `ScalarKindResolves` | `Supported` | `DropMember` | `DropMember` | `DropMember` | `DropMember` | `TypeKindResolver.cs:127/153-167` 的 9 处 `format == "json"`；非 json 解析失败 → `typeKind is null` → 成员被丢 |
+  | `ConcurrentDictResolves` | `Supported` | `DropMember` | `DropMember` | `DropMember` | `DropMember` | `TypeKindResolver.cs:107` |
+
+- [ ] **Step 3: 定义并填入 `TargetRules`（R2 的目标值）** —— 这是上一版缺口。目标值 = **按 spec §3 反推**：对每个判定点，若它影响的所有形状在 §3 里对某格式都是 ✅，则该格式目标为 `Supported`；若 §3 判 ❌ 则保持现状效果。已知结论（可直接抄）：
+  - `NestedScalarContainer`：全格式 `Supported`（§3 S3 全 ✅）
+  - `NestedObjectContainer`：ini 保持 `DropMember`，其余 `Supported`（S4 除 ini 外 ✅）
+  - `NullableValueLeaf` / `NullableRefLeaf`：toml/ini 保持 `DropMember`，其余 `Supported`
+  - `ObjectListInMember`：ini `DropMember`，其余 `Supported`
+  - `ExtendedKindResolves` / `ExtendedKindAsElement`：全格式 `Supported`（S7/S8 除 S8×INI 外 ✅）
+  - `RecursiveSelf` / `RecursiveMutual`：ini `DropMember`，其余 `Supported`
+  - `DictValueCollection`：ini `DropMember`，其余 `Supported`
+  - `ScalarKindResolves` / `ConcurrentDictResolves`：**保持现状**（编码差异，不是能力差异 —— 在注释里写明，否则无人知道为什么目标值= 现状）
+- [ ] **Step 4: 写一致性测试**（这是"目标表"的可执行定义）：
+  ```csharp
+  [Test]
+  public async Task Target_table_agrees_with_spec_section3()
+  {
+      // §3 的 14 行 × 5 列，值来自 spec 的格式事实表（手抄一次，作为交叉校验）
+      var spec = SpecFacts.Table;  // 测试内的常量表，行=S1..S13,S11a,S11b，列=5 格式，值 = Representative / Impossible
+      foreach (var (shape, fmt, fact) in spec)
+      {
+          var target = FormatCapabilities.DecideShape(fmt, shape, useTarget: true);
+          if (fact == Fact.Impossible) await Assert.That(target).IsNotEqualTo(Effect.Supported).Because($"{shape}x{fmt}");
+          else await Assert.That(target).IsEqualTo(Effect.Supported).Because($"{shape}x{fmt}");
+      }
+  }
+  ```
+- [ ] **Step 5: 跑迁移后的三个测试 + 新的一致性测试**：`dotnet test tests/PicoSerDe.Integration.Tests -- --treenode-filter "/*/*/FormatCapabilitiesTests/*"`，期望 **4 passed**。
+- [ ] **Step 6: Commit**
 
 ```bash
-git add shared/Gen/FormatCapabilities.cs shared/Gen/DecisionTables.cs tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs
-git commit -m "feat(gen): single-source capability model (13 decision points, 3-valued effect)"
+git add shared/Gen/FormatCapabilities.cs shared/Gen/DecisionTables.cs         PicoJetson/src/PicoJetson.Gen/PicoJetson.Gen.csproj PicoMsgPack/src/PicoMsgPack.Gen/*.csproj         PicoToml/src/PicoToml.Gen/*.csproj PicoYaml/src/PicoYaml.Gen/*.csproj PicoIni/src/PicoIni.Gen/*.csproj         tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs tests/PicoSerDe.Integration.Tests/*.csproj
+git commit -m "feat(gen): single-source capability model (12 decision points, 3-valued effect, target table)"
 ```
 
 ---
@@ -107,16 +145,14 @@ git commit -m "feat(gen): single-source capability model (13 decision points, 3-
 - Create: `tests/FormatCapabilities.Probe/FormatCapabilities.Probe.csproj`
 - Create: `tests/FormatCapabilities.Probe/Models.cs`
 - Create: `tests/FormatCapabilities.Probe/Probe.cs`
-- Create: `tests/FormatCapabilities.Probe/generated-baseline/` (committed snapshot)
+- Create: `tests/FormatCapabilities.Probe/generated-baseline/`（入库快照）
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `CELL|format|shape|verdict|wire|expected|actual` lines on stdout; a committed generated-code snapshot that Task 3 diffs against.
+- Produces: stdout 上每格一行 `CELL|<format>|<shape>|<verdict>|<wire>|<expected>|<actual>`，其中 **`verdict ∈ {OK, MISMATCH}`**（只有这两个值）；以及可供 Task 3 逐字节对比的 `generated-baseline/`。
 
-- [ ] **Step 1: Create the probe project**
-
+- [ ] **Step 1: 建 csproj —— 完整引用，不用注释省略**
 ```xml
-<!-- tests/FormatCapabilities.Probe/FormatCapabilities.Probe.csproj -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -124,120 +160,157 @@ git commit -m "feat(gen): single-source capability model (13 decision points, 3-
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
-    <!-- Diagnostics MUST stay visible here: the probe measures them. -->
+    <PublishAot>false</PublishAot>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <Features>Interceptors</Features>
+    <InterceptorsPreviewNamespaces>$(InterceptorsPreviewNamespaces);PicoSerDe.Generated</InterceptorsPreviewNamespaces>
   </PropertyGroup>
   <ItemGroup><PackageReference Include="TUnit" /></ItemGroup>
   <ItemGroup>
-    <!-- 5 runtimes + 5 generators, exactly like tests/PicoSerDe.Integration.Tests -->
     <ProjectReference Include="..\..\PicoJetson\src\PicoJetson\PicoJetson.csproj" />
+    <ProjectReference Include="..\..\PicoMsgPack\src\PicoMsgPack\PicoMsgPack.csproj" />
+    <ProjectReference Include="..\..\PicoToml\src\PicoToml\PicoToml.csproj" />
+    <ProjectReference Include="..\..\PicoYaml\src\PicoYaml\PicoYaml.csproj" />
+    <ProjectReference Include="..\..\PicoIni\src\PicoIni\PicoIni.csproj" />
     <ProjectReference Include="..\..\PicoJetson\src\PicoJetson.Gen\PicoJetson.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
-    <!-- …Ini / Toml / Yaml / MsgPack the same way… -->
+    <ProjectReference Include="..\..\PicoMsgPack\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
+    <ProjectReference Include="..\..\PicoToml\src\PicoToml.Gen\PicoToml.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
+    <ProjectReference Include="..\..\PicoYaml\src\PicoYaml.Gen\PicoYaml.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
+    <ProjectReference Include="..\..\PicoIni\src\PicoIni.Gen\PicoIni.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
   </ItemGroup>
 </Project>
 ```
+> 不要 `NoWarn` `PICOSERDE`：探针**必须**看到诊断。`InterceptorsPreviewNamespaces` 若与既有测试项目不同，生成代码的接线方式会变 —— 以 `tests/PicoSerDe.Integration.Tests/PicoSerDe.Integration.Tests.csproj` 的取值为准，**逐字复制**。
 
-- [ ] **Step 2: Write the models — exactly 75 classes, three values each**
+- [ ] **Step 2: 建 70 个模型 —— 14 形状 × 5 格式**
+形状 = `S1..S13` + `S11a` + `S11b`（**14 个**，与 Task 1 的 `Paths` 一一对应；`DecideShape` 只认这 14 个 id）。**S14/S15 不在本任务**（§3 标「待测」，且无 `Paths`）—— 它们由 Task 2b 单列（见下）。
+每格实例化**三个值**（R5）：
+| 形状族 | empty | single | boundary |
+|---|---|---|---|
+| `List<T>` | `[]` | `[1]` | `[int.MaxValue]` / `["a,b"]` / 含引号与换行的字符串 |
+| `List<List<T>>` | `[[]]` | `[[1]]` | `[[] , [1]]` |
+| set | `[]` | `[1]` | `[1,2,3]` |
+| dict | `{}` | `{a=1}` | `{a=1,b=int.MaxValue}` |
+| nullable 叶子 | `[null]` | `[1,null]` | `[int.MinValue,null,int.MaxValue]` |
+| 递归 | 单节点 | 1 层 | 2 层 |
+| scalar 族 | — | — | `0.1f`(最短往返) / `1.5m`(de-DE invariant) / `DateTime` with `Kind.Utc` |
 
-`Models.cs` declares one `[Pico*Serializable] public partial class <fmt>_<shapeId>` per `(format, shapeId)` pair: **5 formats × 15 shapes = 75 classes**, each with `string K` plus the shape member from the spec's §3 table (`S1 List<int>` … `S15 scalar family`). Instantiate each with **three values** in `Probe.cs` — `empty`, `single`, and `boundary` (spec R5: a cell counts only if all three round-trip) — and compare with the **shape's own equivalence relation** from spec §2 R1′ (`HashSet`/`ISet` compare as sets, `Dictionary` as key→value maps ignoring order, `float` by shortest-round-trip text).
+- [ ] **Step 3: 写 Probe.cs** —— 每格打印一行 `CELL|...`；判定 `OK` = 三个值都往返等价，否则 `MISMATCH`；比较用 spec R1′ 的**形状专属等价关系**（set 按集合、dict 按键值对、float 按最短往返文本）。
 
-This project is also the enforcement point for **I-2**: it declares every ⛔/⏸ shape in one compilation, so a shape that generates uncompilable code fails `dotnet build` here — the corpus cannot go green by omitting a shape.
-
-- [ ] **Step 3: Run the probe and record the baseline**
-
+- [ ] **Step 4: 跑并记录基线**
 ```bash
 cd tests/FormatCapabilities.Probe
 dotnet build -c Debug -m:1 -p:EmitCompilerGeneratedFiles=true -p:CompilerGeneratedFilesOutputPath=generated-baseline
 dotnet run -c Debug --no-build | sort > baseline-cells.txt
+grep -c "|OK|" baseline-cells.txt      # 与 §3.1 的 ✅ 格数一致
 ```
-Expected: 5 × 15 `CELL|` lines; `grep -c "|OK|\||PASS|" baseline-cells.txt` reports the currently passing cells.
 
-- [ ] **Step 4: Commit the corpus and the snapshot**
+- [ ] **Step 5: Commit**：`test(gen): check in the 70-cell probe corpus and its generated-code baseline`
 
-```bash
-git add tests/FormatCapabilities.Probe
-git commit -m "test(gen): check in the format-capabilities probe and a generated-code baseline"
-```
+---
+
+### Task 2b: S14/S15 的观测（只记录，不进 `DecideShape`）
+
+**Files:**
+- Modify: `tests/FormatCapabilities.Probe/Models.cs`（加 `S14`/`S15` 各 5 个模型）
+- Modify: `tests/FormatCapabilities.Probe/Probe.cs`（这些格打印 `CELL-OBS|...`，**不参与** `OK/MISMATCH` 判定）
+
+- [ ] **Step 1: 加模型并跑**：`dotnet run -c Debug --no-build | grep CELL-OBS`
+- [ ] **Step 2: 把观测结果写回 spec §3 的 S14/S15 两行**（手工，一次），并在计划里记录 `DecideShape` **不认**这两个 id（避免 Task 1 的 `KeyNotFoundException`）。
+- [ ] **Step 3: Commit**：`test(gen): observe S14/S15 (no capability path yet)`
 
 ---
 
 ### Task 3: 把 25 处判据改成查表（零行为变化）
 
 **Files:**
-- Modify: `shared/Gen/TypeKindResolver.cs`（12 处：`:34 :71 :107 :127 :153 :155 :157 :159 :161 :163 :165 :167`）
-- Modify: `shared/Gen/GenInfrastructure.cs`（13 处：`:909 :1129 :1298 :1299 :1306 :1310 :1311 :1341 :1414 :1437 :1440 :1441 :1528`）
+- Modify: `shared/Gen/TypeKindResolver.cs`（12 处）
+- Modify: `shared/Gen/GenInfrastructure.cs`（13 处）
 
 **Interfaces:**
-- Consumes: `FormatCapabilities.Decide(formatTag, Decision)`（Task 1）。
-- Produces: 无新 API；同样的丢弃决策，改由表驱动。
+- Consumes: `FormatCapabilities.Decide` / `AllowedDictKeyKinds`（Task 1）。
+- Produces: 无新 API。
 
-**站点 → 判定点对照（按此表逐处替换；这是本任务唯一需要判断的地方）**
+**站点 → 判定点对照（12 + 13 = **25** 处，逐处替换）**
 
 | 站点 | 今天的判据 | 改成 |
 |---|---|---|
 | `TypeKindResolver:71` | `format == "json"` 才映射扩展集合 | `Decide(fmt, ExtendedKindResolves)` |
-| `TypeKindResolver:34` | `format == "msgpack"` 时 `byte[]` 走二进制 | `Decide(fmt, ByteArrayAsBinary)` |
-| `TypeKindResolver:127/153/155/157/159/161/163/165/167` | `format == "json"` 才识别的标量 kind | `Decide(fmt, ScalarKindResolves)` |
+| `TypeKindResolver:107` | `format == "json"` 才识别 `ConcurrentDictionary` | `Decide(fmt, ConcurrentDictResolves)` |
+| `TypeKindResolver:34` | `format == "msgpack"` 时 `byte[]` 走二进制 | **不用表**：这是**编码选择**（两种都发），保留原判据并在代码注释标明「encoding, not capability」 |
+| `TypeKindResolver:127/153/155/157/159/161/163/165/167` | 9 处 `format == "json"` 的标量 kind | `Decide(fmt, ScalarKindResolves)` |
 | `GenInfrastructure:1298/1299` | `toml`/`ini` 不支持嵌套列表 | `Decide(fmt, NestedScalarContainer)` |
-| `GenInfrastructure:1306/1310/1311` | 可空/注解叶子丢弃 | `Decide(fmt, NullableValueLeaf)` / `NullableRefLeaf` |
+| `GenInfrastructure:1306/1310/1311` | 可空/注解叶子 | `Decide(fmt, NullableValueLeaf)` / `NullableRefLeaf` |
 | `GenInfrastructure:1341` | `ini` 不支持对象列表成员 | `Decide(fmt, ObjectListInMember)` |
-| `GenInfrastructure:1414` | `ini` 字典键收窄为 string | `Decide(fmt, DictKeys)` |
+| `GenInfrastructure:1414` | `ini` 字典键收窄 | `AllowedDictKeyKinds(fmt).Contains(kind)` |
 | `GenInfrastructure:1437/1440/1441` | 字典值可空/集合 | `Decide(fmt, DictValueCollection)` |
-| `GenInfrastructure:1129/1528` | 递归成员按格式丢弃 | `Decide(fmt, RecursiveSelf)` / `RecursiveMutual` |
-| `GenInfrastructure:1316-1334`（扩展集合作元素） | 无条件丢 | `Decide(fmt, ExtendedKindAsElement)` |
-| `GenInfrastructure:909` | `ini` 的键/段处理 | 按 `DictKeys` + INI 约定分支 |
+| `GenInfrastructure:1129/1528` | 递归成员 | `Decide(fmt, RecursiveSelf)` / `RecursiveMutual` |
+| `GenInfrastructure:909` | `ini` 的键/段处理 | `AllowedDictKeyKinds(fmt)`（同上） |
 
-- [ ] **Step 1: 写架构守卫测试**（见 Task 4 的 Roslyn 扫描；本任务先加一条 `shared/Gen` 内不得出现格式字面量比较的临时断言，Task 4 会替换它）。
-- [ ] **Step 2: 逐站点替换**，每替换一处跑一次全量构建，保证随时可编译。
+> **第 26 个站点（不在 25 处内）**：`GenInfrastructure:1317-1333`（扩展集合作**元素**）**今天已经上报 `PICOSERDE004`**（`skippedUnsupported?.Add` 紧随其后），所以它不在本任务的替换清单里；它属于 `ExtendedKindAsElement` 的**元素分支**，其行为改动归 R2（Task 6 已移出 R1）。
+
+- [ ] **Step 1: 写架构守卫测试**（放 `tests/PicoSerDe.Integration.Tests/CapabilityGuardTests.cs`；Task 4 会把它换成正式版）：
+  ```csharp
+  [Test]
+  public async Task Shared_gen_has_no_format_literals_outside_the_tables()
+  {
+      var allowed = new[] { "FormatCapabilities.cs", "DecisionTables.cs" };
+      var encodingSites = new[] { "TypeKindResolver.cs:34" }; // 已知的编码选择，白名单
+      ... 扫描 shared/Gen 下所有 .cs 的 ""(json|msgpack|toml|yaml|ini)"" ...
+      await Assert.That(offenders).IsEmpty().Because(string.Join(" | ", offenders));
+  }
+  ```
+- [ ] **Step 2: 逐站点替换**（每换完一个文件跑一次 `dotnet build PicoSerDe.slnx -c Debug -m:1`）。
 - [ ] **Step 3: 零行为变化的硬证据**
-
 ```bash
 dotnet build tests/FormatCapabilities.Probe -c Debug -m:1 -p:EmitCompilerGeneratedFiles=true -p:CompilerGeneratedFilesOutputPath=/tmp/gen-after
 diff -r tests/FormatCapabilities.Probe/generated-baseline /tmp/gen-after && echo "BYTES IDENTICAL"
 dotnet test PicoSerDe.slnx -c Debug
 ```
-Expected: `BYTES IDENTICAL`；全量 0 failed。
-
+Expected: `BYTES IDENTICAL`；0 failed。
 - [ ] **Step 4: Commit**：`refactor(gen): capability decisions come from the table, not 25 literals (no behaviour change)`
 
 ---
 
-### Task 4: Make the illegal form impossible (I-3)
+### Task 4: 把非法形态变难写（I-3：单一入口 + 架构测试，**不改公共 API**）
+
+> **为什么不是类型级禁止**：`FormatConfig` 是 `public readonly record struct`（`shared/Gen/GenInfrastructure.cs:7`）且已出现在 **5 份** `api/*.Gen.public.txt`（`PicoIni.Gen.public.txt` 命中 7 次）。给它加 `internal` 类型的属性是 **CS0053**；把属性类型改 public 则 5 份基线全变 ⇒ 违反 Global Constraints「`api/*.public.txt` 不得变化」，也违反 D5「internal」与 R1 的 `y` bump。故 I-3 的落地方式是**运行时入口 + 静态扫描**，不是类型系统。
 
 **Files:**
-- Modify: `shared/Gen/GenInfrastructure.cs` (`FormatConfig`, `TransformTypeSymbol`)
-- Modify: the 5 generators' `FormatConfig` construction sites
-- Test: `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`
+- Create: `tests/PicoSerDe.Integration.Tests/CapabilityGuardTests.cs`（正式版，替换 Task 3 的临时版）
+- Modify: 无生产文件
 
 **Interfaces:**
-- Consumes: Task 1's tables.
-- Produces: `FormatConfig` gains two properties — `FormatFacts Facts` and `EmitCoverage Coverage` — built from `FormatCapabilities.Facts(tag)` / `.Coverage(tag)`. `FormatTag` stays for diagnostic text only. There is **no** new type: the record carried is the one Task 1 already defines.
+- Consumes: `FormatCapabilities`（Task 1）。
+- Produces: 一条可重复执行的架构测试；无生产代码改动。
 
-- [ ] **Step 1: Write the failing test**
-
+- [ ] **Step 1: 写正式守卫测试**
 ```csharp
 [Test]
-public async Task FormatConfig_carries_both_tables()
+public async Task Format_literals_appear_only_in_the_tables()
 {
-    await Assert.That(typeof(FormatConfig).GetProperty("Facts")).IsNotNull();
-    await Assert.That(typeof(FormatConfig).GetProperty("Coverage")).IsNotNull();
-    await Assert.That(typeof(FormatConfig).GetProperty("Facts")!.PropertyType)
-        .IsEqualTo(typeof(FormatFacts));
+    // 允许出现格式名的地方：两张表 + 编码选择白名单（有注释说明为何不算能力判定）
+    var allowed = new Dictionary<string, string[]>
+    {
+        ["FormatCapabilities.cs"] = Array.Empty<string>(),
+        ["DecisionTables.cs"] = Array.Empty<string>(),
+        ["TypeKindResolver.cs"] = new[] { ":34" },   // byte[] 走二进制：编码选择，两种格式都发
+    };
+    ... 扫描 shared/Gen/*.cs 的 ""(json|msgpack|toml|yaml|ini)"" 行 ...
+    await Assert.That(offenders).IsEmpty().Because(string.Join(" | ", offenders));
+}
+
+[Test]
+public async Task Every_capability_decision_goes_through_the_entry_points()
+{
+    // 决策只允许经 Decide/DecideShape/DecideTarget/AllowedDictKeyKinds；
+    // 扫描 shared/Gen 里是否还有直接比较 formatTag 得出"丢不丢"的代码
+    ... 断言 GenInfrastructure/TypeKindResolver 中不出现 `formatTag ==` / `format ==` 的能力判定 ...
 }
 ```
-
-- [ ] **Step 2: Run it to verify it fails** — `Expected: FAIL, no such property`.
-
-- [ ] **Step 3: Thread the tables through `FormatConfig`**
-
-Add `FormatFacts Facts` and `EmitCoverage Coverage` to `FormatConfig`; each generator builds them from its own tag. Keep `FormatTag` for diagnostic text only, and delete every capability decision that still compares it.
-
-- [ ] **Step 4: Verify the byte diff and the suite are still clean** (same commands as Task 3 Step 4).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git commit -am "refactor(gen): generators receive capability sets, so a format literal cannot decide capability"
-```
+- [ ] **Step 2: 跑测试，确认它在 Task 3 完成后**通过（若 Task 3 有遗漏，这里会点名文件:行）。
+- [ ] **Step 3: 在 `shared/Gen/FormatCapabilities.cs` 顶部写一段注释说明**：能力判定必须经本类；`FormatConfig.FormatTag` 仅用于诊断文本，**不得**用于能力判定（附本任务的取舍理由）。
+- [ ] **Step 4: Commit**：`test(gen): guard that capability decisions only go through the tables (I-3)`
 
 ---
 
@@ -303,71 +376,14 @@ git commit -am "fix(gen): report PICOSERDE001 from all three extraction sites (D
 
 ---
 
-### Task 6: Extended collections stop disappearing (D-1/D-2)
+### Task 6: （已移出 R1 → 归 R2）
 
-**Files:**
-- Modify: `shared/Gen/TypeKindResolver.cs` (resolve extended kinds for every format, not only JSON)
-- Modify: `shared/Gen/GenInfrastructure.cs` (route the unsupported case to the skip list)
-- Test: `tests/PicoSerDe.Integration.Tests/SilentDropDiagnosticTests.cs` (extend)
+D-1/D-2 的**发射侧**修复不属于 R1，原因有二，均经复核证实：
 
-**Interfaces:**
-- Consumes: Task 1 tables, Task 5 sink.
-- Produces: no API change; `HashSet`/`Queue`/`Stack`/`LinkedList`/`ImmutableArray`/`Memory`/`ReadOnlyMemory` resolve for all 5 formats.
+1. **它改变诊断**：非 JSON 下 `Resolve(List<HashSet<int>>)` 因元素失败**整体返回 null**，成员走 `typeKind is null` → `PICOSERDE001`；而"去掉 `TypeKindResolver` 的 json 门控"会让它改走元素分支并变成 `PICOSERDE004`。诊断 id 变化是**行为变化**，R1 承诺零行为变化。
+2. **它与 Task 3 的表冲突**：Task 3 已把该 gate 换成 `Decide(fmt, ExtendedKindResolves) = DropMember`；再去掉门控会让那一行成为死值（I-3 自破）。
 
-- [ ] **Step 1: Write the failing test**
-
-```csharp
-[Test]
-[Arguments("msgpack", "toml", "yaml", "ini")]
-public async Task Extended_collection_member_is_reported_not_silently_dropped(string fmt)
-{
-    var source = $$"""
-        using {{FormatSource.Namespace(fmt)}};
-        [{{FormatSource.Attribute(fmt)}}] public partial class Doc
-        { public System.Collections.Generic.HashSet<int> V { get; set; } = new(); }
-        """;
-    var ids = FormatSource.Run(fmt, source).DiagnosticIds;
-    await Assert.That(ids).Contains("PICOSERDE004")
-        .Because($"{fmt} must report the drop instead of dropping it silently");
-}
-```
-
-`FormatSource` is a new test helper in `tests/PicoSerDe.Integration.Tests/FormatSource.cs`, created in this task:
-
-```csharp
-internal static class FormatSource
-{
-    public static string Namespace(string fmt) => fmt switch
-    {
-        "json" => "PicoJetson", "msgpack" => "PicoMsgPack", "toml" => "PicoToml",
-        "yaml" => "PicoYaml", "ini" => "PicoIni", _ => throw new ArgumentOutOfRangeException(nameof(fmt))
-    };
-    public static string Attribute(string fmt) => fmt switch
-    {
-        "json" => "PicoJsonSerializable", "msgpack" => "PicoMsgPackSerializable",
-        "toml" => "PicoTomlSerializable", "yaml" => "PicoYamlSerializable",
-        "ini" => "PicoIniSerializable", _ => throw new ArgumentOutOfRangeException(nameof(fmt))
-    };
-    // Drives the right IIncrementalGenerator; mirrors the per-format helpers
-    // already in SilentDropDiagnosticTests.RunIniGenerator / RunJsonGenerator.
-    public static (string[] DiagnosticIds, string Generated, string[] Messages) Run(
-        string fmt, string source) => fmt switch { "json" => R(new JsonSerializerGenerator()), /* …4 more… */ };
-}
-```
-
-- [ ] **Step 2: Run to verify it fails** — all four arguments FAIL with an empty id list (today's D-1).
-
-- [ ] **Step 3: Resolve and route**
-
-Drop the `format == "json"` gate in `TypeKindResolver` so the 7 kinds resolve everywhere; in `GenInfrastructure`, when coverage says the kind cannot be emitted, add the member to `skippedUnsupported` instead of falling through to the `"object"` maze.
-
-- [ ] **Step 4: Verify byte diff is still empty** (generated code must not change — the member is still dropped this release, just reported).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git commit -am "fix(gen): extended collections are reported in every format, not silently dropped (D-1/D-2)"
-```
+**R1 里与 D-1/D-2 相关的唯一交付**：Task 5 接通 `PICOSERDE001` 后，这两个形状的丢失**从静默变为可见**（那正是 R2 所需的止血）。R2 的计划将包含：扩展集合在 5 格式的真实支持、诊断 id 从 001/004 收敛、以及 `Stack` 逆序重建等容器语义。
 
 ---
 
@@ -378,7 +394,7 @@ git commit -am "fix(gen): extended collections are reported in every format, not
 - Test: `tests/PicoSerDe.Integration.Tests/SilentDropDiagnosticTests.cs` (extend)
 
 **Interfaces:**
-- Consumes: nothing.
+- Consumes: `FormatCapabilities.Decide`（Task 1）—— 消息模板的选择只依赖**表**，不依赖 Task 3/4 的接线。
 - Produces: two distinguishable messages — format-fact `⛔` vs not-implemented `⏸`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -393,7 +409,7 @@ private const string MutualRecursion = """
 [Test]
 public async Task Recursive_diagnostic_names_the_member_the_user_declared()
 {
-    var messages = FormatSource.Run("yaml", MutualRecursion).Messages;
+    var messages = RunXxx("yaml", MutualRecursion).Messages;
     await Assert.That(messages.Any(m => m.Contains("Doc.Child") || m.Contains("Doc2.Child"))).IsTrue();
     // the message must name a member of a type the user declared, not a synthetic name
     await Assert.That(messages.Any(m => m.Contains("?.Child"))).IsFalse();
@@ -406,10 +422,10 @@ public async Task Deferred_and_impossible_messages_are_distinguishable()
         using {0};
         [{1}] public partial class Doc { public System.Collections.Generic.List<int?> V { get; set; } = new(); }
         """;
-    string Src(string fmt) => string.Format(nullableLeaf, FormatSource.Namespace(fmt), FormatSource.Attribute(fmt));
+    string Src(string fmt) => string.Format(nullableLeaf, Ns(fmt), Attr(fmt));
 
-    var yaml = FormatSource.Run("yaml", Src("yaml")).Messages;  // format CAN hold null -> deferred
-    var toml = FormatSource.Run("toml", Src("toml")).Messages;  // format CANNOT          -> impossible
+    var yaml = RunXxx("yaml", Src("yaml")).Messages;  // format CAN hold null -> deferred
+    var toml = RunXxx("toml", Src("toml")).Messages;  // format CANNOT          -> impossible
 
     await Assert.That(yaml.Any(m => m.Contains("not implemented yet"))).IsTrue()
         .Because("YAML can express null, so the message must not claim the format cannot");
@@ -417,7 +433,7 @@ public async Task Deferred_and_impossible_messages_are_distinguishable()
 }
 ```
 
-`FormatSource.Run` must return `Messages` — extend the helper created in Task 6 when this task starts.
+`Messages` 的获取：扩展现有 `RunXxxGenerator` 的返回元组，加 `string[] Messages`（Task 6 已移出 R1，`FormatSource` 不存在）
 
 - [ ] **Step 2: Run to verify both fail** — messages are identical today.
 
@@ -429,50 +445,46 @@ public async Task Deferred_and_impossible_messages_are_distinguishable()
 
 ---
 
-### Task 8: R1 gate — matrix, docs, release prep
+### Task 8: R1 gate — docs（现状矩阵）、AOT、发布准备
 
 **Files:**
-- Modify: `README.md` (Format-limits matrix — generated from `FormatFacts`, not hand-copied)
-- Modify: `docs/superpowers/specs/2026-10-25-format-capabilities-design.md`（§3 的格若有变化需同步）
-- Test: `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`
+- Modify: `README.md`（Format-limits 矩阵 —— **行 = 形状，列 = 格式**，与现有结构同轴）
+- Modify: `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`（加 README 一致性测试）
+- Modify: `Directory.Build.props`（版本 bump）
 
-- [ ] **Step 1: Write the failing test — README and the table cannot drift**
+**Interfaces:**
+- Consumes: `FormatCapabilities.DecideShape(fmt, shape)`（**现状**值，不是目标值）与 `AllShapeIds`（Task 1）。
+- Produces: `FormatCapabilities.MatrixRow(shapeId)` —— 返回该形状在 5 格式下的 markdown 行（**按现状**）。
+- 测试内新增 `static string RepoRoot()`：从 `AppContext.BaseDirectory` 向上找到含 `PicoSerDe.slnx` 的目录。
 
+> **为什么用现状而不是目标**：README 的矩阵是**当前限制**文档。用目标值生成会把 R2 才有的能力写进 R1 的文档，违反 spec C2（欠账/未来能力不得进"已知限制"）。目标矩阵只存在于 spec §6。
+
+- [ ] **Step 1: 写一致性测试**
 ```csharp
 [Test]
-public async Task Readme_format_limits_matrix_matches_FormatFacts()
+public async Task Readme_matrix_rows_match_the_tables()
 {
     var readme = File.ReadAllText(Path.Combine(RepoRoot(), "README.md"));
-    foreach (var f in FormatCapabilities.All)
-        await Assert.That(readme).Contains(FormatCapabilities.MatrixRow(f))
-            .Because($"README's matrix row for {f.Tag} is stale");
+    foreach (var shape in FormatCapabilities.AllShapeIds)
+        await Assert.That(readme).Contains(FormatCapabilities.MatrixRow(shape))
+            .Because($"README row for {shape} is stale");
 }
 ```
-
-- [ ] **Step 2: Run to verify it fails** (README still carries hand-written rows).
-
-- [ ] **Step 3: Generate the rows**
-
-Add `FormatCapabilities.MatrixRow(formatTag)` returning the markdown row derived from `DecideShape` over 目标表, and replace the README's hand-written rows with its output.
-
-- [ ] **Step 4: Full R1 gate**
-
+- [ ] **Step 2: 跑，期望失败**（README 里还是手写行）。
+- [ ] **Step 3: 实现 `MatrixRow`（在 Task 1 的 `FormatCapabilities` 里加一个方法）并替换 README 的手写行**。保留 `[[Table]]` 之类格式注记：`MatrixRow` 的单元格只输出 ✅/❌，注记由 README 的手写尾注承担（**不生成**注记，否则脚注会丢）。
+- [ ] **Step 4: 全量 R1 门禁**
 ```bash
-dotnet csharpier format shared/Gen/*.cs tests/FormatCapabilities.Probe/*.cs
+dotnet tool restore
+dotnet csharpier format shared/Gen/*.cs tests/FormatCapabilities.Probe/*.cs tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs
 dotnet build PicoSerDe.slnx -c Debug -m:1 | tail -3        # 0 Warning(s) 0 Error(s)
 dotnet test PicoSerDe.slnx -c Debug | tail -3              # 0 failed
 dotnet build tests/FormatCapabilities.Probe -c Debug -m:1 -p:EmitCompilerGeneratedFiles=true -p:CompilerGeneratedFilesOutputPath=/tmp/gen-r1
 diff -r tests/FormatCapabilities.Probe/generated-baseline /tmp/gen-r1 && echo "BYTES IDENTICAL"
-git diff --stat api/                                        # must be empty
+git diff --stat api/                                        # 必须为空
 dotnet publish PicoJetson/samples/PicoJetson.Sample/PicoJetson.Sample.csproj -c Release -r win-x64 -p:PublishAot=true -o /tmp/r1-aot && /tmp/r1-aot/PicoJetson.Sample.exe; echo "exit=$?"
 ```
-Expected: `BYTES IDENTICAL`, empty `api/` diff, `exit=0`.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git commit -am "docs: derive the README format-limits matrix from FormatFacts (R1)"
-```
+- [ ] **Step 5: 版本 bump（R1 = 新增诊断，wire 不变）**：`Directory.Build.props` 的 `<Version>` 按 `year.y+1` 递增（当前 `0.0.0-dev`；实际发布版本由 `picohex-release` 的脚本决定，本步只记录"R1 属 `y` bump"并在 PR 描述里写明 `NoWarn=PICOSERDE004` 的 opt-out 说明）。
+- [ ] **Step 6: Commit**：`docs: derive the README limits matrix from the tables (R1)`
 
 ---
 
