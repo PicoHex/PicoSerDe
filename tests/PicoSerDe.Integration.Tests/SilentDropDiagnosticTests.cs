@@ -3,6 +3,8 @@ using Microsoft.CodeAnalysis.CSharp;
 using PicoIni.Gen;
 using PicoJetson.Gen;
 using PicoMsgPack.Gen;
+using PicoToml.Gen;
+using PicoYaml.Gen;
 
 namespace PicoSerDe.Integration.Tests;
 
@@ -49,7 +51,7 @@ public class SilentDropDiagnosticTests
             }
             """;
 
-        var (ids, generated) = RunIniGenerator(source);
+        var (ids, generated, _) = RunIni(source);
         await Assert
             .That(ids)
             .Contains(Id)
@@ -71,7 +73,7 @@ public class SilentDropDiagnosticTests
             }
             """;
 
-        var (ids, generated) = RunJsonGenerator(source);
+        var (ids, generated, _) = RunJson(source);
         await Assert
             .That(ids)
             .Contains(Id)
@@ -93,7 +95,7 @@ public class SilentDropDiagnosticTests
             }
             """;
 
-        var (ids, generated) = Run(new MsgPackSerializerGenerator(), source);
+        var (ids, generated, _) = Run(new MsgPackSerializerGenerator(), source);
         await Assert
             .That(ids)
             .Contains(Id)
@@ -121,7 +123,7 @@ public class SilentDropDiagnosticTests
             }
             """;
 
-        var (ids, generated) = RunJsonGenerator(source);
+        var (ids, generated, _) = RunJson(source);
         await Assert.That(ids).DoesNotContain(Id);
         await Assert.That(generated).Contains("Rows").Because("JSON emits object lists");
     }
@@ -144,18 +146,37 @@ public class SilentDropDiagnosticTests
             }
             """;
 
-        var (ids, generated) = RunIniGenerator(source);
+        var (ids, generated, _) = RunIni(source);
         await Assert.That(ids).DoesNotContain(Id);
         await Assert.That(generated).Contains("Nums").Because("INI emits flat scalar lists");
     }
 
-    private static (string[] DiagnosticIds, string Generated) RunIniGenerator(string source) =>
-        Run(new IniSerializerGenerator(), source);
+    // ── drivers ────────────────────────────────────────────────────────────────────────
+    // One shape for all five formats: (diagnostic ids, generated text, diagnostic
+    // messages). The messages are here for Task 7, which must tell the ⛔ wording from
+    // the debt wording without driving the generator itself.
 
-    private static (string[] DiagnosticIds, string Generated) RunJsonGenerator(string source) =>
-        Run(new JsonSerializerGenerator(), source);
+    internal static (string[] DiagnosticIds, string Generated, string[] Messages) RunIni(
+        string source
+    ) => Run(new IniSerializerGenerator(), source);
 
-    private static (string[] DiagnosticIds, string Generated) Run(
+    internal static (string[] DiagnosticIds, string Generated, string[] Messages) RunJson(
+        string source
+    ) => Run(new JsonSerializerGenerator(), source);
+
+    internal static (string[] DiagnosticIds, string Generated, string[] Messages) RunMsgPack(
+        string source
+    ) => Run(new MsgPackSerializerGenerator(), source);
+
+    internal static (string[] DiagnosticIds, string Generated, string[] Messages) RunYaml(
+        string source
+    ) => Run(new YamlSerializerGenerator(), source);
+
+    internal static (string[] DiagnosticIds, string Generated, string[] Messages) RunToml(
+        string source
+    ) => Run(new TomlSerializerGenerator(), source);
+
+    private static (string[] DiagnosticIds, string Generated, string[] Messages) Run(
         IIncrementalGenerator generator,
         string source
     )
@@ -170,11 +191,12 @@ public class SilentDropDiagnosticTests
         var driver = CSharpGeneratorDriver.Create(generator);
         var result = driver.RunGenerators(compilation).GetRunResult();
         var ids = result.Diagnostics.Select(d => d.Id).ToArray();
+        var messages = result.Diagnostics.Select(d => d.GetMessage()).ToArray();
         var generated = string.Join(
             "\n",
             result.Results.SelectMany(r => r.GeneratedSources).Select(g => g.SourceText.ToString())
         );
-        return (ids, generated);
+        return (ids, generated, messages);
     }
 
     private static string AssemblyPath(System.Reflection.Assembly assembly) =>
@@ -204,6 +226,12 @@ public class SilentDropDiagnosticTests
         );
         yield return MetadataReference.CreateFromFile(
             AssemblyPath(typeof(PicoMsgPack.MsgPackSerializer).Assembly)
+        );
+        yield return MetadataReference.CreateFromFile(
+            AssemblyPath(typeof(PicoYaml.YamlSerializer).Assembly)
+        );
+        yield return MetadataReference.CreateFromFile(
+            AssemblyPath(typeof(PicoToml.TomlSerializer).Assembly)
         );
     }
 }

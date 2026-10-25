@@ -38,5 +38,7 @@
     <Compile Include="..\..\..\shared\Gen\GenInfrastructure.cs" Link="Gen\GenInfrastructure.cs" />
     <Compile Include="..\..\..\shared\Gen\AnonTypeHandler.cs" Link="Gen\AnonTypeHandler.cs" />
     <Compile Include="..\..\..\shared\Gen\AnonFormatConfig.cs" Link="Gen\AnonFormatConfig.cs" />
+    <Compile Include="..\..\..\shared\Gen\FormatCapabilities.cs" Link="Gen\FormatCapabilities.cs" />
+    <Compile Include="..\..\..\shared\Gen\DecisionTables.cs" Link="Gen\DecisionTables.cs" />
   </ItemGroup>
 </Project>

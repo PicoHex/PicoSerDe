@@ -70,5 +70,10 @@
   <!-- Shared models -->
   <ItemGroup>
     <Compile Include="..\..\shared\CrossValidationModels.cs" Link="CrossValidationModels.cs" />
+    <!-- The capability model is compiled from the SAME source the five generators
+         link, so the tests assert against the real tables (no InternalsVisibleTo:
+         the file is linked into five assemblies, so "internal" would be five copies). -->
+    <Compile Include="..\..\shared\Gen\FormatCapabilities.cs" Link="Gen\FormatCapabilities.cs" />
+    <Compile Include="..\..\shared\Gen\DecisionTables.cs" Link="Gen\DecisionTables.cs" />
   </ItemGroup>
 </Project>
