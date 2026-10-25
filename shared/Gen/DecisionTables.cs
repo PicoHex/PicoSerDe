@@ -219,7 +219,10 @@ internal static class DecisionTables
 
     // ── Dict key limits (not three-valued effects) ─────────────────────────────────
 
-    /// <summary>The 11 key kinds <c>IsSupportedDictKeyKind</c> accepts outside ini.</summary>
+    /// <summary>
+    /// The 11 key kinds accepted outside ini — the single hand-written copy of the limit;
+    /// <see cref="FormatCapabilities.AllowedDictKeyKinds"/> hands it to the generators.
+    /// </summary>
     private static readonly string[] ScalarDictKeyKinds =
     [
         "string",
@@ -236,10 +239,9 @@ internal static class DecisionTables
     ];
 
     /// <summary>
-    /// format → the key kinds that format accepts, equivalent kind-by-kind to
-    /// <c>GenInfrastructure.IsSupportedDictKeyKind(kind, formatTag)</c>: ini takes
-    /// "string" only (it returns false before reaching the kind list), the other four
-    /// take all 11.
+    /// format → the key kinds that format accepts: ini takes "string" only (it reads a key
+    /// as raw line text), the other four take all 11. This is the ONE definition of the
+    /// limit — <c>GenInfrastructure</c> keeps no copy of it.
     /// </summary>
     internal static readonly Dictionary<string, HashSet<string>> DictKeyKindsByFormat = new(
         StringComparer.Ordinal

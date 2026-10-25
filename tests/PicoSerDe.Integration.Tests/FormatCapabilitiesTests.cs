@@ -18,9 +18,10 @@ namespace PicoSerDe.Integration.Tests;
 ///         "supported exactly where every affected shape is representable".</item>
 /// </list>
 ///
-/// The dict-key limit is pinned behaviourally instead: <c>IsSupportedDictKeyKind</c> is
-/// private to the generator, so the test drives the INI generator and asserts what the
-/// user sees.
+/// The dict-key limit is pinned behaviourally too — in BOTH directions: a kind that is
+/// not in <see cref="FormatCapabilities.AllowedDictKeyKinds"/> must be rejected by every
+/// format, and a kind that is there must be emitted outside INI. The generators have no
+/// copy of that set any more, so the table is the only place a kind can be added.
 /// </summary>
 public class FormatCapabilitiesTests
 {
@@ -261,10 +262,10 @@ public class FormatCapabilitiesTests
     /// The dict-key limit is pinned behaviourally: drive the INI generator with a dictionary
     /// whose key kind is (or is not) allowed and look at what the user gets.
     /// <para>
-    /// The plan listed <c>int32</c> as accepted by INI; the code disagrees — see
-    /// <c>GenInfrastructure.IsSupportedDictKeyKind</c>, which returns false for every
-    /// non-string key when the format tag is "ini". The code wins, and the table
-    /// (<see cref="FormatCapabilities.AllowedDictKeyKinds"/>) says the same.
+    /// The plan listed <c>int32</c> as accepted by INI; the code disagrees — INI reads a
+    /// key as raw line text, so
+    /// <see cref="FormatCapabilities.AllowedDictKeyKinds"/> gives it nothing but
+    /// <c>string</c>, and the generator (which now asks that very method) says the same.
     /// </para>
     /// </summary>
     [Test]
@@ -351,6 +352,172 @@ public class FormatCapabilitiesTests
                     .IsTrue()
                     .Because($"{fmt} must accept {kind}");
         }
+    }
+
+    /// <summary>
+    /// W1 review I-1, negative direction: a key kind the table does not know must be
+    /// rejected by EVERY format. Widening <see cref="FormatCapabilities.AllowedDictKeyKinds"/>
+    /// without the generators fails here, and so does widening the generators without the
+    /// table — that drift is what the deleted hand-written predicate allowed.
+    /// </summary>
+    [Test]
+    public async Task Kind_absent_from_the_table_is_rejected_by_every_format()
+    {
+        // float32 is not one of the 11 key kinds the model knows
+        // (DecisionTables.DictKeyKindsByFormat).
+        var formats = new (
+            string Tag,
+            string Ns,
+            string Attr,
+            Func<string, (string[] Ids, string Generated, string[] Msgs)> Run
+        )[]
+        {
+            ("json", "PicoJetson", "PicoJsonSerializable", SilentDropDiagnosticTests.RunJson),
+            (
+                "msgpack",
+                "PicoMsgPack",
+                "PicoMsgPackSerializable",
+                SilentDropDiagnosticTests.RunMsgPack
+            ),
+            ("toml", "PicoToml", "PicoTomlSerializable", SilentDropDiagnosticTests.RunToml),
+            ("yaml", "PicoYaml", "PicoYamlSerializable", SilentDropDiagnosticTests.RunYaml),
+            ("ini", "PicoIni", "PicoIniSerializable", SilentDropDiagnosticTests.RunIni),
+        };
+
+        foreach (var (tag, ns, attr, run) in formats)
+        {
+            var source = $$"""
+                using {{ns}};
+
+                [{{attr}}]
+                public partial class Doc
+                {
+                    public System.Collections.Generic.Dictionary<float, int> KeyedItems { get; set; } = new();
+                }
+                """;
+
+            var (_, generated, _) = run(source);
+
+            await Assert
+                .That(FormatCapabilities.AllowedDictKeyKinds(tag).Contains("float32"))
+                .IsFalse()
+                .Because($"float32 must not be in the {tag} key set");
+            await Assert
+                .That(generated)
+                .DoesNotContain("KeyedItems")
+                .Because($"{tag} must reject a float key");
+        }
+    }
+
+    /// <summary>
+    /// W1 review I-1, positive direction: a kind the table DOES hold is emitted outside
+    /// INI — <c>long</c> (= int64) × json must produce the member. A missing member means
+    /// the table and the generator disagree about the same set.
+    /// </summary>
+    [Test]
+    public async Task Kind_in_the_table_is_emitted_outside_ini()
+    {
+        const string JsonLongKey = """
+            using PicoJetson;
+
+            [PicoJsonSerializable]
+            public partial class Doc
+            {
+                public System.Collections.Generic.Dictionary<long, int> KeyedItems { get; set; } = new();
+            }
+            """;
+
+        await Assert
+            .That(FormatCapabilities.AllowedDictKeyKinds("json").Contains("int64"))
+            .IsTrue();
+
+        var (_, generated, _) = SilentDropDiagnosticTests.RunJson(JsonLongKey);
+        await Assert
+            .That(generated)
+            .Contains("KeyedItems")
+            .Because(
+                "json emits int64 keys; a missing member means the table and the generator disagree"
+            );
+    }
+
+    /// <summary>
+    /// W1 review I-2: the else-branch of
+    /// <see cref="Target_is_supported_exactly_where_every_affected_shape_is_representable"/>
+    /// asserts <c>DecideTarget == Decide</c>, which <c>BuildTargetRules</c> guarantees by
+    /// construction when nothing is representable — so it cannot notice a derivation that
+    /// never ran. This test pins the DIFFERENCES instead: the (format, decision) pairs that
+    /// are dropped today and Supported in the target. Replacing TargetRules with a copy of
+    /// Rules goes red here immediately.
+    /// <para>
+    /// One entry needs its evidence spelled out, because two hand-counts of this set already
+    /// disagreed: <c>NullableValueLeaf × yaml</c> IS promoted. The decision point is walked
+    /// by S5, S6 and S13, and DecisionTables.Facts says true for all three in yaml (YAML can
+    /// express null; only the generator does not do it yet). So "every shape using it is
+    /// representable" holds and BuildTargetRules promotes the cell — the spec facts decide
+    /// that, not a hand-written summary.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Target_promotes_exactly_the_pairs_that_are_dropped_today()
+    {
+        (string Fmt, Decision D)[] expected =
+        [
+            ("msgpack", Decision.ExtendedKindResolves),
+            ("toml", Decision.ExtendedKindResolves),
+            ("yaml", Decision.ExtendedKindResolves),
+            ("ini", Decision.ExtendedKindResolves),
+            ("json", Decision.ExtendedKindAsElement),
+            ("msgpack", Decision.ExtendedKindAsElement),
+            ("toml", Decision.ExtendedKindAsElement),
+            ("yaml", Decision.ExtendedKindAsElement),
+            ("toml", Decision.NestedObjectContainer),
+            ("yaml", Decision.NullableValueLeaf),
+            ("yaml", Decision.NullableRefLeaf),
+            ("json", Decision.DictValueCollection),
+            ("msgpack", Decision.DictValueCollection),
+            ("toml", Decision.DictValueCollection),
+            ("yaml", Decision.DictValueCollection),
+            ("toml", Decision.RecursiveSelf),
+            ("yaml", Decision.RecursiveSelf),
+            ("yaml", Decision.RecursiveMutual),
+        ];
+
+        var actual = (
+            from d in Decisions
+            from f in FormatCapabilities.AllFormatTags
+            where
+                FormatCapabilities.Decide(f, d) != Effect.Supported
+                && FormatCapabilities.DecideTarget(f, d) == Effect.Supported
+            select (Fmt: f, D: d)
+        ).ToArray();
+
+        var missing = expected.Except(actual).ToArray();
+        var extra = actual.Except(expected).ToArray();
+
+        await Assert
+            .That(missing)
+            .IsEmpty()
+            .Because(
+                "these pairs are dropped today and representable in R2, so the derivation "
+                    + "must promote them: "
+                    + string.Join(", ", missing.Select(x => $"{x.D}x{x.Fmt}"))
+            );
+        await Assert
+            .That(extra)
+            .IsEmpty()
+            .Because(
+                "the derivation promoted pairs it must not: "
+                    + string.Join(", ", extra.Select(x => $"{x.D}x{x.Fmt}"))
+            );
+
+        // Non-vacuous by construction, but state it: at least one pair per direction.
+        await Assert
+            .That(FormatCapabilities.Decide("ini", Decision.ObjectListInMember))
+            .IsEqualTo(Effect.DropMember);
+        await Assert
+            .That(FormatCapabilities.DecideTarget("ini", Decision.ObjectListInMember))
+            .IsEqualTo(Effect.DropMember)
+            .Because("ini cannot express S2, so the target must stay blocked");
     }
 
     private static string Joined(IReadOnlyList<string> shapes) =>

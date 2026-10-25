@@ -8,6 +8,14 @@ internal static class TypeKindResolver
     /// <param name="format">
     /// Format hint: "json" | "ini" | "msgpack" | "toml" | "yaml".
     /// Used for format-specific type mapping (e.g., byte[] → "bytes" in MsgPack).
+    /// <para>
+    /// Every format-dependent branch below asks the capability model
+    /// (<c>FormatCapabilities.Decide</c>), which is keyed by exactly
+    /// <c>DecisionTables.FormatTags</c> and throws <c>ArgumentOutOfRangeException</c> for
+    /// any other string — so a caller must pass a real tag. The <c>""</c> default is a
+    /// signature left-over with no caller today (the old literal comparisons merely treated
+    /// it as "not json/msgpack"), and it is not a supported argument any more.
+    /// </para>
     /// </param>
     public static (string? Kind, bool IsNullable, ITypeSymbol? InnerType) Resolve(
         ITypeSymbol type,
@@ -30,8 +38,13 @@ internal static class TypeKindResolver
         // T[]
         if (type is IArrayTypeSymbol arr)
         {
-            // MsgPack-specific: byte[] → "bytes"
-            if (format == "msgpack" && arr.ElementType.SpecialType == SpecialType.System_Byte)
+            // MsgPack-specific: byte[] → "bytes". Encoding, not capability: msgpack can
+            // carry the same bytes as a binary value or as an array of integers, so there
+            // is no table cell to consult here (Task 4's guard keys off the marker below).
+            if (
+                format == "msgpack" // encoding, not capability
+                && arr.ElementType.SpecialType == SpecialType.System_Byte
+            )
                 return ("bytes", false, null);
             return ("array", false, null);
         }
@@ -65,10 +78,14 @@ internal static class TypeKindResolver
                 return ("list", false, null);
             }
 
-            // Extended collections (JSON only for now — other format generators do
-            // not yet emit these kinds): serialize as arrays, constructed via the
-            // concrete type on read.
-            if (format == "json")
+            // Extended collections: only the formats whose table cell says Supported
+            // resolve the kind (D-1: json today; the other four drop the member).
+            // This arm also serves the ELEMENT position (the `Resolve(elementType, …)`
+            // recursion above): both positions read DropMember in the four non-json
+            // formats, so one decision point answers for both.
+            if (
+                FormatCapabilities.Decide(format, Decision.ExtendedKindResolves) == Effect.Supported
+            )
             {
                 var ns = ntsList.ContainingNamespace?.ToDisplayString();
                 var extKind = (ns, ntsList.Name) switch
@@ -104,12 +121,18 @@ internal static class TypeKindResolver
             )
                 return ("dict", false, null);
             if (
-                format == "json"
+                FormatCapabilities.Decide(format, Decision.ConcurrentDictResolves)
+                    == Effect.Supported
                 && ns == "System.Collections.Concurrent"
                 && ntsDict.Name == "ConcurrentDictionary"
             )
                 return ("dict", false, null);
         }
+
+        // Kinds only the table's "resolves" column lets this format name (D-1: json
+        // today). Asked ONCE: the nine arms below share this one answer.
+        var formatResolvesScalarKinds =
+            FormatCapabilities.Decide(format, Decision.ScalarKindResolves) == Effect.Supported;
 
         // Built-in special types
         string? kind = type.SpecialType switch
@@ -124,7 +147,7 @@ internal static class TypeKindResolver
             SpecialType.System_Byte => "byte",
             SpecialType.System_UInt32 => "uint32",
             SpecialType.System_UInt64 => "uint64",
-            SpecialType.System_Char when format == "json" => "char",
+            SpecialType.System_Char when formatResolvesScalarKinds => "char",
             SpecialType.System_Double => "float64",
             // NOTE: System.Single (C# float) maps to "float64" intentionally —
             // the generated code uses double as the universal floating-point
@@ -150,21 +173,21 @@ internal static class TypeKindResolver
                 INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace.Name: "System" } =>
                     "timespan",
                 INamedTypeSymbol { Name: "DateTimeOffset", ContainingNamespace.Name: "System" }
-                    when format == "json" => "datetimeoffset",
+                    when formatResolvesScalarKinds => "datetimeoffset",
                 INamedTypeSymbol { Name: "Uri", ContainingNamespace.Name: "System" }
-                    when format == "json" => "uri",
+                    when formatResolvesScalarKinds => "uri",
                 INamedTypeSymbol { Name: "Version", ContainingNamespace.Name: "System" }
-                    when format == "json" => "version",
+                    when formatResolvesScalarKinds => "version",
                 INamedTypeSymbol { Name: "Half", ContainingNamespace.Name: "System" }
-                    when format == "json" => "half",
+                    when formatResolvesScalarKinds => "half",
                 INamedTypeSymbol { Name: "BigInteger", ContainingNamespace.Name: "Numerics" }
-                    when format == "json" => "biginteger",
+                    when formatResolvesScalarKinds => "biginteger",
                 INamedTypeSymbol { Name: "Int128", ContainingNamespace.Name: "System" }
-                    when format == "json" => "int128",
+                    when formatResolvesScalarKinds => "int128",
                 INamedTypeSymbol { Name: "UInt128", ContainingNamespace.Name: "System" }
-                    when format == "json" => "uint128",
+                    when formatResolvesScalarKinds => "uint128",
                 INamedTypeSymbol { Name: "IntPtr", ContainingNamespace.Name: "System" }
-                    when format == "json" => "nint",
+                    when formatResolvesScalarKinds => "nint",
                 _ => null,
             };
         }

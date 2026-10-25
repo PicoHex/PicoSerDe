@@ -177,8 +177,14 @@ internal static class FormatCapabilities
     // ── limits (NOT three-valued effects) ──────────────────────────────────────────
 
     /// <summary>
-    /// The key kinds this format accepts for a dictionary, equivalent kind-by-kind to
-    /// <c>GenInfrastructure.IsSupportedDictKeyKind(kind, formatTag)</c>.
+    /// The key kinds this format accepts for a dictionary — the ONE definition of that
+    /// limit: <c>GenInfrastructure</c> asks THIS, so an extra kind has to be added here
+    /// (DecisionTables.DictKeyKindsByFormat) and nowhere else.
+    /// <para>
+    /// INI reads a key as raw line text, so only <c>string</c> keys are representable
+    /// there; the restriction is scoped to that format on purpose — narrowing the shared
+    /// set would silently drop JSON <c>Dictionary&lt;int, string&gt;</c> support.
+    /// </para>
     /// This is a LIMIT, not an effect — that is why it is not a <see cref="Decision"/>.
     /// Callers must not mutate the returned set.
     /// </summary>

@@ -895,32 +895,6 @@ internal static class GenInfrastructure
         type.Name.StartsWith("ValueTuple")
         && type.ContainingNamespace?.ToDisplayString() == "System";
 
-    /// <summary>Dictionary key kinds the format generators know how to parse.</summary>
-    /// <param name="formatTag">
-    /// Format currently being generated. INI reads a key as raw line text, so only
-    /// <c>string</c> keys are representable there; the restriction is scoped to that
-    /// tag on purpose — narrowing the shared set would silently drop JSON
-    /// <c>Dictionary&lt;int, string&gt;</c> support.
-    /// </param>
-    private static bool IsSupportedDictKeyKind(string kind, string formatTag = "")
-    {
-        if (kind == "string")
-            return true;
-        if (formatTag == "ini")
-            return false;
-        return kind
-            is "int32"
-                or "int64"
-                or "int16"
-                or "uint16"
-                or "sbyte"
-                or "byte"
-                or "uint32"
-                or "uint64"
-                or "guid"
-                or "enum";
-    }
-
     /// <summary>
     /// Extracts serializable properties from <paramref name="type"/>.
     /// Both TransformType and ExtractNestedProperties delegate here.
@@ -1126,7 +1100,19 @@ internal static class GenInfrastructure
                     );
                 }
 
-                if (fieldRecursive && formatTag is not ("json" or "msgpack"))
+                // "Any cycle in this format" (see the RecursiveSelf row of
+                // DecisionTables.Rules). The guard reports a plain bool, so the site cannot
+                // tell self from mutual — and must not guess: RecursiveMutual x toml is
+                // Supported (TOML CAN hold a one-level mutual cycle, S11b), so consulting it
+                // here would flip every two-node and every base-chain cycle from dropped to
+                // emitted, on types whose helper is generated from a DERIVED root
+                // (RvPolyBase.Next, PolyRecAbstract.Next). RecursiveMutual is therefore
+                // consumed by DecideShape (S11b / the README matrix), not by a guard.
+                if (
+                    fieldRecursive
+                    && FormatCapabilities.Decide(formatTag, Decision.RecursiveSelf)
+                        != Effect.Supported
+                )
                 {
                     diagnostics?.Add(
                         Diagnostic.Create(
@@ -1294,21 +1280,47 @@ internal static class GenInfrastructure
                         or "float32"
                         or "float64"
                         or "boolean";
+                // Two different format facts, both from the table:
+                //   NestedScalarContainer blocked ⇒ this format has no nested chain at all
+                //                                   (ini) — every chain dies.
+                //   NestedObjectContainer blocked ⇒ the format can hold a chain of scalars
+                //                                   (toml inline arrays) but not one whose
+                //                                   innermost element is an object/dict.
+                // Collapsing the two into one lookup would lose TOML's second branch and
+                // turn S4/S6 from dropped into emitted.
+                var kindIsNested = ek is "list" or "array";
+                var chainFormBlocked =
+                    FormatCapabilities.Decide(formatTag, Decision.NestedScalarContainer)
+                    != Effect.Supported;
+                var objectLeafInChainBlocked =
+                    FormatCapabilities.Decide(formatTag, Decision.NestedObjectContainer)
+                    != Effect.Supported;
                 var nestedListUnsupported =
-                    formatTag is "ini" && ek is "list" or "array"
-                    || formatTag == "toml"
-                        && ek is "list" or "array"
-                        && (
-                            !tomlNestedLeafRepresentable
-                            || HasNullableCollectionLevel(elementType, formatTag)
-                        );
+                    kindIsNested
+                    && (
+                        chainFormBlocked
+                        || objectLeafInChainBlocked
+                            && (
+                                !tomlNestedLeafRepresentable
+                                || HasNullableCollectionLevel(elementType, formatTag)
+                            )
+                    );
+                // Outer test: "this format cannot hold null at all" (toml/yaml/ini today).
+                // Inner test: "this format has no nesting inside one member" (ini) — that is
+                // why every ANNOTATED element dies there regardless of its kind.
+                var nullValueBlocked =
+                    FormatCapabilities.Decide(formatTag, Decision.NullableValueLeaf)
+                    != Effect.Supported;
+                var flatMemberOnly =
+                    FormatCapabilities.Decide(formatTag, Decision.NestedScalarContainer)
+                    != Effect.Supported;
                 var nullableElementUnsupported =
-                    formatTag is "toml" or "yaml" or "ini"
+                    nullValueBlocked
                     && (
                         elementIsNullableValueType
                         || leafIsNullableValueType
-                        || elementIsAnnotated && (formatTag == "ini" || ek is "object" or "dict")
-                        || leafIsAnnotated && (formatTag == "ini" || leafKind is "object" or "dict")
+                        || elementIsAnnotated && (flatMemberOnly || ek is "object" or "dict")
+                        || leafIsAnnotated && (flatMemberOnly || leafKind is "object" or "dict")
                     );
                 if (nestedListUnsupported || nullableElementUnsupported)
                 {
@@ -1334,11 +1346,15 @@ internal static class GenInfrastructure
                     continue;
                 }
                 // INI cannot represent a nested object list (its sections are flat) —
-                // drop the property instead of emitting non-compiling or garbage
-                // round-trip code. Reported like every other unrepresentable shape:
-                // this used to be a bare `continue`, so an INI DTO with a List<Dto>
-                // member lost the member silently.
-                if (formatTag == "ini" && ek == "object")
+                // the answer comes from the capability table (ObjectListInMember, ini =
+                // DropMember), not from a tag test. Reported like every other
+                // unrepresentable shape: this used to be a bare `continue`, so an INI DTO
+                // with a List<Dto> member lost the member silently.
+                if (
+                    FormatCapabilities.Decide(formatTag, Decision.ObjectListInMember)
+                        != Effect.Supported
+                    && ek == "object"
+                )
                 {
                     skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                     continue;
@@ -1404,14 +1420,26 @@ internal static class GenInfrastructure
                         skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                         continue;
                     }
-                    // Generators only emit key parsing for this kind set — drop dicts
-                    // with other keys instead of emitting non-compiling code. INI
-                    // narrows the set to string keys; that format limitation is
-                    // reported through the shared PICOSERDE004 diagnostic, while the
-                    // other formats keep their historical silent skip unchanged.
-                    if (!IsSupportedDictKeyKind(kk, formatTag))
+                    // Generators only emit key parsing for the kind set the model allows
+                    // (FormatCapabilities.AllowedDictKeyKinds is the ONE definition; a new
+                    // kind must be added there and nowhere else) — drop dicts with other
+                    // keys instead of emitting non-compiling code. The format whose key set
+                    // is the NARROWEST of the five is narrowing for a reason of its own
+                    // (INI reads a key as raw line text), so that limitation is reported
+                    // through the shared PICOSERDE004 diagnostic while the other formats
+                    // keep their historical silent skip unchanged. Derived from the table on
+                    // purpose: a tag literal here would be a capability comparison wearing
+                    // a diagnostic's clothes.
+                    var dictKeyKinds = FormatCapabilities.AllowedDictKeyKinds(formatTag);
+                    if (!dictKeyKinds.Contains(kk))
                     {
-                        if (formatTag == "ini")
+                        var narrowestKeySet = int.MaxValue;
+                        foreach (var otherTag in FormatCapabilities.AllFormatTags)
+                            narrowestKeySet = Math.Min(
+                                narrowestKeySet,
+                                FormatCapabilities.AllowedDictKeyKinds(otherTag).Count
+                            );
+                        if (dictKeyKinds.Count == narrowestKeySet && dictKeyKinds.Count > 0)
                             skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                         continue;
                     }
@@ -1433,12 +1461,20 @@ internal static class GenInfrastructure
                         };
                     var valueIsAnnotated =
                         valType.NullableAnnotation == NullableAnnotation.Annotated;
+                    // Same two table answers as the list-element path above: "cannot hold
+                    // null" (toml/yaml/ini) and "no nesting inside one member" (ini).
+                    var dictNullBlocked =
+                        FormatCapabilities.Decide(formatTag, Decision.NullableValueLeaf)
+                        != Effect.Supported;
+                    var dictFlatMemberOnly =
+                        FormatCapabilities.Decide(formatTag, Decision.NestedScalarContainer)
+                        != Effect.Supported;
                     if (
-                        formatTag is "toml" or "yaml" or "ini"
+                        dictNullBlocked
                         && (
                             valueIsNullableValue
-                            || valueIsAnnotated && (formatTag == "ini" || vk is "object" or "dict")
-                            || formatTag == "ini" && vk is "object" or "dict"
+                            || valueIsAnnotated && (dictFlatMemberOnly || vk is "object" or "dict")
+                            || dictFlatMemberOnly && vk is "object" or "dict"
                         )
                     )
                     {
@@ -1525,7 +1561,13 @@ internal static class GenInfrastructure
                 );
             }
 
-            if (recursiveRef && formatTag is not ("json" or "msgpack"))
+            // Same decision point as the field path above, for the same reason:
+            // RecursiveSelf is the cell that answers "may this format hold a cycle at
+            // all"; RecursiveMutual stays in the shape matrix (S11b) alone.
+            if (
+                recursiveRef
+                && FormatCapabilities.Decide(formatTag, Decision.RecursiveSelf) != Effect.Supported
+            )
             {
                 // TOML/YAML/INI cannot represent arbitrarily deep nesting; drop
                 // the recursive member and record it so GenerateAll surfaces a
