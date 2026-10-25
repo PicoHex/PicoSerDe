@@ -18,7 +18,7 @@ currently gets wrong about them, and what the library must do about it
 | v1–v3 | 规则 R1–R3、实测矩阵、缺陷注入、三处决策（YAML null / 扩展集合 / 递归） |
 | v4–v5 | 采纳维护者架构原则（R0）；裁定全部决策；确定两次发布 |
 | v6–v7 | 按第 4/5 轮复核修表格与措辞 |
-| **v8** | **重划 spec/plan 边界**：删除 §2 的数据模型细节（两张表、构造 K1–K11、仲裁规则、字节 diff 证明范围）、§3.1 的 75 格现状快照、§9 的各步验收 —— 全部移入计划。规格只保留规则、事实、缺陷、裁定、目标、不变式（443 → 约 190 行） |
+| **v8** | **重划 spec/plan 边界**：删除数据模型细节（两张表、构造 K1–K11、仲裁规则、字节 diff 证明范围 —— 原 v7 的 §2/§2.1）、75 格现状快照（原 §3.1）、各步验收（原 §9） —— 全部移入计划。规格只保留规则、事实、缺陷、裁定、目标、不变式（443 → 240 行） |
 
 ---
 
@@ -112,7 +112,7 @@ currently gets wrong about them, and what the library must do about it
 | S14 `List<Dto?>` 对象 null 元素 | 待测 | 待测 | ❌ 无 null | 待测 | ❌ |
 | S15 scalar 族（`float`/`decimal`/`DateTime`/`TimeSpan`/`Guid`/`enum?`） | 待测 | 待测 | 待测 | 待测 | 待测 |
 
-**判据与证据**：TOML 用 Python `tomllib`、YAML 用 PyYAML 实测（脚本与逐字输出见 §9）。**INI 无独立实现可依据**（`configparser` 对任何输入都当字符串收下），其边界是**本规格的约定**：
+**判据与证据**：TOML 用 Python `tomllib`、YAML 用 PyYAML 实测（脚本见 §9；其逐字输出记录在计划的探针章节）。**INI 无独立实现可依据**（`configparser` 对任何输入都当字符串收下），其边界是**本规格的约定**：
 
 > INI 的约定：标量列表 = 单层逗号串（`V = 1,2,3`）；对象列表只在**顶层**用编号 section（`[0]`、`[1]`）；字典 = 成员级 `[V]` section；**成员内不承载任何嵌套**；**不承载 null**（空值与空串不可区分）。
 
