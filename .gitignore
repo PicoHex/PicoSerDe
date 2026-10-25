@@ -409,8 +409,9 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
-# Superpowers internal planning docs (not public)
-docs/superpowers/
+# Superpowers process artifacts (ledger/briefs/reviews — not public).
+# docs/superpowers/ (design specs + plans) IS tracked: the repo's spec/plan
+# convention lives there.
 .superpowers/
 docs/TODO.md
 docs/beta-issues.md
