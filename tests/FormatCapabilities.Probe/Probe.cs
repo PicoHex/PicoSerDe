@@ -3,12 +3,21 @@
 // declares one model (Models.cs), instantiates three values (empty / single / boundary),
 // round-trips each one through the format's own serializer and prints ONE line:
 //
-//   CELL|<format>|<shape>|<verdict>|<wire>|<expected>|<actual>
+//   CELL|<format>|<shape>|<verdict>|<wire>|<expected>|<actual>[|reason=<code>]
 //
 // <verdict> is OK only when all three values survive the round trip under the shape's
 // OWN equivalence relation (spec R1′), otherwise MISMATCH. MISMATCH is a MEASUREMENT,
 // not a test failure: this file records today's behaviour (Task 3's before-picture);
 // what must round-trip is R2's business.
+//
+// <verdict> has four values, so that "this format hangs" is countable instead of hiding
+// inside the MISMATCH pile:
+//   OK / MISMATCH           measured — see above
+//   TIMEOUT                 a value never returned: the watchdog fired
+//   SKIPPED_AFTER_TIMEOUT   NOT measured: this format already hung twice in this run
+// The two unmeasured verdicts append `|reason=<code>` as an 8th column
+// (`reason=timeout;value=empty`, `reason=skipped-after-timeout;first-timeout=toml/S9`), so
+// `grep -c '|TIMEOUT|'` answers "how many cells hang". Per-verdict totals go to stderr.
 //
 // EQUIVALENCE (R1′) is implemented as one canonical text per value, compared by string
 // equality — so every family's rule is visible in exactly one place:
@@ -86,6 +95,25 @@ internal sealed class Payload<T>
     internal string Text(T? value) => _text(value);
 }
 
+/// <summary>What the probe decided about one cell. Two of the four are not measurements.</summary>
+internal enum Verdict
+{
+    /// <summary>All three values round-tripped under the shape's own equivalence relation.</summary>
+    Ok,
+
+    /// <summary>A measured, explainable difference between what went in and what came back.</summary>
+    Mismatch,
+
+    /// <summary>A value never returned: the watchdog fired, so nothing was measured.</summary>
+    Timeout,
+
+    /// <summary>Not measured: this cell's format already hung twice in this process.</summary>
+    SkippedAfterTimeout,
+}
+
+/// <summary>One printed cell line plus the verdict that line carries.</summary>
+internal readonly record struct CellResult(string Line, Verdict Verdict);
+
 internal static class Program
 {
     private const int MaxColumnChars = 180;
@@ -101,38 +129,57 @@ internal static class Program
         }
 
         var byKey = cells.ToDictionary(c => (c.Shape, c.Format));
-        var ok = 0;
-        var mismatch = 0;
+        var counts = new Dictionary<Verdict, int>
+        {
+            [Verdict.Ok] = 0,
+            [Verdict.Mismatch] = 0,
+            [Verdict.Timeout] = 0,
+            [Verdict.SkippedAfterTimeout] = 0,
+        };
+        var state = new RunState();
 
         // Canonical order: spec §3 row order × spec §3 column order, both taken from the
         // capability model, so a new shape/format cannot be silently left out.
         foreach (var shape in Caps.AllShapeIds)
         foreach (var format in Caps.AllFormatTags)
         {
-            var line = Run(byKey[(shape, format)]);
-            if (line.StartsWith("CELL|", StringComparison.Ordinal) is false)
-                throw new InvalidOperationException("malformed cell line: " + line);
+            var cell = byKey[(shape, format)];
 
-            if (line.Contains("|MISMATCH|", StringComparison.Ordinal))
-                mismatch++;
-            else
-                ok++;
+            // A format that hung twice is no longer measurable in this process (an abandoned
+            // thread is still spinning and stealing CPU); say so instead of manufacturing a
+            // false timeout for every remaining cell of that format.
+            var result = state.IsClosed(format, out var closedReason)
+                ? Skipped(cell, closedReason)
+                : Run(cell, state);
 
-            Console.WriteLine(line);
+            if (result.Line.StartsWith("CELL|", StringComparison.Ordinal) is false)
+                throw new InvalidOperationException("malformed cell line: " + result.Line);
+
+            counts[result.Verdict]++;
+            Console.WriteLine(result.Line);
         }
 
         // stderr, so `dotnet run | sort > baseline-cells.txt` stays exactly the 70 cells.
-        Console.Error.WriteLine($"# cells: {ok} OK, {mismatch} MISMATCH, {ok + mismatch} total");
+        Console.Error.WriteLine(
+            $"# cells: {counts[Verdict.Ok]} OK, {counts[Verdict.Mismatch]} MISMATCH, "
+                + $"{counts[Verdict.Timeout]} TIMEOUT, "
+                + $"{counts[Verdict.SkippedAfterTimeout]} SKIPPED_AFTER_TIMEOUT, "
+                + $"{cells.Count} total"
+        );
+        Console.Error.WriteLine(
+            $"# abandoned worker threads never returned: {state.AbandonedCount}"
+        );
         return 0;
     }
 
-    private static string Run(Cell cell)
+    private static CellResult Run(Cell cell, RunState state)
     {
         var wire = new List<string>(3);
         var expected = new List<string>(3);
         var actual = new List<string>(3);
         var allEquivalent = true;
         var abandoned = false;
+        var timedOutValue = "";
 
         foreach (var kind in Kinds)
         {
@@ -178,6 +225,16 @@ internal static class Program
                 actual.Add(kind + "=" + failure);
                 allEquivalent = false;
                 abandoned = failure.Contains("timed out", StringComparison.Ordinal);
+                if (abandoned)
+                {
+                    // The worker for this value is still running and there is no safe way to
+                    // stop it: record it as abandoned and never read its result back. A second
+                    // timeout inside the same format closes that format for the rest of the run
+                    // (see RunState).
+                    timedOutValue = kind;
+                    state.RecordTimeout(cell.Format, cell.Shape, kind);
+                }
+
                 continue;
             }
 
@@ -189,13 +246,123 @@ internal static class Program
                 allEquivalent = false;
         }
 
-        var verdict = allEquivalent ? "OK" : "MISMATCH";
-        return $"CELL|{cell.Format}|{cell.Shape}|{verdict}|"
-            + Escape(string.Join(" ; ", wire))
-            + "|"
-            + Escape(string.Join(" ; ", expected))
-            + "|"
-            + Escape(string.Join(" ; ", actual));
+        // A hang is not a mismatch: the cell was not measured at all, so it gets its own
+        // verdict (and a machine-readable reason) instead of polluting the mismatch count.
+        var verdict =
+            allEquivalent ? Verdict.Ok
+            : abandoned ? Verdict.Timeout
+            : Verdict.Mismatch;
+
+        var reason = verdict is Verdict.Timeout ? "|reason=timeout;value=" + timedOutValue : "";
+
+        return new CellResult(
+            $"CELL|{cell.Format}|{cell.Shape}|{VerdictText(verdict)}|"
+                + Escape(string.Join(" ; ", wire))
+                + "|"
+                + Escape(string.Join(" ; ", expected))
+                + "|"
+                + Escape(string.Join(" ; ", actual))
+                + reason,
+            verdict
+        );
+    }
+
+    /// <summary>
+    /// A cell that was deliberately NOT measured because its format already hung twice in
+    /// this process. Its verdict says exactly that, all three value columns still carry all
+    /// three kinds (so "three values per cell" stays true) and the reason column names the
+    /// culprit cells.
+    /// </summary>
+    private static CellResult Skipped(Cell cell, string reason)
+    {
+        const string skipped = "<skipped: format short-circuited after a repeated timeout>";
+        var column = Escape(string.Join(" ; ", Kinds.Select(kind => kind + "=" + skipped)));
+        return new CellResult(
+            $"CELL|{cell.Format}|{cell.Shape}|{VerdictText(Verdict.SkippedAfterTimeout)}|"
+                + column
+                + "|"
+                + column
+                + "|"
+                + column
+                + "|"
+                + Escape(reason),
+            Verdict.SkippedAfterTimeout
+        );
+    }
+
+    private static string VerdictText(Verdict verdict) =>
+        verdict switch
+        {
+            Verdict.Ok => "OK",
+            Verdict.Mismatch => "MISMATCH",
+            Verdict.Timeout => "TIMEOUT",
+            _ => "SKIPPED_AFTER_TIMEOUT",
+        };
+
+    /// <summary>
+    /// Cross-cell bookkeeping for the watchdog. Two rules, both about one hang not being
+    /// allowed to corrupt the other 69 cells (a thread cannot be stopped, so an abandoned
+    /// worker keeps burning a core for the rest of the run):
+    /// <list type="number">
+    /// <item>A value that never returns is recorded as an abandoned worker; its result is
+    /// never read back, and the cell's verdict is TIMEOUT.</item>
+    /// <item>A timeout in a format is a warning; a SECOND timeout in the SAME format means
+    /// that format can no longer be timed honestly in this process (the abandoned thread is
+    /// still running) — so every remaining cell of that format is reported as
+    /// SKIPPED_AFTER_TIMEOUT with the culprit cells in its reason column, instead of being
+    /// measured under CPU contention and recorded as a false permanent MISMATCH.</item>
+    /// </list>
+    /// </summary>
+    private sealed class RunState
+    {
+        // format → the first cell of that format that timed out ("toml/S9").
+        private readonly Dictionary<string, string> _firstTimeout = new(StringComparer.Ordinal);
+
+        // format → the second cell of that format that timed out; only this closes the format.
+        private readonly Dictionary<string, string> _repeatedTimeout = new(StringComparer.Ordinal);
+
+        private int _abandoned;
+
+        internal int AbandonedCount => _abandoned;
+
+        /// <summary>True when <paramref name="format"/> hung twice; then no cell of it is measured.</summary>
+        internal bool IsClosed(string format, out string reason)
+        {
+            if (_repeatedTimeout.TryGetValue(format, out var repeated) is false)
+            {
+                reason = "";
+                return false;
+            }
+
+            reason =
+                "reason=skipped-after-timeout;first-timeout="
+                + _firstTimeout[format]
+                + ";repeated-timeout="
+                + repeated;
+            return true;
+        }
+
+        internal void RecordTimeout(string format, string shape, string value)
+        {
+            _abandoned++;
+            var culprit = format + "/" + shape;
+
+            if (_firstTimeout.TryAdd(format, culprit))
+            {
+                // stderr only: stdout stays exactly one CELL line per cell.
+                Console.Error.WriteLine(
+                    $"HANG|{format}|{shape}|value={value}|first-timeout-in-format"
+                );
+                return;
+            }
+
+            if (_repeatedTimeout.TryAdd(format, culprit))
+            {
+                Console.Error.WriteLine(
+                    $"SHORT-CIRCUIT|{format}|first={_firstTimeout[format]}|repeated={culprit}"
+                );
+            }
+        }
     }
 
     /// <summary>Serialize + deserialize one value, reporting failures as text.</summary>
@@ -239,7 +406,17 @@ internal static class Program
         failure = "";
         (string Wire, string Actual) captured = ("", "");
         Exception? error = null;
-        using var done = new ManualResetEventSlim(false);
+
+        // Deliberately NOT `using`: on the timeout path this value is abandoned while its
+        // worker thread is still running, and that worker calls done.Set() from its own
+        // finally. Disposing here would make that Set() throw ObjectDisposedException on a
+        // thread where nothing catches it — and an unhandled exception on ANY thread kills
+        // the whole process, i.e. it would silently truncate
+        // `dotnet run | sort > baseline-cells.txt` halfway through, corrupting the checked-in
+        // baseline instead of reporting a TIMEOUT. ManualResetEventSlim holds no unmanaged
+        // resource (its kernel handle is lazy and finalizable), so letting the GC collect it
+        // is correct — the abandoned worker dies with the process either way.
+        var done = new ManualResetEventSlim(false);
 
         var worker = new Thread(() =>
         {
