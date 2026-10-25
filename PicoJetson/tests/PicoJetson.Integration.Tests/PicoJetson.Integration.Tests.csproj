@@ -5,7 +5,12 @@
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
 <IsPackable>false</IsPackable>
-    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE004</NoWarn>
+    <!-- PICOSERDE001: PairCoverageDto.Kvp (KeyValuePair), .Tup (Tuple) and
+         DegradationDto.Zone (TimeZoneInfo) are deliberately unserializable fixtures —
+         they pin the *degradation* path, i.e. exactly the members whose type cannot
+         be resolved. The warning is the tested behaviour (Task 5 / D-6), so it is
+         silenced by id here and nowhere else. -->
+    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE001;PICOSERDE004</NoWarn>
     <!-- Compile-time guard: generated code must preserve reference-nullability
          annotations in declaration positions (List<string?>,
          Dictionary<string,object?>, record ctor params) — a regression fails the

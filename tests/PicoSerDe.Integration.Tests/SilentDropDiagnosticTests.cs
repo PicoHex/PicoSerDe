@@ -23,10 +23,20 @@ namespace PicoSerDe.Integration.Tests;
 /// Both now report <c>PICOSERDE004</c> so the drop is visible in the build log.
 /// These tests drive the generator in-proc because the diagnostic id (not the
 /// runtime behaviour) is the contract being pinned.
+///
+/// <para>
+/// The same file pins <c>PICOSERDE001</c> — the id for "this member's TYPE could not
+/// be resolved at all". Both extraction sites (public field, property) collected it
+/// into a <c>List&lt;Diagnostic&gt;</c> that no generator ever passed, so D-6 was a
+/// silent loss: the collector now travels on the <c>TypeInfo</c> value and the
+/// generators report it (one diagnostic per member).
+/// </para>
 /// </summary>
 public class SilentDropDiagnosticTests
 {
     private const string Id = "PICOSERDE004";
+
+    private const string UnresolvableTypeId = "PICOSERDE001";
 
     private const string PlainRow = """
         public class PlainRow
@@ -151,6 +161,141 @@ public class SilentDropDiagnosticTests
         await Assert.That(generated).Contains("Nums").Because("INI emits flat scalar lists");
     }
 
+    // ── PICOSERDE001 (D-6): an unresolvable TYPE must not vanish silently ─────────────
+
+    /// <summary>
+    /// <c>Opaque</c> has no public member, so <c>TypeKindResolver</c> resolves nothing
+    /// for it: the property could never be emitted. Before Task 5 the extractor pushed
+    /// a diagnostic into a list nobody passed — the member simply disappeared.
+    /// </summary>
+    [Test]
+    public async Task Unresolvable_property_type_reports_PICOSERDE001()
+    {
+        const string source = """
+            using PicoJetson;
+
+            public class Opaque { }
+
+            [PicoJsonSerializable]
+            public partial class Doc
+            {
+                public string Name { get; set; } = "";
+                public Opaque V { get; set; } = new();
+            }
+            """;
+
+        var (ids, generated, messages) = RunJson(source);
+
+        await Assert
+            .That(ids)
+            .Contains(UnresolvableTypeId)
+            .Because("a property whose type cannot be resolved is dropped and must say so");
+        await Assert
+            .That(ids.Count(i => i == UnresolvableTypeId))
+            .IsEqualTo(1)
+            .Because("one diagnostic per member, not one per extraction pass");
+        await Assert
+            .That(generated)
+            .DoesNotContain("public global::Opaque V")
+            .Because("the member is not emitted — that is exactly why it must be reported");
+        await Assert
+            .That(messages.Any(m => m.Contains("Doc.V")))
+            .IsTrue()
+            .Because($"the message must name the member, got: {string.Join(" | ", messages)}");
+    }
+
+    /// <summary>
+    /// The public-field site of the same extractor. Reached with
+    /// <c>[PicoSerializable(IncludeFields = true)]</c> (or a ref struct); its
+    /// unresolvable-type `continue` was the other silent point of D-6.
+    /// </summary>
+    [Test]
+    public async Task Unresolvable_public_field_reports_PICOSERDE001()
+    {
+        const string source = """
+            using PicoSerDe.Core;
+
+            public class Opaque { }
+
+            [PicoSerializable(IncludeFields = true)]
+            public sealed class Doc
+            {
+                public string Name = "";
+                public Opaque V = new();
+            }
+            """;
+
+        var (ids, generated, messages) = RunJson(source);
+
+        await Assert
+            .That(ids)
+            .Contains(UnresolvableTypeId)
+            .Because("the public-field path drops unresolvable fields too");
+        await Assert
+            .That(messages.Any(m => m.Contains("Doc.V")))
+            .IsTrue()
+            .Because($"the field must be named, got: {string.Join(" | ", messages)}");
+        await Assert.That(generated).DoesNotContain("public global::Opaque V");
+    }
+
+    /// <summary>
+    /// The same type is discovered once per pipeline (usage-driven, <c>[PicoSerializable]</c>,
+    /// <c>[PicoJsonSerializable]</c>, ...). Each discovery re-extracts and re-records the
+    /// drop, so the reporting side must dedupe — otherwise one bad member produces one
+    /// warning per pipeline (review focus "diagnostics that multiply").
+    /// </summary>
+    [Test]
+    public async Task Member_discovered_by_two_pipelines_reports_one_diagnostic()
+    {
+        const string source = """
+            using PicoJetson;
+            using PicoSerDe.Core;
+
+            public class Opaque { }
+
+            [PicoSerializable]
+            [PicoJsonSerializable]
+            public partial class Doc
+            {
+                public string Name { get; set; } = "";
+                public Opaque V { get; set; } = new();
+            }
+            """;
+
+        var (ids, _, _) = RunJson(source);
+
+        await Assert
+            .That(ids.Count(i => i == UnresolvableTypeId))
+            .IsEqualTo(1)
+            .Because("two discovery pipelines, one dropped member, one diagnostic");
+    }
+
+    /// <summary>
+    /// Control: a resolvable member type must not produce PICOSERDE001 — the wiring
+    /// must not turn every ordinary DTO into a warning.
+    /// </summary>
+    [Test]
+    public async Task Resolvable_member_type_reports_no_PICOSERDE001()
+    {
+        var source = $$"""
+            using PicoJetson;
+
+            {{PlainRow}}
+
+            [PicoJsonSerializable]
+            public partial class ProbeDoc
+            {
+                public string Name { get; set; } = "";
+                public PlainRow Row { get; set; } = new();
+            }
+            """;
+
+        var (ids, generated, _) = RunJson(source);
+
+        await Assert.That(ids).DoesNotContain(UnresolvableTypeId);
+        await Assert.That(generated).Contains("Row");
+    }
+
     // ── drivers ────────────────────────────────────────────────────────────────────────
     // One shape for all five formats: (diagnostic ids, generated text, diagnostic
     // messages). The messages are here for Task 7, which must tell the ⛔ wording from
@@ -232,6 +377,12 @@ public class SilentDropDiagnosticTests
         );
         yield return MetadataReference.CreateFromFile(
             AssemblyPath(typeof(PicoToml.TomlSerializer).Assembly)
+        );
+        // [PicoSerializable(IncludeFields = true)] lives in PicoSerDe.Core: without this
+        // reference the attribute binds to an error type, ForAttributeWithMetadataName
+        // finds nothing, and the public-field extraction path is never reached.
+        yield return MetadataReference.CreateFromFile(
+            AssemblyPath(typeof(PicoSerDe.Core.PicoSerializableAttribute).Assembly)
         );
     }
 }
