@@ -129,12 +129,14 @@ The spec is a vision document; its silence is not permission. These are the fail
 
       // ── 逆索引与枚举 ──
       internal static IReadOnlyList<string> ShapesUsing(Decision d);      // 由 Paths 反推，不手写
+      internal static IReadOnlyDictionary<string, Decision[]> Paths { get; }   // shapeId → 有序判定点通路
+      internal static IReadOnlyDictionary<(string Fmt, Decision D), Effect> Rules { get; }  // 现状值
       internal static IReadOnlyList<string> AllFormatTags { get; }        // 5 个
       internal static IReadOnlyList<string> AllShapeIds { get; }          // 14 个：S1..S13, S11a, S11b
 
       // ── 限制（不是三值效果）──
       internal static IReadOnlySet<string> AllowedDictKeyKinds(string formatTag);
-      internal static string MatrixRow(string shapeId);                   // Task 8 用，按现状
+      internal static string MatrixCells(string shapeId);                 // Task 8 用：只返回 5 个单元格，按现状
   }
   ```
 - **`DictKeyKinds` 不进 `Decision`**：它是**限制**（哪些 kind 可作键），不是三值效果。
@@ -188,7 +190,7 @@ public async Task Target_is_supported_exactly_where_every_affected_shape_is_repr
 
 **注意两处「目标 = 现状」的判定点**（编码差异，不是能力差异，必须在注释里写明，否则后人会"修正"它）：
 `ScalarKindResolves`、`ConcurrentDictResolves` —— 它们只影响**编码形式**（是否走 json 的特化标量），不影响能否表达。
-  - `RecursiveSelf` / `RecursiveMutual`：ini `DropMember`，其余 `Supported`
+  - `RecursiveSelf` / `RecursiveMutual`（**Rules 现状值，不是目标值**）：`Self` 在 toml/yaml/ini 都是 `DropMember`；`Mutual` 在 toml 是 `Supported`（会发射，D-5 的根覆盖就发生在这里）、yaml/ini 是 `DropMember`。目标值由 Step 3 的推导规则算出，**不要**在这里手抄。
   - `ScalarKindResolves` / `ConcurrentDictResolves`：**保持现状**（编码差异，不是能力差异 —— 在注释里写明，否则无人知道为什么目标值= 现状）
 - [ ] **Step 4: 写一致性测试**（这是"目标表"的可执行定义）：
   ```csharp
@@ -207,6 +209,7 @@ public async Task Target_is_supported_exactly_where_every_affected_shape_is_repr
           else
               await Assert.That(target).IsNotEqualTo(Effect.Supported).Because($"{shape}x{fmt}");
       }
+  }
   ```
 - [ ] **Step 5: 跑测试**：`dotnet test tests/PicoSerDe.Integration.Tests -c Debug --no-progress -- --treenode-filter "/*/*/FormatCapabilitiesTests/*"`
   期望以下测试**全部通过**（不写计数 —— 见 Global Constraints）：
@@ -324,7 +327,7 @@ grep -c "|OK|"   baseline-cells.txt    # 这是"现状支持的格数"，与 spe
 
 ---
 
-### Task 3: 把 25 处判据改成查表（零行为变化）
+### Task 3: 把 24 行格式判据（19 个语义单元）改成查表（零行为变化）
 
 **Files:**
 - Modify: `shared/Gen/TypeKindResolver.cs`、`shared/Gen/GenInfrastructure.cs`（**站点清单由附录 A 命令 1 生成，不手抄**）
@@ -332,6 +335,26 @@ grep -c "|OK|"   baseline-cells.txt    # 这是"现状支持的格数"，与 spe
 **Interfaces:**
 - Consumes: `Decide` / `AllowedDictKeyKinds`（Task 1）。
 - Produces: 无新 API。
+
+**⚠️ 语义单元 ≠ 行（先读这一节）**
+
+附录 A 命令 1 输出 **24 行**（`GI` 12 + `TKR` 12），但它们**不是 24 个独立判据**：其中 3 处是**跨行复合布尔**，每处是一个语义单元、占多行：
+
+| 语义单元 | 命中行 | 除格式之外还依赖的条件（**必须原样保留**） |
+|---|---|---|
+| `nestedListUnsupported` | `GI:1298, 1299` | `ek is "list" or "array"` |
+| `nullableElementUnsupported` | `GI:1306, 1310, 1311` | `elementIsNullableValueType` / `leafIsNullableValueType` / `*IsAnnotated` / `ek is "object" or "dict"` |
+| 字典值可空判据 | `GI:1437, 1440, 1441` | `valueIsNullableValue` / `valueIsAnnotated` / `vk is "object" or "dict"` |
+
+⇒ **24 行 = 19 个语义单元**（`24 − 1 − 2 − 2`）。这 3 个单元**不能**整体换成 `Decide(fmt, d)` —— 那样会丢掉 kind/可空性条件（⇒ 行为变化，R1 禁止）。正确做法是**只替换其中的"格式成员测试"，条件表达式原样保留**：
+```csharp
+// 改前（GI:1298-1301 的格式部分）
+formatTag is "ini" && ek is "list" or "array"
+|| formatTag == "toml" && ek is "list" or "array" && (...)
+// 改后：格式判定归表，kind 条件不动
+Decide(formatTag, Decision.NestedScalarContainer) != Effect.Supported && ek is "list" or "array"
+```
+其余 16 个单元是单行、格式即全部条件，可 1:1 替换。
 
 **映射规则（唯一需要判断的地方，规则化后不需要逐站点判断）**
 
@@ -355,14 +378,25 @@ grep -c "|OK|"   baseline-cells.txt    # 这是"现状支持的格数"，与 spe
 **递归的两处同判据站点**：`GenInfrastructure` 里对**字段**与对**属性**的递归检查谓词逐字相同（附录 A 命令 4 会打印这两行）。
 上游环检测只给出一个 **`bool`**（`out fieldRecursive` / `out recursiveRef`），**没有自/互信息** —— 所以站点**自己算**：
 ```csharp
-// 自递归 = 成员类型（若是集合/数组，取其元素类型）与声明类型符号相等
-var target = memberType is IArrayTypeSymbol a ? a.ElementType
-           : memberType is INamedTypeSymbol { TypeArguments.Length: 1 } n && n.IsGenericType ? n.TypeArguments[0]
-           : memberType;
-var kind = SymbolEqualityComparer.Default.Equals(target, declaringType)
-    ? Decision.RecursiveSelf
-    : Decision.RecursiveMutual;
+// 判定点不在 4 个调用点，而在 ExtractNestedPropertiesGuarded 的"环检测"处：
+// 它现在只 out 一个 bool；改成 out RecursionKind（Self / Mutual），规则如下。
+internal enum RecursionKind { None, Self, Mutual }
+
+// 成员类型里**任意层**是否包含 root（Node / List<Node> / Node[] / Dictionary<string,Node> / List<HashSet<Node>>）
+internal static bool ContainsType(ITypeSymbol haystack, ITypeSymbol needle) => haystack switch
+{
+    IArrayTypeSymbol a => ContainsType(a.ElementType, needle),
+    INamedTypeSymbol n when n.IsGenericType => n.TypeArguments.Any(t => ContainsType(t, needle)),
+    _ => SymbolEqualityComparer.Default.Equals(haystack, needle),
+};
+// 环回到 root 本身 ⇒ Self；环回到环里的其它类型（A→B→A）⇒ Mutual
+var kind = ContainsType(memberType, root) ? RecursionKind.Self : RecursionKind.Mutual;
 ```
+> 该片段已单独编译验证（`Microsoft.CodeAnalysis.CSharp`，`Build succeeded`）。
+> **4 个调用点的改动**：把 `out fieldRecursive` / `out recursiveRef` 换成 `out RecursionKind recursive`，
+> 然后在各自的丢弃判断里 `Decide(fmt, recursive == RecursionKind.Self ? Decision.RecursiveSelf : Decision.RecursiveMutual)`。
+> 调用点：字段 `GI:1123`、列表元素 `GI:1386`、字典值 `GI:1490`、对象成员 `GI:1522`。
+
 > **为什么必须展开**：`List<Node>` 的 `memberType` 是 `List<Node>`，直接比较会判成**互递归** ⇒
 > toml 下从「丢」变「发」⇒ 破坏 R1 的零字节承诺。冒烟用例：`Node { List<Node> Children }` 必须在 toml 下**被丢**。
 （两者仅当 `Rules` 取值不同才有意义：`RecursiveMutual×toml = Supported`、`RecursiveSelf×toml = DropMember` —— 这正是
@@ -572,7 +606,7 @@ public async Task Deferred_and_impossible_messages_are_distinguishable()
 }
 ```
 
-**`Messages` 的获取方式（不新建 helper）**：本任务先给 `SilentDropDiagnosticTests` 里**现有的** `RunJsonGenerator` / `RunIniGenerator` 各加一个同形 helper：`RunYaml(string source)` / `RunToml(string source)`，并把返回元组从 `(string[] DiagnosticIds, string Generated)` 扩成 `(string[] DiagnosticIds, string Generated, string[] Messages)`。
+**`Messages` 的获取方式**：`RunIni` / `RunYaml` / `RunToml` 三个 helper 已由 **Task 1 Step 6** 建立并返回三元组（含 `Messages`）—— **本任务只消费，不要再建一份**（否则 CS0111 重复定义）。
 **格式命名空间与特性名**：`yaml → (PicoYaml, PicoYamlSerializable)`、`toml → (PicoToml, PicoTomlSerializable)`，**直接从既有 `RunIniGenerator` 的写法复制**，不要新造映射函数。
 
 - [ ] **Step 2: Run to verify both fail** — messages are identical today.
@@ -592,7 +626,7 @@ public async Task Deferred_and_impossible_messages_are_distinguishable()
 - Modify: `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`
 
 **Interfaces:**
-- Consumes: `MatrixRow(shapeId)`（Task 1 声明，本任务实现）、`DecideShape`（**现状**值）。
+- Consumes: `MatrixCells(shapeId)`（Task 1 声明，本任务实现）、`DecideShape`（**现状**值）。
 - Produces: 无（`TestRepo.Root()` 由 Task 1 的 `TestRepo.cs` 提供，本任务只**消费**）。
 
 > **两个方向别弄混**：README 是**当前限制**文档（用现状表）；spec §6 是**目标**（用 `DecideShapeTarget`）。用目标生成 README 会把 R2 能力写进 R1 文档，违反 spec C2。
@@ -600,30 +634,46 @@ public async Task Deferred_and_impossible_messages_are_distinguishable()
 - [ ] **Step 1: 写校验测试 —— 反向校验，不要求 README 有 14 行**
   ```csharp
   [Test]
-  public async Task Every_shape_row_in_the_readme_matches_the_tables()
+  public async Task Readme_matrix_cells_match_the_tables()
   {
-      // README 的矩阵行以 "| S<id> |" 开头（Step 3 会先补上 # 列，见下）
-      var rows = File.ReadAllLines(Path.Combine(TestRepo.Root(), "README.md"))
-          .Where(l => Regex.IsMatch(l, @"^\| S\d+[ab]? \|"))
-          .ToArray();
-      await Assert.That(rows).IsNotEmpty().Because("README 的格式限制矩阵必须存在");
-      foreach (var row in rows)
+      // README 只有 5 行形状且无 S-id：用夹具把「描述前缀」映射到 shapeId，只校验**单元格**
+      var fixtures = new (string Prefix, string ShapeId)[]
       {
-          var shapeId = Regex.Match(row, @"S\d+[ab]?").Value;
-          if (shapeId.Length == 0 || !FormatCapabilities.AllShapeIds.Contains(shapeId)) continue; // 非本表的行（如 S14/S15 未测）跳过
-          await Assert.That(row.TrimEnd()).IsEqualTo(FormatCapabilities.MatrixRow(shapeId).TrimEnd())
-              .Because($"README 的 {shapeId} 行与表不一致");
+          ("| `List<Dto>`", "S2"),
+          ("| `List<List<int>>`", "S3"),
+          ("| `List<List<Dto>>`", "S4"),
+          ("| `List<List<int?>>`", "S6"),
+          ("| Recursive member", "S11a"),
+      };
+      var rows = File.ReadAllLines(Path.Combine(TestRepo.Root(), "README.md"));
+      foreach (var (prefix, shapeId) in fixtures)
+      {
+          var row = rows.FirstOrDefault(l => l.StartsWith(prefix));
+          await Assert.That(row).IsNotNull().Because($@"README 缺少 {shapeId} 的那一行（前缀 {prefix}）");
+          await Assert.That(row!.TrimEnd()).EndsWith(FormatCapabilities.MatrixCells(shapeId))
+              .Because($"README 的 {shapeId} 行单元格与表不一致");
       }
   }
   ```
 - [ ] **Step 2: 跑，期望失败**（README 手写行与表不同）。
-- [ ] **Step 3: 先给 README 的矩阵补一列 `#`（S-id），再让 `MatrixRow` 生成整行**
-  现状：README 的矩阵行是 `| \`List<Dto>\` — list of objects | ✅ | ✅ | ... |`，**行首没有 S-id**（附录 A 命令 7 今天输出 0 行）。
-  所以本步分两小步：
-  1. **一次性手工**给每行加上 `| S<id> |` 前缀（14 行；`S14/S15` 未测，标 `待测` 即可，不参与校验）。
-  2. 实现 `MatrixRow(shapeId)` 生成 `| S<id> | <形状描述> | ✅/❌ ×5 |`，替换原有行。
-  单元格只输出 ✅/❌；`[[Table]]` 之类注记保留在 README 的**尾注**里（不生成）。
-  完成后再跑 Step 1 的测试 —— 此时它才有可比对的行。
+- [ ] **Step 3: 只替换 README 矩阵的「单元格」，描述与尾注保持手写**
+  **实测**：README 的矩阵只有 **5 行形状**（`List<Dto>` / `List<List<int>>` / `List<List<Dto>>` / `List<List<int?>>` / `Recursive member`），**没有 S-id 列**。
+  所以不要试图补 14 行，也不要用 `MatrixCells` 拼出整行（那会抹掉 `[[Table]]` 与脚注）。
+
+  1. 在 `FormatCapabilities` 里加 **`MatrixCells(shapeId)`**：只返回 `| ✅ | ✅ | ✅ | ✅ | ❌ |` 这样的**单元格串**（5 个格式，按 `DecideShape` 的现状值）。
+  2. 测试内建一张 **5 行夹具表**，把 README 的描述映射到 shapeId：
+     | README 描述（行首） | shapeId |
+     |---|---|
+     | ``List<Dto>`` — list of objects | S2 |
+     | ``List<List<int>>`` — nested primitive list | S3 |
+     | ``List<List<Dto>>`` — list of lists of objects | S4 |
+     | ``List<List<int?>>`` — nullable leaf in a nested list | S6 |
+     | `Recursive member` | S11a |
+  3. 把这 5 行的**单元格部分**替换成 `MatrixCells(shapeId)` 的输出；描述与尾注（`[[Table]]`、`see ¹`）**保留**。
+  4. 校验测试改为：对夹具表里每一对，断言该行**以** `MatrixCells(shapeId)` 结尾（用 `EndsWith`，允许行首有描述与注记）。
+
+  > README 只覆盖 5 个形状，其余 9 个（S1、S5、S7…S13）**不出现在 README** —— 它们由 spec §3 与 Task 2 的探针承载，**不要求**写进 README。
+
 - [ ] **Step 4: 全量门禁**（命令逐条可跑）
 ```bash
 dotnet tool restore
