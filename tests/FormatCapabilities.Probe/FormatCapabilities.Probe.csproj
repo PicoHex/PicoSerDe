@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Probe project for the capability matrix (spec §3 / R1′, R5).
+       PropertyGroup and ProjectReference blocks are copied VERBATIM from
+       tests/PicoSerDe.Integration.Tests/PicoSerDe.Integration.Tests.csproj — if the
+       wiring of the generators differs here, generated-baseline/ stops being a valid
+       before-picture for Task 3's byte-diff. Deliberate differences:
+         * PublishAot=false — the probe is `dotnet run`-only, never published.
+         * no NoWarn of any generator diagnostic — the probe MUST see them (that is
+           half of what it measures); they are expected and must not be fatal.
+         * the emitted baseline lives outside obj/, so it is excluded from compilation
+           (otherwise the snapshot would be compiled back into the project). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <PublishAot>false</PublishAot>
+    <!-- PublishAot=false is the whole point, so the AOT/trim analyzers are off too;
+         otherwise the shared capability model (Enum.GetValues for netstandard2.0)
+         reports IL3050 here even though nothing is ever published from this project. -->
+    <IsAotCompatible>false</IsAotCompatible>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Features>Interceptors</Features>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);__PicoSerDe_$(AssemblyName.Replace('.','_').Replace('-','_').Replace(' ','_'))</InterceptorsNamespaces>
+  </PropertyGroup>
+
+  <!-- All 5 format libraries (+ the shared core they all build on) -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\PicoJetson\src\PicoJetson\PicoJetson.csproj" />
+    <ProjectReference Include="..\..\PicoIni\src\PicoIni\PicoIni.csproj" />
+    <ProjectReference Include="..\..\PicoToml\src\PicoToml\PicoToml.csproj" />
+    <ProjectReference Include="..\..\PicoYaml\src\PicoYaml\PicoYaml.csproj" />
+    <ProjectReference Include="..\..\PicoMsgPack\src\PicoMsgPack\PicoMsgPack.csproj" />
+    <ProjectReference Include="..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
+  </ItemGroup>
+
+  <!-- All 5 source generators, wired exactly like the integration test project. -->
+  <ItemGroup>
+    <ProjectReference
+      Include="..\..\PicoJetson\src\PicoJetson.Gen\PicoJetson.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="true"
+    />
+    <ProjectReference
+      Include="..\..\PicoIni\src\PicoIni.Gen\PicoIni.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="true"
+    />
+    <ProjectReference
+      Include="..\..\PicoToml\src\PicoToml.Gen\PicoToml.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="true"
+    />
+    <ProjectReference
+      Include="..\..\PicoYaml\src\PicoYaml.Gen\PicoYaml.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="true"
+    />
+    <ProjectReference
+      Include="..\..\PicoMsgPack\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="true"
+    />
+  </ItemGroup>
+
+  <!-- The capability model is compiled from the SAME source the five generators link,
+       so the probe's shape/format lists come from the one source of truth (no
+       hand-copied 14 × 5 table). -->
+  <ItemGroup>
+    <Compile Include="..\..\shared\Gen\FormatCapabilities.cs" Link="Gen\FormatCapabilities.cs" />
+    <Compile Include="..\..\shared\Gen\DecisionTables.cs" Link="Gen\DecisionTables.cs" />
+  </ItemGroup>
+
+  <!-- generated-baseline/ is a checked-in snapshot, not source. -->
+  <ItemGroup>
+    <Compile Remove="generated-baseline\**\*.cs" />
+    <None Remove="generated-baseline\**\*.cs" />
+  </ItemGroup>
+</Project>
