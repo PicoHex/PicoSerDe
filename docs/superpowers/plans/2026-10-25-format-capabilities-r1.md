@@ -45,6 +45,56 @@ The spec is a vision document; its silence is not permission. These are the fail
 
 ---
 
+## Wave 计划（并行编排）
+
+按**文件冲突面**分成 6 个 wave。同一 wave 内的任务文件不相交，可各开一个 worktree 并行；跨 wave 必须串行。
+
+| Wave | 任务 | 为什么在这一波 | 文件面 |
+|---|---|---|---|
+| **W0** | Task 0（已完成） | spike，只读 | — |
+| **W1** | **Task 1** | 所有后续任务都消费它的 API；它同时把 `RunIni/RunYaml/RunToml` 建进 `SilentDropDiagnosticTests.cs` | `shared/Gen/FormatCapabilities.cs`、`DecisionTables.cs`、`TestRepo.cs`、5×`*.Gen.csproj`、测试 csproj、`FormatCapabilitiesTests.cs`、`SilentDropDiagnosticTests.cs` |
+| **W2** | **Task 2** | **必须在任何改生成器的动作之前**捕获 `generated-baseline/`；之后 Task 3 用它做字节对比 | `tests/FormatCapabilities.Probe/**`（全新目录） |
+| **W3** | **Task 3** | 首页重写；依赖 W2 的基线做零字节验证 | `shared/Gen/TypeKindResolver.cs`、`GenInfrastructure.cs` |
+| **W4**（3 条并行） | **Task 4** ∥ **Task 5** ∥ **Task 2b** | 三者文件两两不相交：Task 4 只加 `CapabilityGuardTests.cs`；Task 5 改 `GenInfrastructure` + 5 个生成器 + csproj `NoWarn`；Task 2b 只动探针目录 + spec §3 | 见上 |
+| **W5** | **Task 7** | 与 Task 5 抢同一批文件（`GenInfrastructure` 的 3 处 messageFormat、`SilentDropDiagnosticTests.cs`），必须排在 Task 5 之后 | 同上 |
+| **W6** | **Task 8** | 终局门禁：README 矩阵、AOT、csharpier、版本说明；必须在 1/2/2b/5/7 全部落地后跑（否则数字与诊断都不稳） | `README.md`、`FormatCapabilitiesTests.cs`、`FormatCapabilities.cs`（加 `MatrixCells`） |
+
+**关键路径**：`Task 1 → Task 2 → Task 3 → Task 5 → Task 7 → Task 8`（6 步串行）；W4 的 3 条把这条路径上的等待时间用满。
+
+### 冲突图（为什么不能更并行）
+
+| 文件 | 被哪些任务改 | 结论 |
+|---|---|---|
+| `shared/Gen/GenInfrastructure.cs` | Task 3、Task 5、Task 7 | **三者必须串行**（3 → 5 → 7） |
+| `shared/Gen/TypeKindResolver.cs` | Task 3 | 独占 |
+| 5 个 `*.Gen.csproj` | Task 1（Link 两个新文件） | 早于一切 |
+| `SilentDropDiagnosticTests.cs` | Task 1（建 helper）、Task 5、Task 7 | 1 → 5 → 7 |
+| `FormatCapabilities.cs` | Task 1（建）、Task 8（加 `MatrixCells`） | 1 → 8 |
+| `FormatCapabilitiesTests.cs` | Task 1（迁移 spike 测试）、Task 8（加 README 校验） | 1 → 8 |
+| `tests/FormatCapabilities.Probe/**` | Task 2（建）、Task 2b（加 S14/S15） | 2 → 2b |
+| 测试 csproj（`NoWarn`） | Task 1、Task 5 | 1 → 5 |
+| `README.md` | Task 8 | 独占 |
+
+### 每个 wave 的出口门禁
+
+| Wave | 出口条件 |
+|---|---|
+| W1 | `FormatCapabilitiesTests` 全绿；`AllShapeIds.Count == 14 && Paths.Count == 14`；构建 0 warning |
+| W2 | `grep -c '^CELL|' baseline-cells.txt` = 70；`generated-baseline/` 已入库 |
+| W3 | **`diff -r generated-baseline /tmp/gen-after` 为空**；全量 0 failed；若非空 ⇒ **停下报告**（不改表） |
+| W4 | Task 4 的两条守卫测试通过；Task 5 后 `PICOSERDE001` 在两个静默点各命中一次、构建 0 warning（含新增 `NoWarn`）；Task 2b 的 `CELL-OBS` 行记录进 spec §3 |
+| W5 | 消息测试通过（`⏸`/`⛔` 两类可区分）；**字节 diff 仍为空**（消息改动不改 wire） |
+| W6 | 四件套 + `git diff --stat api/` 为空 + AOT `exit=0` |
+
+### 执行纪律（每 wave 都适用）
+
+1. **一个 wave 一个 worktree**（`git worktree add .worktrees/r1-w<N> -b r1/w<N>`），退出时合并回集成分支。
+2. **W4 的 3 条**各自独立 worktree；合并顺序无关（文件不相交），但**都要在 W3 的提交之后**。
+3. 每个 wave 结束时贴：构建结果、全量测试结果、字节 diff、`git status`。
+4. 任何一步出现「计划没覆盖的决定」⇒ **停下**，记 PR 描述，按最保守（不改 wire）处理。
+
+---
+
 ### Task 0 (DONE — spike) : 能力模型定稿
 
 **结论（已在 `tmp/spike` 分支用代码证明，70/70 格复现）**
