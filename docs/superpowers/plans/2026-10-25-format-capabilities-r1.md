@@ -80,7 +80,7 @@ The spec is a vision document; its silence is not permission. These are the fail
 | Wave | 出口条件 |
 |---|---|
 | W1 | `FormatCapabilitiesTests` 全绿；`AllShapeIds.Count == 14 && Paths.Count == 14`；构建 0 warning |
-| W2 | `grep -c '^CELL|' baseline-cells.txt` = 70；`generated-baseline/` 已入库 |
+| W2 | `baseline-cells.txt` 里以 `CELL` 开头的行数 = 70（命令见 Task 2 Step 4）；`generated-baseline/` 已入库 |
 | W3 | **`diff -r generated-baseline /tmp/gen-after` 为空**；全量 0 failed；若非空 ⇒ **停下报告**（不改表） |
 | W4 | Task 4 的两条守卫测试通过；Task 5 后 `PICOSERDE001` 在两个静默点各命中一次、构建 0 warning（含新增 `NoWarn`）；Task 2b 的 `CELL-OBS` 行记录进 spec §3 |
 | W5 | 消息测试通过（`⏸`/`⛔` 两类可区分）；**字节 diff 仍为空**（消息改动不改 wire） |
