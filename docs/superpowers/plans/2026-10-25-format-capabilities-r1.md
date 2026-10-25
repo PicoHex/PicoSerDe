@@ -445,6 +445,83 @@ var nestedListUnsupported =
 
 > **`DropElement` 的适用范围**：只有「序列元素 / 字典值」这类**逐元素发射**的站点才可能返回它；成员级站点（列表/字典/对象作为整体）只有两态（`Supported`/`DropMember`）。若某站点拿到 `DropElement` 而你无法在该处逐元素跳过 —— **那是模型与站点不匹配的信号**，记入 PR 描述并停在该站点，不要自行改成丢成员。
 
+**递归的两个站点（R1 = 路线 B，见下）**：`GenInfrastructure` 里对**字段**与对**属性**的递归检查谓词逐字相同（附录 A 命令 4 会打印这两行）。
+上游环检测只给出一个 **`bool`**（`out fieldRecursive` / `out recursiveRef`），**没有自/互信息** —— 所以站点**自己算**：
+```csharp
+// 真实签名（GI:858-866）：
+//   ExtractNestedPropertiesGuarded(INamedTypeSymbol type, …, out bool isRecursiveRef, …)
+// 改造：① 新增 root 参数（= **最外层**被提取的类型，递归时原样传下去）
+//        ⚠️ root ≠ 当前 `type`：`GI:1706/1788` 是**嵌套 helper 内部**的递归调用，
+//           在那里传 `type` 会把 2 节点互递归误判成 Self ⇒ toml 从"丢"变"发"
+//            （probe 的 S11bTomlPartner 就在 baseline 里，字节 diff 会红）
+//       ② out bool → out RecursionKind
+internal enum RecursionKind { None, Self, Mutual }
+
+private static ImmutableArray<PropertyInfo> ExtractNestedPropertiesGuarded(
+    INamedTypeSymbol type,
+    INamedTypeSymbol root,          // ← 新增
+    AttributeHelpers attrs,
+    string formatTag,
+    HashSet<INamedTypeSymbol>? visiting,
+    out RecursionKind recursion,    // ← 原 out bool isRecursiveRef
+    …)
+
+// 成员类型（任意层）里是否包含 root —— 含泛型兜底：构造类型与开放泛型按 OriginalDefinition 比
+internal static bool ContainsType(ITypeSymbol haystack, ITypeSymbol needle) => haystack switch
+{
+    IArrayTypeSymbol a => ContainsType(a.ElementType, needle),
+    INamedTypeSymbol n when n.IsGenericType => n.TypeArguments.Any(t => ContainsType(t, needle)),
+    _ => SymbolEqualityComparer.Default.Equals(haystack, needle)
+         || SymbolEqualityComparer.Default.Equals(haystack.OriginalDefinition, needle.OriginalDefinition),
+};
+// 环回 root 本身 ⇒ Self；环回环里的其它类型（A→B→A）⇒ Mutual
+recursion = ContainsType(memberType, root) ? RecursionKind.Self : RecursionKind.Mutual;
+```
+> 该片段已单独编译验证（`Microsoft.CodeAnalysis.CSharp` + Roslyn 符号，`Build succeeded`）。
+> ### ⚠️ R1 实际采用**路线 B**（W3 实测后裁定；上方路线 A 留作 R2）
+>
+> 路线 A（`RecursionKind` + `root` 穿透）**全量实现后构建红 4 error**，原因是它会把
+> 「自递归类型被嵌在**另一个** root 下」（基类链 `RvPolyLeaf → RvPolyBase.Next`）
+> 判成 `Mutual` ⇒ `RecursiveMutual × toml = Supported` ⇒ TOML 从"丢"变"发" ⇒
+> 生成 `new RvPolyBase(...)` / 抽象类型实例化，`RvPolyBase` / `RvPolyLeaf` / `PolyRecAbstract`
+> 三个模型直接编译失败（CS1503 / CS0144）。
+>
+> **根因不是我写错了 `root`，而是表值本身**：`RecursiveMutual × toml = Supported` 与
+> 今天「只要有环就丢」在站点上**不可调和** —— 任何消费 `Mutual` 的写法都会放出今天被丢的环。
+>
+> 所以 R1 采用**路线 B**（零风险、零字节变化）：
+> ```csharp
+> // GI:1113（字段）与 GI:1569（属性）
+> if (fieldRecursive && FormatCapabilities.Decide(formatTag, Decision.RecursiveSelf) != Effect.Supported)
+> ```
+> `RecursiveSelf` 行在 5 个格式上恰好等于今天的 `formatTag is not ("json" or "msgpack")` 逐格取值，
+> 因此**对任何环长都字节等价**（自递归 / 2 节点 / 3+ 节点 / 基类链）。
+> `RecursiveMutual` **不出现在站点上**，只被 `DecideShape("S11b")` 与 README 矩阵消费 ——
+> 两个站点都加了注释说明，防止后人当死值删掉。
+>
+> **R2 的义务（写进 §5.6）**：把 `bool` 升级成 `RecursionKind` 时，必须一并解决
+> ①基类链/派生入口的 root 归属 ②抽象类型与 `new T(...)` 的生成 ③3 个受影响模型的语料。
+> 否则「D-5 根覆盖」无法落地。
+
+**映射规则（唯一需要判断的地方，规则化后不需要逐站点判断）**
+
+| 站点今天的形状 | 替换成 |
+|---|---|
+| `formatTag == "x"` / `formatTag is "x" or "y"`，语义是「该格式**不支持** ⇒ 丢成员」 | `Decide(fmt, <对应判定点>)` |
+| 同上，但语义是「该格式**收窄** ⇒ 照发但限制」 | `AllowedDictKeyKinds(fmt).Contains(kind)` |
+| 语义是「**编码选择**」（两种编码都能表达，只是写法不同） | **保留原判据**，并在该行加注释 `// encoding, not capability`（Task 4 的守卫据此放行） |
+| `GenInfrastructure:909`（在 `IsSupportedDictKeyKind` **函数体内**） | **不属于本任务** —— 它是 Task 1 的 `AllowedDictKeyKinds` 的**实现体**，附录 A 命令 1 的 awk 已把它排除在 24 处清单外 |
+
+**`Effect` → 代码动作（唯一映射，不得自行发挥）**
+
+| `Decide` 返回 | 该站点应做的动作 |
+|---|---|
+| `Supported` | 不丢，继续走该 kind 的正常发射路径 |
+| `DropMember` | `skippedUnsupported?.Add(...)`（或既有等价路径）+ `continue` |
+| `DropElement` | **成员照发**，只是在**元素/值**层面跳过该值（今天仅序列元素路径会出现） |
+
+> **`DropElement` 的适用范围**：只有「序列元素 / 字典值」这类**逐元素发射**的站点才可能返回它；成员级站点（列表/字典/对象作为整体）只有两态（`Supported`/`DropMember`）。若某站点拿到 `DropElement` 而你无法在该处逐元素跳过 —— **那是模型与站点不匹配的信号**，记入 PR 描述并停在该站点，不要自行改成丢成员。
+
 **递归的两处同判据站点**：`GenInfrastructure` 里对**字段**与对**属性**的递归检查谓词逐字相同（附录 A 命令 4 会打印这两行）。
 上游环检测只给出一个 **`bool`**（`out fieldRecursive` / `out recursiveRef`），**没有自/互信息** —— 所以站点**自己算**：
 ```csharp
