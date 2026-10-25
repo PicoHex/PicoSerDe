@@ -33,12 +33,17 @@ public class CollectionCoverageDto
     public ReadOnlyMemory<int> RMem { get; set; }
 }
 
+// PICOSERDE001 is the tested behaviour here (TypeCoverageTests pins the degradation
+// path), so it is suppressed for exactly these members rather than project-wide:
+// a future member dropped by a real mistake in this project still reports.
+#pragma warning disable PICOSERDE001
 public class PairCoverageDto
 {
     public KeyValuePair<string, int> Kvp { get; set; }
     public (int, string) VT { get; set; }
     public Tuple<int, string>? Tup { get; set; }
 }
+#pragma warning restore PICOSERDE001
 
 /// <summary>
 /// Type-coverage matrix: scalar types STJ supports (DateTimeOffset, char, Uri,
@@ -231,11 +236,13 @@ public class TypeCoverageTests
     }
 }
 
+#pragma warning disable PICOSERDE001 // the degradation fixture: Zone is deliberately unresolvable
 public class DegradationDto
 {
     public TimeZoneInfo Zone { get; set; } = TimeZoneInfo.Utc;
     public int Plain { get; set; }
 }
+#pragma warning restore PICOSERDE001
 
 public class NullableScalarsDto
 {

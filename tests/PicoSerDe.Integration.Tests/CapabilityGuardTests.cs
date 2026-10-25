@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using PicoSerDe.Gen;
 
 namespace PicoSerDe.Integration.Tests;
@@ -238,6 +240,8 @@ public class CapabilityGuardTests
     [Test]
     public async Task A_new_decision_point_is_answered_by_both_tables_for_every_format()
     {
+        await AssertTheTablesAreNotVacuouslyEmpty();
+
         foreach (var d in Enum.GetValues<Decision>())
         foreach (var fmt in FormatCapabilities.AllFormatTags)
         {
@@ -268,6 +272,8 @@ public class CapabilityGuardTests
     [Test]
     public async Task A_new_decision_point_is_walked_by_a_path_or_declared_encoding_only()
     {
+        await AssertTheTablesAreNotVacuouslyEmpty();
+
         foreach (var d in Enum.GetValues<Decision>())
         {
             var shapes = FormatCapabilities.ShapesUsing(d);
@@ -323,11 +329,17 @@ public class CapabilityGuardTests
         // for in prose - not a quiet acceptance of a new unwired decision point.
         await Assert.That(UnwiredByDesign.Length).IsEqualTo(4);
 
-        var siteText = string.Concat(ScannedFiles().Select(File.ReadAllText));
+        // Evidence is CODE, never prose (review I-2): the guard used to grep the whole
+        // file text, so `// TODO ask Decision.X here` — a comment, i.e. no site at all —
+        // was enough to make a decorative decision point look wired. Reading the SYNTAX
+        // removes that whole class of false positive: a comment is trivia, a string is one
+        // literal token, and `Decision.NullableValueLeafExtra` is a different name rather
+        // than a prefix match.
+        var consulted = ConsultedDecisionPoints();
 
         var unwired = Enum.GetValues<Decision>()
             .Where(d => !UnwiredByDesign.Any(e => e.D == d))
-            .Where(d => !siteText.Contains("Decision." + d, StringComparison.Ordinal))
+            .Where(d => !consulted.Contains(d.ToString()))
             .Select(d => d.ToString())
             .ToArray();
 
@@ -386,6 +398,51 @@ public class CapabilityGuardTests
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Guards 3 and 4 are loops over the two tables, so an EMPTIED table would make them
+    /// pass while scanning nothing — a green guard that checked no pair at all (spec
+    /// review #3). Pin the width before looping: the numbers may grow (a sixth format, a
+    /// new shape), never shrink.
+    /// </summary>
+    private static async Task AssertTheTablesAreNotVacuouslyEmpty()
+    {
+        await Assert
+            .That(FormatCapabilities.AllFormatTags.Count)
+            .IsGreaterThanOrEqualTo(5)
+            .Because(
+                "AllFormatTags drives the loops in guards 3 and 4: below five formats they "
+                    + "silently check fewer pairs, and an empty one makes them vacuous"
+            );
+        await Assert
+            .That(FormatCapabilities.AllShapeIds.Count)
+            .IsGreaterThanOrEqualTo(14)
+            .Because(
+                "AllShapeIds drives the reverse-index comparison and the path walk: below "
+                    + "fourteen shapes they check less than the spec's matrix"
+            );
+    }
+
+    /// <summary>
+    /// The decision points a generator site really consults, read from the SYNTAX of the
+    /// scanned files: every <c>Decision.&lt;Name&gt;</c> member access that exists in code.
+    /// A mention in a comment is trivia and a mention in a string is a literal, so neither
+    /// can stand in for a site (review I-2).
+    /// </summary>
+    private static HashSet<string> ConsultedDecisionPoints()
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var file in ScannedFiles())
+        {
+            var root = CSharpSyntaxTree.ParseText(File.ReadAllText(file)).GetRoot();
+            foreach (var access in root.DescendantNodes().OfType<MemberAccessExpressionSyntax>())
+                if (access.Expression is IdentifierNameSyntax { Identifier.Text: "Decision" })
+                    names.Add(access.Name.Identifier.Text);
+        }
+
+        return names;
+    }
 
     private static string GenDir() => Path.Combine(TestRepo.Root(), "shared", "Gen");
 

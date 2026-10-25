@@ -9,6 +9,10 @@ public class RvLeaf
     public string Name { get; set; } = "";
 }
 
+// PICOSERDE001 is the tested behaviour for Set in msgpack (the nullable-element
+// coverage matrix), so it is suppressed for this model only; a member dropped by a
+// real mistake elsewhere in this project still reports.
+#pragma warning disable PICOSERDE001
 public class RvNullableEdges
 {
     public List<Guid?> Guids { get; set; } = new();
@@ -17,6 +21,7 @@ public class RvNullableEdges
     public HashSet<string?> Set { get; set; } = new();
     public List<List<int?>> Grid { get; set; } = new();
 }
+#pragma warning restore PICOSERDE001
 
 public class RvDeepNested
 {

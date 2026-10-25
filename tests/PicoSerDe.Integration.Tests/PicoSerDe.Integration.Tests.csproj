@@ -8,10 +8,13 @@
     <!-- IL2026/IL3050: TUnit reflection (test-only). PICOSERDE002: the hint-name
          collision fixtures intentionally collide. PICOSERDE003: recursive fixtures
          intentionally exercise the TOML/YAML/INI limitation; PICOSERDE005: the anonymous
-         collection fixtures intentionally exercise the non-JSON limitation; PICOSERDE001:
-         RvNullableEdges.Set (HashSet<...>) is a non-JSON shape that must degrade loudly.
-         All of these warnings are the tested behavior. -->
-    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE001;PICOSERDE002;PICOSERDE003;PICOSERDE004;PICOSERDE005</NoWarn>
+         collection fixtures intentionally exercise the non-JSON limitation.
+         All of these warnings are the tested behavior.
+         PICOSERDE001 is NOT here: it names the member that was dropped, so it is
+         suppressed at the fixture (RvNullableEdges.Set, `#pragma warning disable` in
+         EdgeCaseRegressionTests.cs) and a member dropped by a real mistake still
+         reports. A project-wide NoWarn cannot make that distinction. -->
+    <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE002;PICOSERDE003;PICOSERDE004;PICOSERDE005</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Generated code must be nullability-clean (review P2-1). -->

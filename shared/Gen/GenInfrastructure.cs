@@ -99,7 +99,14 @@ internal readonly record struct UnsupportedTypeMember(
     string TypeName,
     string MemberName,
     string DeclaredTypeName,
-    string Reason
+    string Reason,
+    // Where the member is declared, so PICOSERDE001 is navigable (file:line in the
+    // build log and the IDE error list) and suppressible per site with
+    // `#pragma warning disable PICOSERDE001` instead of a project-wide NoWarn — which
+    // also silences the next member that is dropped for a real mistake (I-1). A
+    // Location describes a span and compares by (tree, span); it holds no symbol and
+    // no compilation, so the model stays pure and cacheable.
+    Location? Location = null
 );
 
 /// <summary>Describes one derived type in a polymorphic hierarchy.</summary>
@@ -319,15 +326,45 @@ internal static class GenInfrastructure
         /// extracted once per pipeline entry, per nesting depth and per generic
         /// instantiation, but a member must warn exactly once.
         /// </summary>
-        public void Add(string typeName, string memberName, string declaredTypeName, string reason)
+        public void Add(
+            string typeName,
+            string memberName,
+            string declaredTypeName,
+            string reason,
+            Location? location
+        )
         {
             if (_seen.Add(typeName + "." + memberName))
                 _members.Add(
-                    new UnsupportedTypeMember(typeName, memberName, declaredTypeName, reason)
+                    new UnsupportedTypeMember(
+                        typeName,
+                        memberName,
+                        declaredTypeName,
+                        reason,
+                        location ?? Location.None
+                    )
                 );
         }
 
         public ImmutableArray<UnsupportedTypeMember> ToImmutable() => _members.ToImmutableArray();
+    }
+
+    /// <summary>
+    /// The declaration site to attribute to a dropped member. A symbol carries one
+    /// location per declaration part: a partial member contributes the generated and the
+    /// implementation part, and a symbol that only exists in a referenced assembly
+    /// contributes a metadata file. Neither of those is a place the user can click or wrap
+    /// in a pragma, so the first <b>source</b> location wins. Falls back to
+    /// <see cref="Location.None"/> rather than <c>null</c>: a null location is exactly what
+    /// made PICOSERDE001 unlocatable and unsuppressable per site (I-1).
+    /// </summary>
+    private static Location SourceLocationOf(ISymbol symbol)
+    {
+        foreach (var location in symbol.Locations)
+            if (location.IsInSource)
+                return location;
+
+        return Location.None;
     }
 
     /// <summary>
@@ -354,7 +391,7 @@ internal static class GenInfrastructure
                     continue;
                 yield return Diagnostic.Create(
                     UnsupportedTypeWarning,
-                    null,
+                    m.Location ?? Location.None,
                     m.TypeName,
                     m.MemberName,
                     m.DeclaredTypeName,
@@ -1220,7 +1257,8 @@ internal static class GenInfrastructure
                         type.ToDisplayString(),
                         field.Name,
                         field.Type.ToDisplayString(),
-                        UnresolvableTypeReason
+                        UnresolvableTypeReason,
+                        SourceLocationOf(field)
                     );
                     continue;
                 }
@@ -1268,7 +1306,8 @@ internal static class GenInfrastructure
                         type.ToDisplayString(),
                         field.Name,
                         field.Type.ToDisplayString(),
-                        RecursiveFieldReason
+                        RecursiveFieldReason,
+                        SourceLocationOf(field)
                     );
                     continue;
                 }
@@ -1323,7 +1362,8 @@ internal static class GenInfrastructure
                     type.ToDisplayString(),
                     prop.Name,
                     prop.Type.ToDisplayString(),
-                    UnresolvableTypeReason
+                    UnresolvableTypeReason,
+                    SourceLocationOf(prop)
                 );
                 continue;
             }

@@ -296,6 +296,64 @@ public class SilentDropDiagnosticTests
         await Assert.That(generated).Contains("Row");
     }
 
+    /// <summary>
+    /// I-1: PICOSERDE001 has to carry the member's DECLARATION SITE. Two things depend on
+    /// it, and both were lost while the diagnostic was reported with a null location: the
+    /// build log can point at the member (file(line,col)) only with one, and
+    /// <c>#pragma warning disable PICOSERDE001</c> can silence one member in one file only
+    /// with one. Without a location the sole way out is a project-wide <c>NoWarn</c>, which
+    /// also silences the next member that is dropped by a real mistake.
+    /// </summary>
+    [Test]
+    public async Task PICOSERDE001_points_at_the_dropped_member_declaration()
+    {
+        const string source = """
+            using PicoJetson;
+
+            public class Opaque { }
+
+            [PicoJsonSerializable]
+            public partial class Doc
+            {
+                public string Name { get; set; } = "";
+                public Opaque V { get; set; } = new();
+            }
+            """;
+
+        var warning = RunDiagnostics(new JsonSerializerGenerator(), source)
+            .Single(d => d.Id == UnresolvableTypeId);
+
+        await Assert
+            .That(warning.Location.IsInSource)
+            .IsTrue()
+            .Because(
+                $"PICOSERDE001 must be navigable and pragma-suppressible, got location "
+                    + $"'{warning.Location}' (Kind={warning.Location.Kind})"
+            );
+
+        // It also has to point at the MEMBER, not at the containing type or at line 1:
+        // the pragma a reader writes around `V` only works if the location is inside that
+        // region, and an IDE jump has to land on the member that was dropped.
+        var lines = source.Split('\n');
+        var declaredOn = Array.FindIndex(
+            lines,
+            l => l.Contains("Opaque V", StringComparison.Ordinal)
+        );
+        var span = warning.Location.GetLineSpan();
+
+        await Assert
+            .That(span.StartLinePosition.Line)
+            .IsEqualTo(declaredOn)
+            .Because(
+                "the location must be the member's own line, not its containing type: "
+                    + $"got line {span.StartLinePosition.Line}, the member is on {declaredOn}"
+            );
+        await Assert
+            .That(lines[declaredOn][span.StartLinePosition.Character..])
+            .StartsWith("V")
+            .Because("the location must start at the member name");
+    }
+
     // ── drivers ────────────────────────────────────────────────────────────────────────
     // One shape for all five formats: (diagnostic ids, generated text, diagnostic
     // messages). The messages are here for Task 7, which must tell the ⛔ wording from
@@ -326,6 +384,26 @@ public class SilentDropDiagnosticTests
         string source
     )
     {
+        var result = RunGenerator(generator, source);
+        var ids = result.Diagnostics.Select(d => d.Id).ToArray();
+        var messages = result.Diagnostics.Select(d => d.GetMessage()).ToArray();
+        var generated = string.Join(
+            "\n",
+            result.Results.SelectMany(r => r.GeneratedSources).Select(g => g.SourceText.ToString())
+        );
+        return (ids, generated, messages);
+    }
+
+    /// <summary>The same run, with the diagnostics intact: I-1 is about the Location.</summary>
+    private static Diagnostic[] RunDiagnostics(IIncrementalGenerator generator, string source) =>
+        RunGenerator(generator, source).Diagnostics.ToArray();
+
+    /// <summary>The one place that builds a compilation and drives a generator.</summary>
+    private static GeneratorDriverRunResult RunGenerator(
+        IIncrementalGenerator generator,
+        string source
+    )
+    {
         var compilation = CSharpCompilation.Create(
             "SilentDropDiagAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
@@ -334,14 +412,7 @@ public class SilentDropDiagnosticTests
         );
 
         var driver = CSharpGeneratorDriver.Create(generator);
-        var result = driver.RunGenerators(compilation).GetRunResult();
-        var ids = result.Diagnostics.Select(d => d.Id).ToArray();
-        var messages = result.Diagnostics.Select(d => d.GetMessage()).ToArray();
-        var generated = string.Join(
-            "\n",
-            result.Results.SelectMany(r => r.GeneratedSources).Select(g => g.SourceText.ToString())
-        );
-        return (ids, generated, messages);
+        return driver.RunGenerators(compilation).GetRunResult();
     }
 
     private static string AssemblyPath(System.Reflection.Assembly assembly) =>
