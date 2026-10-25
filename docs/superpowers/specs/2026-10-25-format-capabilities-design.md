@@ -131,8 +131,9 @@ currently gets wrong about them, and what the library must do about it
 | **D-3** | 实现缺口 | 两种「容器套容器」可表达却丢弃：①`Dictionary<string, List<T>>`（S10）在 JSON/MsgPack/TOML/YAML；②嵌套对象数组（S4）× TOML |
 | **D-4** | 诊断措辞 | ①递归诊断指向**内层类型**的成员而非用户声明的成员；②欠账格与不可表示格**共用同一条消息**「cannot be represented by this format」，对可表示的格构成误导 |
 | **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与消息，口径可能与具名类型不一致 |
+| **D-9** | **挂死** | TOML：字典成员被写成**空表**时反序列化**永不返回**（纯 CPU 自旋）。判据不是「空表」本身，而是「回到外层循环时 token 仍是**未被消费的 `ObjectStart`**」—— 所以 `[V]`+EOF、`[V]`+后续 `[W]` 表头都会挂，而 `[V]` 后跟 `a = 7` 不挂。根因：生成代码的 `ObjectStart` 分支 `continue` 前不推进 reader（`TomlSerializerGenerator.cs:913-935`），而 `TomlReader.ReadSpan()` 在 EOF 只 `return false`、不换 token（`TomlReader.cs:777-785`） | 探针 W2 实测（`S9×toml` 空字典 → wire `[V]`）；三条独立证据见 `.superpowers/sdd/r1-w2/review-spec.md` |
 
-**归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）。
+**归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）；**D-9 → R2**（R1 禁止改行为）。
 
 ## 5. 裁定（维护者已定）
 
