@@ -1,0 +1,6 @@
+# generated-baseline/ is the byte-for-byte before-picture that Task 3 diffs with
+# `diff -r` (see the R1 plan, Task 2 Step 4 / Task 3 Step 2). Roslyn writes those files
+# with mixed line endings, and any end-of-line conversion on checkout (core.autocrlf,
+# or a Linux CI with autocrlf=input) would turn that diff into a false positive — so the
+# snapshot is stored verbatim, no conversion.
+generated-baseline/** -text
