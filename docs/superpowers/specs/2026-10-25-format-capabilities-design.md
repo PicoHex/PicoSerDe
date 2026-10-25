@@ -109,14 +109,58 @@ currently gets wrong about them, and what the library must do about it
 | S11a 自递归 / S11b 互递归 | ✅ | ✅ | ✅ 嵌套表 | ✅ | ❌ |
 | S12 `List<string?>` 含 null 元素 | ✅ | ✅ | ❌ 无 null | ✅ | ❌ |
 | S13 `Dictionary<string,int?>` 含 null 值 | ✅ | ✅ | ❌ 无 null | ✅ | ❌ |
-| S14 `List<Dto?>` 对象 null 元素 | 待测 | 待测 | ❌ 无 null | 待测 | ❌ |
-| S15 scalar 族（`float`/`decimal`/`DateTime`/`TimeSpan`/`Guid`/`enum?`） | 待测 | 待测 | 待测 | 待测 | 待测 |
+| S14 `List<Dto?>` 对象 null 元素 | ✅ | ✅ | ❌ 无 null | ✅ ¹ | ❌ |
+| S15 scalar 族（`float`/`decimal`/`DateTime`/`TimeSpan`/`Guid`/`enum?`） | ✅ 除 NaN/±Inf ² | ✅ | ✅ ³ | ✅ ³ | ✅ ⁴ |
 
 **判据与证据**：TOML 用 Python `tomllib`、YAML 用 PyYAML 实测（脚本见 §9；其逐字输出记录在计划的探针章节）。**INI 无独立实现可依据**（`configparser` 对任何输入都当字符串收下），其边界是**本规格的约定**：
 
 > INI 的约定：标量列表 = 单层逗号串（`V = 1,2,3`）；对象列表只在**顶层**用编号 section（`[0]`、`[1]`）；字典 = 成员级 `[V]` section；**成员内不承载任何嵌套**；**不承载 null**（空值与空串不可区分）。
 
 **结论**：真正的 `❌` 只有两类 —— ①**INI 的结构性限制**（任何嵌套、任何 null、成员内对象列表）；②**TOML 缺 null**。其余所有「不支持」都是欠账。
+
+### S14/S15 的实测（Task 2b 观测，只记录、不进 `DecideShape`）
+
+> **这两行现在有值了，但没有能力通路**：`FormatCapabilities.AllShapeIds` 仍止于 S13，`DecideShape`/
+> `Paths` **不认** `S14`/`S15`（探针每次运行都断言这一点，见 `Probe.cs` 的 `Observations.Validate`）。
+> 表里填的仍是**格式事实**（「可表示」）；今天生成器**实际**做什么单独列在下面的实测表里，
+> 二者不一致处按 **R4** 是**欠账**，不是格式事实。
+
+**测量方式**：`tests/FormatCapabilities.Probe` 为两个形状各加 5 个模型，打印 `CELL-OBS|<format>|<shape>|<verdict>|<wire>|<expected>|<actual>`
+（**不**进入 70 格统计：`grep -c '^CELL|'` 仍是 70）。S15 一个模型带六个成员（`f`/`d`/`when`/`span`/`id`/`day`），
+因为这一行的问题是**逐标量**的：一个格式可以保住 `decimal` 而丢掉 `TimeSpan`。每格三个值
+（`empty` = 全默认 · `single` = 常规值 · `boundary` = `NaN`、`decimal.MaxValue`、`DateTimeKind.Local`、
+`TimeSpan.MinValue`、全 `f` 的 `Guid`、`null` enum）。`reason=…;diff=` 列逐值列出**没活下来**的成员。
+
+| 格 | 实测 verdict | 实测细节（`CELL-OBS` 原文见 `.superpowers/sdd/r1-w2b/task-2b-report.md`） |
+|---|---|---|
+| S14 × json | `OK` | `null` 元素逐元素往返（`{"V":[{…},null,{…}]}`），`null` 与缺失/空集合仍互不等价 |
+| S14 × msgpack | `OK` | 同上（`C0` = nil 元素） |
+| S14 × toml | `MISMATCH` | 三个值 wire 全空：**整个成员被丢**（`PICOSERDE004`），与「无 null」一致 |
+| S14 × yaml | `MISMATCH` | 同上：**整个成员被丢**（`PICOSERDE004`）⇒ 欠账 ¹ |
+| S14 × ini | `MISMATCH` | 同上（与 S2 × ini 同因：成员内不承载对象列表） |
+| S15 × json | `MISMATCH` | `empty`/`single` 六成员**全等价**（`D` 保精度、`When` 保 `Kind`、`Span`/`Id` 走字符串）；`boundary` 序列化抛 `ArgumentException: NaN cannot be written as JSON` ⇒ 注 ² |
+| S15 × msgpack | `OK` | 三个值全等价，**含 `NaN`**（`CB FFF8000000000000`）、`TimeSpan.MinValue`、`Local` 偏移、全 `f` Guid、`null` enum |
+| S15 × toml | `MISMATCH` | `empty`/`single` 六成员全等价；`boundary` 序列化抛 `ArgumentException: NaN and Infinity cannot be written as TOML` ⇒ 欠账 ³ |
+| S15 × yaml | `MISMATCH` | 同 toml（`ArgumentException: NaN and Infinity cannot be written as YAML`）⇒ 欠账 ³ |
+| S15 × ini | `MISMATCH` | `single`/`boundary` 六成员全等价（`NaN` 写成文本、`Local` 带 `+08:00`）；`empty` 的 `when` 读侧抛 `FormatException: Invalid DateTime for 'When' … '0001-01-01T00:00:00.0000000'` ⇒ 欠账 ⁴ |
+
+**canonical write 的观察（不是能力问题）**：TOML/YAML 里 `decimal`/`DateTime`/`TimeSpan`/`Guid` 都被写成**带引号的字符串**
+（`D = "0"`、`When = "…"`），读侧照收，故往返保真；但对外部消费者它们是字符串而不是原生数值/时间类型 —— 归 R1″/R2 的写法议题，
+不进能力表。
+
+**脚注**
+
+¹ YAML **可以**表示对象序列里的 null（PyYAML：`- null` 项 → `[{'Name': 'a'}, None]`），今天却把整个成员丢掉
+   ⇒ **欠账**，与 S12/S13 × yaml（D-7b）同源。
+² JSON 无 `NaN`/`±Inf` 字面量（R1′「特殊浮点仅在格式有字面量时可表示」）⇒ 这是**事实**，不是欠账。
+   今天写侧抛异常，属正确拒绝（但只抛、不诊断 ⇒ D-4 的措辞问题）。
+³ TOML 1.0 与 YAML 1.1 **有** `nan`/`inf`/`-inf` 字面量（`tomllib.loads("V = nan")`、PyYAML `V: .nan` 均通过）
+   ⇒ 可表示，今天写侧抛异常 ⇒ **欠账**（R4 的 reopen 条件：写侧改用原生 `nan`/`inf`、读侧接受）。
+⁴ INI 的约定本身能承载（实测 `single`/`boundary` 全通，含 `NaN` 文本），失败点是**写读不对称**：默认值
+   `When = 0001-01-01T00:00:00.0000000` 没有 `Kind` 后缀，读侧拒绝 ⇒ **欠账**（写读同一 canonical 形态即可闭合）。
+
+**结论补充**：S14 的 `❌` 仍只有「TOML 无 null」与「INI 结构性限制」；S15 的 `❌` 只有「JSON 无 NaN/±Inf 字面量」。
+其余「今天不支持」全部是欠账（S14 × yaml；S15 × toml/yaml 的 NaN；S15 × ini 的默认时间）。
 
 ## 4. 缺陷（现状与 R1/R2/R5 的偏离）
 
