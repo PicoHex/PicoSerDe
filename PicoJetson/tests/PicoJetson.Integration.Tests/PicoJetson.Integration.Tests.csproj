@@ -5,6 +5,12 @@
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
 <IsPackable>false</IsPackable>
+    <!-- PICOSERDE001 is NOT here: PairCoverageDto.Kvp (KeyValuePair), .Tup (Tuple) and
+         DegradationDto.Zone (TimeZoneInfo) are deliberately unserializable fixtures and
+         the warning they produce is the tested behaviour (Task 5 / D-6), so it is
+         suppressed at those fixtures with `#pragma warning disable PICOSERDE001`
+         (TypeCoverageTests.cs). A project-wide NoWarn would also silence the next member
+         dropped by a real mistake; the pragma silences the three fixtures only. -->
     <NoWarn>$(NoWarn);IL2026;IL3050;PICOSERDE004</NoWarn>
     <!-- Compile-time guard: generated code must preserve reference-nullability
          annotations in declaration positions (List<string?>,

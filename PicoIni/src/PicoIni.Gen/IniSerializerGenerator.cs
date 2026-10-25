@@ -439,6 +439,16 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         // per-format skip as the shared PICOSERDE003 diagnostic.
         PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, types);
         PicoSerDe.Gen.GenInfrastructure.ReportUnsupportedMembers(spc, types);
+        // PICOSERDE001: a member whose type is unresolvable for this format is
+        // recorded during extraction (it cannot be reported there — a transform must
+        // stay pure), so the drop becomes visible here, once per member (D-6).
+        PicoSerDe.Gen.GenInfrastructure.ReportCollectedDiagnostics(
+            spc,
+            PicoSerDe.Gen.GenInfrastructure.CollectUnsupportedTypeMemberDiagnostics(
+                types,
+                Config.FormatTag
+            )
+        );
         // Merge duplicate FQNs, preferring poly entries (same as JSON SG)
         var typeMap = new Dictionary<string, TypeInfo>();
         foreach (var t in types)

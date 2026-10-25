@@ -38,7 +38,13 @@ internal readonly record struct TypeInfo(
     ImmutableArray<string> SkippedRecursiveMembers = default,
     // Members skipped because this format cannot represent them at all
     // (e.g. nested lists in TOML/YAML/INI); surfaced as PICOSERDE004.
-    ImmutableArray<string> SkippedUnsupportedMembers = default
+    ImmutableArray<string> SkippedUnsupportedMembers = default,
+    // Members dropped because their TYPE could not be resolved for this format at
+    // all; surfaced as PICOSERDE001. Carried on the TypeInfo (not on a shared
+    // List<Diagnostic>) because the extraction runs inside the incremental
+    // transform, which must stay pure: the record travels with the value and the
+    // generator reports it from GenerateAll (D-6).
+    ImmutableArray<UnsupportedTypeMember> UnsupportedTypeMembers = default
 )
 {
     public bool Equals(TypeInfo other) =>
@@ -55,7 +61,8 @@ internal readonly record struct TypeInfo(
         && DiscriminatorPropertyName == other.DiscriminatorPropertyName
         && DerivedTypes.SequenceEqual(other.DerivedTypes)
         && SkippedRecursiveMembers.SequenceEqual(other.SkippedRecursiveMembers)
-        && SkippedUnsupportedMembers.SequenceEqual(other.SkippedUnsupportedMembers);
+        && SkippedUnsupportedMembers.SequenceEqual(other.SkippedUnsupportedMembers)
+        && UnsupportedTypeMembers.SequenceEqual(other.UnsupportedTypeMembers);
 
     public override int GetHashCode()
     {
@@ -75,9 +82,32 @@ internal readonly record struct TypeInfo(
             hash = (hash * 397) ^ m.GetHashCode();
         foreach (var m in SkippedUnsupportedMembers)
             hash = (hash * 397) ^ m.GetHashCode();
+        foreach (var m in UnsupportedTypeMembers)
+            hash = (hash * 397) ^ m.GetHashCode();
         return hash;
     }
 }
+
+/// <summary>
+/// One member that never reached the generated code because its declared type is
+/// not resolvable for the current format (a class with no public members, a
+/// collection whose element kind this format cannot express, a cycle the format
+/// cannot hold, ...). These are exactly the values the PICOSERDE001 message
+/// needs, so the diagnostic can name the member, the reason and the way out.
+/// </summary>
+internal readonly record struct UnsupportedTypeMember(
+    string TypeName,
+    string MemberName,
+    string DeclaredTypeName,
+    string Reason,
+    // Where the member is declared, so PICOSERDE001 is navigable (file:line in the
+    // build log and the IDE error list) and suppressible per site with
+    // `#pragma warning disable PICOSERDE001` instead of a project-wide NoWarn — which
+    // also silences the next member that is dropped for a real mistake (I-1). A
+    // Location describes a span and compares by (tree, span); it holds no symbol and
+    // no compilation, so the model stays pure and cacheable.
+    Location? Location = null
+);
 
 /// <summary>Describes one derived type in a polymorphic hierarchy.</summary>
 internal readonly record struct DerivedTypeInfo(
@@ -149,10 +179,27 @@ public readonly record struct AttributeHelpers(
 
 internal static class GenInfrastructure
 {
+    /// <summary>
+    /// Why a member's declared type could not be resolved for this format. Kept as
+    /// constants so the two extraction paths (public field, property) cannot drift
+    /// into two different explanations of the same drop.
+    /// </summary>
+    private const string UnresolvableTypeReason =
+        "its declared type is not a scalar, collection, dictionary or object shape this format can express";
+
+    private const string RecursiveFieldReason =
+        "it refers back into a type cycle this format cannot represent";
+
+    /// <summary>
+    /// A member whose TYPE could not be resolved for the current format never
+    /// reached the generated code. Reported as PICOSERDE001 (D-6) with the type
+    /// name, the member name, the declared type, the format and a reason — and a
+    /// suggestion, because a warning the reader cannot act on is noise.
+    /// </summary>
     private static readonly DiagnosticDescriptor UnsupportedTypeWarning = new(
         id: "PICOSERDE001",
-        title: "Unsupported type skipped during source generation",
-        messageFormat: "Type '{0}' on property '{1}' is not supported by the serializer — the property will be ignored",
+        title: "Member dropped: its type cannot be resolved by this format",
+        messageFormat: "Member '{0}.{1}' was dropped by the {3} source generator: type '{2}' cannot be resolved ({4}). The member is not serialized or deserialized — give it a type this format can express, or remove it.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
@@ -260,6 +307,116 @@ internal static class GenInfrastructure
                         Diagnostic.Create(UnsupportedMemberSkippedWarning, null, member)
                     );
         }
+    }
+
+    /// <summary>
+    /// Accumulates the members dropped because their type is unresolvable. The
+    /// extraction runs inside the incremental transform, which must stay pure, so
+    /// it cannot hold a <see cref="SourceProductionContext"/> or a shared
+    /// <c>List&lt;Diagnostic&gt;</c>; it records data on the <see cref="TypeInfo"/>
+    /// instead and GenerateAll reports it (D-6).
+    /// </summary>
+    private sealed class UnsupportedTypeMemberCollector
+    {
+        private readonly List<UnsupportedTypeMember> _members = new();
+        private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Records one dropped member. Keyed by (type, member): the same type is
+        /// extracted once per pipeline entry, per nesting depth and per generic
+        /// instantiation, but a member must warn exactly once.
+        /// </summary>
+        public void Add(
+            string typeName,
+            string memberName,
+            string declaredTypeName,
+            string reason,
+            Location? location
+        )
+        {
+            if (_seen.Add(typeName + "." + memberName))
+                _members.Add(
+                    new UnsupportedTypeMember(
+                        typeName,
+                        memberName,
+                        declaredTypeName,
+                        reason,
+                        location ?? Location.None
+                    )
+                );
+        }
+
+        public ImmutableArray<UnsupportedTypeMember> ToImmutable() => _members.ToImmutableArray();
+    }
+
+    /// <summary>
+    /// The declaration site to attribute to a dropped member. A symbol carries one
+    /// location per declaration part: a partial member contributes the generated and the
+    /// implementation part, and a symbol that only exists in a referenced assembly
+    /// contributes a metadata file. Neither of those is a place the user can click or wrap
+    /// in a pragma, so the first <b>source</b> location wins. Falls back to
+    /// <see cref="Location.None"/> rather than <c>null</c>: a null location is exactly what
+    /// made PICOSERDE001 unlocatable and unsuppressable per site (I-1).
+    /// </summary>
+    private static Location SourceLocationOf(ISymbol symbol)
+    {
+        foreach (var location in symbol.Locations)
+            if (location.IsInSource)
+                return location;
+
+        return Location.None;
+    }
+
+    /// <summary>
+    /// Turns the per-<see cref="TypeInfo"/> record of dropped members into
+    /// PICOSERDE001 diagnostics. Separate from
+    /// <see cref="ReportCollectedDiagnostics"/> so a generator expresses the
+    /// intent ("report what extraction collected") in two short calls, and so the
+    /// dedup below is the single place that decides when a member has already been
+    /// reported.
+    /// </summary>
+    public static IEnumerable<Diagnostic> CollectUnsupportedTypeMemberDiagnostics(
+        IEnumerable<TypeInfo> typeInfos,
+        string formatTag
+    )
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in typeInfos)
+        {
+            if (t.UnsupportedTypeMembers.IsDefaultOrEmpty)
+                continue;
+            foreach (var m in t.UnsupportedTypeMembers)
+            {
+                if (!reported.Add(m.TypeName + "." + m.MemberName))
+                    continue;
+                yield return Diagnostic.Create(
+                    UnsupportedTypeWarning,
+                    m.Location ?? Location.None,
+                    m.TypeName,
+                    m.MemberName,
+                    m.DeclaredTypeName,
+                    formatTag,
+                    m.Reason
+                );
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reports an already-collected diagnostic list. Every generator calls this
+    /// next to <see cref="ReportUnsupportedMembers"/>; the (id, message) guard
+    /// keeps a member from being reported twice when several pipelines discovered
+    /// the same type.
+    /// </summary>
+    public static void ReportCollectedDiagnostics(
+        SourceProductionContext spc,
+        IEnumerable<Diagnostic> diagnostics
+    )
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var d in diagnostics)
+            if (reported.Add(d.Id + "|" + d.GetMessage()))
+                spc.ReportDiagnostic(d);
     }
 
     /// <summary>
@@ -680,6 +837,9 @@ internal static class GenInfrastructure
         var useCamelCase = attrs.HasCamelCase(namedType);
         var skippedRecursive = new List<string>();
         var skippedUnsupported = new List<string>();
+        // Extraction cannot report (it runs in the transform, which must be pure),
+        // so the PICOSERDE001 records travel on the TypeInfo to GenerateAll.
+        var droppedMembers = new UnsupportedTypeMemberCollector();
         var properties = ExtractProperties(
             namedType,
             config.FormatTag,
@@ -689,7 +849,8 @@ internal static class GenInfrastructure
             visiting: new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default) { namedType },
             includeFields: includeFields,
             skippedRecursive: skippedRecursive,
-            skippedUnsupported: skippedUnsupported
+            skippedUnsupported: skippedUnsupported,
+            droppedMembers: droppedMembers
         );
 
         return new TypeInfo(
@@ -701,7 +862,8 @@ internal static class GenInfrastructure
             IsValueType: namedType.IsValueType,
             IsAbstract: namedType.IsAbstract,
             SkippedRecursiveMembers: skippedRecursive.ToImmutableArray(),
-            SkippedUnsupportedMembers: skippedUnsupported.ToImmutableArray()
+            SkippedUnsupportedMembers: skippedUnsupported.ToImmutableArray(),
+            UnsupportedTypeMembers: droppedMembers.ToImmutable()
         );
     }
 
@@ -829,7 +991,8 @@ internal static class GenInfrastructure
         string formatTag,
         HashSet<INamedTypeSymbol>? visiting,
         List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null
+        List<string>? skippedUnsupported = null,
+        UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
         var useCamelCase = attrs.HasCamelCase(type);
@@ -844,7 +1007,8 @@ internal static class GenInfrastructure
             includeFields: includeFields,
             visiting: visiting,
             skippedRecursive: skippedRecursive,
-            skippedUnsupported: skippedUnsupported
+            skippedUnsupported: skippedUnsupported,
+            droppedMembers: droppedMembers
         );
         return properties.ToImmutableArray();
     }
@@ -862,7 +1026,8 @@ internal static class GenInfrastructure
         HashSet<INamedTypeSymbol>? visiting,
         out bool isRecursiveRef,
         List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null
+        List<string>? skippedUnsupported = null,
+        UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
         isRecursiveRef = false;
@@ -879,7 +1044,8 @@ internal static class GenInfrastructure
                 formatTag,
                 visiting,
                 skippedRecursive,
-                skippedUnsupported
+                skippedUnsupported,
+                droppedMembers
             );
         }
         finally
@@ -899,6 +1065,11 @@ internal static class GenInfrastructure
     /// Extracts serializable properties from <paramref name="type"/>.
     /// Both TransformType and ExtractNestedProperties delegate here.
     /// </summary>
+    /// <remarks>
+    /// This overload is the entry point (the core below takes the collector as a
+    /// REQUIRED 6th argument, so a call that omits it cannot bind there). Keep it
+    /// that way: the ValueTuple fallback below is part of the generated code.
+    /// </remarks>
     private static List<PropertyInfo> ExtractProperties(
         INamedTypeSymbol type,
         string formatTag,
@@ -908,16 +1079,17 @@ internal static class GenInfrastructure
         bool includeFields = false,
         HashSet<INamedTypeSymbol>? visiting = null,
         List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null
+        List<string>? skippedUnsupported = null,
+        UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
-        var result = ExtractProperties(
+        var result = ExtractPropertiesCore(
             type,
             formatTag,
             attrs,
             includeReadOnlyProperties,
             useCamelCase,
-            null,
+            droppedMembers,
             includeFields,
             visiting,
             skippedRecursive,
@@ -929,13 +1101,13 @@ internal static class GenInfrastructure
         // on purpose: regular types must keep 'fields are not serialized by default'.
         if (result.Count == 0 && !includeFields && IsValueTupleLike(type))
         {
-            result = ExtractProperties(
+            result = ExtractPropertiesCore(
                 type,
                 formatTag,
                 attrs,
                 includeReadOnlyProperties,
                 useCamelCase,
-                null,
+                droppedMembers,
                 includeFields: true,
                 visiting: visiting,
                 skippedRecursive: skippedRecursive,
@@ -951,16 +1123,16 @@ internal static class GenInfrastructure
     /// of the same name: the derived value wins, and the position is kept at the
     /// base declaration slot — stable, it does not drift as derived members are
     /// added or removed.
-    /// If <paramref name="diagnostics"/> is provided, emits warnings for skipped
-    /// members (unsupported types, etc.).
+    /// If <paramref name="droppedMembers"/> is provided, records every member this
+    /// format drops because its type is unresolvable (reported as PICOSERDE001).
     /// </summary>
-    private static List<PropertyInfo> ExtractProperties(
+    private static List<PropertyInfo> ExtractPropertiesCore(
         INamedTypeSymbol type,
         string formatTag,
         AttributeHelpers attrs,
         bool includeReadOnlyProperties,
         bool useCamelCase,
-        List<Diagnostic>? diagnostics,
+        UnsupportedTypeMemberCollector? droppedMembers,
         bool includeFields = false,
         HashSet<INamedTypeSymbol>? visiting = null,
         List<string>? skippedRecursive = null,
@@ -999,7 +1171,7 @@ internal static class GenInfrastructure
                     attrs,
                     includeReadOnlyProperties,
                     useCamelCase,
-                    diagnostics,
+                    droppedMembers,
                     ref autoKey,
                     includeFields,
                     visiting,
@@ -1056,7 +1228,7 @@ internal static class GenInfrastructure
         AttributeHelpers attrs,
         bool includeReadOnlyProperties,
         bool useCamelCase,
-        List<Diagnostic>? diagnostics,
+        UnsupportedTypeMemberCollector? droppedMembers,
         ref int autoKey,
         bool includeFields = false,
         HashSet<INamedTypeSymbol>? visiting = null,
@@ -1077,7 +1249,19 @@ internal static class GenInfrastructure
                     continue;
                 var (fk, fn, _) = TypeKindResolver.Resolve(field.Type, formatTag);
                 if (fk is null)
+                {
+                    // D-6 site 1: a public field (IncludeFields / ref struct) of a
+                    // type this format cannot resolve used to `continue` silently —
+                    // the member vanished from every generated serializer.
+                    droppedMembers?.Add(
+                        type.ToDisplayString(),
+                        field.Name,
+                        field.Type.ToDisplayString(),
+                        UnresolvableTypeReason,
+                        SourceLocationOf(field)
+                    );
                     continue;
+                }
                 bool fnNrt = false;
                 if (!fn && field.Type.NullableAnnotation == NullableAnnotation.Annotated)
                 {
@@ -1096,7 +1280,8 @@ internal static class GenInfrastructure
                         visiting,
                         out fieldRecursive,
                         skippedRecursive,
-                        skippedUnsupported
+                        skippedUnsupported,
+                        droppedMembers
                     );
                 }
 
@@ -1114,13 +1299,15 @@ internal static class GenInfrastructure
                         != Effect.Supported
                 )
                 {
-                    diagnostics?.Add(
-                        Diagnostic.Create(
-                            UnsupportedTypeWarning,
-                            field.Locations.FirstOrDefault(),
-                            field.Type.ToDisplayString(),
-                            field.Name
-                        )
+                    // D-6 site 1 (cycle branch): the property path below records the
+                    // same drop in `skippedRecursive` (=> PICOSERDE003), but a field
+                    // never reaches that list, so it is reported here as 001.
+                    droppedMembers?.Add(
+                        type.ToDisplayString(),
+                        field.Name,
+                        field.Type.ToDisplayString(),
+                        RecursiveFieldReason,
+                        SourceLocationOf(field)
                     );
                     continue;
                 }
@@ -1169,13 +1356,14 @@ internal static class GenInfrastructure
             var (typeKind, isNullable, _) = TypeKindResolver.Resolve(prop.Type, formatTag);
             if (typeKind is null)
             {
-                diagnostics?.Add(
-                    Diagnostic.Create(
-                        UnsupportedTypeWarning,
-                        prop.Locations.FirstOrDefault(),
-                        prop.Type.ToDisplayString(),
-                        prop.Name
-                    )
+                // D-6 site 2: collected into a list no generator ever passed, so the
+                // member disappeared with no diagnostic at all.
+                droppedMembers?.Add(
+                    type.ToDisplayString(),
+                    prop.Name,
+                    prop.Type.ToDisplayString(),
+                    UnresolvableTypeReason,
+                    SourceLocationOf(prop)
                 );
                 continue;
             }
@@ -1389,7 +1577,8 @@ internal static class GenInfrastructure
                         attrs,
                         visiting,
                         skippedRecursive,
-                        skippedUnsupported
+                        skippedUnsupported,
+                        droppedMembers
                     );
                 }
                 else if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
@@ -1401,7 +1590,8 @@ internal static class GenInfrastructure
                         visiting,
                         out recursiveRef,
                         skippedRecursive,
-                        skippedUnsupported
+                        skippedUnsupported,
+                        droppedMembers
                     );
                 }
             }
@@ -1423,24 +1613,16 @@ internal static class GenInfrastructure
                     // Generators only emit key parsing for the kind set the model allows
                     // (FormatCapabilities.AllowedDictKeyKinds is the ONE definition; a new
                     // kind must be added there and nowhere else) — drop dicts with other
-                    // keys instead of emitting non-compiling code. The format whose key set
-                    // is the NARROWEST of the five is narrowing for a reason of its own
-                    // (INI reads a key as raw line text), so that limitation is reported
-                    // through the shared PICOSERDE004 diagnostic while the other formats
-                    // keep their historical silent skip unchanged. Derived from the table on
-                    // purpose: a tag literal here would be a capability comparison wearing
-                    // a diagnostic's clothes.
+                    // keys instead of emitting non-compiling code, and REPORT the drop in
+                    // every format. Reporting only from the format with the narrowest key
+                    // set (INI reads a key as raw line text) left json/msgpack/toml/yaml
+                    // dropping the member silently; that was the last silent loss left in
+                    // this extractor once PICOSERDE001 was wired (spec review D2). The
+                    // decision still comes from the table, never from a tag literal.
                     var dictKeyKinds = FormatCapabilities.AllowedDictKeyKinds(formatTag);
                     if (!dictKeyKinds.Contains(kk))
                     {
-                        var narrowestKeySet = int.MaxValue;
-                        foreach (var otherTag in FormatCapabilities.AllFormatTags)
-                            narrowestKeySet = Math.Min(
-                                narrowestKeySet,
-                                FormatCapabilities.AllowedDictKeyKinds(otherTag).Count
-                            );
-                        if (dictKeyKinds.Count == narrowestKeySet && dictKeyKinds.Count > 0)
-                            skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
                         continue;
                     }
                     // Dict values that are collections are not representable by
@@ -1525,7 +1707,8 @@ internal static class GenInfrastructure
                             visiting,
                             out recursiveRef,
                             skippedRecursive,
-                            skippedUnsupported
+                            skippedUnsupported,
+                            droppedMembers
                         );
                     }
                     else if (
@@ -1539,7 +1722,10 @@ internal static class GenInfrastructure
                             vNtsDict,
                             formatTag,
                             attrs,
-                            visiting
+                            visiting,
+                            skippedRecursive,
+                            skippedUnsupported,
+                            droppedMembers
                         );
                     }
                 }
@@ -1557,7 +1743,8 @@ internal static class GenInfrastructure
                     visiting,
                     out recursiveRef,
                     skippedRecursive,
-                    skippedUnsupported
+                    skippedUnsupported,
+                    droppedMembers
                 );
             }
 
@@ -1571,17 +1758,11 @@ internal static class GenInfrastructure
             {
                 // TOML/YAML/INI cannot represent arbitrarily deep nesting; drop
                 // the recursive member and record it so GenerateAll surfaces a
-                // shared PICOSERDE003 diagnostic (never silently).
+                // shared PICOSERDE003 diagnostic (never silently). This member is
+                // NOT also recorded as PICOSERDE001: one member, one diagnostic
+                // (the field path has no 003 channel, which is why it reports 001).
                 var skipped = $"{type.ToDisplayString()}.{prop.Name}";
                 skippedRecursive?.Add(skipped);
-                diagnostics?.Add(
-                    Diagnostic.Create(
-                        UnsupportedTypeWarning,
-                        prop.Locations.FirstOrDefault(),
-                        prop.Type.ToDisplayString(),
-                        prop.Name
-                    )
-                );
                 continue;
             }
 
@@ -1705,7 +1886,8 @@ internal static class GenInfrastructure
         AttributeHelpers attrs,
         HashSet<INamedTypeSymbol>? visiting = null,
         List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null
+        List<string>? skippedUnsupported = null,
+        UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
         // List<T>/T[]/T[][] — extract the element type T (or the inner array).
@@ -1740,7 +1922,8 @@ internal static class GenInfrastructure
                 attrs,
                 visiting,
                 skippedRecursive,
-                skippedUnsupported
+                skippedUnsupported,
+                droppedMembers
             );
         }
         else if (innerKind is "object" && innerType is INamedTypeSymbol ntsObjElem)
@@ -1752,7 +1935,8 @@ internal static class GenInfrastructure
                 visiting,
                 out innerRecursive,
                 skippedRecursive,
-                skippedUnsupported
+                skippedUnsupported,
+                droppedMembers
             );
         }
 
@@ -1803,7 +1987,8 @@ internal static class GenInfrastructure
         AttributeHelpers attrs,
         HashSet<INamedTypeSymbol>? visiting = null,
         List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null
+        List<string>? skippedUnsupported = null,
+        UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
         if (dictType.TypeArguments.Length != 2)
@@ -1834,7 +2019,8 @@ internal static class GenInfrastructure
                 visiting,
                 out isRecursiveDictValue,
                 skippedRecursive,
-                skippedUnsupported
+                skippedUnsupported,
+                droppedMembers
             );
         }
         else if (
@@ -1849,7 +2035,8 @@ internal static class GenInfrastructure
                 attrs,
                 visiting,
                 skippedRecursive,
-                skippedUnsupported
+                skippedUnsupported,
+                droppedMembers
             );
         }
 

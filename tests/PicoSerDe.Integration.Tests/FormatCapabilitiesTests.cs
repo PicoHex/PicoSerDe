@@ -25,6 +25,12 @@ namespace PicoSerDe.Integration.Tests;
 /// </summary>
 public class FormatCapabilitiesTests
 {
+    /// <summary>
+    /// The id a membership drop carries when the format cannot express the shape
+    /// (unrepresentable dict key, nested list in TOML, ...).
+    /// </summary>
+    private const string DictKeySkipId = "PICOSERDE004";
+
     // Current-state matrix (spec §3.1, baseline 84a9560; proven 70/70 by the W0 spike).
     // Supported = emitted, DropMember = the member disappears (⛔/⏸),
     // DropElement = the member is emitted but the element/value is lost (🐞).
@@ -359,6 +365,13 @@ public class FormatCapabilitiesTests
     /// rejected by EVERY format. Widening <see cref="FormatCapabilities.AllowedDictKeyKinds"/>
     /// without the generators fails here, and so does widening the generators without the
     /// table — that drift is what the deleted hand-written predicate allowed.
+    /// <para>
+    /// It also pins HOW LOUD the rejection is, in all five formats: the extractor used to
+    /// report a rejected dict key only from the format with the narrowest key set (INI) and
+    /// let json/msgpack/toml/yaml drop the member silently (spec review D2). A rejected
+    /// member must carry a diagnostic everywhere — this is the assertion that replaced
+    /// "only INI reports".
+    /// </para>
     /// </summary>
     [Test]
     public async Task Kind_absent_from_the_table_is_rejected_by_every_format()
@@ -396,7 +409,7 @@ public class FormatCapabilitiesTests
                 }
                 """;
 
-            var (_, generated, _) = run(source);
+            var (ids, generated, messages) = run(source);
 
             await Assert
                 .That(FormatCapabilities.AllowedDictKeyKinds(tag).Contains("float32"))
@@ -406,6 +419,19 @@ public class FormatCapabilitiesTests
                 .That(generated)
                 .DoesNotContain("KeyedItems")
                 .Because($"{tag} must reject a float key");
+            await Assert
+                .That(ids)
+                .Contains(DictKeySkipId)
+                .Because(
+                    $"{tag} drops the member, so it must report it — a silent drop in any "
+                        + $"format is the D2 gap (ids: {string.Join(",", ids)})"
+                );
+            await Assert
+                .That(messages.Any(m => m.Contains("KeyedItems")))
+                .IsTrue()
+                .Because(
+                    $"the diagnostic must name the member (messages: {string.Join(" | ", messages)})"
+                );
         }
     }
 

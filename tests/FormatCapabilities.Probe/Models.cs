@@ -1,5 +1,11 @@
 // The probe corpus: one model per cell of the 14 × 5 matrix (spec §3 row order ×
-// DecisionTables.FormatTags order) — 70 root models.
+// DecisionTables.FormatTags order) — 70 root models, plus ten OBSERVATION models at the
+// end of this file (S14, S15 × 5 formats). Those two shapes have no decision path in the
+// capability model: `AllShapeIds` stops at S13, so `DecideShape` does not know their ids
+// and must NOT learn them in R1 (the capability table stays frozen while R1 only records
+// behaviour). No `CELL|` line can exist for them, so Probe.cs measures them anyway and
+// prints `CELL-OBS|…` lines, which are deliberately OUTSIDE the 70-cell statistics (they
+// do not start with `CELL|` and they are not registered as cells).
 //
 // WHY ONE MODEL PER (shape, format) instead of one per shape: every cell gets its own
 // type, so a cell's generated serializer is attributable to exactly one cell, and the
@@ -441,4 +447,90 @@ public sealed class S13Yaml
 public sealed class S13Ini
 {
     public Dictionary<string, int?> V { get; set; } = [];
+}
+
+// ══ OBSERVATION-ONLY MODELS (spec §3's two「待测」rows; NOT cells) ══════════════════════
+// Same construction rules as above (plain POCO, one type per (shape, format)), but these
+// types are never handed to Registry.Cells(): they exist so Probe.cs can MEASURE what
+// today's generators do with a shape that has no capability path yet. Nothing here
+// reaches DecideShape, DecisionTables or any generator's capability decision.
+
+// ── S14  List<Dto?> — null ELEMENT in an OBJECT list ──────────────────────────────
+public sealed class S14Json
+{
+    public List<ProbeDto?> V { get; set; } = [];
+}
+
+public sealed class S14Msgpack
+{
+    public List<ProbeDto?> V { get; set; } = [];
+}
+
+public sealed class S14Toml
+{
+    public List<ProbeDto?> V { get; set; } = [];
+}
+
+public sealed class S14Yaml
+{
+    public List<ProbeDto?> V { get; set; } = [];
+}
+
+public sealed class S14Ini
+{
+    public List<ProbeDto?> V { get; set; } = [];
+}
+
+// ── S15  scalar family: float / decimal / DateTime / TimeSpan / Guid / enum? ──────
+// One member per scalar the spec row names, because that row's question is PER SCALAR:
+// a format can keep `decimal` and lose `TimeSpan`. Six members keep that visible in one
+// observation line — Probe.cs compares member-by-member and names the losers.
+public sealed class S15Json
+{
+    public float F { get; set; }
+    public decimal D { get; set; }
+    public DateTime When { get; set; }
+    public TimeSpan Span { get; set; }
+    public Guid Id { get; set; }
+    public DayOfWeek? Day { get; set; }
+}
+
+public sealed class S15Msgpack
+{
+    public float F { get; set; }
+    public decimal D { get; set; }
+    public DateTime When { get; set; }
+    public TimeSpan Span { get; set; }
+    public Guid Id { get; set; }
+    public DayOfWeek? Day { get; set; }
+}
+
+public sealed class S15Toml
+{
+    public float F { get; set; }
+    public decimal D { get; set; }
+    public DateTime When { get; set; }
+    public TimeSpan Span { get; set; }
+    public Guid Id { get; set; }
+    public DayOfWeek? Day { get; set; }
+}
+
+public sealed class S15Yaml
+{
+    public float F { get; set; }
+    public decimal D { get; set; }
+    public DateTime When { get; set; }
+    public TimeSpan Span { get; set; }
+    public Guid Id { get; set; }
+    public DayOfWeek? Day { get; set; }
+}
+
+public sealed class S15Ini
+{
+    public float F { get; set; }
+    public decimal D { get; set; }
+    public DateTime When { get; set; }
+    public TimeSpan Span { get; set; }
+    public Guid Id { get; set; }
+    public DayOfWeek? Day { get; set; }
 }
