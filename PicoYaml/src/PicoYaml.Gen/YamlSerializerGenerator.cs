@@ -423,6 +423,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         PicoSerDe.Gen.GenInfrastructure.SeedRecursiveTargets(validTypes, nestedTypes);
         PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
         PicoSerDe.Gen.GenInfrastructure.ReportUnsupportedMembers(spc, validTypes);
+        // PICOSERDE001: a member whose type is unresolvable for this format is
+        // recorded during extraction (it cannot be reported there — a transform must
+        // stay pure), so the drop becomes visible here, once per member (D-6).
+        PicoSerDe.Gen.GenInfrastructure.ReportCollectedDiagnostics(
+            spc,
+            PicoSerDe.Gen.GenInfrastructure.CollectUnsupportedTypeMemberDiagnostics(
+                validTypes,
+                Config.FormatTag
+            )
+        );
 
         // Collect nested Dictionary types
         var nestedDictTypes = new Dictionary<string, PropertyInfo>();

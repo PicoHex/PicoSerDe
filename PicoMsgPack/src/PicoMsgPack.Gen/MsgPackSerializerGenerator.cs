@@ -409,6 +409,16 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
         // PICOSERDE004: surface extraction-time drops (see the JSON generator note).
         PicoSerDe.Gen.GenInfrastructure.ReportUnsupportedMembers(spc, validTypes);
+        // PICOSERDE001: a member whose type is unresolvable for this format is
+        // recorded during extraction (it cannot be reported there — a transform must
+        // stay pure), so the drop becomes visible here, once per member (D-6).
+        PicoSerDe.Gen.GenInfrastructure.ReportCollectedDiagnostics(
+            spc,
+            PicoSerDe.Gen.GenInfrastructure.CollectUnsupportedTypeMemberDiagnostics(
+                validTypes,
+                Config.FormatTag
+            )
+        );
 
         var hintNames = new HashSet<string>();
         foreach (var kv in nestedDictTypes)
