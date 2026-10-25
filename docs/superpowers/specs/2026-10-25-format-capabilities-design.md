@@ -1,10 +1,18 @@
-# PicoSerDe 格式能力规格（Format Capabilities Spec）
+# PicoSerDe Format Capabilities Design Spec
 
-- **日期**：2026-10-25
-- **基线**：`84a9560`（`main`，工作树 clean）
-- **状态**：草案 —— **待拍板 D1/D2/D3**（见 §5），签字后进入 §9 的实施阶段
-- **方法**：55 个「形状 × 格式」探针（构建期诊断采集 + 往返实测），逐格记录实际输出；不引用任何既有文档的说法
-- **契约**：`picohex-picoserde`（AOT / 零反射 / fail-loud）+ `picohex-self-review`
+**Status**: Draft — pending maintainer rulings on D1/D2/D3 (§5)
+**Date**: 2026-10-25
+**Baseline**: `84a9560` (`main`, clean tree)
+**Topic**: which shapes each of the five wire formats can represent, and how that
+becomes one reviewable, testable table instead of 25 scattered format checks
+**Method**: 55 probes (5 formats x 11 shapes) recording build-time diagnostics and
+actual round-trips; no statement is copied from an existing document
+**Contract**: `picohex-picoserde` (AOT / zero reflection / fail-loud) + `picohex-self-review`
+
+---
+
+> 注：本文用中文书写，与仓库既有设计文档（`docs/superpowers/specs/*-design.md`）的
+> 结构约定一致；`Status` / `Date` / `Topic` 头部沿用既有格式。
 
 ## 1. 目的与非目标
 
