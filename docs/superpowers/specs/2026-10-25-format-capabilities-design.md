@@ -1,6 +1,6 @@
 # PicoSerDe Format Capabilities Design Spec
 
-**Status**: Draft v4 — D1/D2/D3 resolved by the architecture principle (§1.1); one release-policy ruling open (§5.5)
+**Status**: Draft v5 — all decisions ruled (D1/D2/D3 by the architecture principle, D5 = internal, release = two-phase)
 **Date**: 2026-10-25
 **Baseline**: `84a9560` (`main`, clean tree); §3 现状表 measured there
 **Topic**: which shapes each of the five wire formats can represent, and how that
@@ -204,14 +204,20 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 
 - **推导**：C4：诊断是"不支持"的唯一出口 ⇒ 用户会根据 id 做 `NoWarn` ⇒ id 必须在 `year` 内稳定；消息模板可变，但须保持可 grep 的稳定前缀，且**`⛔`（格式事实）与"未实现"必须可区分**（v3 的 D-4/N8 正是把两者混用）。
 
-### 5.5 D5 — `FormatCapabilities` 的可见性 → **internal**（唯一仍需你确认的产品问题）
+### 5.5 D5 — `FormatCapabilities` 的可见性 → **internal**（已裁定）
 
 - **推导**：R0 第 1/2 条把能力表定位为**共用管线的内部机制**，不是用户 API ⇒ `internal` + `InternalsVisibleTo` 给测试。
 - **后果**：`api/*.public.txt` 不变；I-3 只能在仓库内部验证（外部用户无法编程查询能力）。
-- **若你想让用户可查**（`public`）：这是一次 `x` bump + 基线更新，规格其余部分不变。
+- **裁定（维护者，2026-10-25）**：`internal`。理由：用户不应关心实现细节；能力表是管线的内部约定。
 
-### 5.6 唯一未决：发布策略
-能力全部放开会改变生成输出（新增成员/键），属 `x` bump（§8）。**问题：一次性 `x` bump 交付，还是分两次（先修静默 + 共用管线，再放开能力）？** 我建议**分两次**，理由见 §9。
+### 5.6 发布策略 → **分两次发布**（已裁定）
+
+| 发布 | 内容 | wire 输出 | 版本 |
+|---|---|---|---|
+| **R1（小、安全）** | Step 0（能力表，零行为变化）+ Step 1（只**新增诊断** + 消息改造）+ 探针入库 + I-1…I-5 | **不变** | `y+1` |
+| **R2（大、改变输出）** | Step 2（共用管线）+ Step 3（能力落地）+ Step 4（矩阵收敛），含 D-5 / D-7a / D-7b / D-3 这些**改变读回结果**的修复 | 变化 | `x+1` |
+
+**切分原则**：R1 里**不含**任何改变 wire 输出的改动。因此 D-5（根成员覆盖）、D-7a（TOML 改类型级 ⛔）、D-7b、D-3 全部推到 R2 —— 尽管它们都是缺陷修复，但它们改变输出/读回结果，混进 R1 会让「R1 零行为变化」这句话不成立。
 
 ## 6. 目标矩阵（R0 终态：只有 ✅ 与 ⛔，**无 `⏸`**）
 
@@ -284,10 +290,13 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 
 ## 9. 实施阶段（按 R0/C3 排序：**先共用管线，再补能力**）
 
+> **发布切分**（§5.6）：**R1 = Step 0 + Step 1**（wire 输出不变，`y+1`）；**R2 = Step 2 + Step 3 + Step 4**（改变输出，`x+1`）。
+
+
 | 阶段 | 内容 | 为什么在这个位置 |
 |---|---|---|
 | **Step 0** | 建 `FormatCapabilities`（**只记格式事实**，C1）；25 处特判改查表；生成器 API 改收能力值（I-3）；补 S14/S15 探针；探针入库 | 零行为变化的地基；表 ↔ README ↔ 测试同源由 I-4 生成 |
-| **Step 1** | 消静默 + 诊断改造：D-6（3 处发射点全接）、D-1/D-2（先让丢失**可见**，`⏸`）、D-5、D-7a、D-3、D-4（消息区分 `⛔`/未实现，I-5） | 便宜、独立、立刻止住"静默丢数据"，且不依赖管线 |
+| **Step 1** | 消静默 + 诊断改造：D-6（3 处发射点全接）、D-1/D-2（先让丢失**可见**，`⏸`）、D-4（消息区分 `⛔`/未实现，I-5） | 便宜、独立、立刻止住"静默丢数据"，且不依赖管线。**D-5/D-7a/D-7b/D-3 推到 Step 3**（它们改变输出，不能进零行为变化的 R1） |
 | **Step 2** | **共用 emit 管线进 core**（R0 第 1 条）：形状遍历一份实现 + `IEmitPrimitives`；各生成器只留 wire 原语 | **这是 R0 的结构体现**。能力在此"一次实现、五格式受益" |
 | **Step 3** | 能力落地（在管线上）：扩展集合 7 kind、YAML null（`- null`）、TOML/YAML 任意深度递归、S4×TOML、S10 全格式 | 全部由 Step 2 的管线承担，故必须在 Step 2 之后 |
 | **Step 4** | 矩阵收敛：把 §6 每一格跑成 ✅/⛔，README 与 spec 同源更新 | 终态验收 |
