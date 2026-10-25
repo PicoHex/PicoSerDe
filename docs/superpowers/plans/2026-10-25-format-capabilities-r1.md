@@ -185,7 +185,7 @@ The spec is a vision document; its silence is not permission. These are the fail
       internal static IReadOnlyList<string> AllShapeIds { get; }          // 14 个：S1..S13, S11a, S11b
 
       // ── 限制（不是三值效果）──
-      internal static IReadOnlySet<string> AllowedDictKeyKinds(string formatTag);
+      internal static ISet<string> AllowedDictKeyKinds(string formatTag);   // 实现用 ISet：与既有谓词逐 kind 等价（W1 落地后同步）
       internal static string MatrixCells(string shapeId);                 // Task 8 用：返回 5 个 token（如 "✅✅✅✅❌"），按现状
   }
   ```
@@ -265,7 +265,8 @@ public async Task Target_is_supported_exactly_where_every_affected_shape_is_repr
   期望以下测试**全部通过**（不写计数 —— 见 Global Constraints）：
   `Model_reproduces_all_70_observed_cells`、`Every_shape_has_a_decision_path`、
   `Every_blocked_decision_has_a_granularity`、`Target_is_supported_exactly_where_every_affected_shape_is_representable`、
-  `Dict_key_kinds_behave_as_the_table_promises`。
+  `Dict_key_kinds_behave_as_the_table_promises`、`Target_table_agrees_with_spec_section3`（Step 4 要求）、
+  `Ini_is_the_only_format_that_narrows_the_dict_key_kinds`（W1 新增的结构断言，不越界）。
   另加一条断言：`AllShapeIds.Count == 14 && Paths.Count == 14`（防止 Task 2 的模型数与通路数再次漂移）。
 - [ ] **Step 6: 加两条等价性校验**（把"复述"换成"断言相等"）
   **用行为测试，不碰 private 谓词**（`IsSupportedDictKeyKind` 是 `private static`，测试项目访问不到）；
@@ -405,6 +406,17 @@ formatTag is "ini" && ek is "list" or "array"
 Decide(formatTag, Decision.NestedScalarContainer) != Effect.Supported && ek is "list" or "array"
 ```
 其余 16 个单元是单行、格式即全部条件，可 1:1 替换。
+
+**本任务必须一并吸收 W1 评审留下的两项**（否则重复源会长期存在）
+1. **字典键谓词收敛为单源**：把 `GI:905-922` 的 `IsSupportedDictKeyKind` 函数体搬进
+   `FormatCapabilities.AllowedDictKeyKinds`（`DecisionTables.ScalarDictKeyKinds` 现在是它的**手抄副本**，
+   `DecisionTables.cs:222-253`），`GI` 改为调用模型 —— 等价性由构造保证，不再依赖人工同步。
+   护栏：行为测试补一个**表里没有的 kind**（如 `Dictionary<float,int>` 必须在所有格式被拒）与一个非 ini 正例
+   （`Dictionary<long,int>` × json 必须发射），使「表变宽」立刻红。
+2. **补一条能证明「目标表真的被推导」的测试**：现有 `Target_is_supported_...` 的 else 分支断言
+   `DecideTarget == Decide`，而 `BuildTargetRules` 在 `representable == false` 时**就是这个赋值** ⇒ 由构造恒真。
+   需改成：对至少一个 `representable == true` 的判定点，断言 `DecideTarget == Supported` **且**
+   `Decide == DropMember`（即"目标确实从现状被提升"），证明推导真的跑了。
 
 **映射规则（唯一需要判断的地方，规则化后不需要逐站点判断）**
 
