@@ -399,12 +399,20 @@ grep -c "|OK|"   baseline-cells.txt    # 这是"现状支持的格数"，与 spe
 
 ⇒ **24 行 = 19 个语义单元**（`24 − 1 − 2 − 2`）。这 3 个单元**不能**整体换成 `Decide(fmt, d)` —— 那样会丢掉 kind/可空性条件（⇒ 行为变化，R1 禁止）。正确做法是**只替换其中的"格式成员测试"，条件表达式原样保留**：
 ```csharp
-// 改前（GI:1298-1301 的格式部分）
-formatTag is "ini" && ek is "list" or "array"
-|| formatTag == "toml" && ek is "list" or "array" && (...)
-// 改后：格式判定归表，kind 条件不动
-Decide(formatTag, Decision.NestedScalarContainer) != Effect.Supported && ek is "list" or "array"
+// 改前（GI:1298-1301）
+var nestedListUnsupported =
+    formatTag is "ini" && ek is "list" or "array"
+    || formatTag == "toml" && ek is "list" or "array" && (!tomlNestedLeafRepresentable || HasNullableCollectionLevel(...));
+
+// 改后：**必须保留两条分支**——ini 与 toml 用的是**不同判定点**，不能合成一条
+var nestedIsCollection = ek is "list" or "array";
+var nestedListUnsupported =
+    (nestedIsCollection && Decide(formatTag, Decision.NestedScalarContainer)  != Effect.Supported)   // ini：任何嵌套都不行
+    || (nestedIsCollection && Decide(formatTag, Decision.NestedObjectContainer) != Effect.Supported) // toml：嵌套**对象**不行，标量可以
+       && (!tomlNestedLeafRepresentable || HasNullableCollectionLevel(...));
 ```
+> ⚠️ **不要**把这两条分支压成 `Decide(fmt, NestedScalarContainer) != Supported && ek is "list" or "array"` ——
+> 那会把 toml 的 S3/S6（可表示、今天能发）改成丢弃 ⇒ **字节变化**。
 其余 16 个单元是单行、格式即全部条件，可 1:1 替换。
 
 **本任务必须一并吸收 W1 评审留下的两项**（否则重复源会长期存在）
@@ -442,7 +450,10 @@ Decide(formatTag, Decision.NestedScalarContainer) != Effect.Supported && ek is "
 ```csharp
 // 真实签名（GI:858-866）：
 //   ExtractNestedPropertiesGuarded(INamedTypeSymbol type, …, out bool isRecursiveRef, …)
-// 改造：① 新增 root 参数（= 最外层被提取的类型，递归时原样传下去）
+// 改造：① 新增 root 参数（= **最外层**被提取的类型，递归时原样传下去）
+//        ⚠️ root ≠ 当前 `type`：`GI:1706/1788` 是**嵌套 helper 内部**的递归调用，
+//           在那里传 `type` 会把 2 节点互递归误判成 Self ⇒ toml 从"丢"变"发"
+//            （probe 的 S11bTomlPartner 就在 baseline 里，字节 diff 会红）
 //       ② out bool → out RecursionKind
 internal enum RecursionKind { None, Self, Mutual }
 
@@ -467,14 +478,19 @@ internal static bool ContainsType(ITypeSymbol haystack, ITypeSymbol needle) => h
 recursion = ContainsType(memberType, root) ? RecursionKind.Self : RecursionKind.Mutual;
 ```
 > 该片段已单独编译验证（`Microsoft.CodeAnalysis.CSharp` + Roslyn 符号，`Build succeeded`）。
-> **改动面（4 处，缺一个就 CS1503 / CS7036）**：
-> | 位置 | 改动 |
-> |---|---|
-> | `GI:1118`（字段） | 传 `root: type`；`out fieldRecursive` → `out fieldRecursiveKind` |
-> | `GI:1382`（列表元素） | 同上，`out recursiveRef` → `out recursiveKind` |
-> | `GI:1486`（字典值） | 同上 |
-> | `GI:1516`（对象成员） | 同上 |
-> | `GI:1157` / `GI:1573` / `GI:1733` / `GI:1826` 的 `IsRecursiveRef:` | `PropertyInfo.IsRecursiveRef` **保持 `bool`**，改为 `IsRecursiveRef: kind != RecursionKind.None` |
+> **改动面（实测：6 个调用点 + 1 个签名 = 7 处，外加 4 个 `IsRecursiveRef:` 赋值）**
+> `grep -n "ExtractNestedPropertiesGuarded(" shared/Gen/GenInfrastructure.cs` 给出 **6 个调用点**：
+> | 位置 | 角色 | root 传什么 |
+> |---|---|---|
+> | `GI:1118` | 字段 | 最外层 `type` |
+> | `GI:1381` | 列表元素 | 最外层 `type` |
+> | `GI:1485` | 字典值 | 最外层 `type` |
+> | `GI:1517` | 对象成员 | 最外层 `type` |
+> | **`GI:1706`** | **嵌套 helper 内部**（inner class） | **透传进来的 root**（不是当前 `type`） |
+> | **`GI:1788`** | **同上** | **透传进来的 root** |
+>
+> 另加签名本身（`GI:858`）与 4 处 `IsRecursiveRef:` 赋值（`GI:1157 / 1573 / 1733 / 1826`）：
+> `PropertyInfo.IsRecursiveRef` **保持 `bool`**，写成 `IsRecursiveRef: kind != RecursionKind.None`。
 > 该片段已单独编译验证（`Microsoft.CodeAnalysis.CSharp`，`Build succeeded`）。
 > **4 个调用点的改动**：把 `out fieldRecursive` / `out recursiveRef` 换成 `out RecursionKind recursive`，
 > 然后在各自的丢弃判断里 `Decide(fmt, recursive == RecursionKind.Self ? Decision.RecursiveSelf : Decision.RecursiveMutual)`。
