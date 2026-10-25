@@ -327,7 +327,7 @@ git commit -m "feat(gen): single-source capability model (12 decision points, 3-
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: 每格一行 `CELL|<format>|<shape>|<verdict>|<wire>|<expected>|<actual>`，`verdict ∈ {OK, MISMATCH}`；以及 Task 3 逐字节对比用的 `generated-baseline/`。
+- Produces: 每格一行 `CELL|<format>|<shape>|<verdict>|<wire>|<expected>|<actual>`，`verdict ∈ {OK, MISMATCH, TIMEOUT, SKIPPED_AFTER_TIMEOUT}`；非测量行追加第 8 列 `reason=…`（W2 落地后回写：`TIMEOUT` 用于「被放弃的 worker」，`SKIPPED_AFTER_TIMEOUT` 用于同一格式连续超时后的短路）。Task 3 的门禁因此**只比较 `OK`/`MISMATCH` 的格**，并单独核对 `TIMEOUT` 集合未变。
 
 - [ ] **Step 1: 建 csproj —— 复制既有测试项目的属性与引用段，不要手写**
   ```bash
