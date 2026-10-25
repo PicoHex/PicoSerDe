@@ -136,7 +136,7 @@ The spec is a vision document; its silence is not permission. These are the fail
 
       // ── 限制（不是三值效果）──
       internal static IReadOnlySet<string> AllowedDictKeyKinds(string formatTag);
-      internal static string MatrixCells(string shapeId);                 // Task 8 用：只返回 5 个单元格，按现状
+      internal static string MatrixCells(string shapeId);                 // Task 8 用：返回 5 个 token（如 "✅✅✅✅❌"），按现状
   }
   ```
 - **`DictKeyKinds` 不进 `Decision`**：它是**限制**（哪些 kind 可作键），不是三值效果。
@@ -378,20 +378,41 @@ Decide(formatTag, Decision.NestedScalarContainer) != Effect.Supported && ek is "
 **递归的两处同判据站点**：`GenInfrastructure` 里对**字段**与对**属性**的递归检查谓词逐字相同（附录 A 命令 4 会打印这两行）。
 上游环检测只给出一个 **`bool`**（`out fieldRecursive` / `out recursiveRef`），**没有自/互信息** —— 所以站点**自己算**：
 ```csharp
-// 判定点不在 4 个调用点，而在 ExtractNestedPropertiesGuarded 的"环检测"处：
-// 它现在只 out 一个 bool；改成 out RecursionKind（Self / Mutual），规则如下。
+// 真实签名（GI:858-866）：
+//   ExtractNestedPropertiesGuarded(INamedTypeSymbol type, …, out bool isRecursiveRef, …)
+// 改造：① 新增 root 参数（= 最外层被提取的类型，递归时原样传下去）
+//       ② out bool → out RecursionKind
 internal enum RecursionKind { None, Self, Mutual }
 
-// 成员类型里**任意层**是否包含 root（Node / List<Node> / Node[] / Dictionary<string,Node> / List<HashSet<Node>>）
+private static ImmutableArray<PropertyInfo> ExtractNestedPropertiesGuarded(
+    INamedTypeSymbol type,
+    INamedTypeSymbol root,          // ← 新增
+    AttributeHelpers attrs,
+    string formatTag,
+    HashSet<INamedTypeSymbol>? visiting,
+    out RecursionKind recursion,    // ← 原 out bool isRecursiveRef
+    …)
+
+// 成员类型（任意层）里是否包含 root —— 含泛型兜底：构造类型与开放泛型按 OriginalDefinition 比
 internal static bool ContainsType(ITypeSymbol haystack, ITypeSymbol needle) => haystack switch
 {
     IArrayTypeSymbol a => ContainsType(a.ElementType, needle),
     INamedTypeSymbol n when n.IsGenericType => n.TypeArguments.Any(t => ContainsType(t, needle)),
-    _ => SymbolEqualityComparer.Default.Equals(haystack, needle),
+    _ => SymbolEqualityComparer.Default.Equals(haystack, needle)
+         || SymbolEqualityComparer.Default.Equals(haystack.OriginalDefinition, needle.OriginalDefinition),
 };
-// 环回到 root 本身 ⇒ Self；环回到环里的其它类型（A→B→A）⇒ Mutual
-var kind = ContainsType(memberType, root) ? RecursionKind.Self : RecursionKind.Mutual;
+// 环回 root 本身 ⇒ Self；环回环里的其它类型（A→B→A）⇒ Mutual
+recursion = ContainsType(memberType, root) ? RecursionKind.Self : RecursionKind.Mutual;
 ```
+> 该片段已单独编译验证（`Microsoft.CodeAnalysis.CSharp` + Roslyn 符号，`Build succeeded`）。
+> **改动面（4 处，缺一个就 CS1503 / CS7036）**：
+> | 位置 | 改动 |
+> |---|---|
+> | `GI:1118`（字段） | 传 `root: type`；`out fieldRecursive` → `out fieldRecursiveKind` |
+> | `GI:1382`（列表元素） | 同上，`out recursiveRef` → `out recursiveKind` |
+> | `GI:1486`（字典值） | 同上 |
+> | `GI:1516`（对象成员） | 同上 |
+> | `GI:1157` / `GI:1573` / `GI:1733` / `GI:1826` 的 `IsRecursiveRef:` | `PropertyInfo.IsRecursiveRef` **保持 `bool`**，改为 `IsRecursiveRef: kind != RecursionKind.None` |
 > 该片段已单独编译验证（`Microsoft.CodeAnalysis.CSharp`，`Build succeeded`）。
 > **4 个调用点的改动**：把 `out fieldRecursive` / `out recursiveRef` 换成 `out RecursionKind recursive`，
 > 然后在各自的丢弃判断里 `Decide(fmt, recursive == RecursionKind.Self ? Decision.RecursiveSelf : Decision.RecursiveMutual)`。
@@ -626,17 +647,19 @@ public async Task Deferred_and_impossible_messages_are_distinguishable()
 - Modify: `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`
 
 **Interfaces:**
-- Consumes: `MatrixCells(shapeId)`（Task 1 声明，本任务实现）、`DecideShape`（**现状**值）。
+- Consumes: `MatrixCells(shapeId)`（Task 1 实现，返回 5 个 token）、`DecideShape`（**现状**值）。
 - Produces: 无（`TestRepo.Root()` 由 Task 1 的 `TestRepo.cs` 提供，本任务只**消费**）。
 
 > **两个方向别弄混**：README 是**当前限制**文档（用现状表）；spec §6 是**目标**（用 `DecideShapeTarget`）。用目标生成 README 会把 R2 能力写进 R1 文档，违反 spec C2。
 
-- [ ] **Step 1: 写校验测试 —— 反向校验，不要求 README 有 14 行**
+- [ ] **Step 1: 写校验测试 —— 按「单元格 token」比对，不比对整行**
+  README 的单元格里**带注记**（`✅ [[Table]]`、`✅ block sequence of mappings`、`❌ see ¹`），所以既不能整行相等、也不能用 `EndsWith`。
+  正确做法：取每行的 5 个单元格，**抽第一个非空字符**（✅ / ❌），与 `MatrixCells(shapeId)` 的 token 序列比对。
   ```csharp
   [Test]
   public async Task Readme_matrix_cells_match_the_tables()
   {
-      // README 只有 5 行形状且无 S-id：用夹具把「描述前缀」映射到 shapeId，只校验**单元格**
+      // README 只有 5 行形状且无 S-id：夹具把「描述前缀」映射到 shapeId
       var fixtures = new (string Prefix, string ShapeId)[]
       {
           ("| `List<Dto>`", "S2"),
@@ -646,33 +669,37 @@ public async Task Deferred_and_impossible_messages_are_distinguishable()
           ("| Recursive member", "S11a"),
       };
       var rows = File.ReadAllLines(Path.Combine(TestRepo.Root(), "README.md"));
+
       foreach (var (prefix, shapeId) in fixtures)
       {
           var row = rows.FirstOrDefault(l => l.StartsWith(prefix));
-          await Assert.That(row).IsNotNull().Because($@"README 缺少 {shapeId} 的那一行（前缀 {prefix}）");
-          await Assert.That(row!.TrimEnd()).EndsWith(FormatCapabilities.MatrixCells(shapeId))
+          await Assert.That(row).IsNotNull().Because($"README 缺少 {shapeId} 的那一行");
+
+          // 单元格 = 第 2..6 段（第 1 段是行首竖线，第 7 段是行尾）
+          var cells = row!.Split('|').Skip(2).Take(5)
+              .Select(c => c.Trim().Length == 0 ? '?' : c.Trim()[0])
+              .ToArray();
+          var expected = FormatCapabilities.MatrixCells(shapeId)      // "✅✅✅✅❌" 这样的 token 串
+              .ToCharArray();
+          await Assert.That(new string(cells)).IsEqualTo(new string(expected))
               .Because($"README 的 {shapeId} 行单元格与表不一致");
       }
   }
   ```
-- [ ] **Step 2: 跑，期望失败**（README 手写行与表不同）。
-- [ ] **Step 3: 只替换 README 矩阵的「单元格」，描述与尾注保持手写**
-  **实测**：README 的矩阵只有 **5 行形状**（`List<Dto>` / `List<List<int>>` / `List<List<Dto>>` / `List<List<int?>>` / `Recursive member`），**没有 S-id 列**。
-  所以不要试图补 14 行，也不要用 `MatrixCells` 拼出整行（那会抹掉 `[[Table]]` 与脚注）。
+  `MatrixCells` 因此**只返回 token 串**（`"✅✅✅✅❌"`，5 个字符），不含竖线与空格。
 
-  1. 在 `FormatCapabilities` 里加 **`MatrixCells(shapeId)`**：只返回 `| ✅ | ✅ | ✅ | ✅ | ❌ |` 这样的**单元格串**（5 个格式，按 `DecideShape` 的现状值）。
-  2. 测试内建一张 **5 行夹具表**，把 README 的描述映射到 shapeId：
-     | README 描述（行首） | shapeId |
-     |---|---|
-     | ``List<Dto>`` — list of objects | S2 |
-     | ``List<List<int>>`` — nested primitive list | S3 |
-     | ``List<List<Dto>>`` — list of lists of objects | S4 |
-     | ``List<List<int?>>`` — nullable leaf in a nested list | S6 |
-     | `Recursive member` | S11a |
-  3. 把这 5 行的**单元格部分**替换成 `MatrixCells(shapeId)` 的输出；描述与尾注（`[[Table]]`、`see ¹`）**保留**。
-  4. 校验测试改为：对夹具表里每一对，断言该行**以** `MatrixCells(shapeId)` 结尾（用 `EndsWith`，允许行首有描述与注记）。
+- [ ] **Step 2: 跑一次，看是否需要改 README**
+  **注意**：这 5 行的 ✅/❌ **今天语义上已与表一致**（只有注记不同），所以本步**很可能直接通过**。
+  - 若通过 ⇒ README 无需改动（注记保留，这正是我们要的）；
+  - 若某行 token 与表不符 ⇒ 改那一行的 ✅/❌（保留注记），再跑到通过。
 
-  > README 只覆盖 5 个形状，其余 9 个（S1、S5、S7…S13）**不出现在 README** —— 它们由 spec §3 与 Task 2 的探针承载，**不要求**写进 README。
+- [ ] **Step 3: 把 `MatrixCells` 实现补进 Task 1 的 `FormatCapabilities`**（若 Task 1 尚未加）：
+  ```csharp
+  // 5 个格式按 FixedOrder = json, msgpack, toml, yaml, ini；现状值 = DecideShape
+  internal static string MatrixCells(string shapeId) =>
+      string.Concat(AllFormatTags.Select(f =>
+          DecideShape(f, shapeId) == Effect.Supported ? "✅" : "❌"));
+  ```
 
 - [ ] **Step 4: 全量门禁**（命令逐条可跑）
 ```bash
