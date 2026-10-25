@@ -3375,8 +3375,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(">(Encoding.UTF8.GetString(r.ValueSpan)));");
                 break;
             case "string":
+                // A `null` element is a null literal, not the four characters "null"
+                // (the same confusion C-30 fixed for members). Flow sequences make this
+                // shape common: `G: [a, null, c]`.
                 s.Append(pad);
-                s.AppendLine(lo + ".Add(Encoding.UTF8.GetString(r.ValueSpan));");
+                s.AppendLine($"if (r.IsNullLiteral) {{ {lo}.Add(null!); }}");
+                s.Append(pad);
+                s.AppendLine($"else {{ {lo}.Add(Encoding.UTF8.GetString(r.ValueSpan)); }}");
                 break;
             case "int32":
                 s.Append(pad);

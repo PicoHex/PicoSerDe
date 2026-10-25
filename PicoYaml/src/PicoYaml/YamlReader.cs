@@ -11,6 +11,8 @@ public struct YamlReaderState
     internal int[]? IndentStack;
     internal bool InFlow;
     internal bool FlowStartEmitted;
+    internal bool InFlowSeq;
+    internal bool FlowSeqStartEmitted;
     internal bool DocStartPending;
 }
 
@@ -44,6 +46,13 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
     private int _stackCount;
     private bool _inFlow;
     private bool _flowStartEmitted;
+
+    // Flow SEQUENCE state (`[1, 2, 3]`). Kept separate from _inFlow, which is the
+    // flow MAPPING state (`{k: v}`): the two have different token shapes and the
+    // reader used to have no sequence branch at all, so a bracketed value fell
+    // through to the scalar path and the member deserialized to an empty list.
+    private bool _inFlowSeq;
+    private bool _flowSeqStartEmitted;
     private bool _docStartPending;
     private byte[]? _rentedBuffer;
     private byte[]? _rb0,
@@ -211,6 +220,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         public int StackCount;
         public bool InFlow;
         public bool FlowStartEmitted;
+        public bool InFlowSeq;
+        public bool FlowSeqStartEmitted;
         public bool DocStartPending;
         public int ReplayAnchorIdx;
         public int ReplayIndex;
@@ -235,6 +246,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         m.StackCount = _stackCount;
         m.InFlow = _inFlow;
         m.FlowStartEmitted = _flowStartEmitted;
+        m.InFlowSeq = _inFlowSeq;
+        m.FlowSeqStartEmitted = _flowSeqStartEmitted;
         m.DocStartPending = _docStartPending;
         m.ReplayAnchorIdx = _replayAnchorIdx;
         m.ReplayIndex = _replayIndex;
@@ -264,6 +277,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         _stackCount = m.StackCount;
         _inFlow = m.InFlow;
         _flowStartEmitted = m.FlowStartEmitted;
+        _inFlowSeq = m.InFlowSeq;
+        _flowSeqStartEmitted = m.FlowSeqStartEmitted;
         _docStartPending = m.DocStartPending;
         _replayAnchorIdx = m.ReplayAnchorIdx;
         _replayIndex = m.ReplayIndex;
@@ -438,6 +453,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             StackCount = _stackCount,
             InFlow = _inFlow,
             FlowStartEmitted = _flowStartEmitted,
+            InFlowSeq = _inFlowSeq,
+            FlowSeqStartEmitted = _flowSeqStartEmitted,
             DocStartPending = _docStartPending,
         };
         if (_stackCount > 0)
@@ -463,6 +480,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         _stackCount = state.StackCount;
         _inFlow = state.InFlow;
         _flowStartEmitted = state.FlowStartEmitted;
+        _inFlowSeq = state.InFlowSeq;
+        _flowSeqStartEmitted = state.FlowSeqStartEmitted;
         _docStartPending = state.DocStartPending;
         if (state.IndentStack is not null)
         {
@@ -746,6 +765,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
     {
         if (_inFlow)
             return ReadFlowSpan();
+        if (_inFlowSeq)
+            return ReadFlowSeqSpan();
         Retry:
         if (_position >= _data.Length)
         {
@@ -1168,6 +1189,32 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             _position++;
         }
         _position = afterKey;
+        // Flow collections are detected BEFORE the "indented block follows" test:
+        // `G: [` puts the '[' at the end of the key line, so that test would return
+        // a PropertyName with no value and the bracketed text would never be read.
+        if (_position < _data.Length && _data[_position] == (byte)'{')
+        {
+            if (!FlowValueComplete(_position) && !_isFinalBlock)
+                throw new IncompleteInputException();
+            _position++;
+            _inFlow = true;
+            _flowStartEmitted = false;
+            _tokenType = TokenType.PropertyName;
+            return true;
+        }
+        if (_position < _data.Length && _data[_position] == (byte)'[')
+        {
+            // Flow SEQUENCE: `[1, 2, 3]`. Without this branch the bracketed text fell
+            // through to the scalar path, so a member written that way deserialized to
+            // an empty list - silent data loss.
+            if (!FlowValueComplete(_position) && !_isFinalBlock)
+                throw new IncompleteInputException();
+            _position++;
+            _inFlowSeq = true;
+            _flowSeqStartEmitted = false;
+            _tokenType = TokenType.PropertyName;
+            return true;
+        }
         if (nextIndent > lineIndent)
         {
             // If a pending anchor exists, defer it for mapping anchor accumulation.
@@ -1179,16 +1226,6 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
                 _pendingAnchorName = null;
                 _curPairCount = 0;
             }
-            _tokenType = TokenType.PropertyName;
-            return true;
-        }
-        if (_position < _data.Length && _data[_position] == (byte)'{')
-        {
-            if (!FlowValueComplete(_position) && !_isFinalBlock)
-                throw new IncompleteInputException();
-            _position++;
-            _inFlow = true;
-            _flowStartEmitted = false;
             _tokenType = TokenType.PropertyName;
             return true;
         }
@@ -1266,6 +1303,104 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         _tokenType = TokenType.PropertyName;
         StoreAnchorIfNeeded();
         AccumulateMappingPair();
+        return true;
+    }
+
+    /// <summary>
+    /// Tokenizes a flow sequence (<c>[1, 2, 3]</c>) into the same shape a block
+    /// sequence produces: an <c>ObjectStart</c> wrapper, one <c>String</c> token per
+    /// element, then <c>ObjectEnd</c>. The generated deserializer therefore needs no
+    /// change - it already consumes that shape.
+    /// </summary>
+    private bool ReadFlowSeqSpan()
+    {
+        if (!_flowSeqStartEmitted)
+        {
+            _flowSeqStartEmitted = true;
+            _tokenType = TokenType.ObjectStart;
+            return true;
+        }
+
+        // Separators: spaces, line breaks (flow sequences may span lines), commas
+        // (a trailing comma before ']' is legal YAML) and comments.
+        while (_position < _data.Length)
+        {
+            var b = _data[_position];
+            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r' or (byte)',')
+            {
+                _position++;
+                continue;
+            }
+            if (b == (byte)'#')
+            {
+                while (
+                    _position < _data.Length && _data[_position] is not ((byte)'\n' or (byte)'\r')
+                )
+                    _position++;
+                continue;
+            }
+            break;
+        }
+
+        if (_position >= _data.Length)
+        {
+            // Still open: a non-final chunk must wait for the closing bracket.
+            if (!_isFinalBlock)
+                throw new IncompleteInputException();
+            _inFlowSeq = false;
+            _flowSeqStartEmitted = false;
+            _valueSpan = default;
+            _valueWasQuoted = false;
+            _seqItemWasBareDash = false;
+            _tokenType = TokenType.ObjectEnd;
+            return true;
+        }
+
+        if (_data[_position] == (byte)']')
+        {
+            _position++;
+            _inFlowSeq = false;
+            _flowSeqStartEmitted = false;
+            _valueSpan = default;
+            _valueWasQuoted = false;
+            _seqItemWasBareDash = false;
+            SkipNewlineSpan();
+            _tokenType = TokenType.ObjectEnd;
+            return true;
+        }
+
+        if (_data[_position] == (byte)'[')
+        {
+            // Nested flow is not wired into the generated nested-sequence reader yet
+            // (it expects the block form's bare-dash marker). Fail loudly rather than
+            // quietly emit empty inner lists - the failure mode this reader just fixed.
+            throw new FormatException(
+                "Nested flow sequences are not supported yet: write the outer sequence in block style."
+            );
+        }
+
+        if (_data[_position] is (byte)'\"' or (byte)'\'')
+        {
+            var q = _data[_position];
+            _position++;
+            _valueWasQuoted = true;
+            _valueSpan =
+                q == (byte)'\"' ? ReadDoubleQuotedStringSpan() : ReadSingleQuotedStringSpan();
+        }
+        else
+        {
+            var startElem = _position;
+            while (
+                _position < _data.Length
+                && _data[_position] is not ((byte)',' or (byte)']' or (byte)'\n' or (byte)'\r')
+            )
+                _position++;
+            _valueSpan = TrimEnd(_data[startElem.._position]);
+            _valueWasQuoted = false;
+        }
+
+        _seqItemWasBareDash = false;
+        _tokenType = TokenType.String;
         return true;
     }
 
