@@ -34,108 +34,69 @@ The spec is a vision document; its silence is not permission. These are the fail
 
 ---
 
-### Task 1: `FormatFacts` and `EmitCoverage` (internal)
+### Task 0 (DONE — spike) : 能力模型定稿
+
+**结论（已在 `tmp/spike` 分支用代码证明，70/70 格复现）**
+
+- 表按**判定点**索引（13 个），不按形状索引；每个 (格式, 判定点) 的值是**三值效果**：
+  `Supported` / `DropMember` / `DropElement`。**不是** (allows?, granularity-if-blocked) 两字段 ——
+  该形状表达不了「发成员但丢元素」（YAML 的 null 元素正是这种）。
+- 每个形状对应一条**有序通路**（它要经过哪些判定点），取**最严效果**。通路里只放**必要条件**；
+  `ArrayOfTables` 这类「某格式的实现方式」**不进通路**（否则会把 `S2×JSON` 判死）。
+- 判定点（13）：`ExtendedKindResolves`、`ExtendedKindAsElement`、`ScalarKindResolves`、
+  `ByteArrayAsBinary`、`NestedScalarContainer`、`NestedObjectContainer`、`NullableValueLeaf`、
+  `NullableRefLeaf`、`ObjectListInMember`、`DictKeys`、`DictValueCollection`、
+  `RecursiveSelf`、`RecursiveMutual`。
+- 通路（14 形状）：`S1=[]`、`S2=[ObjectListInMember]`、`S3=[NestedScalarContainer]`、
+  `S4=[NestedObjectContainer]`、`S5=[NullableValueLeaf]`、
+  `S6=[NestedScalarContainer,NullableValueLeaf]`、`S7=[ExtendedKindResolves]`、
+  `S8=[NestedScalarContainer,ExtendedKindAsElement]`、`S9=[]`、`S10=[DictValueCollection]`、
+  `S11a=[RecursiveSelf]`、`S11b=[RecursiveMutual]`、`S12=[NullableRefLeaf]`、`S13=[NullableValueLeaf]`。
+- **三处拆分是被观测逼出来的，不是设计出来的**（这是本 spike 的主要价值）：
+  `Nested*` 拆标量/对象（S3 在 TOML 过、S4 不过）、`Recursive*` 拆自/互（S11a 被丢、S11b 发射但有 D-5）、
+  `ExtendedKind*` 拆成员/元素（S8×JSON 在元素位被另一条规则丢）。
+
+**种子代码**：`tests/PicoSerDe.Integration.Tests/Spike/CapacityTable.cs` + `CapacityTableSpikeTests.cs`
+（`tmp/spike` 分支）。Task 1 的工作就是把它 productize 到 `shared/Gen`。
+
+---
+
+### Task 1: 能力模型进 `shared/Gen`（internal）
 
 **Files:**
-- Create: `shared/Gen/FormatCapabilities.cs`
-- Test: `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`
+- Create: `shared/Gen/FormatCapabilities.cs`（把 spike 的 `CapacityTable` 迁过来，改为 `internal`）
+- Create: `shared/Gen/DecisionTables.cs`（现状值 + 通路，见上）
+- Test: `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`（spike 的两个测试原样迁入）
 
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
   ```csharp
-  internal readonly record struct FormatFacts(
-      string Tag,
-      bool CanWriteNull,          // format has a null literal at all
-      bool CanHoldNullInSequence, // sequence elements may be null
-      bool CanNestContainers,     // list-of-list / object-in-object
-      bool CanHoldObjectList,     // List<Dto> as a member
-      bool CanHoldExtendedSet,    // HashSet/Queue/Stack/... as a member or element
-      bool CanBeRecursive,        // arbitrarily deep self-reference
-      bool CanHoldArrayOfTables,  // TOML [[Table]]
-      bool DictKeysAreStringOnly);
+  namespace PicoSerDe.Gen;
 
-  internal readonly record struct EmitCoverage(
-      bool EmitsNullInSequence, bool EmitsNestedCollections, bool EmitsObjectList,
-      bool EmitsExtendedSet, bool EmitsRecursion, bool EmitsArrayOfTables);
+  internal enum Decision { ExtendedKindResolves, ExtendedKindAsElement, ScalarKindResolves,
+      ByteArrayAsBinary, NestedScalarContainer, NestedObjectContainer, NullableValueLeaf,
+      NullableRefLeaf, ObjectListInMember, DictKeys, DictValueCollection,
+      RecursiveSelf, RecursiveMutual }
+
+  internal enum Effect { Supported, DropMember, DropElement }
 
   internal static class FormatCapabilities
   {
-      public static FormatFacts Facts(string tag);   // "json"|"msgpack"|"toml"|"yaml"|"ini"
-      public static EmitCoverage Coverage(string tag);
-      public static IReadOnlyList<FormatFacts> All { get; }
+      public static Effect Decide(string formatTag, Decision d);   // 现状查表
+      public static Effect DecideShape(string formatTag, string shapeId); // 走通路，取最严
+      public static IReadOnlyList<string> AllFormatTags { get; }
   }
   ```
 
-- [ ] **Step 1: Write the failing test**
-
-```csharp
-// tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs
-using PicoSerDe.Gen;
-
-public class FormatCapabilitiesTests
-{
-    // Spec §3.2, measured with tomllib / PyYAML. Facts = what the WIRE can express.
-    [Test]
-    [Arguments("json",    true,  true,  true,  true,  true,  true,  false, false)]
-    [Arguments("msgpack", true,  true,  true,  true,  true,  true,  false, false)]
-    [Arguments("toml",    false, false, true,  true,  true,  true,  true,  false)]
-    [Arguments("yaml",    true,  true,  true,  true,  true,  true,  false, false)]
-    [Arguments("ini",     false, false, false, false, false, false, false, true)]
-    public async Task Facts_match_the_spec_representability_table(
-        string tag, bool canWriteNull, bool canHoldNullInSequence, bool canNest,
-        bool canHoldObjectList, bool canHoldExtendedSet, bool canBeRecursive,
-        bool canHoldArrayOfTables, bool dictKeysStringOnly)
-    {
-        var f = FormatCapabilities.Facts(tag);
-        await Assert.That(f.CanWriteNull).IsEqualTo(canWriteNull);
-        await Assert.That(f.CanHoldNullInSequence).IsEqualTo(canHoldNullInSequence);
-        await Assert.That(f.CanNestContainers).IsEqualTo(canNest);
-        await Assert.That(f.CanHoldObjectList).IsEqualTo(canHoldObjectList);
-        await Assert.That(f.CanHoldExtendedSet).IsEqualTo(canHoldExtendedSet);
-        await Assert.That(f.CanBeRecursive).IsEqualTo(canBeRecursive);
-        await Assert.That(f.CanHoldArrayOfTables).IsEqualTo(canHoldArrayOfTables);
-        await Assert.That(f.DictKeysAreStringOnly).IsEqualTo(dictKeysStringOnly);
-    }
-
-    [Test]
-    public async Task Coverage_is_a_subset_of_facts()
-    {
-        foreach (var f in FormatCapabilities.All)
-        {
-            var c = FormatCapabilities.Coverage(f.Tag);
-            if (c.EmitsNullInSequence) await Assert.That(f.CanHoldNullInSequence).IsTrue().Because(f.Tag);
-            if (c.EmitsNestedCollections) await Assert.That(f.CanNestContainers).IsTrue().Because(f.Tag);
-            if (c.EmitsObjectList) await Assert.That(f.CanHoldObjectList).IsTrue().Because(f.Tag);
-            if (c.EmitsExtendedSet) await Assert.That(f.CanHoldExtendedSet).IsTrue().Because(f.Tag);
-            if (c.EmitsRecursion) await Assert.That(f.CanBeRecursive).IsTrue().Because(f.Tag);
-            if (c.EmitsArrayOfTables) await Assert.That(f.CanHoldArrayOfTables).IsTrue().Because(f.Tag);
-        }
-    }
-}
-```
-
-`Coverage` values that satisfy both the current behaviour and the subset rule: `json/msgpack = (false? ) ` — copy from what the generators emit today: JSON emits null-in-sequence, nested, object list, extended sets, recursion; MsgPack the same except extended sets; TOML emits object list + array-of-tables + nested scalars, no null-in-sequence, no recursion; YAML emits nested + object list + null-in-sequence? (no — YAML's writer skips nulls today, so `false`), no recursion; INI emits none of them.
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `dotnet test tests/PicoSerDe.Integration.Tests -c Debug -- --treenode-filter "/*/*/FormatCapabilitiesTests/*"`
-Expected: build error — `PicoSerDe.Gen.FormatCapabilities` does not exist.
-
-- [ ] **Step 3: Implement `shared/Gen/FormatCapabilities.cs`**
-
-Fill `Facts` from the spec table: TOML `CanWriteNull=false` (tomllib rejects `null`), YAML `CanWriteNull=true` / `CanHoldNullInSequence=true` (PyYAML accepts), INI all `false` plus `DictKeysAreStringOnly=true`. Fill `Coverage` from today's generators (JSON: all true except `EmitsArrayOfTables`; MsgPack: as JSON but `EmitsExtendedSet=false`; TOML: nested/object-list/array-of-tables true, rest false; YAML: nested/object-list true, null-in-sequence **false**, rest false; INI: all false).
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `dotnet test tests/PicoSerDe.Integration.Tests -c Debug --no-build -- --treenode-filter "/*/*/FormatCapabilitiesTests/*"`
-Expected: PASS (6 test cases).
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 1: 迁移**：把 spike 的两份文件搬到 `shared/Gen/` 与测试项目，`namespace` 改为 `PicoSerDe.Gen`（测试仍可直接读表）。
+- [ ] **Step 2: 运行迁移后的测试**：`dotnet test tests/PicoSerDe.Integration.Tests -- --treenode-filter "/*/*/FormatCapabilitiesTests/*"`，期望 **3 passed**（70 格复现 + 通路完备 + 粒度完备）。
+- [ ] **Step 3: 加一条终态断言**：`§6 目标矩阵` 的每一格必须由**新表**（把 `Effect.DropMember/Element` 改 `Supported` 的"目标表"）算出 `Supported`，除非 `§3` 判 ❌。这条把「目标矩阵」也纳入同一来源。
+- [ ] **Step 4: Commit**
 
 ```bash
-git add shared/Gen/FormatCapabilities.cs tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs
-git commit -m "feat(gen): add internal format facts and emit coverage tables"
+git add shared/Gen/FormatCapabilities.cs shared/Gen/DecisionTables.cs tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs
+git commit -m "feat(gen): single-source capability model (13 decision points, 3-valued effect)"
 ```
 
 ---
@@ -199,66 +160,44 @@ git commit -m "test(gen): check in the format-capabilities probe and a generated
 
 ---
 
-### Task 3: Rewire the 25 scattered format checks to the tables
+### Task 3: 把 25 处判据改成查表（零行为变化）
 
 **Files:**
-- Modify: `shared/Gen/GenInfrastructure.cs` (13 sites: `:909, :1129, :1298, :1299, :1306, :1310, :1311, :1341, :1414, :1437, :1440, :1441, :1528`)
-- Modify: `shared/Gen/TypeKindResolver.cs` (12 sites: `:34, :71, :107, :127, :153, :155, :157, :159, :161, :163, :165, :167`)
+- Modify: `shared/Gen/TypeKindResolver.cs`（12 处：`:34 :71 :107 :127 :153 :155 :157 :159 :161 :163 :165 :167`）
+- Modify: `shared/Gen/GenInfrastructure.cs`（13 处：`:909 :1129 :1298 :1299 :1306 :1310 :1311 :1341 :1414 :1437 :1440 :1441 :1528`）
 
 **Interfaces:**
-- Consumes: `FormatCapabilities.Facts(tag)`, `FormatCapabilities.Coverage(tag)` (Task 1).
-- Produces: no new API; the same drop/emit decisions, read from the tables.
+- Consumes: `FormatCapabilities.Decide(formatTag, Decision)`（Task 1）。
+- Produces: 无新 API；同样的丢弃决策，改由表驱动。
 
-- [ ] **Step 1: Add the behaviour-preserving guard test**
+**站点 → 判定点对照（按此表逐处替换；这是本任务唯一需要判断的地方）**
 
-Add to `tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs`:
+| 站点 | 今天的判据 | 改成 |
+|---|---|---|
+| `TypeKindResolver:71` | `format == "json"` 才映射扩展集合 | `Decide(fmt, ExtendedKindResolves)` |
+| `TypeKindResolver:34` | `format == "msgpack"` 时 `byte[]` 走二进制 | `Decide(fmt, ByteArrayAsBinary)` |
+| `TypeKindResolver:127/153/155/157/159/161/163/165/167` | `format == "json"` 才识别的标量 kind | `Decide(fmt, ScalarKindResolves)` |
+| `GenInfrastructure:1298/1299` | `toml`/`ini` 不支持嵌套列表 | `Decide(fmt, NestedScalarContainer)` |
+| `GenInfrastructure:1306/1310/1311` | 可空/注解叶子丢弃 | `Decide(fmt, NullableValueLeaf)` / `NullableRefLeaf` |
+| `GenInfrastructure:1341` | `ini` 不支持对象列表成员 | `Decide(fmt, ObjectListInMember)` |
+| `GenInfrastructure:1414` | `ini` 字典键收窄为 string | `Decide(fmt, DictKeys)` |
+| `GenInfrastructure:1437/1440/1441` | 字典值可空/集合 | `Decide(fmt, DictValueCollection)` |
+| `GenInfrastructure:1129/1528` | 递归成员按格式丢弃 | `Decide(fmt, RecursiveSelf)` / `RecursiveMutual` |
+| `GenInfrastructure:1316-1334`（扩展集合作元素） | 无条件丢 | `Decide(fmt, ExtendedKindAsElement)` |
+| `GenInfrastructure:909` | `ini` 的键/段处理 | 按 `DictKeys` + INI 约定分支 |
 
-```csharp
-[Test]
-public async Task Shared_infrastructure_has_no_format_literals_outside_the_capabilities_file()
-{
-    var root = Path.Combine(RepoRoot(), "shared", "Gen");
-    var offenders = Directory.EnumerateFiles(root, "*.cs")
-        .Where(f => !f.EndsWith("FormatCapabilities.cs"))
-        .SelectMany(f => File.ReadAllLines(f)
-            .Select((line, i) => (f, i, line))
-            .Where(t => System.Text.RegularExpressions.Regex.IsMatch(
-                t.line, "\"(json|msgpack|toml|yaml|ini)\"")))
-        .Select(t => $"{Path.GetFileName(t.f)}:{t.i + 1}: {t.line.Trim()}")
-        .ToArray();
-
-    await Assert.That(offenders).IsEmpty().Because(string.Join(" | ", offenders));
-}
-```
-
-`RepoRoot()` walks up from `AppContext.BaseDirectory` until `PicoSerDe.slnx` is found.
-
-- [ ] **Step 2: Run it to verify it fails**
-
-Run: `dotnet test tests/PicoSerDe.Integration.Tests -c Debug --no-build -- --treenode-filter "/*/*/FormatCapabilitiesTests/Shared_infrastructure*"`
-Expected: FAIL listing the 25 literal sites.
-
-- [ ] **Step 3: Replace each site with a table read**
-
-For each of the 25 sites, pick the fact that expresses its intent — e.g. `TypeKindResolver.cs:71 if (format == "json")` becomes `if (facts.CanHoldExtendedSet) && facts.Tag == "json"` is **forbidden**; the intent is "extended collections are only emitted where coverage allows", so it becomes `if (coverage.EmitsExtendedSet)`. Likewise `GenInfrastructure.cs:1528 recursiveRef && formatTag is not ("json" or "msgpack")` becomes `recursiveRef && !coverage.EmitsRecursion`. Where a site restricts a *format fact* rather than coverage (e.g. INI's string-only keys), use `facts.DictKeysAreStringOnly`.
-
-- [ ] **Step 4: Verify zero behaviour change (the gate that matters)**
+- [ ] **Step 1: 写架构守卫测试**（见 Task 4 的 Roslyn 扫描；本任务先加一条 `shared/Gen` 内不得出现格式字面量比较的临时断言，Task 4 会替换它）。
+- [ ] **Step 2: 逐站点替换**，每替换一处跑一次全量构建，保证随时可编译。
+- [ ] **Step 3: 零行为变化的硬证据**
 
 ```bash
 dotnet build tests/FormatCapabilities.Probe -c Debug -m:1 -p:EmitCompilerGeneratedFiles=true -p:CompilerGeneratedFilesOutputPath=/tmp/gen-after
 diff -r tests/FormatCapabilities.Probe/generated-baseline /tmp/gen-after && echo "BYTES IDENTICAL"
-dotnet test tests/FormatCapabilities.Probe -c Debug --no-build | sort > /tmp/cells-after.txt
-diff tests/FormatCapabilities.Probe/baseline-cells.txt /tmp/cells-after.txt && echo "CELLS IDENTICAL"
 dotnet test PicoSerDe.slnx -c Debug
 ```
-Expected: both diffs empty, full suite green, `0 failed`.
+Expected: `BYTES IDENTICAL`；全量 0 failed。
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add shared/Gen tests/PicoSerDe.Integration.Tests/FormatCapabilitiesTests.cs
-git commit -m "refactor(gen): read format capabilities from the tables, not 25 literals (no behaviour change)"
-```
+- [ ] **Step 4: Commit**：`refactor(gen): capability decisions come from the table, not 25 literals (no behaviour change)`
 
 ---
 
@@ -514,7 +453,7 @@ public async Task Readme_format_limits_matrix_matches_FormatFacts()
 
 - [ ] **Step 3: Generate the rows**
 
-Add `FormatCapabilities.MatrixRow(facts)` returning the markdown row for that format, and replace the README's hand-written rows with its output.
+Add `FormatCapabilities.MatrixRow(formatTag)` returning the markdown row derived from `DecideShape` over 目标表, and replace the README's hand-written rows with its output.
 
 - [ ] **Step 4: Full R1 gate**
 
