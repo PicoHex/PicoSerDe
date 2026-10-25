@@ -27,21 +27,22 @@ many serialization libraries cannot run.
 
 ## Test Coverage
 
-**1698 tests** across the five format modules, the shared core and the cross-format integration suite, with cross-validation against 5 competitor libraries:
+Every module has its own suite, cross-validated against a competitor implementation:
 
-| Module | Tests | Competitor | Cross-Validation |
-|--------|:-----:|:-----------|:----------------:|
-| PicoJetson | 624 | System.Text.Json | ✅ bidirectional, all 19 property types |
-| PicoToml | 164 | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
-| PicoYaml | 174 | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly conerters |
-| PicoIni | 195 | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
-| PicoMsgPack | 180 | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
-| PicoSerDe.Core | 72 | — | — |
-| Integration (cross-format) | 289 | — | Ignore-condition matrix, anon types, round-trips |
+| Module | Competitor | Cross-Validation |
+|--------|:-----------|:----------------:|
+| PicoJetson | System.Text.Json | ✅ bidirectional, all 19 property types |
+| PicoToml | Tomlyn | ✅ bidirectional, 20 property types, NestedList via `[[key]]` |
+| PicoYaml | YamlDotNet | ✅ bidirectional, 19 property types, DateOnly/TimeOnly converters |
+| PicoIni | Microsoft.Extensions.Configuration.Ini | ✅ bidirectional, 16 property types |
+| PicoMsgPack | MessagePack-CSharp | ✅ map/array dual-format, 14 property types |
+| PicoSerDe.Core | — | — |
+| Integration (cross-format) | — | Ignore-condition matrix, anon types, round-trips |
 
-> Counts come from `dotnet test PicoSerDe.slnx -c Debug` (1698 passed, 0 failed,
-> 0 skipped). PicoJetson's 624 is split across its three test projects: 240 unit,
-> 323 integration, 61 functional.
+> Test counts are deliberately not pinned in this document: they change with every
+> PR and a stale number is worse than none. Run `dotnet test PicoSerDe.slnx -c Debug`
+> for the current totals. PicoJetson's suite is split across three projects
+> (unit / integration / functional).
 >
 > Strictness/robustness regression tests live in dedicated per-format suites
 > (`Strict*Tests`, `*StrictnessTests`, `*RobustnessTests`): wrong-typed input,
@@ -606,7 +607,7 @@ is the canonical property (`Name` is an obsolete alias).
 | linux-arm64 | ubuntu-24.04-arm |
 | osx-arm64 | macos-latest |
 
-Every push: build + test (1698 tests) + 5 benchmarks smoke + 5 AOT sample publishes.
+Every push: build + the full test suite + 5 benchmarks smoke + 5 AOT sample publishes.
 Release: `v*` tag → packs 11 packages in dependency order → NuGet.org.
 Local feed: run `./scripts/release.ps1 -Version <ver>` **before** pushing the
 tag — it runs the test suite, packs all 11 packages into `artifacts/nupkg`
