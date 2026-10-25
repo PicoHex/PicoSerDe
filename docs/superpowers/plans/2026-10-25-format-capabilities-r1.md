@@ -660,6 +660,11 @@ public async Task Capability_decisions_go_through_the_entry_points()
 
 ---
 
+> **本任务必须补上 W3 留下的唯一缺口（spec 审 D2）**：`shared/Gen/GenInfrastructure.cs`
+> 里非法字典键的诊断**只在最窄格式上报**（`formatTag == "ini"`），导致 json/msgpack/toml/yaml
+> 的非法键字典仍**静默丢成员**（D-6 未消）。本任务要改成**所有格式都上报**（R1 允许，属 `y+1`），
+> 并把那条"只在 ini 上报"的断言改成"5 个格式都上报"。
+
 ### Task 5: Report `PICOSERDE001` (D-6) — three sites, one diagnostic per member
 
 **Files:**

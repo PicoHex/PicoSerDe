@@ -146,6 +146,13 @@ currently gets wrong about them, and what the library must do about it
 | **D5** | 能力表的可见性 | **`internal`** | 用户不应关心实现；避免 `x` bump |
 
 ### 5.6 发布切分（两次）
+
+> **R2 的三项前置义务**（R1 的 W3 实测得出：区分自递归/互递归需要它们，缺一不可）
+> 1. **基类链的 root 归属**：从派生类型起步时，基类自身的自递归（`RvPolyLeaf` 看到 `RvPolyBase.Next`）不能判成互递归；
+> 2. **抽象类型的生成**：`RecursiveMutual × toml = Supported` 一旦生效，会生成 `new <抽象类型>(...)`（CS0144），必须先解决可实例化性；
+> 3. **受影响语料**：`RvPolyBase` / `RvPolyLeaf` / `PolyRecAbstract` 三个模型需一并调整（今天按"有环就丢"编译通过）。
+> 不做这三项，"D-5 根覆盖"无法落地。
+
 | 发布 | 内容 | wire 输出 | 版本 |
 |---|---|---|---|
 | **R1** | 建立单一来源、消静默、诊断改造（**只新增诊断，不改输出**） | **不变** | `y+1` |
