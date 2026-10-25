@@ -1,6 +1,6 @@
 # PicoSerDe Format Capabilities Design Spec
 
-**Status**: Draft v5 — all decisions ruled (D1/D2/D3 by the architecture principle, D5 = internal, release = two-phase)
+**Status**: Draft v6 — all decisions ruled; round-4 review fixes applied (§0)
 **Date**: 2026-10-25
 **Baseline**: `84a9560` (`main`, clean tree); §3 现状表 measured there
 **Topic**: which shapes each of the five wire formats can represent, and how that
@@ -16,6 +16,8 @@ becomes one reviewable, testable table instead of 25 scattered format checks
 | v1 | 初稿：R1–R3、实测矩阵、D-1…D-4、D1/D2/D3 |
 | v2 | 按两份独立复核（`design-review.md` / `evidence-review.md`）重写规则层与 §4 |
 | **v3** | 按第三轮复核（`review-v2.md`，15 FIXED / 2 PARTIAL / 8 新问题）修订；**并用 R1 指定的独立合规实现（Python `tomllib`、PyYAML）重新判定整张表示性表** |
+| **v5** | 记录两条裁定：`FormatCapabilities` = `internal`；**分两次发布**（R1 零输出变化 / R2 改输出） |
+| **v6** | 按第四轮复核（`review-v5.md`，12 条 / 4 阻塞）修订：C1/C4 改写、§3.2 拆行、§6 待测尾巴、编号统一、INI 约定写清、§10.2 补可跑脚本 |
 | **v4** | 采纳维护者架构原则（§1.1）。该原则**直接裁定**了 D1/D2/D3，并**反转阶段顺序**：先建共用管线，再补能力 —— 否则 7 个扩展集合 kind × 5 格式会在各生成器里手写一遍再被 Step 3 推翻 |
 
 **v3 的关键突破**：v1/v2 一直把「格式事实」与「我们的欠账」混在一列符号里，导致「规则说 `⏸`、矩阵写 `⛔`」这类自相矛盾反复出现（v2 的 N1/N2）。v3 把它们**拆成两张表**：§3.2 表示性（R1，独立实现实测）与 §3.1 现状（我们的生成器实际行为）。拆开后，唯一真正的 `⛔` 只剩 **INI 的结构性限制**与 **TOML 缺 null**；其余全部是 `⏸`。
@@ -45,7 +47,7 @@ becomes one reviewable, testable table instead of 25 scattered format checks
 ### 非目标
 - 不追求「所有格式支持所有形状」。
 - 不解决 reader 的流式/resume 状态机差异（Step 3 的独立规格）。
-- 不改变「写侧省略 null 成员」的既有设计（`D1b` 另行签字）。
+- 不改变「写侧省略 **null 成员**」的既有设计（本轮只讨论**序列元素**里的 null；成员层省略策略另立议题）。
 
 ## 1.1 架构原则（规范性，R0）
 
@@ -58,10 +60,10 @@ becomes one reviewable, testable table instead of 25 scattered format checks
 
 | 推论 | 内容 |
 |---|---|
-| C1 | 能力表只记录**格式事实**（wire 能表达什么），**不记录我们的实现进度**。故落地期分两张表：`FormatFacts`（稳定，驱动矩阵/消息/校验）与 `EmitCoverage`（**过渡脚手架**，只驱动"当前能否发射"，R2 的共用管线落地后坍缩为"凡 FormatFacts 允许即可发射"并删除）。两张表都由 I-3 收口，禁止散落字面量。 |
+| C1 | **`FormatFacts` 只记录格式事实**（wire 能表达什么），永不记录实现进度。实现进度必须隔离在 `EmitCoverage`（**过渡脚手架**）：其**唯一合法初值 = §3.1 现状表逐格**（`✅`/`🐞` → true，`⛔*`/`⏸*` → false），由 Step 0 验收②的字节 diff 证明该映射无偏；R2 的共用管线落地后它坍缩为「凡 `FormatFacts` 允许即可发射」并**删除**。两张表都由 I-3 收口，禁止散落字面量。 |
 | C2 | 目标态**不存在 `⏸`**：每格只能是 ✅（格式能表达 → 必须支持）或 ⛔（格式不能表达）。`⏸` 是**过渡态欠账**，必须带 reopen 条件，且不得出现在 §6。 |
 | C3 | 顺序：**先建共用管线，再补能力**。若先按格式逐一手写能力（7 个扩展集合 kind × 5 格式 = 28 条读侧构造 × 6 条发射路径），会立刻被共用管线推翻 —— 那是**重复劳动**。 |
-| C4 | 诊断是 C2 的**唯一**出口：凡是 ⛔，必须有诊断；凡是有诊断，必须是格式事实（不得用诊断掩盖未实现）。 |
+| C4 | 诊断分两类，**不得混用**：**⛔ 类** —— 格式确实不能表达，必须有诊断，且不得用诊断掩盖未实现；**`⏸` 类** —— 表示存在、我方未实现，同样必须有诊断，但**必须与 ⛔ 类可区分**并携带 reopen 条件（§5.4 / I-5）。两类合起来才是「不支持」的唯一出口。 |
 
 ## 2. 规范性规则
 
@@ -113,9 +115,11 @@ becomes one reviewable, testable table instead of 25 scattered format checks
 ### 3.0 证据方法
 
 - **表示性**（§3.2）：Python `tomllib`（TOML 1.0 合规）与 PyYAML，逐形状喂入规范形态并检查解析结果；命令见 §10。
-- **现状**（§3.1）：55 格探针（5 格式 × 11 形状）+ 10 格值级探针，采构建期诊断 + 往返实测。**两名独立复核者各自重建探针**，54/55 格与首测一致（唯一差异为 S11 的形状歧义，v2 已拆为 S11a/S11b）。
+- **现状**（§3.1）：**5 格式 × 15 形状 = 75 格**探针（含 S11a/S11b、值级 S12/S13、scalar S15），采构建期诊断 + 往返实测。**三名独立复核者各自重建探针**：前两轮复现 54/55 格（唯一差异为当时未拆分的 S11 形状歧义），第三轮独立复算 §3.2 全部格式事实。探针语料于 **R1 Task 2** 入库到 `tests/FormatCapabilities.Probe/`（**当前尚不存在**）。
 
 ### 3.1 现状表（我们的生成器实际行为，基线 `84a9560`）
+
+> **本表是 Step 0 的中间态快照**（基线 `84a9560`）。按 C2，**Step 4 之后本表只允许 ✅ 与 ⛔**；每个 `⏸` 格的 reopen 条件见其 defect 列（→ §5 对应小节）。Step 0 的 `EmitCoverage` 初值**就是本表**（见 C1）。
 
 图例（**只描述现状**）：✅ 往返正确 ｜ 🐞 无诊断 + 数据丢失 ｜ ⛔*id* 成员被丢弃且有该诊断 ｜ ⏸*id* 成员被丢弃且有该诊断，但格式**本可表示**
 
@@ -125,16 +129,16 @@ becomes one reviewable, testable table instead of 25 scattered format checks
 | S2 | `List<Dto>` | ✅ | ✅ | ✅ `[[Table]]` | ✅ | ⛔004 |
 | S3 | `List<List<int>>` | ✅ | ✅ | ✅ `[[1,2],[3]]` | ✅ | ⛔004 |
 | S4 | `List<List<Dto>>` | ✅ | ✅ | ⏸004 | ✅ | ⛔004 |
-| S5 | `List<int?>` | ✅ | ✅ | ⛔004 | ⏸004 | ⛔004 |
-| S6 | `List<List<int?>>` | ✅ | ✅ | ⛔004 | ⏸004 | ⛔004 |
+| S5 | `List<int?>` | ✅ | ✅ | ⛔004 | ⏸004 (**D1**) | ⛔004 |
+| S6 | `List<List<int?>>` | ✅ | ✅ | ⛔004 | ⏸004 (**D1**) | ⛔004 |
 | S7 | `HashSet<int>` 作成员 | ✅ | 🐞 **D-1** | 🐞 **D-1** | 🐞 **D-1** | 🐞 **D-1** |
 | S8 | `List<HashSet<int>>` 作元素 | ⏸004 | 🐞 **D-2** | 🐞 **D-2** | 🐞 **D-2** | 🐞 **D-2** |
 | S9 | `Dictionary<string,int>` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | S10 | `Dictionary<string, List<int>>` | ⏸004 **D-3** | ⏸004 **D-3** | ⏸004 **D-3** | ⏸004 **D-3** | ⛔004 |
 | S11a | 递归：**自递归** `Node.Child: Node` | ✅ | ✅ | ⏸003 | ⏸003 | ⛔003 |
-| S11b | 递归：**互递归** `M1.Child: M2` | ✅ | ✅ | 🐞 **D-5** | ⏸003 | ⏸003 |
+| S11b | 递归：**互递归** `M1.Child: M2` | ✅ | ✅ | 🐞 **D-5** | ⏸003 | ⛔003 |
 | S12 | `List<string?>`（值级 null 元素） | ✅ | ✅ | 🐞 **D-7a** | 🐞 **D-7b** | ⛔004 |
-| S13 | `Dictionary<string,int?>`（null 值） | ✅ | ✅ | ⛔004 | ⏸004 | ⛔004 |
+| S13 | `Dictionary<string,int?>`（null 值） | ✅ | ✅ | ⛔004 | ⏸004 (**D1**) | ⛔004 |
 | S14 | `List<Dto?>`（对象 null 元素） | **未测** | **未测** | **未测** | **未测** | **未测** |
 | S15 | scalar 族（`float`/`double`/`decimal`/`DateTime`/`TimeSpan`/`Guid`/`enum?`） | 见 §3.4 | | | | |
 
@@ -144,11 +148,16 @@ becomes one reviewable, testable table instead of 25 scattered format checks
 
 | 形状 | JSON | MsgPack | TOML | YAML | INI | 依据 |
 |---|:---:|:---:|:---:|:---:|:---:|---|
-| S1–S4（含嵌套对象列表） | ✅ | ✅ | ✅ | ✅ | ❌ | TOML：`V = [[{a = 1}], [{b = 2}]]` 被 `tomllib` 接受；INI 无嵌套 |
+| S1（扁平标量列表） | ✅ | ✅ | ✅ | ✅ | **✅** | INI 的扁平逗号串 `V = 1,2,3`；§3.1 实测往返正确 |
+| S2–S4（含嵌套对象列表） | ✅ | ✅ | ✅ | ✅ | ❌ | TOML：`V = [[{a = 1}], [{b = 2}]]` 被 `tomllib` 接受；INI 无嵌套 |
 | S5/S6/S12/S13（null） | ✅ | ✅ | ❌ | ✅ | ❌ | TOML：`V = ["a", null]` / `{a = 1, b = null}` 均被 `tomllib` **拒绝**；YAML 全部接受 |
 | S7/S8（扩展集合） | ✅ | ✅ | ✅ | ✅ | S7 ✅ / S8 ❌ | TOML `V = [1,2,3]`、`V = [[1],[2,3]]` 均被接受 |
 | S9/S10（字典） | ✅ | ✅ | ✅ | ✅ | S9 ✅ / S10 ❌ | TOML `V = {a = [1, 2]}` 被接受 |
 | S11a/S11b（递归） | ✅ | ✅ | ✅ | ✅ | ❌ | TOML `[Child]` / `[Child.Child]` 被接受；YAML 两层映射被接受 |
+
+> **INI 一行的依据性质（重要）**：INI 除了「`key = value` + 单层 `[section]`」之外**没有形状语义**，任何 INI 解析器（实测 `configparser`）都会把扁平列表、点号段名、空字段一律当**字符串**收下。因此 INI 的 ✅/⛔ 分界是**本规格的约定**，不是可被第三方实现证伪的格式事实：
+> - **约定**：标量列表 = 单层逗号串（`V = 1,2,3`）；对象列表只在**顶层**用编号 section（`[0]`、`[1]`）；**成员内不承载任何嵌套**；**不承载 null**（空值与空串不可区分）。
+> - 依据来源列的含义：`tomllib`/PyYAML = 独立实现实测；**「约定」= 无规范 reader，采用上述约定**。C4 的「格式事实」包含这种**约定型边界**，但它必须像本条一样写下来，不得只写 ⛔ 而无理由。
 
 **结论（这是 v3 的核心）**：真正的 `⛔` 只有两类 ——
 1. **INI 的结构性限制**：任何嵌套（S2–S4、S8、S10、S11）与任何 null（S5、S6、S12、S13）；
@@ -174,7 +183,7 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 | **D-7b** | 值级静默丢失 | **YAML**：同上；但 YAML 有 null ⇒ 应**支持**（并入 D1-A） | `V:⏎- a⏎- c` |
 | **D-3** | 实现缺口 | `Dictionary<string, List<T>>` 在 JSON/MsgPack/TOML/YAML **可表示**却丢弃（有 004，不违反 R2，违反 R1） | §3.2 已证四格式可表示 |
 | **D-4** | 诊断措辞 | ①递归诊断指向内层类型成员；②**`⏸` 格与 `⛔` 格共用同一条消息**「cannot be represented by this format」—— 对 YAML 的 S5/S6/S13 这类**可表示**的格，公共消息在误导用户（N8） | `GenInfrastructure.cs:183/235` 的 `messageFormat` 只含 `{0}` |
-| **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与另一套消息，能力口径与具名类型可能不一致 | `AnonTypeHandler` + `:276` |
+| **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与另一套消息，能力口径与具名类型可能不一致 | `AnonTypeHandler` + `:276`。**归属**：并入 Step 2 的共用管线（匿名类型是第 6 个发射 surface，管线落地时必须统一口径）；本批不单独修，故 §8 不另加版本行 |
 
 ## 5. 裁定记录（由 R0 推导，v4）
 
@@ -184,7 +193,7 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 
 - **推导**：R0 第 3 条 + §3.2：PyYAML 接受 `- null`、`V: {a: 1, b: null}`、`[[1, null]]` ⇒ YAML **能表达** ⇒ 必须实现。
 - **范围**：S5/S6/S12/S13 × YAML 全粒度。
-- **写侧形态**：`- null`（显式）。**不可**用裸 `-` —— F5 已将其占用为「嵌套序列项」（R1″ 要求写侧唯一）。
+- **写侧形态**：`- null`（显式）。**不可**用裸 `-` —— 裸 dash 已被既有实现占用为「嵌套序列项」（`YamlReader.IsNestedSequenceItem`），R1″ 要求写侧唯一，故 null 元素必须自带字面量。
 - **TOML/INI 的 `⛔` 保持**：`tomllib` 明确拒绝 `null`（§3.2），是格式事实。
 
 ### 5.2 D2 — 扩展集合 → **全格式实现**（原 D2-A）
@@ -192,7 +201,7 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 - **推导**：R0 第 3 条：7 个 kind（`hashset`/`queue`/`stack`/`linkedlist`/`immutablearray`/`memory`/`readonlymemory`）在 5 个格式上都能用「数组」表达（§3.2 已证 TOML/YAML 接受嵌套数组），**没有任何格式明确不支持** ⇒ 必须实现。
 - **实现位置**：**在共用管线里实现一次**（R0 第 1 条），不是在 5 个生成器里各写一遍。
 - **语义注意（R1′）**：`Stack<T>` 枚举 top→bottom，读侧必须按**逆序 `Push`** 构造才能保序；`Memory<T>`/`ReadOnlyMemory<T>` 读侧需 `new Memory<byte>(array)`。这两条写进管线的容器构造策略表。
-- **原 D2-B（先加诊断止血）不再必要**：共用管线会在同一步内让它们真正可用；但**若管线分多次落地**，中间态仍须有诊断（R2）。
+- **中间态**：管线未落地前，非 JSON 格式的扩展集合仍会被丢弃 —— 该丢弃**必须报诊断**（R2/C4 的 ⏸ 类），这是 Step 1 的交付物，与最终实现不冲突。
 
 ### 5.3 D3 — 递归深度 → **TOML/YAML 实现，INI 不支持**（原 D3-B/D3-C 合并）
 
@@ -238,8 +247,8 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 | S11a/S11b | 递归（任意深度） | ✅ | ✅ | ✅ | ✅ | ⛔ 扁平 |
 | S12 | `List<string?>` | ✅ | ✅ | ⛔ null | ✅ | ⛔ |
 | S13 | `Dictionary<string,int?>` | ✅ | ✅ | ⛔ null | ✅ | ⛔ |
-| S14 | `List<Dto?>` | 待实测 | 待实测 | ⛔ null | 待实测 | ⛔ |
-| S15 | scalar 族（`float`/`decimal`/`DateTime`/`TimeSpan`/`Guid`/`enum?`） | 待实测 | 待实测 | 待实测 | 待实测 | 待实测 |
+
+> **为什么 §6 里没有 S14/S15**：C2 规定 §6 只允许 ✅/⛔，而这两族**尚未实测** —— 未测就标 ✅ 等于凭空乐观。它们暂列 §6.2「待测尾巴」，由 Step 0 的探针补齐后**立即并入上表**并删除该小节；**Step 4 的验收要求 §6.2 为空**。
 
 **唯一的 `⛔` 来源**（与 §3.2 一致）：
 1. **INI 结构性限制**：任何嵌套、任何 null、任何对象列表；
@@ -251,6 +260,12 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 - §9 的**每个阶段验收**都要能回答"还剩哪些 `⏸`、为什么"；
 - 任何 `⏸` 不得进入发布说明的"已知限制"（那是 `⛔` 的用途），只能进"路线图"。
 
+### 6.2 待测尾巴（Step 0 必须清零）
+| # | 形状 | 待测内容 | 谁负责 |
+|---|---|---|---|
+| S14 | `List<Dto?>`（对象 null 元素） | 5 格式 × 往返 | Step 0 探针 |
+| S15 | scalar 族 | 最短往返文本（`float`/`double`）、`decimal` invariant、`DateTime.Kind`、`TimeSpan` 格式、`Guid`、`enum?` | Step 0 探针 |
+
 ## 7. 不变式
 
 | ID | 不变式 | 强制方式 | 生效 |
@@ -260,7 +275,7 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 | **I-3** | 能力表是唯一判据 | **类型级禁止**：生成器 API 只收 `FormatCapabilities` 值（拿不到字符串就写不出 `formatTag == "json"`）+ Roslyn 架构测试扫描 `shared/Gen` | Step 0 |
 | **I-4** | 每个 ✅ 有往返测试并与矩阵同源 | **生成式**：表每格带 `SampleType`，测试与 README 矩阵都从表生成 | Step 0 |
 | **I-5** | 诊断含成员名 + 格式 + 形状；`⏸` 与 `⛔` 的消息**可区分** | 断言消息片段 | **Step 1**（因需改 `messageFormat`：003/004 现在只含 `{0}`，见 N3） |
-| **I-6** | ✅ 由边界值样本支撑（R5 + §3.4 的 scalar 族） | 数据驱动多值探针 | Step 2 |
+| **I-6** | ✅ 由边界值样本支撑（R5 + §3.4 的 scalar 族） | 数据驱动多值探针 | **Step 4**（矩阵收敛时才有意义） |
 
 ## 8. 兼容性政策
 
@@ -274,19 +289,19 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 
 | 变更 | API | 行为 | 版本 |
 |---|---|---|---|
-| D-6（接通 001）、D2-B | 不变 | 新增诊断 | `y+1` + **必须附 `NoWarn` opt-out 说明** |
+| D-6（接通 001）、D-1/D-2/D-7 的**诊断半边**（Step 1） | 不变 | 只新增诊断 | `y+1` + **必须附 `NoWarn` opt-out 说明** |
 | D-1/D-2（D2-A 生效后） | 不变 | 成员不再丢失 | `x+1`（放开） |
 | **D-5**（根成员不再被覆盖） | 不变 | **读回结果改变** | `x+1` |
 | D-7a（TOML 改类型级 ⛔） | 不变 | 收紧（成员消失 + 诊断） | `x+1` |
 | D-7b / D1-A（YAML 支持 null） | 不变 | 放开 | `x+1` |
 | D-3 / S10 | 不变 | 放开 | `x+1` |
-| **D3-A / D3-B(N)** | 不变 | 收紧 | `x+1` + 迁移说明 |
-| `FormatCapabilities` 若 public（D5） | **变** | — | `x+1` + 更新 `api/*.public.txt` |
+| 递归（TOML/YAML 放开到任意深度；INI 保持不支持） | 不变 | 放开 | `x+1` |
+| ~~`FormatCapabilities` 若 public~~ | **已裁定 internal**（§5.5），本行不适用；`api/*.public.txt` 全程不变 | — | 无版本影响 |
 
 **三条政策**（v3 修正了 v2 的「两条」笔误）：
 1. **新增诊断必须附 `NoWarn` opt-out 说明**（否则 `warnaserror` 用户升级即挂）。
 2. **诊断 id + 消息模板是公共契约**，变更同样计版本。
-3. 除 `FormatCapabilities`（若 public）外，本批**不改** `api/*.public.txt`；禁止「每项都更新基线」。
+3. `FormatCapabilities` 已裁定 **internal**（§5.5），**本批全程不改** `api/*.public.txt`；禁止「每项都更新基线」。
 
 ## 9. 实施阶段（按 R0/C3 排序：**先共用管线，再补能力**）
 
@@ -302,6 +317,16 @@ R1′ 花 6 行定义 scalar 等价关系，但目前为止**一格都没实测*
 | **Step 4** | 矩阵收敛：把 §6 每一格跑成 ✅/⛔，README 与 spec 同源更新 | 终态验收 |
 
 > **v3 的错误顺序**：把「扩展集合全格式（10–15 Task）」放在管线之前，等于在 5 个生成器里各写一遍 28 条读侧构造，然后被 Step 2 的管线整体推翻（C3）。
+
+### 各步验收
+
+| 步 | 验收（每条都要能回答"还剩哪些 `⏸`、为什么"） |
+|---|---|
+| **Step 0** | 四件套（下） |
+| **Step 1** | ①**生成代码字节 diff 为空**（与 Step 0 基线逐字节相同）②新增诊断逐条列出（id + 消息 + 触发模型），`PICOSERDE001` 在两个发射点各命中一次 ③`⏸` 账：本步不消除任何 `⏸`，只让它们**可见** |
+| **Step 2** | ①字节 diff 仍为空（管线是纯重构）②`⏸` 账：不变 |
+| **Step 3** | ①§3.1 中 `⏸` 逐格转为 ✅（或按 §3.2 转为 ⛔）②`⏸` 账：只允许剩 §6.2 待测尾巴 |
+| **Step 4** | ①§6 全格 ✅/⛔（§6.2 为空）②README 矩阵由表生成且与 §6 一致 ③§3.1 只允许 ✅/⛔ |
 
 ### Step 0 验收（四件套）
 1. **既有测试逐条不变绿** + 新增 I-2/I-3/I-4 测试（**不是**「测试数不变」）
@@ -328,11 +353,14 @@ grep -oE "warning PICOSERDE[0-9]+: Member '[^']*'" build.log | sort -u
 ```
 
 ### 10.2 表示性判定（R1 的独立实现）
+
 ```bash
-python - <<'PY'
+python - <<'PYEOF'
 import tomllib, yaml, json
+
 toml_cases = {
   "S4 nested-object-array": 'V = [[{a = 1}], [{b = 2}]]',
+  "S3 nested-int-array":    'V = [[1, 2], [3]]',
   "S7 set":                 'V = [1, 2, 3]',
   "S8 set-as-element":      'V = [[1], [2, 3]]',
   "S10 dict-value-list":    'V = {a = [1, 2]}',
@@ -343,8 +371,36 @@ toml_cases = {
 for n, t in toml_cases.items():
     try: print(f"TOML {n:26s} OK   {json.dumps(tomllib.loads(t))}")
     except Exception: print(f"TOML {n:26s} REJECTED")
-PY
+
+yaml_cases = {                     # D1 的裁定依赖这一段
+  "S5 list<int?> with null": 'V:\n- 1\n- null\n- 3\n',
+  "S6 nested nullable":      'V:\n- - 1\n  - null\n',
+  "S12 list<string?> null":  'V:\n- a\n- null\n- c\n',
+  "S13 dict null value":     'V:\n  a: 1\n  b: null\n',
+  "S11 recursion 2 levels":  'Child:\n  Child:\n    Name: d\n  Name: c\nName: r\n',
+}
+for n, t in yaml_cases.items():
+    try: print(f"YAML {n:26s} OK   {json.dumps(yaml.safe_load(t))}")
+    except Exception: print(f"YAML {n:26s} REJECTED")
+PYEOF
 ```
-**v3 的实测结论**：TOML 接受 S4/S7/S8/S10/S11，**拒绝** S12/S13（null）；PyYAML 接受全部含 null 的用例。
+
+**实测输出（Python 3.12 `tomllib` + PyYAML 6.0.3）**：
+
+```
+TOML S4 nested-object-array    OK  {"V": [[{"a": 1}], [{"b": 2}]]}
+TOML S3 nested-int-array       OK  {"V": [[1, 2], [3]]}
+TOML S7 set                    OK  {"V": [1, 2, 3]}
+TOML S8 set-as-element         OK  {"V": [[1], [2, 3]]}
+TOML S10 dict-value-list       OK  {"V": {"a": [1, 2]}}
+TOML S11 recursion             OK  {"Child": {"Name": "c", "Child": {"Name": "d"}}}
+TOML S12 null-in-array         REJECTED  (Invalid value)
+TOML S13 null-dict-value       REJECTED  (Invalid value)
+YAML S5/S6/S12/S13/S11         OK  (含 null 的五个用例全部接受)
+```
+
+**结论**：TOML 接受 S2–S4、S7、S8、S10、S11，**拒绝** null（S12/S13）；YAML 接受全部含 null 的用例 —— 这是 D1 裁定（YAML 实现 null）与 TOML/INI `⛔` 的唯一依据。
+
+**INI 无独立实现可依据**：`configparser` 对任何输入都当字符串收下（扁平列表、点号段名、空字段皆然），故 INI 的边界是**本规格的约定**（见 §3.2），不是格式事实。
 
 **独立复核**：三轮复核报告见 `.superpowers/sdd/spec/`（`design-review.md` / `evidence-review.md` / `review-v2.md`），均未提交入库（过程产物）。
