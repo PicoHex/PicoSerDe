@@ -63,11 +63,13 @@
 
 - [ ] **Step 1: 写 8 条往返测试**（上表逐条一条），断言 `Deserialize<M>(bytes)` **在 2 秒内返回**且值符合预期；用 `Assert.That(task).Completes()` 或显式 `CancellationToken` 超时，**不能**让测试自己挂住。
 - [ ] **Step 2: 跑，确认 6 条挂起/超时**（用 `dotnet test --timeout` 或 TUnit 的 per-test timeout）。
-- [ ] **Step 3: 修 reader**：`TomlReader.ReadSpan()` 在 EOF（final block）分支把 `_tokenType` 清为 `TokenType.None`（而不是只 `return false`）。
+- [ ] **Step 3: 修 reader**：`TomlReader.FailRead()`（`Read()` 的失败出口，仅在 `_isFinalBlock` 时）把 `_tokenType` 清为 `TokenType.None`（**不是** `ReadSpan()` 的 EOF 分支）（而不是只 `return false`）。
 - [ ] **Step 4: 修生成器**：`ObjectStart` 分支在 `continue` 前补 `if (r.TokenType == TokenType.None) break;`。
   > **W0 实测修正**：原计划的 `if (!r.Read()) break;` **会吞掉下一个表头、静默丢数据**（由 `TwoPopulatedTables_BothKeepTheirKeys` 钉住）。
   > 且**表名不匹配**时该分支一次 `Read()` 都不发 ⇒ token 永远是 `ObjectStart`，守卫必须查 `None` 而**不能**依赖 `Read()` 的返回值。
-  > 另有 3 处同族循环（`:1215` streaming、`:3381` poly、两处 `[[array]]` 内层）需一并守卫或加测试。
+  > **W0 fix 实测再修正**：仅查 `None` **不充分** —— "表名不在模型里"时该分支零 `Read()`，token 恒为 `ObjectStart`。
+  > 真正的修法是**推进守卫**：`continue` 前若 token 仍是 `ObjectStart` **且** `BytesConsumed` 没变，就真正 `Read()` 一次。
+  > 实测共有 **6 个派发分支 + 3 个内层循环**需要它（含 review 也漏掉的 poly `[[array]]`，`:3482-3489`）。
 - [ ] **Step 5: 跑，全 8 条通过**；再跑全量 → 0 failed。
 - [ ] **Step 6: 探针复核**：`toml|S9` 从 `TIMEOUT` 变 `OK 或 MISMATCH`（不再是 TIMEOUT）；`baseline-cells.txt` 相应更新。
 - [ ] **Step 7: 提交**
@@ -165,6 +167,9 @@
 **Files:**
 - Modify: `PicoYaml/src/PicoYaml/YamlWriter.cs`（键转义）
 - Modify: `PicoToml/src/PicoToml.Gen/TomlSerializerGenerator.cs`（S4 = `List<List<Dto>>` 的发射）
+- Modify: `PicoToml/src/PicoToml/TomlWriter.cs`（**D-9b**：`NeedsKeyQuoting` 只判 `空格 	 = [ ] . # "`，
+  不含 `
+`/``/控制字符/`\` ⇒ 含换行的键写出后读不回来。补字符集 + 往返测试）
 - Modify: `docs/superpowers/specs/…-design.md`（**ini S9 的脚注**，见下）
 
 - [ ] **Step 1: 写 yaml S9 测试**（键含 `\n`、`"`、`:`），断言往返等价；写 toml S4 测试（`List<List<Dto>>`）。
