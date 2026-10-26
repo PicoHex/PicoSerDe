@@ -1039,8 +1039,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
                 // Nested sequences get one block per level (see
                 // EmitYamlSequenceWrite); everything else keeps the flat shape.
+                // The extended collection kinds (S7) are sequences on the wire, so they
+                // take exactly the same path; only the reader has to rebuild them.
                 if (IsYamlNestedList(p))
                 {
                     EmitYamlSequenceWrite(s, p, accessor, ind, 0, p.TypeKind ?? "list");
@@ -2111,8 +2120,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (p.TypeKind is "list" or "array")
+        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind))
         {
+            // Extended collection kinds (S7) are sequences on the wire, so they write the
+            // same block/flow sequence a List<T> writes. Spelling `is "list" or "array"`
+            // here is what sent HashSet<int> to the scalar fallback (`yw.WriteString(...ToString())`).
             bool collGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
                 s,
                 p,
@@ -2139,18 +2151,34 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine();
                 s.Append(ind);
                 s.Append("foreach (var __item in ");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
                 s.Append(
-                    p.TypeKind == "array"
-                        ? $" ?? System.Array.Empty<{elemTypeName}>()"
-                        : " ?? new System.Collections.Generic.List<"
+                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                        p.TypeKind,
+                        target + "." + p.Name
+                    )
                 );
-                if (p.TypeKind == "array")
+                if (!PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(p.TypeKind))
+                {
+                    // Struct sequence (ImmutableArray/Memory/ReadOnlyMemory): no null to
+                    // guard, so no `??` at all.
                     s.AppendLine(")");
+                }
+                else if (p.TypeKind == "array")
+                {
+                    s.Append(" ?? System.Array.Empty<");
+                    s.Append(elemTypeName);
+                    s.AppendLine(">())");
+                }
+                else if (PicoSerDe.Gen.GenInfrastructure.IsExtendedCollectionKind(p.TypeKind))
+                {
+                    // Target-typed by the `??` left operand: the empty value of the
+                    // collection the kind names (a `new List<T>(0)` fallback would not
+                    // convert to HashSet<T>/Queue<T>/Stack<T>).
+                    s.AppendLine(" ?? [])");
+                }
                 else
                 {
+                    s.Append(" ?? new System.Collections.Generic.List<");
                     s.Append(elemTypeName);
                     s.AppendLine(">(0))");
                 }
@@ -2176,11 +2204,25 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("yw.WriteStartSequence();");
                 s.Append(ind);
                 s.Append("foreach (var __item in ");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-                if (p.TypeKind == "array")
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                        p.TypeKind,
+                        target + "." + p.Name
+                    )
+                );
+                if (!PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(p.TypeKind))
                 {
+                    // Struct sequence: no `??` (see the array-of-objects branch above).
+                    s.AppendLine(")");
+                }
+                else if (p.TypeKind == "array")
+                {
+                    s.AppendLine(" ?? [])");
+                }
+                else if (PicoSerDe.Gen.GenInfrastructure.IsExtendedCollectionKind(p.TypeKind))
+                {
+                    // See above: `?? []` is the only empty value that works for every
+                    // reference-type extended collection.
                     s.AppendLine(" ?? [])");
                 }
                 else
@@ -2771,10 +2813,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (p.TypeKind is "list" or "array")
+        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind))
         {
             // Nested sequences (List<List<T>>, List<T[]>, ...) decode level by level;
             // the flat shapes below stay byte-identical for every other list member.
+            // Extended collection kinds (S7) are flat sequences here and are converted to
+            // the DECLARED type by EmitCollectionFromList at the end.
             if (IsYamlNestedList(p))
             {
                 EmitYamlNestedListDeserialize(
@@ -2925,12 +2969,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             );
             s.Append(pad);
             s.AppendLine("}");
-            s.Append(pad);
-            EmitTgt();
-            s.Append(" = __tmpList");
-            if (p.TypeKind == "array")
-                s.Append(".ToArray()");
-            s.AppendLine(";");
+            PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                s,
+                p.TypeKind!,
+                "__tmpList",
+                ctorAssign ? tgt : tgt + "." + p.Name,
+                p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object",
+                pad
+            );
             s.Append(pad);
             s.AppendLine("if (!__more) break;");
         }
@@ -3515,7 +3561,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     /// the item type, so one descriptor walks the whole chain.
     /// </summary>
     private static bool IsYamlNestedList(PropertyInfo p) =>
-        (p.ElementTypeKind is "list" or "array") && p.NestedProperties.Length > 0;
+        PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind)
+        && p.NestedProperties.Length > 0;
 
     /// <summary>Emits the write of <paramref name="accessor"/> as a YAML block sequence.</summary>
     private static void EmitYamlSequenceWrite(
@@ -3534,14 +3581,24 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.Append("foreach (var ");
         s.Append(itemVar);
         s.Append(" in ");
-        s.Append(accessor);
-        if (valueKind == "array")
-            s.Append(" ?? []");
-        else
+        s.Append(PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(valueKind, accessor));
+        if (!PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(valueKind))
+        {
+            // ImmutableArray<T>/Memory<T>/ReadOnlyMemory<T> are STRUCTS: neither `?? []`
+            // nor `?? new List<T>(0)` compiles on them, and there is no null to guard.
+        }
+        else if (valueKind == "list")
         {
             s.Append(" ?? new System.Collections.Generic.List<");
             s.Append(level.ElementTypeNameAnnotated ?? level.ElementTypeName ?? "object");
             s.Append(">(0)");
+        }
+        else
+        {
+            // array + the reference-type extended collections: a collection expression is
+            // target-typed by the `??` left operand, so it is the empty value of whatever
+            // collection the kind names (`new List<T>(0)` would not convert to HashSet<T>).
+            s.Append(" ?? []");
         }
         s.AppendLine(")");
         s.Append(ind);
@@ -3568,11 +3625,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             EmitSerializeListElement(s, level, ind, itemVar);
             return;
         }
-        var countExpr = level.ElementTypeKind == "array" ? itemVar + ".Length" : itemVar + ".Count";
+        var countExpr = PicoSerDe.Gen.GenInfrastructure.SequenceCountExpression(
+            level.ElementTypeKind,
+            itemVar
+        );
         s.Append(ind);
         s.Append("if (");
-        s.Append(itemVar);
-        s.Append(" is null || ");
+        if (PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(level.ElementTypeKind))
+        {
+            s.Append(itemVar);
+            s.Append(" is null || ");
+        }
         s.Append(countExpr);
         s.AppendLine(" == 0)");
         s.Append(ind);
@@ -3663,12 +3726,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    // is already the sibling property this member must not eat (C-21).");
         s.Append(pad);
         s.AppendLine("}");
-        s.Append(pad);
-        s.Append(assignTarget);
-        s.Append(" = __tmpList");
-        if (isArray)
-            s.Append(".ToArray()");
-        s.AppendLine(";");
+        PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+            s,
+            isArray ? "array" : "list",
+            "__tmpList",
+            assignTarget,
+            p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object",
+            pad
+        );
         s.Append(pad);
         s.AppendLine("if (!__more) break;");
     }
@@ -3804,10 +3869,32 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         );
         s.Append(pad);
         s.AppendLine("}");
+        // The item's elements are in itemVar. When the level IS an extended collection,
+        // the declared element type is that collection — convert before adding.
+        var converted = itemVar;
+        if (PicoSerDe.Gen.GenInfrastructure.IsExtendedCollectionKind(level.ElementTypeKind))
+        {
+            var convVar =
+                "__seq" + depth.ToString(System.Globalization.CultureInfo.InvariantCulture) + "c";
+            s.Append(pad);
+            s.Append(level.ElementTypeNameAnnotated ?? level.ElementTypeName ?? "object");
+            s.Append(' ');
+            s.Append(convVar);
+            s.AppendLine(" = default!;");
+            PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                s,
+                level.ElementTypeKind!,
+                itemVar,
+                convVar,
+                inner.ElementTypeNameAnnotated ?? inner.ElementTypeName ?? "object",
+                pad
+            );
+            converted = convVar;
+        }
         s.Append(pad);
         s.Append(listVar);
         s.Append(".Add(");
-        s.Append(itemVar);
+        s.Append(converted);
         if (level.ElementTypeKind == "array")
             s.Append(".ToArray()");
         s.AppendLine(");");

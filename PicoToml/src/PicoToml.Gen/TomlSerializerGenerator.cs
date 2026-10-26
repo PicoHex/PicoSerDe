@@ -1668,8 +1668,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (p.TypeKind is "list" or "array")
+        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind))
         {
+            // Extended collection kinds (S7) share this branch: their wire form is the same
+            // array, and the only difference is how the reader builds them back (see
+            // EmitCollectionFromList below). Asking IsSequenceKind instead of spelling
+            // `is "list" or "array"` is what keeps a new kind from being dropped here.
             // TOML has no null literal — a null collection can only be omitted,
             // regardless of DefaultIgnoreCondition.
             bool collGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
@@ -1715,11 +1719,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("\"u8);");
                 s.Append(indent);
                 s.Append("foreach (var __item in ");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-                if (p.IsNullableReference)
-                    s.Append("!");
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                        p.TypeKind,
+                        target + "." + p.Name + (p.IsNullableReference ? "!" : "")
+                    )
+                );
                 s.AppendLine(")");
                 s.Append(indent);
                 s.AppendLine("{");
@@ -2373,8 +2378,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     /// shared extractor drops them with PICOSERDE004.
     /// </summary>
     private static bool IsNestedCollectionMember(PropertyInfo p) =>
-        p.TypeKind is "list" or "array"
-        && p.ElementTypeKind is "list" or "array"
+        PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind)
+        && PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind)
         && p.NestedProperties.Length > 0;
 
     /// <summary>
@@ -2391,7 +2396,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         int depth
     )
     {
-        if (node.ElementTypeKind is "list" or "array" && node.NestedProperties.Length > 0)
+        if (
+            PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(node.ElementTypeKind)
+            && node.NestedProperties.Length > 0
+        )
         {
             var innerVar =
                 "__item" + depth.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -2401,7 +2409,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("foreach (var ");
             s.Append(innerVar);
             s.Append(" in ");
-            s.Append(itemVar);
+            s.Append(
+                PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                    node.ElementTypeKind,
+                    itemVar
+                )
+            );
             s.AppendLine(")");
             s.Append(indent);
             s.AppendLine("{");
@@ -2469,8 +2482,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (p.TypeKind is "list" or "array")
+        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind))
         {
+            // Extended collection kinds (S7) are read into the same temp list and then
+            // converted into the DECLARED type by EmitCollectionFromList — the one shared
+            // copy of the seven conversions (json used to own the only one).
             s.Append(pad);
             s.Append("var __tmpList = new System.Collections.Generic.List<");
             s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
@@ -2530,12 +2546,14 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("}");
             }
-            s.Append(pad);
-            EmitAssign();
-            s.Append(" = __tmpList");
-            if (p.TypeKind == "array")
-                s.Append(".ToArray()");
-            s.AppendLine(";");
+            PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                s,
+                p.TypeKind!,
+                "__tmpList",
+                ctorAssign ? tgt : tgt + "." + p.Name,
+                p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object",
+                pad
+            );
         }
         else
         {
@@ -3131,7 +3149,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         int depth
     )
     {
-        if (node.ElementTypeKind is not ("list" or "array") || node.NestedProperties.Length == 0)
+        if (
+            !PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(node.ElementTypeKind)
+            || node.NestedProperties.Length == 0
+        )
         {
             EmitDeserializeListElementTemp(s, node, pad, listVar);
             return;
@@ -3168,11 +3189,36 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         );
         s.Append(pad);
         s.AppendLine("    }");
+        // The level's items are in innerVar now. When this level IS an extended
+        // collection, the DECLARED element type is that collection — convert before adding.
+        var converted = innerVar;
+        if (PicoSerDe.Gen.GenInfrastructure.IsExtendedCollectionKind(node.ElementTypeKind))
+        {
+            var convVar =
+                "__cnv" + depth.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            s.Append(pad);
+            s.Append("    ");
+            s.Append(node.ElementTypeNameAnnotated ?? node.ElementTypeName ?? "object");
+            s.Append(' ');
+            s.Append(convVar);
+            s.AppendLine(" = default!;");
+            PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                s,
+                node.ElementTypeKind!,
+                innerVar,
+                convVar,
+                node.NestedProperties[0].ElementTypeNameAnnotated
+                    ?? node.NestedProperties[0].ElementTypeName
+                    ?? "object",
+                pad + "    "
+            );
+            converted = convVar;
+        }
         s.Append(pad);
         s.Append("    ");
         s.Append(listVar);
         s.Append(".Add(");
-        s.Append(innerVar);
+        s.Append(converted);
         if (node.ElementTypeKind == "array")
             s.Append(".ToArray()");
         s.AppendLine(");");

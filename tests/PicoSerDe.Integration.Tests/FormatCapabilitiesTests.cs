@@ -66,15 +66,18 @@ public class FormatCapabilitiesTests
         ("S6", "toml", Effect.DropMember),
         ("S6", "yaml", Effect.DropMember),
         ("S6", "ini", Effect.DropMember),
+        // S7/S8 x {json,msgpack,toml,yaml}: R2 Task 2 implemented the extended-collection
+        // family, so these eight cells moved to Supported. S7/S8 x ini stay dropped — ini
+        // has no nesting (S8 is a format FACT) and its member position is R2 Task 6.
         ("S7", "json", Effect.Supported),
-        ("S7", "msgpack", Effect.DropMember),
-        ("S7", "toml", Effect.DropMember),
-        ("S7", "yaml", Effect.DropMember),
+        ("S7", "msgpack", Effect.Supported),
+        ("S7", "toml", Effect.Supported),
+        ("S7", "yaml", Effect.Supported),
         ("S7", "ini", Effect.DropMember),
-        ("S8", "json", Effect.DropMember),
-        ("S8", "msgpack", Effect.DropMember),
-        ("S8", "toml", Effect.DropMember),
-        ("S8", "yaml", Effect.DropMember),
+        ("S8", "json", Effect.Supported),
+        ("S8", "msgpack", Effect.Supported),
+        ("S8", "toml", Effect.Supported),
+        ("S8", "yaml", Effect.Supported),
         ("S8", "ini", Effect.DropMember),
         ("S9", "json", Effect.Supported),
         ("S9", "msgpack", Effect.Supported),
@@ -488,14 +491,11 @@ public class FormatCapabilitiesTests
     {
         (string Fmt, Decision D)[] expected =
         [
-            ("msgpack", Decision.ExtendedKindResolves),
-            ("toml", Decision.ExtendedKindResolves),
-            ("yaml", Decision.ExtendedKindResolves),
+            // ExtendedKindResolves x {msgpack,toml,yaml} and ExtendedKindAsElement x
+            // {json,msgpack,toml,yaml} used to sit here; R2 Task 2 flipped those eight
+            // cells, so they are no longer "dropped today". ini keeps its entry (S7 x ini
+            // is Task 6); ExtendedKindAsElement x ini was never promoted (S8 is a fact).
             ("ini", Decision.ExtendedKindResolves),
-            ("json", Decision.ExtendedKindAsElement),
-            ("msgpack", Decision.ExtendedKindAsElement),
-            ("toml", Decision.ExtendedKindAsElement),
-            ("yaml", Decision.ExtendedKindAsElement),
             ("toml", Decision.NestedObjectContainer),
             ("yaml", Decision.NullableValueLeaf),
             ("yaml", Decision.NullableRefLeaf),

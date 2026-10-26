@@ -12,6 +12,13 @@ S7Yaml> {
     public void Serialize(IBufferWriter<byte> w, S7Yaml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoYaml.YamlOptions?)options;
         var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);
+        yw.WritePropertyName("V"u8);
+        yw.WriteStartSequence();
+        foreach (var __item in v.V ?? [])
+        {
+            yw.WriteSequenceItem(__item);
+        }
+        yw.WriteEndSequence();
     } }
 file readonly struct S7Yaml_YD : IDeserializer<S7Yaml> {
     public S7Yaml Deserialize(ReadOnlySpan<byte> d) {
@@ -24,7 +31,50 @@ file readonly struct S7Yaml_YD : IDeserializer<S7Yaml> {
                 continue;
             }
             var k = r.KeySpan;
-            if (!r.Read()) break;
+            if (TextHelpers.Eq(k, "V"u8)) {
+                var __tmpList = new System.Collections.Generic.List<int>(16);
+                bool __more;
+                __more = r.Read();
+                if (!__more)
+                {
+                    // The document ended at this key: there is no list to read.
+                }
+                else if (r.TokenType == TokenType.ObjectStart)
+                {
+                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    while ((__more = r.Read()) && r.TokenType == TokenType.String)
+                    {
+                        if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                        __tmpList.Add(__ev);
+                    }
+                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // it. `__more` then reports whether a member token is still available.
+                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                }
+                else if (r.TokenType == TokenType.String)
+                {
+                    // No wrapper: a flat sequence follows the key (`- item` at the same
+                    // indentation). The probe token belongs to the list, so consume it here.
+                    while (__more && r.TokenType == TokenType.String)
+                    {
+                        if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                        __tmpList.Add(__ev);
+                        __more = r.Read();
+                    }
+                }
+                else
+                {
+                    // No wrapper and no sequence item: the list is empty and the probe token
+                    // is already the sibling property this member must not eat (C-21). It is
+                    // left in place, so `__more` stays true and the loop re-dispatches it.
+                }
+                o.V = new System.Collections.Generic.HashSet<int>(__tmpList);
+                if (!__more) break;
+            }
+            else {
+                // Unknown property — skip its value to avoid infinite loop
+                if (!r.Read()) break;
+            }
         }
         return o;
     } }
@@ -45,8 +95,54 @@ S7Yaml? result) {
                 continue;
             }
             var k = r.KeySpan;
-            r.Mark();
-            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            if (TextHelpers.Eq(k, "V"u8)) {
+                var __tmpList = new System.Collections.Generic.List<int>(16);
+                bool __more;
+                __more = r.Read();
+                if (!__more)
+                {
+                    // The document ended at this key: there is no list to read.
+                }
+                else if (r.TokenType == TokenType.ObjectStart)
+                {
+                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    while ((__more = r.Read()) && r.TokenType == TokenType.String)
+                    {
+                        if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                        __tmpList.Add(__ev);
+                    }
+                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // it. `__more` then reports whether a member token is still available.
+                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                }
+                else if (r.TokenType == TokenType.String)
+                {
+                    // No wrapper: a flat sequence follows the key (`- item` at the same
+                    // indentation). The probe token belongs to the list, so consume it here.
+                    while (__more && r.TokenType == TokenType.String)
+                    {
+                        if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                        __tmpList.Add(__ev);
+                        __more = r.Read();
+                    }
+                }
+                else
+                {
+                    // No wrapper and no sequence item: the list is empty and the probe token
+                    // is already the sibling property this member must not eat (C-21). It is
+                    // left in place, so `__more` stays true and the loop re-dispatches it.
+                }
+                o.V = new System.Collections.Generic.HashSet<int>(__tmpList);
+                if (!__more) break;
+                if (r.NeedsMoreData) {
+                    r.RewindToMark();
+                    return ReadStatus.NeedMoreData;
+                }
+            }
+            else {
+                r.Mark();
+                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            }
         }
         // Reached via a container read that hit the buffer end.
 #pragma warning disable CS0162 // generated: branch shape decides reachability

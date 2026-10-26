@@ -2346,6 +2346,42 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(itemVar);
                 sb.AppendLine(");");
                 break;
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
+            {
+                // S8: the ELEMENT is an extended collection. Its wire form is the same
+                // nested array `List<List<int>>` writes; the extractor's descriptor chain
+                // (NestedProperties[0]) says what that inner array's items are, which is
+                // the part a kind-only test could never recover.
+                var setItem = "__setItem";
+                sb.Append(indent);
+                sb.AppendLine("jw.WriteStartArray();");
+                sb.Append(indent);
+                sb.Append("foreach (var ");
+                sb.Append(setItem);
+                sb.Append(" in ");
+                sb.Append(
+                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                        prop.ElementTypeKind,
+                        itemVar
+                    )
+                );
+                sb.AppendLine(")");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                if (prop.NestedProperties.Length > 0)
+                    EmitSerializeElement(sb, prop.NestedProperties[0], setItem, indent + "    ");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.AppendLine("jw.WriteEndArray();");
+                break;
+            }
             case "dict":
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -4147,6 +4183,64 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(".Add(");
                 sb.Append(sn);
                 sb.AppendLine(".Deserialize(ref reader));");
+                break;
+            }
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
+            {
+                // S8 on the read side: the item is an array, the DECLARED element is a
+                // collection — so read into a temp list and let the shared conversion
+                // (GenInfrastructure.EmitCollectionFromList) build the real type. A
+                // hard-coded `new HashSet<...>` per generator is exactly the duplication
+                // that left four generators with no case at all.
+                var inner = prop.NestedProperties.Length > 0 ? prop.NestedProperties[0] : prop;
+                var elemType = inner.ElementTypeNameAnnotated ?? inner.ElementTypeName ?? "object";
+                var setTmp = $"__setTmp{nestLevel}";
+                var setVal = $"__setVal{nestLevel}";
+                sb.Append(indent);
+                sb.Append("var ");
+                sb.Append(setTmp);
+                sb.Append(" = new System.Collections.Generic.List<");
+                sb.Append(elemType);
+                sb.AppendLine(">(8);");
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                sb.Append(indent);
+                sb.AppendLine(
+                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+                );
+                sb.Append(indent);
+                sb.AppendLine("    {");
+                EmitDeserializeElementAdd(sb, inner, setTmp, indent + "        ", nestLevel + 1);
+                sb.Append(indent);
+                sb.AppendLine("    }");
+                sb.Append(indent);
+                sb.AppendLine("}");
+                sb.Append(indent);
+                sb.Append(prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object");
+                sb.Append(' ');
+                sb.Append(setVal);
+                sb.AppendLine(" = default!;");
+                PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                    sb,
+                    prop.ElementTypeKind!,
+                    setTmp,
+                    setVal,
+                    elemType,
+                    indent
+                );
+                sb.Append(indent);
+                sb.Append(listVar);
+                sb.Append(".Add(");
+                sb.Append(setVal);
+                sb.AppendLine(");");
                 break;
             }
             default:

@@ -7,7 +7,13 @@ using FormatCapabilities.Probe;
 file static class S7MsgpackMsgPackSerializer {
     public static void Serialize(IBufferWriter<byte> writer, S7Msgpack value, global::PicoSerDe.Core.SerOptions? options) {
         var mw = new MsgPackWriter(writer, options: ((global::PicoMsgPack.MsgPackOptions?)options));
-        mw.WriteStartObject(0);
+        mw.WriteStartObject(1);
+        mw.WriteInt32(0);
+        mw.WriteStartArray(value.V.Count);
+        foreach (var __i in value.V) {
+            mw.WriteInt32(__i);
+        }
+        mw.WriteEndArray();
         mw.WriteEndObject(); } }
 
 file static class S7MsgpackMsgPackDeserializer {
@@ -27,6 +33,16 @@ file static class S7MsgpackMsgPackDeserializer {
                 __k = __pos;
             }
             switch (__k) {
+                case 0:
+                var __ext0 = new List<int>(16);
+                if (reader.TokenType == TokenType.ArrayStart) {
+                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                        if (!reader.TryGetInt32(out var __ev1))
+                            throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                        __ext0.Add(__ev1);
+                    } }
+                obj.V = new System.Collections.Generic.HashSet<int>(__ext0);
+                    break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
         }
@@ -53,6 +69,16 @@ file static class S7MsgpackMsgPackStreaming {
                 __k = __pos;
             }
             switch (__k) {
+                case 0:
+                var __ext2 = new List<int>(16);
+                if (reader.TokenType == TokenType.ArrayStart) {
+                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                        if (!reader.TryGetInt32(out var __ev3))
+                            throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                        __ext2.Add(__ev3);
+                    } }
+                obj.V = new System.Collections.Generic.HashSet<int>(__ext2);
+                    break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
         }

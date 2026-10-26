@@ -70,8 +70,14 @@ public class SilentDropDiagnosticTests
         await Assert.That(generated).DoesNotContain("Rows").Because("the member is not emitted");
     }
 
+    /// <summary>
+    /// The debt this fixture used to pin is PAID (R2 Task 2): a <c>HashSet&lt;int&gt;</c> in
+    /// ELEMENT position (spec §3 S8) is emitted as a nested array in json, so the drop
+    /// diagnostic has to be gone — keeping the old assertion would demand the bug back.
+    /// The still-dropped variants are the ini ones (S8 x ini is a format fact).
+    /// </summary>
     [Test]
-    public async Task Json_ExtendedCollectionElement_ReportsDiagnostic()
+    public async Task Json_ExtendedCollectionElement_Is_Now_Emitted()
     {
         var source = """
             using PicoJetson;
@@ -87,9 +93,12 @@ public class SilentDropDiagnosticTests
         var (ids, generated, _) = RunJson(source);
         await Assert
             .That(ids)
-            .Contains(Id)
-            .Because("a HashSet *element* is not emitted yet, so the drop must be reported");
-        await Assert.That(generated).DoesNotContain("Tags").Because("the member is not emitted");
+            .DoesNotContain(Id)
+            .Because("the element kind is carried by the generator now, so nothing is dropped");
+        await Assert
+            .That(generated)
+            .Contains("Tags")
+            .Because("S8 x json is Supported in the table, so the member must reach the code");
     }
 
     [Test]
@@ -773,20 +782,23 @@ public class SilentDropDiagnosticTests
     [Test]
     public async Task Unresolvable_extended_collection_is_reported_as_a_debt()
     {
+        // yaml/toml/msgpack paid this debt in R2 Task 2 (S7 is Supported there now); ini
+        // has not (its S7 column belongs to Task 6), so ini is the remaining example of
+        // "our debt, not a format limit".
         const string source = """
-            using PicoYaml;
+            using PicoIni;
 
-            [PicoYamlSerializable]
+            [PicoIniSerializable]
             public partial class Doc
             {
                 public System.Collections.Generic.HashSet<int> V { get; set; } = new();
             }
             """;
 
-        var drop = DropMessage(RunYaml(source), "Doc.V");
+        var drop = DropMessage(RunIni(source), "Doc.V");
 
         await Assert.That(drop.StartsWith(Deferred, StringComparison.Ordinal)).IsTrue();
-        await Assert.That(drop).Contains("yaml");
+        await Assert.That(drop).Contains("ini");
     }
 
     /// <summary>

@@ -7,7 +7,17 @@ using FormatCapabilities.Probe;
 file static class S8MsgpackMsgPackSerializer {
     public static void Serialize(IBufferWriter<byte> writer, S8Msgpack value, global::PicoSerDe.Core.SerOptions? options) {
         var mw = new MsgPackWriter(writer, options: ((global::PicoMsgPack.MsgPackOptions?)options));
-        mw.WriteStartObject(0);
+        mw.WriteStartObject(1);
+        mw.WriteInt32(0);
+        mw.WriteStartArray(value.V.Count);
+        foreach (var __i in value.V) {
+            mw.WriteStartArray(__i.Count);
+            foreach (var __nl0 in __i) {
+                mw.WriteInt32(__nl0);
+            }
+            mw.WriteEndArray();
+        }
+        mw.WriteEndArray();
         mw.WriteEndObject(); } }
 
 file static class S8MsgpackMsgPackDeserializer {
@@ -27,6 +37,22 @@ file static class S8MsgpackMsgPackDeserializer {
                 __k = __pos;
             }
             switch (__k) {
+                case 0:
+                obj.V ??= new List<global::System.Collections.Generic.HashSet<int>>(16);
+                if (reader.TokenType == TokenType.ArrayStart) {
+                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                        var __nl1 = new List<int>(16);
+                        if (reader.TokenType == TokenType.ArrayStart) {
+                            while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                                if (!reader.TryGetInt32(out var __ev2))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                __nl1.Add(__ev2);
+                            } }
+                        global::System.Collections.Generic.HashSet<int> __nc1 = default!;
+                        __nc1 = new System.Collections.Generic.HashSet<int>(__nl1);
+                        obj.V.Add(__nc1);
+                    } }
+                    break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
         }
@@ -53,6 +79,22 @@ file static class S8MsgpackMsgPackStreaming {
                 __k = __pos;
             }
             switch (__k) {
+                case 0:
+                obj.V ??= new List<global::System.Collections.Generic.HashSet<int>>(16);
+                if (reader.TokenType == TokenType.ArrayStart) {
+                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                        var __nl3 = new List<int>(16);
+                        if (reader.TokenType == TokenType.ArrayStart) {
+                            while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                                if (!reader.TryGetInt32(out var __ev4))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                __nl3.Add(__ev4);
+                            } }
+                        global::System.Collections.Generic.HashSet<int> __nc3 = default!;
+                        __nc3 = new System.Collections.Generic.HashSet<int>(__nl3);
+                        obj.V.Add(__nc3);
+                    } }
+                    break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
         }
