@@ -949,6 +949,13 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 EmitDictRead(s, dictProps[i], "o", "                    ");
                 s.AppendLine("                }");
             }
+            // A table read stops on the lookahead token: the dict loop leaves the NEXT
+            // table header current and undispatched, so this branch must NOT Read() again —
+            // that would swallow the following section's header and silently drop its keys.
+            // It only has to stop when the reader is exhausted. Without this, a bare `[V]`
+            // table (D-9) left ObjectStart current for ever and this `continue` re-dispatched
+            // it on every pass, hanging the deserializer.
+            s.AppendLine("                if (r.TokenType == TokenType.None) break;");
             s.AppendLine("                continue;");
             s.AppendLine("            }");
         }
