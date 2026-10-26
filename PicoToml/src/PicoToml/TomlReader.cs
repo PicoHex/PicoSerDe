@@ -369,8 +369,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
                     // Never consume an incomplete token: the next attempt (with
                     // more data) restarts exactly at this token.
                     _position = __tokenStart;
-                    _needsMoreData = !_isFinalBlock;
-                    return false;
+                    return FailRead();
                 }
                 // A token ending at a non-final buffer end may continue in the
                 // next chunk (no trailing newline, or an open multi-line
@@ -411,9 +410,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
         try
         {
             var result = _isSequence ? ReadSeq() : ReadSpan();
-            if (!result)
-                _needsMoreData = !_isFinalBlock;
-            return result;
+            return result || FailRead();
         }
         catch (IncompleteInputException)
         {
@@ -421,6 +418,22 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
             _needsMoreData = true;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Reports a failed read. At a genuine end of document the current token must stop
+    /// describing the last token emitted: a caller that loops on <see cref="TokenType"/>
+    /// would otherwise re-dispatch that stale token for ever - a bare <c>[V]</c> table
+    /// (an empty table, D-9) re-dispatched its <see cref="TokenType.ObjectStart"/> on
+    /// every pass and never terminated. A non-final read keeps the token, because there
+    /// the caller is expected to feed more data and retry that same token.
+    /// </summary>
+    private bool FailRead()
+    {
+        _needsMoreData = !_isFinalBlock;
+        if (_isFinalBlock)
+            _tokenType = TokenType.None;
+        return false;
     }
 
     /// <summary>Streaming resume: rewinds to an earlier span-relative offset.</summary>

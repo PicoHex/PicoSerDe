@@ -928,6 +928,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         if (objProps.Length > 0 || dictProps.Length > 0)
         {
             s.AppendLine("            if (r.TokenType == TokenType.ObjectStart) {");
+            s.AppendLine("                var __tblPos = r.BytesConsumed;");
             s.AppendLine("                var tbl = r.TablePath;");
             for (int i = 0; i < objProps.Length; i++)
             {
@@ -949,6 +950,22 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 EmitDictRead(s, dictProps[i], "o", "                    ");
                 s.AppendLine("                }");
             }
+            // This branch must always PROGRESS - stopping at EOF alone is not enough.
+            //
+            // (a) A matched table leaves the NEXT table header current and undispatched, so
+            //     a blind `Read()` here would swallow that header and silently drop the
+            //     following section's keys - hence no unconditional advance.
+            // (b) A header matching NO arm (e.g. `[tool.ruff]`, `[build-system]` on a model
+            //     without those sections) issues no `Read()` at all: the token stays
+            //     `ObjectStart` at the same offset and this `continue` re-dispatches it for
+            //     ever. Real TOML files are full of such headers.
+            //
+            // So: stop when the reader is exhausted (a bare `[V]` at EOF, D-9), and
+            // otherwise advance exactly once when this branch consumed nothing (b).
+            s.AppendLine("                if (r.TokenType == TokenType.None) break;");
+            s.AppendLine(
+                "                if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __tblPos && !r.Read()) break;"
+            );
             s.AppendLine("                continue;");
             s.AppendLine("            }");
         }
@@ -956,6 +973,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         if (listObjProps.Length > 0)
         {
             s.AppendLine("            if (r.TokenType == TokenType.ArrayStart) {");
+            s.AppendLine("                var __arrPos = r.BytesConsumed;");
             for (int ai = 0; ai < listObjProps.Length; ai++)
             {
                 var ap = listObjProps[ai];
@@ -969,6 +987,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(elemTypeName);
                 s.AppendLine("();");
                 s.AppendLine("                    while (true) {");
+                s.AppendLine("                        var __itPos = r.BytesConsumed;");
                 s.AppendLine(
                     "                        while (r.Read() && r.TokenType == TokenType.PropertyName) {"
                 );
@@ -1008,15 +1027,26 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(
                     "                        if (r.TokenType != TokenType.ArrayStart) break;"
                 );
+                // Local no-progress guard (I-3): the loop only used to stop because the
+                // reader reports a different token at EOF. If that ever regresses, this
+                // breaks instead of appending empty elements for ever (an OOM, not a hang).
+                s.AppendLine("                        if (r.BytesConsumed == __itPos) break;");
                 s.AppendLine(
                     "                        __item = new "
                         + (ap.ElementTypeName ?? "object")
                         + "();"
                 );
                 s.AppendLine("                    }");
-                s.AppendLine("                    continue;");
                 s.AppendLine("                }");
             }
+            // Same progress contract as the ObjectStart branch above: a `[[…]]` header
+            // naming no known list, or an element loop that consumed nothing, must not
+            // leave `ArrayStart` current for the next pass to re-dispatch for ever.
+            s.AppendLine("                if (r.TokenType == TokenType.None) break;");
+            s.AppendLine(
+                "                if (r.TokenType == TokenType.ArrayStart && r.BytesConsumed == __arrPos && !r.Read()) break;"
+            );
+            s.AppendLine("                continue;");
             s.AppendLine("            }");
         }
         s.AppendLine("            if (!r.Read()) break;");
@@ -1179,6 +1209,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         if (objProps.Length > 0 || dictProps.Length > 0)
         {
             s.AppendLine("            if (r.TokenType == TokenType.ObjectStart) {");
+            s.AppendLine("                var __tblPos = r.BytesConsumed;");
             s.AppendLine("                var tbl = r.TablePath;");
             for (int i = 0; i < objProps.Length; i++)
             {
@@ -1203,6 +1234,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(
                 "                if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }"
             );
+            // Same progress guard as the buffered emitter: a header that matches no arm
+            // reads nothing, so advance once instead of re-dispatching it for ever.
+            s.AppendLine(
+                "                if (r.BytesConsumed == __tblPos) { r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; } }"
+            );
             s.AppendLine("                continue;");
             s.AppendLine("            }");
         }
@@ -1216,6 +1252,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         if (listObjProps.Length > 0)
         {
             s.AppendLine("            if (r.TokenType == TokenType.ArrayStart) {");
+            s.AppendLine("                var __arrPos = r.BytesConsumed;");
             for (int ai = 0; ai < listObjProps.Length; ai++)
             {
                 var ap = listObjProps[ai];
@@ -1232,6 +1269,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(elemTypeName);
                 s.AppendLine("();");
                 s.AppendLine("                    while (true) {");
+                s.AppendLine("                        var __itPos = r.BytesConsumed;");
                 s.AppendLine(
                     "                        while (r.Read() && r.TokenType == TokenType.PropertyName) {"
                 );
@@ -1269,13 +1307,19 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(
                     "                        if (r.TokenType != TokenType.ArrayStart) break;"
                 );
+                // Local no-progress guard (I-3), same reason as the buffered emitter.
+                s.AppendLine("                        if (r.BytesConsumed == __itPos) break;");
                 s.Append("                        __item = new ");
                 s.Append(elemTypeName);
                 s.AppendLine("();");
                 s.AppendLine("                    }");
-                s.AppendLine("                    continue;");
                 s.AppendLine("                }");
             }
+            // Same progress guard as the buffered emitter's `[[…]]` branch.
+            s.AppendLine(
+                "                if (r.BytesConsumed == __arrPos) { r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; } }"
+            );
+            s.AppendLine("                continue;");
             s.AppendLine("            }");
         }
         s.AppendLine(
@@ -3316,6 +3360,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             if (__polyComplex.Length > 0)
             {
                 s.AppendLine("                if (r.TokenType == TokenType.ObjectStart) {");
+                s.AppendLine("                    var __tblPos = r.BytesConsumed;");
                 s.AppendLine("                    var __tbl = r.TablePath;");
                 var __cmFirst = true;
                 foreach (var prop in __polyComplex)
@@ -3371,6 +3416,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     }
                     s.AppendLine("                    }");
                 }
+                // Progress guard (C-1): an unmatched header reads nothing, so the
+                // `continue` would re-dispatch the same `ObjectStart` for ever.
+                s.AppendLine("                    if (r.TokenType == TokenType.None) break;");
+                s.AppendLine(
+                    "                    if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __tblPos && !r.Read()) break;"
+                );
                 s.AppendLine("                    continue;");
                 s.AppendLine("                }");
             }
@@ -3386,6 +3437,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 if (__polyListObjs.Length > 0)
                 {
                     s.AppendLine("                if (r.TokenType == TokenType.ArrayStart) {");
+                    s.AppendLine("                    var __arrPos = r.BytesConsumed;");
                     var __alFirst = true;
                     foreach (var ap in __polyListObjs)
                     {
@@ -3400,6 +3452,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                         s.Append(__alElemType);
                         s.AppendLine("();");
                         s.AppendLine("                        while (true) {");
+                        s.AppendLine("                            var __itPos = r.BytesConsumed;");
                         s.AppendLine(
                             "                            while (r.Read() && r.TokenType == TokenType.PropertyName) {"
                         );
@@ -3424,12 +3477,22 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                         s.AppendLine(
                             "                        if (r.TokenType != TokenType.ArrayStart) break;"
                         );
+                        // Local no-progress guard (I-3), same reason as the buffered emitter.
+                        s.AppendLine(
+                            "                        if (r.BytesConsumed == __itPos) break;"
+                        );
                         s.Append("                        __item = new ");
                         s.Append(__alElemType);
                         s.AppendLine("();");
                         s.AppendLine("                        }");
                         s.AppendLine("                    }");
                     }
+                    // Progress guard (C-1/I-3): an unmatched `[[…]]` header reads nothing,
+                    // so this `continue` would re-dispatch the same `ArrayStart` for ever.
+                    s.AppendLine("                    if (r.TokenType == TokenType.None) break;");
+                    s.AppendLine(
+                        "                    if (r.TokenType == TokenType.ArrayStart && r.BytesConsumed == __arrPos && !r.Read()) break;"
+                    );
                     s.AppendLine("                    continue;");
                     s.AppendLine("                }");
                 }
