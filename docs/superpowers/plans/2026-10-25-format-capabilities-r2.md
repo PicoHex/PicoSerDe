@@ -13,7 +13,11 @@
 ## Global Constraints
 
 - **R2 是 `x+1`**：wire 输出**允许变化**，但**只允许向 §6 终态方向变**。任何「今天 OK 的格变成 MISMATCH」都是回归。
-- **两张表保持 `internal`**：`api/*.public.txt` 在整个 R2 内**零 diff**（D5）。
+- **两张表保持 `internal`**（D5 的本意）。
+- **`api/` 允许「只增不改」**：R2 是 `x+1` minor，**新增**公开成员是合法的；但**不得修改或删除**任何既有签名。
+  > **T4 实测修正**：原约束写的是"`api/` 零 diff"—— 那是 `y+1`（R1）的口径。`YamlWriter.WriteNull()`
+  > 必须是 `public`，因为生成代码在 `PicoYaml.Gen` 那个程序集里；写侧没有别的出口，零 API diff 与
+  > "YAML 能写 null"**不可兼得**。
 - **单一能力来源**（I-3）：格式字面量不得出现在判定逻辑里；例外只有 `TypeKindResolver` 的 `byte[]→bytes`（编码选择），且它已带 `// encoding, not capability` 标记。
 - **R2 的字节门禁换了含义**：R1 是"必须逐字节相同"（零 wire 证明）；R2 **允许** wire 变，
   所以门禁变成「**基线与当前生成的差异 = 本任务预期要改的形状**」。任何改动生成代码的任务，
