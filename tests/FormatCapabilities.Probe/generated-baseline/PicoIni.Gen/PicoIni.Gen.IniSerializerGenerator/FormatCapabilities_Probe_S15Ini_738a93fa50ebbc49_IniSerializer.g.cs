@@ -112,7 +112,7 @@ file readonly struct S15IniIniDeserializer : IDeserializer<S15Ini> {
                             }
                             else
                             {
-                                                        if (!(System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O')))
+                                                        if (!(System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O') || System.DateTime.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __v)))
                             {
                                 var __txt = Encoding.UTF8.GetString(reader.GetStringRaw());
                                 throw new System.FormatException($"Invalid DateTime for 'When' at offset {reader.BytesConsumed}: '{(__txt.Length > 32 ? __txt[..32] : __txt)}'");
@@ -221,7 +221,7 @@ S15Ini? result) {
                             }
                             else
                             {
-                                                        if (!(System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O')))
+                                                        if (!(System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O') || System.DateTime.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __v)))
                             {
                                 var __txt = Encoding.UTF8.GetString(reader.GetStringRaw());
                                 throw new System.FormatException($"Invalid DateTime for 'When' at offset {reader.BytesConsumed}: '{(__txt.Length > 32 ? __txt[..32] : __txt)}'");

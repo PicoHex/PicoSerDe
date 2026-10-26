@@ -128,7 +128,9 @@ currently gets wrong about them, and what the library must do about it
 > 二者不一致处按 **R4** 是**欠账**，不是格式事实。
 
 **测量方式**：`tests/FormatCapabilities.Probe` 为两个形状各加 5 个模型，打印 `CELL-OBS|<format>|<shape>|<verdict>|<wire>|<expected>|<actual>`
-（**不**进入 70 格统计：`grep -c '^CELL|'` 仍是 70）。S15 一个模型带六个成员（`f`/`d`/`when`/`span`/`id`/`day`），
+（**不**进入 70 格统计：`grep -c '^CELL|'` 仍是 70）。**R2 T8 起这 10 行的记录入库并受测试门禁**：
+`tests/FormatCapabilities.Probe/baseline-observations.txt` 是探针输出，本表逐格由
+`ProbeObservationGateTests` 与它比对 —— 上面的值再腐化会先红，而不是只留在文档里。S15 一个模型带六个成员（`f`/`d`/`when`/`span`/`id`/`day`），
 因为这一行的问题是**逐标量**的：一个格式可以保住 `decimal` 而丢掉 `TimeSpan`。每格三个值
 （`empty` = 全默认 · `single` = 常规值 · `boundary` = `NaN`、`decimal.MaxValue`、`DateTimeKind.Local`、
 `TimeSpan.MinValue`、全 `f` 的 `Guid`、`null` enum）。`reason=…;diff=` 列逐值列出**没活下来**的成员。
@@ -138,13 +140,13 @@ currently gets wrong about them, and what the library must do about it
 | S14 × json | `OK` | `null` 元素逐元素往返（`{"V":[{…},null,{…}]}`），`null` 与缺失/空集合仍互不等价 |
 | S14 × msgpack | `OK` | 同上（`C0` = nil 元素） |
 | S14 × toml | `MISMATCH` | 三个值 wire 全空：**整个成员被丢**（`PICOSERDE004`），与「无 null」一致 |
-| S14 × yaml | `MISMATCH` | 同上：**整个成员被丢**（`PICOSERDE004`）⇒ 欠账 ¹ |
+| S14 × yaml | `OK` | **R2 T8 复测**：序列里的 `- null` 逐元素往返（`null` 与缺失/空集合互不等价）。R1 记录的 `MISMATCH`（整成员被丢）已被 **R2 Task 4** 的 `- null` 写侧闭合 —— 这一行的旧值在 R1 之后就腐化了，正是 §7 I-6 白区 8 要的「`CELL-OBS` 无门禁」 |
 | S14 × ini | `MISMATCH` | 同上（与 S2 × ini 同因：成员内不承载对象列表） |
 | S15 × json | `MISMATCH` | `empty`/`single` 六成员**全等价**（`D` 保精度、`When` 保 `Kind`、`Span`/`Id` 走字符串）；`boundary` 序列化抛 `ArgumentException: NaN cannot be written as JSON` ⇒ 注 ² |
 | S15 × msgpack | `OK` | 三个值全等价，**含 `NaN`**（`CB FFF8000000000000`）、`TimeSpan.MinValue`、`Local` 偏移、全 `f` Guid、`null` enum |
 | S15 × toml | `MISMATCH` | `empty`/`single` 六成员全等价；`boundary` 序列化抛 `ArgumentException: NaN and Infinity cannot be written as TOML` ⇒ 欠账 ³ |
 | S15 × yaml | `MISMATCH` | 同 toml（`ArgumentException: NaN and Infinity cannot be written as YAML`）⇒ 欠账 ³ |
-| S15 × ini | `MISMATCH` | `single`/`boundary` 六成员全等价（`NaN` 写成文本、`Local` 带 `+08:00`）；`empty` 的 `when` 读侧抛 `FormatException: Invalid DateTime for 'When' … '0001-01-01T00:00:00.0000000'` ⇒ 欠账 ⁴ |
+| S15 × ini | `OK` | **R2 T8 复测**：三个值六成员全等价（`NaN` 写成文本、`Local` 带 `+08:00`、`TimeSpan.MinValue` 带负号与冒号）。`empty` 的 `when` 从「读侧抛 `FormatException`」变绿：根因**不是**脚注 ⁴ 猜的「缺 `Kind` 后缀」，而是 `Utf8Parser.TryParse(…, 'O')` 对 `DateTime.MinValue` 的往返文本返回 `false`（`2020-12-31T23:59:59.0000000` 同形却通过）；读侧补了 `DateTime.Parse(…, RoundtripKind)` 兜底 |
 
 **canonical write 的观察（不是能力问题）**：TOML/YAML 里 `decimal`/`DateTime`/`TimeSpan`/`Guid` 都被写成**带引号的字符串**
 （`D = "0"`、`When = "…"`），读侧照收，故往返保真；但对外部消费者它们是字符串而不是原生数值/时间类型 —— 归 R1″/R2 的写法议题，
@@ -152,19 +154,23 @@ currently gets wrong about them, and what the library must do about it
 
 **脚注**
 
-¹ YAML **可以**表示对象序列里的 null（PyYAML：`- null` 项 → `[{'Name': 'a'}, None]`），今天却把整个成员丢掉
-   ⇒ **欠账**，与 S12/S13 × yaml（D-7b）同源。
+¹ YAML **可以**表示对象序列里的 null（PyYAML：`- null` 项 → `[{'Name': 'a'}, None]`），R1 时却把整个成员丢掉
+   ⇒ 欠账，与 S12/S13 × yaml（D-7b）同源。**R2 Task 4 已闭合**（写侧 `- null`，读侧照收）：`S14 × yaml` 复测为 `OK`，
+   见 §3 的实测表。
 ² JSON 无 `NaN`/`±Inf` 字面量（R1′「特殊浮点仅在格式有字面量时可表示」）⇒ 这是**事实**，不是欠账。
    今天写侧抛异常，属正确拒绝（但只抛、不诊断 ⇒ D-4 的措辞问题）。
 ³ TOML 1.0 与 YAML 1.1 **有** `nan`/`inf`/`-inf` 字面量（`tomllib.loads("V = nan")`、PyYAML `V: .nan` 均通过）
    ⇒ 可表示，今天写侧抛异常 ⇒ **欠账**（R4 的 reopen 条件：写侧改用原生 `nan`/`inf`、读侧接受）。
-⁴ INI 的约定本身能承载（实测 `single`/`boundary` 全通，含 `NaN` 文本），失败点是**写读不对称**：默认值
-   `When = 0001-01-01T00:00:00.0000000` 没有 `Kind` 后缀，读侧拒绝 ⇒ **欠账**（写读同一 canonical 形态即可闭合）。
+⁴ INI 的约定本身能承载（实测 `single`/`boundary` 全通，含 `NaN` 文本），失败点原本是 `empty` 的默认值
+   `When = 0001-01-01T00:00:00.0000000` 读侧被拒。**R2 T8 实测改了诊断**：不是「缺 `Kind` 后缀」——那个字符串和
+   `2020-12-31T23:59:59.0000000` 同形，后者一直能读；**根因是 `Utf8Parser.TryParse(…, 'O')` 对
+   `DateTime.MinValue` 的往返文本返回 `false`**（同形不同值）。读侧补 `DateTime.Parse(…, RoundtripKind)` 兜底后
+   `S15 × ini` 复测为 `OK`（见 §3 实测表）。
 
 ⁵ **`S9 × INI` 的 ✅ 附条件（R2 T6 修正）**：只在键**不含 `\n`、`\r`、`=`** 时成立。INI 的字典形式是本规格自己的约定（"成员级 `[V]` section + 键 = 行内原文"），而 `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 没有键转义 — 所以含换行/等号的键**写出去读不回**（探针的 boundary 键 `n\nline` 就是这一例）。这是**值级**约束，不是能力欠账：R2 **不**为 INI 造一套键转义约定（改公共 wire 约定属值级议题），该 boundary 值按 R2/R5 分工记入 **R5 的清单**（见 §2 R5 下的移交说明）。**同一形状在 YAML/TOML 不受此限** — 两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）并据此把这两格从 MISMATCH 转 OK。
 
 **结论补充**：S14 的 `❌` 仍只有「TOML 无 null」与「INI 结构性限制」；S15 的 `❌` 只有「JSON 无 NaN/±Inf 字面量」。
-其余「今天不支持」全部是欠账（S14 × yaml；S15 × toml/yaml 的 NaN；S15 × ini 的默认时间）。
+其余「今天不支持」全部是欠账（S15 × toml/yaml 的 NaN —— `S14 × yaml` 与 `S15 × ini` 的默认时间已在 R2 闭合，见上表）。
 
 ## 4. 缺陷（现状与 R1/R2/R5 的偏离）
 
