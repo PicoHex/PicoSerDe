@@ -7,14 +7,24 @@ namespace FormatCapabilities.Probe;
 internal static class FormatCapabilities_Probe_S11bTomlPartner_0c7cd577fdc408d9TomlInner {
     internal static void Serialize(TomlWriter tw, FormatCapabilities.Probe.S11bTomlPartner value) {
         tw.WriteKeyValue("N"u8, value.N);
+        if (value.A != null)
+        {
+            tw.WriteNestedTable("A"u8);
+            global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bToml_30c7acbbe153f8a5TomlInner.Serialize(tw, value.A);
+            tw.EndTable();
+        }
     }
     internal static FormatCapabilities.Probe.S11bTomlPartner Deserialize(ref TomlReader r) {
         var o = new FormatCapabilities.Probe.S11bTomlPartner();
         var __section = r.TablePath.ToArray();
-        while (r.Read() && (r.TokenType == TokenType.PropertyName || (r.TokenType == TokenType.ObjectStart && TextHelpers.Eq(r.TablePath, __section)))) {
+        r.Read();
+        while (true) {
             if (r.TokenType == TokenType.PropertyName) {
                 var k = r.KeySpan;
-                if (TextHelpers.Eq(k, "N"u8)) {
+                if (TextHelpers.Eq(k, "A"u8)) {
+                    o.A = global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bToml_30c7acbbe153f8a5TomlInner.Deserialize(ref r);
+                }
+                else if (TextHelpers.Eq(k, "N"u8)) {
                     if (r.IsNullLiteral)
                     {
                         throw new System.FormatException($"null value for non-nullable member N");
@@ -25,7 +35,27 @@ internal static class FormatCapabilities_Probe_S11bTomlPartner_0c7cd577fdc408d9T
                     o.N = __v;
                     }
                 }
+                if (!r.Read()) break;
+                continue;
             }
+            if (r.TokenType == TokenType.ObjectStart) {
+                if (TextHelpers.Eq(r.TablePath, __section)) {
+                    if (!r.Read()) break; // dotted key re-opening this table
+                    continue;
+                }
+                var __childPos = r.BytesConsumed;
+                if (r.TablePath.Length > __section.Length + 1
+                    && r.TablePath[__section.Length] == (byte)'.'
+                    && MemoryExtensions.SequenceEqual(r.TablePath.Slice(0, __section.Length), __section)) {
+                    var __child = r.TablePath.Slice(__section.Length + 1);
+                    if (TextHelpers.Eq(__child, "A"u8)) {
+                        o.A = global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bToml_30c7acbbe153f8a5TomlInner.Deserialize(ref r);
+                    }
+                    if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __childPos) break;
+                    continue;
+                }
+            }
+            break;
         }
         return o;
     }

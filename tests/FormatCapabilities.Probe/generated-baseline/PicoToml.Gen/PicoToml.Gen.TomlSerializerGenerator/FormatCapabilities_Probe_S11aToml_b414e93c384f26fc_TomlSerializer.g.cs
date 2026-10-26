@@ -12,6 +12,12 @@ S11aToml> {
         var __opts = (global::PicoToml.TomlOptions?)options;
         var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);
         tw.WriteKeyValue("Value"u8, v.Value);
+        if (v.Child != null)
+        {
+            tw.WriteNestedTable("Child"u8);
+            global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11aToml_b414e93c384f26fcTomlInner.Serialize(tw, v.Child);
+            tw.EndTable();
+        }
     } }
 file readonly struct S11aToml_TomlDes : IDeserializer<S11aToml> {
     public S11aToml Deserialize(ReadOnlySpan<byte> d) {
@@ -33,6 +39,16 @@ file readonly struct S11aToml_TomlDes : IDeserializer<S11aToml> {
                     }
                 }
                 if (!r.Read()) break;
+                continue;
+            }
+            if (r.TokenType == TokenType.ObjectStart) {
+                var __tblPos = r.BytesConsumed;
+                var tbl = r.TablePath;
+                if (TextHelpers.Eq(tbl, "Child"u8)) {
+                    o.Child = global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11aToml_b414e93c384f26fcTomlInner.Deserialize(ref r);
+                }
+                if (r.TokenType == TokenType.None) break;
+                if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __tblPos && !r.Read()) break;
                 continue;
             }
             if (!r.Read()) break;
@@ -64,6 +80,16 @@ S11aToml? result) {
                 }
                 if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }
                 r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }
+                continue;
+            }
+            if (r.TokenType == TokenType.ObjectStart) {
+                var __tblPos = r.BytesConsumed;
+                var tbl = r.TablePath;
+                if (TextHelpers.Eq(tbl, "Child"u8)) {
+                    o.Child = global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11aToml_b414e93c384f26fcTomlInner.Deserialize(ref r);
+                }
+                if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }
+                if (r.BytesConsumed == __tblPos) { r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; } }
                 continue;
             }
             r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }

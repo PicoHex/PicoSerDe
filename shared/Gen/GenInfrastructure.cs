@@ -1310,14 +1310,25 @@ internal static class GenInfrastructure
     // ── Public API (TransformType / ExtractNestedProperties) ──
     // Both delegate to the shared ExtractProperties core below.
 
-    /// <summary>True when a nested object property itself contains object-valued members
-    /// (nested tables deeper than one level), which INI/TOML cannot represent yet.
-    /// Generators emit a loud NotSupportedException instead of silently losing data.</summary>
-    public static bool HasDeepObjectProperty(PropertyInfo p) =>
+    /// <summary>
+    /// True when a nested-table member contains an OBJECT COLLECTION (<c>List&lt;Dto&gt;</c>,
+    /// <c>Dto[]</c>, a dictionary of objects) — the one thing the section formats still cannot
+    /// read from inside a table.
+    /// <para>
+    /// Why it is narrower than "nested deeper than one level" (its R2 Task 5 predecessor):
+    /// a plain chain of nested tables now reads fine, because each helper dispatches its OWN
+    /// child tables (<c>[Parent]</c> → <c>[Parent.L2]</c> → <c>[Parent.L2.L3]</c>). An object
+    /// COLLECTION inside a table is a different shape: TOML writes it as an array of tables
+    /// (<c>[[Items]]</c>) — with no ancestor qualification yet — and the child dispatch has no
+    /// arm for an <c>ArrayStart</c> token, so reading it would return an EMPTY collection
+    /// rather than fail. Silent loss is exactly what R2 forbids, so the TOML generator keeps
+    /// throwing loudly for this member until the array-of-tables path is qualified too.
+    /// </para>
+    /// </summary>
+    public static bool HasNestedObjectCollection(PropertyInfo p) =>
         p.TypeKind == "object"
         && p.NestedProperties.Any(np =>
-            np.TypeKind == "object"
-            || ((np.TypeKind is "list" or "array") && np.ElementTypeKind == "object")
+            ((np.TypeKind is "list" or "array") && np.ElementTypeKind == "object")
             || (np.TypeKind == "dict" && np.ElementTypeKind == "object")
         );
 
@@ -1595,6 +1606,54 @@ internal static class GenInfrastructure
         }
     }
 
+    /// <summary>
+    /// May the emitters CLOSE this cycle for this format? The ONE place the two cycle sites
+    /// ask it, so the field path and the property path cannot drift apart.
+    /// <para>
+    /// Three conditions, all from the capability model (I-3 — no format literal here):
+    /// <list type="number">
+    /// <item>the <paramref name="point"/> row (RecursiveSelf for S11a, RecursiveMutual for
+    ///       S11b) must be Supported for the format — the format-capability half;</item>
+    /// <item>that format must have an emit branch for the POSITION the cycle was hit in
+    ///       (<see cref="FormatCapabilities.CanCloseCycle"/>);</item>
+    /// <item>and it must be able to construct the target it hands the cycle back to
+    ///       (<see cref="FormatCapabilities.CanConstructCycleTarget"/>).</item>
+    /// </list>
+    /// The last two are what keep R1 W3's CS0144 out of the build: a cycle through an abstract
+    /// type is Supported by the FACTS, but json/msgpack can only emit it because their inner
+    /// helper dispatches polymorphically.
+    /// </para>
+    /// </summary>
+    /// <param name="point">
+    /// The decision row for the KIND of cycle that was hit — never a fixed row: asking
+    /// RecursiveSelf for a mutual cycle is what made the toml row claim Support it did not
+    /// have before R2 Task 5.
+    /// </param>
+    /// <param name="position">
+    /// Where the cycle was hit. It matters because each position has its own emit branch: a
+    /// member becomes a nested table/mapping, an array ELEMENT a table inside an array, a dict
+    /// VALUE a table inside a dict entry. <see cref="FormatCapabilities.CanCloseCycle"/> says
+    /// which of those each format's generated code actually has, so a position with no branch
+    /// stays a reported drop instead of being emitted as a scalar.
+    /// </param>
+    /// <param name="target">The type the cycle points back at.</param>
+    private static bool CycleMayBeEmitted(
+        string formatTag,
+        Decision point,
+        CyclePosition position,
+        ITypeSymbol? target
+    )
+    {
+        if (FormatCapabilities.Decide(formatTag, point) != Effect.Supported)
+            return false;
+
+        return FormatCapabilities.CanCloseCycle(
+            formatTag,
+            position,
+            target is not null && RecursionClassifier.IsInstantiable(target)
+        );
+    }
+
     // ── Shared core: single source of truth for property extraction ──
 
     /// <summary>True for System.ValueTuple&lt;...&gt; (whose members are public fields).</summary>
@@ -1818,8 +1877,10 @@ internal static class GenInfrastructure
 
                 ImmutableArray<PropertyInfo> fieldNested = ImmutableArray<PropertyInfo>.Empty;
                 RecursionKind fieldRecursion = RecursionKind.None;
+                ITypeSymbol? fieldCycleTarget = null;
                 if (fk is "object" && field.Type is INamedTypeSymbol fieldObjNts)
                 {
+                    fieldCycleTarget = fieldObjNts;
                     fieldNested = ExtractNestedPropertiesGuarded(
                         fieldObjNts,
                         type,
@@ -1833,34 +1894,47 @@ internal static class GenInfrastructure
                     );
                 }
 
-                // "Any cycle in this format" (see the RecursiveSelf row of
-                // DecisionTables.Rules). R2 Task 1 gives the guard a RecursionKind, so a
-                // later task CAN route a Mutual cycle to its own row (TOML holds a
-                // one-level mutual cycle, S11b) — but this site still asks
-                // RecursiveSelf for BOTH kinds on purpose: RecursiveMutual x toml is
-                // Supported, and consuming it before the emitters close a cycle through
-                // another type's helper emits the members that are dropped today
-                // (RvPolyBase.Next, PolyRecAbstract.Next -> `new` on a type that must not
-                // be instantiated). Flipping this site is Task 5's job, together with the
-                // emit path; RecursiveMutual stays visible through DecideShape("S11b").
+                // "May this format hold THIS cycle?" — two halves, both answered by the
+                // model (R2 Task 5):
+                //   ① the KIND decides which row to ask. A self cycle (the member points back
+                //      at the type that owns it, S11a) asks RecursiveSelf; a mutual one (it
+                //      points at another type already on the descent stack, S11b) asks
+                //      RecursiveMutual. Asking one row for both kinds was R1's shortcut, and
+                //      it made the table lie: RecursiveMutual x toml said Supported while the
+                //      generator dropped the member.
+                //   ② a cycle is CLOSED by calling the target's helper and then constructing
+                //      it, which an abstract/interface target cannot do (CS0144 — R1 W3's red
+                //      build). CanConstructCycleTarget answers whether this format has a
+                //      dispatch path for that (json/msgpack do, the section formats do not),
+                //      so an abstract cycle stays a reported drop instead of uncompilable code.
+                var fieldCyclePoint =
+                    fieldRecursion == RecursionKind.Mutual
+                        ? Decision.RecursiveMutual
+                        : Decision.RecursiveSelf;
                 if (
                     fieldRecursion != RecursionKind.None
-                    && FormatCapabilities.Decide(formatTag, Decision.RecursiveSelf)
-                        != Effect.Supported
+                    && !CycleMayBeEmitted(
+                        formatTag,
+                        fieldCyclePoint,
+                        CyclePosition.Member,
+                        fieldCycleTarget
+                    )
                 )
                 {
                     // D-6 site 1 (cycle branch): the property path below records the
                     // same drop in `skippedRecursive` (=> PICOSERDE003), but a field
                     // never reaches that list, so it is reported here as 001.
-                    // A cycle is a format fact only where the facts table says so: TOML
-                    // and YAML can hold one (spec §3, S11a), so their drop is our gap.
+                    // The verdict is the FACTS answer for the row that was asked: ini
+                    // cannot hold a cycle at all (⛔), toml/yaml can (spec §3, S11a/S11b)
+                    // and simply have no path for this one (⏸ — including the abstract
+                    // target a section format cannot construct).
                     droppedMembers?.Add(
                         type.ToDisplayString(DeclaringTypeNameFormat),
                         field.Name,
                         DeclaredTypeOf(field.Type),
                         RecursiveFieldReason,
                         SourceLocationOf(field),
-                        FormatCapabilities.CanRepresent(formatTag, Decision.RecursiveSelf)
+                        FormatCapabilities.CanRepresent(formatTag, fieldCyclePoint)
                             ? DropVerdict.GeneratorGap
                             : DropVerdict.FormatCannot
                     );
@@ -1964,6 +2038,12 @@ internal static class GenInfrastructure
             string? keyTypeName = null;
             ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
             RecursionKind recursion = RecursionKind.None;
+            // Where the guarded descent ran into a cycle (member / element / dict value) and
+            // which type it pointed back at. Both travel to the cycle gate: the position
+            // decides whether this format HAS an emit branch for that shape, the target
+            // whether its helper can construct what the cycle hands back.
+            var cyclePosition = CyclePosition.Member;
+            ITypeSymbol? cycleTarget = null;
             bool elementIsNrt = false;
 
             if (
@@ -2181,6 +2261,8 @@ internal static class GenInfrastructure
                 }
                 else if (ek is "object" && elementType is INamedTypeSymbol eNtsObj)
                 {
+                    cyclePosition = CyclePosition.Element;
+                    cycleTarget = eNtsObj;
                     nestedProperties = ExtractNestedPropertiesGuarded(
                         eNtsObj,
                         type,
@@ -2392,6 +2474,8 @@ internal static class GenInfrastructure
                     }
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
                     {
+                        cyclePosition = CyclePosition.DictValue;
+                        cycleTarget = vNtsObj;
                         nestedProperties = ExtractNestedPropertiesGuarded(
                             vNtsObj,
                             type,
@@ -2444,6 +2528,7 @@ internal static class GenInfrastructure
             }
             else if (typeKind is "object" && prop.Type is INamedTypeSymbol objNts)
             {
+                cycleTarget = objNts;
                 nestedProperties = ExtractNestedPropertiesGuarded(
                     objNts,
                     type,
@@ -2457,23 +2542,27 @@ internal static class GenInfrastructure
                 );
             }
 
-            // Same decision point as the field path above, for the same reason:
-            // RecursiveSelf is the cell that answers "may this format hold a cycle at
-            // all". The kind is carried (Self vs Mutual) but not yet acted on here —
-            // consuming RecursiveMutual x toml before the emit side closes a cycle through
-            // another type's helper is exactly the change Task 5 makes, not this one.
+            // The same two-part question as the field path above: the KIND picks the row
+            // (Self / Mutual), and CanConstructCycleTarget decides whether this format can
+            // close a cycle through THIS target at all (an abstract target needs the
+            // format's polymorphic dispatch, I-2). CycleMayBeEmitted is that pair in one
+            // place so the two sites cannot answer it differently.
+            var cyclePoint =
+                recursion == RecursionKind.Mutual
+                    ? Decision.RecursiveMutual
+                    : Decision.RecursiveSelf;
             if (
                 recursion != RecursionKind.None
-                && FormatCapabilities.Decide(formatTag, Decision.RecursiveSelf) != Effect.Supported
+                && !CycleMayBeEmitted(formatTag, cyclePoint, cyclePosition, cycleTarget)
             )
             {
-                // TOML/YAML/INI drop the recursive member; record it so GenerateAll
-                // surfaces a shared PICOSERDE003 diagnostic (never silently). This member
-                // is NOT also recorded as PICOSERDE001: one member, one diagnostic (the
-                // field path has no 003 channel, which is why it reports 001).
+                // The member is dropped; record it so GenerateAll surfaces a shared
+                // PICOSERDE003 diagnostic (never silently). This member is NOT also recorded
+                // as PICOSERDE001: one member, one diagnostic (the field path has no 003
+                // channel, which is why it reports 001).
                 // The verdict is the FACTS answer: ini cannot hold a cycle (⛔), toml and
-                // yaml can (S11a/S11b in spec §3) and simply do not implement it (⏸).
-                skippedRecursive?.Add(SkippedBy(type, prop, formatTag, Decision.RecursiveSelf));
+                // yaml can (S11a/S11b in spec §3) and this one simply has no emit path (⏸).
+                skippedRecursive?.Add(SkippedBy(type, prop, formatTag, cyclePoint));
                 continue;
             }
 

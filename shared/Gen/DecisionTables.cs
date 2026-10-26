@@ -115,17 +115,23 @@ internal static class DecisionTables
         [("toml", Decision.ObjectListInMember)] = Effect.Supported,
         [("yaml", Decision.ObjectListInMember)] = Effect.Supported,
         [("ini", Decision.ObjectListInMember)] = Effect.DropMember,
-        // Recursion — MUST be split self/mutual: S11a is dropped in TOML while S11b is
-        // emitted there today (with D-5 overwriting the root member on read).
+        // Recursion — MUST be split self/mutual: S11a is a self cycle (the member points
+        // back at the type that owns it) and S11b a mutual one (it points at another type on
+        // the descent stack). R2 Task 5 wired both emit sites to this cell pair and taught
+        // the two section formats the shapes they were missing, so toml/yaml now say
+        // Supported for both: TOML holds a cycle as nested tables addressed by their dotted
+        // path (`[B]` -> `[B.A]` -> `[B.A.B]`) and YAML as nested mappings. ini keeps
+        // DropMember — its sections are flat, so S11a/S11b x ini is a format FACT (spec §3),
+        // not a gap.
         [("json", Decision.RecursiveSelf)] = Effect.Supported,
         [("msgpack", Decision.RecursiveSelf)] = Effect.Supported,
-        [("toml", Decision.RecursiveSelf)] = Effect.DropMember,
-        [("yaml", Decision.RecursiveSelf)] = Effect.DropMember,
+        [("toml", Decision.RecursiveSelf)] = Effect.Supported,
+        [("yaml", Decision.RecursiveSelf)] = Effect.Supported,
         [("ini", Decision.RecursiveSelf)] = Effect.DropMember,
         [("json", Decision.RecursiveMutual)] = Effect.Supported,
         [("msgpack", Decision.RecursiveMutual)] = Effect.Supported,
         [("toml", Decision.RecursiveMutual)] = Effect.Supported,
-        [("yaml", Decision.RecursiveMutual)] = Effect.DropMember,
+        [("yaml", Decision.RecursiveMutual)] = Effect.Supported,
         [("ini", Decision.RecursiveMutual)] = Effect.DropMember,
         // Dict value is a collection (S10, D-3). This row used to be DropMember in all five
         // formats because the extraction site tested the value's KIND and never asked this
@@ -229,7 +235,11 @@ internal static class DecisionTables
     internal static readonly Dictionary<(string Fmt, Decision D), Effect> TargetRules =
         BuildTargetRules();
 
-    // ── Dict key limits (not three-valued effects) ─────────────────────────────────
+    // ── Format limits (not three-valued effects) ───────────────────────────────────
+    // Two questions that cannot be an Effect: they do not say "the member disappears" vs
+    // "the element disappears", they say whether the GENERATED CODE has a construct for the
+    // value at all. Both are per-format, and both are consumed through a
+    // FormatCapabilities entry point rather than compared against a tag (I-3).
 
     /// <summary>
     /// The 11 key kinds accepted outside ini — the single hand-written copy of the limit;
@@ -249,6 +259,59 @@ internal static class DecisionTables
         "guid",
         "enum",
     ];
+
+    /// <summary>
+    /// format → the POSITIONS whose cycle the generated code knows how to close.
+    /// <para>
+    /// A cycle is not closed by the same emit branch in every position: a plain object member
+    /// becomes a nested table (<c>[Child]</c>) or mapping, a collection ELEMENT becomes an
+    /// array element, a dict VALUE becomes a table entry / mapping value. json and msgpack
+    /// close all three because their object emit path calls the target's inner helper from
+    /// every one of them; the section formats only have the member path so far — their
+    /// element and value positions would have to nest a table inside an ARRAY, which no
+    /// emitter here does yet. Recording the limit per position is what keeps the row from
+    /// claiming a Support the code does not have (the "false green" R2 removed from rows
+    /// ExtendedKindAsElement and DictValueCollection).
+    /// </para>
+    /// </summary>
+    internal static readonly Dictionary<string, CyclePosition[]> CyclePositionsByFormat = new(
+        StringComparer.Ordinal
+    )
+    {
+        ["json"] = [CyclePosition.Member, CyclePosition.Element, CyclePosition.DictValue],
+        ["msgpack"] = [CyclePosition.Member, CyclePosition.Element, CyclePosition.DictValue],
+        ["toml"] = [CyclePosition.Member],
+        ["yaml"] = [CyclePosition.Member],
+        // ini cannot hold a cycle at all, so no position is reachable there; the empty
+        // row keeps the model total (every format answers) without claiming anything.
+        ["ini"] = [],
+    };
+
+    /// <summary>
+    /// The formats whose emitters can close a recursion cycle through a type that CANNOT be
+    /// instantiated (an abstract class or an interface).
+    /// <para>
+    /// This is not a capability FACT (spec §3 says nothing about it) and not a three-valued
+    /// effect — it is a limit of the generated code, in the same family as
+    /// <see cref="DictKeyKindsByFormat"/>: json and msgpack emit the cycle target's inner
+    /// helper as a POLYMORPHIC dispatch (<c>JsonPolySer</c>/<c>JsonPolyDes</c> and the
+    /// MsgPack equivalent), so <c>Base.Next : Base</c> round-trips there; toml, yaml and ini
+    /// have no discriminator path at all, so the only way to close such a cycle is
+    /// <c>new &lt;abstract&gt;(...)</c> — CS0144, i.e. invariant I-2 (spec §5.6 obligation ②).
+    /// </para>
+    /// <para>
+    /// The extraction sites ask <see cref="FormatCapabilities.CanConstructCycleTarget"/>
+    /// with the target's instantiability, so the answer for a CONCRETE target is always
+    /// "yes" and this set only ever decides the abstract case. Keeping it here (and not as a
+    /// format literal in the extractor) is what I-3 requires; when a section format grows a
+    /// polymorphic emit path, add its tag here and nothing else.
+    /// </para>
+    /// </summary>
+    internal static readonly HashSet<string> PolymorphicCycleFormats = new(StringComparer.Ordinal)
+    {
+        "json",
+        "msgpack",
+    };
 
     /// <summary>
     /// format → the key kinds that format accepts: ini takes "string" only (it reads a key

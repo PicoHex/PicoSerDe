@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace PicoToml.Tests;
 
 // Models at namespace level (SG skips nested types)
@@ -164,17 +166,26 @@ public class TomlSectionOrderTests
         // Second-level table: A (object) is declared before Z (scalar), so the
         // inner helper must emit Z first — otherwise Z is swallowed by the
         // sub-table header.
-        var text = TomlSerializer.Serialize(
-            new SectionOrderParent
+        //
+        // R2 Task 5 changed the header from `[A]` to `[Parent.A]`: a section written from
+        // inside a table has to carry its ancestors, or it declares a TOP-LEVEL table and
+        // `Parent.A` comes back empty (the same dotted-path rule that lets a recursive
+        // member read back at all). The round trip below is what proves the new form is the
+        // right one - the old text could not be read back into the model it came from.
+        var value = new SectionOrderParent
+        {
+            Parent = new SectionOrderChild
             {
-                Parent = new SectionOrderChild
-                {
-                    A = new SectionOrderAddress { City = "Y" },
-                    Z = "kept",
-                },
-            }
-        );
-        await Assert.That(text).IsEqualTo("[Parent]\nZ = \"kept\"\n[A]\nCity = \"Y\"\n");
+                A = new SectionOrderAddress { City = "Y" },
+                Z = "kept",
+            },
+        };
+        var text = TomlSerializer.Serialize(value);
+        await Assert.That(text).IsEqualTo("[Parent]\nZ = \"kept\"\n[Parent.A]\nCity = \"Y\"\n");
+
+        var back = TomlSerializer.Deserialize<SectionOrderParent>(Encoding.UTF8.GetBytes(text))!;
+        await Assert.That(back.Parent.Z).IsEqualTo("kept");
+        await Assert.That(back.Parent.A.City).IsEqualTo("Y");
     }
 
     [Test]

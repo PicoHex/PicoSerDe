@@ -15,7 +15,8 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351TomlInne
     internal static FormatCapabilities.Probe.ProbeDto Deserialize(ref TomlReader r) {
         var o = new FormatCapabilities.Probe.ProbeDto();
         var __section = r.TablePath.ToArray();
-        while (r.Read() && (r.TokenType == TokenType.PropertyName || (r.TokenType == TokenType.ObjectStart && TextHelpers.Eq(r.TablePath, __section)))) {
+        r.Read();
+        while (true) {
             if (r.TokenType == TokenType.PropertyName) {
                 var k = r.KeySpan;
                 switch (k.Length)
@@ -80,7 +81,24 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351TomlInne
                         }
                         break;
                 }
+                if (!r.Read()) break;
+                continue;
             }
+            if (r.TokenType == TokenType.ObjectStart) {
+                if (TextHelpers.Eq(r.TablePath, __section)) {
+                    if (!r.Read()) break; // dotted key re-opening this table
+                    continue;
+                }
+                var __childPos = r.BytesConsumed;
+                if (r.TablePath.Length > __section.Length + 1
+                    && r.TablePath[__section.Length] == (byte)'.'
+                    && MemoryExtensions.SequenceEqual(r.TablePath.Slice(0, __section.Length), __section)) {
+                    var __child = r.TablePath.Slice(__section.Length + 1);
+                    if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __childPos) break;
+                    continue;
+                }
+            }
+            break;
         }
         return o;
     }

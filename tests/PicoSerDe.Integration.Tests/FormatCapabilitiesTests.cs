@@ -97,15 +97,20 @@ public class FormatCapabilitiesTests
         ("S10", "toml", Effect.Supported),
         ("S10", "yaml", Effect.Supported),
         ("S10", "ini", Effect.DropMember),
+        // S11a/S11b x {toml,yaml}: R2 Task 5 taught the two section formats the cycle shapes
+        // (TOML nested tables addressed by their dotted path, YAML nested mappings) and wired
+        // both emit sites to the KIND's own row, so the three cells that were still dropped
+        // moved to Supported — S11b x toml already said Supported, which was the lie the
+        // single-row gate produced. ini keeps DropMember (flat sections: a format FACT).
         ("S11a", "json", Effect.Supported),
         ("S11a", "msgpack", Effect.Supported),
-        ("S11a", "toml", Effect.DropMember),
-        ("S11a", "yaml", Effect.DropMember),
+        ("S11a", "toml", Effect.Supported),
+        ("S11a", "yaml", Effect.Supported),
         ("S11a", "ini", Effect.DropMember),
         ("S11b", "json", Effect.Supported),
         ("S11b", "msgpack", Effect.Supported),
         ("S11b", "toml", Effect.Supported),
-        ("S11b", "yaml", Effect.DropMember),
+        ("S11b", "yaml", Effect.Supported),
         ("S11b", "ini", Effect.DropMember),
         ("S12", "json", Effect.Supported),
         ("S12", "msgpack", Effect.Supported),
@@ -486,10 +491,10 @@ public class FormatCapabilitiesTests
     /// are dropped today and Supported in the target. Replacing TargetRules with a copy of
     /// Rules goes red here immediately.
     /// <para>
-    /// R2 Task 4 consumed the two yaml nullable entries this set used to carry: the cells are
-    /// flipped, so "dropped today" no longer holds for them. The remaining entries are the
-    /// debts the model still records (recursion, TOML's object container, ini's member
-    /// positions).
+    /// R2 Task 4 consumed the two yaml nullable entries this set used to carry, and R2 Task 5
+    /// the three recursion entries: the cells are flipped, so "dropped today" no longer holds
+    /// for them. The remaining entries are the debts the model still records (TOML's object
+    /// container, ini's member positions).
     /// </para>
     /// </summary>
     [Test]
@@ -508,9 +513,9 @@ public class FormatCapabilitiesTests
             // DictValueCollection x {json,msgpack,toml,yaml} used to sit here; R2 Task 3
             // flipped those four cells, so they are no longer "dropped today". ini keeps its
             // entry because S10 x ini is a format FACT (no nesting inside a member).
-            ("toml", Decision.RecursiveSelf),
-            ("yaml", Decision.RecursiveSelf),
-            ("yaml", Decision.RecursiveMutual),
+            // RecursiveSelf x {toml,yaml} and RecursiveMutual x yaml used to sit here; R2
+            // Task 5 flipped those three cells, so the recursion row is no longer a debt in
+            // any format that can express it.
         ];
 
         var actual = (
@@ -566,14 +571,25 @@ public class FormatCapabilitiesTests
     /// from <c>DecideShapeTarget</c> would write R2's capabilities into an R1 document
     /// (spec C2).
     /// </para>
+    /// <para>
+    /// A row whose cells have ALREADY moved in R2 carries its own frozen token string instead
+    /// (<c>R1ReadmeTokens</c>), because the README is a RELEASE document: it describes the
+    /// published release, and re-deriving it from a table that R2 has moved would demand a
+    /// README edit in every task that flips a cell. R2 Task 5 flipped S11a in toml/yaml and
+    /// deliberately did <b>not</b> touch the README — the matrix is regenerated from the spec
+    /// §6 terminal table by R2 Task 7, which also removes the frozen value here. Until then
+    /// this fixture still catches an accidental README edit, and it says so out loud.
+    /// </para>
     /// </summary>
-    private static readonly (string Prefix, string ShapeId)[] ReadmeRows =
+    private static readonly (string Prefix, string ShapeId, string? R1ReadmeTokens)[] ReadmeRows =
     [
-        ("| `List<Dto>`", "S2"),
-        ("| `List<List<int>>`", "S3"),
-        ("| `List<List<Dto>>`", "S4"),
-        ("| `List<List<int?>>`", "S6"),
-        ("| Recursive member", "S11a"),
+        ("| `List<Dto>`", "S2", null),
+        ("| `List<List<int>>`", "S3", null),
+        ("| `List<List<Dto>>`", "S4", null),
+        ("| `List<List<int?>>`", "S6", null),
+        // R2 Task 5 turned S11a into ✅✅✅✅❌ (toml/yaml now hold a cycle). The README still
+        // documents the R1 release: ❌ for toml and yaml.
+        ("| Recursive member", "S11a", "✅✅❌❌❌"),
     ];
 
     /// <summary>
@@ -610,7 +626,7 @@ public class FormatCapabilitiesTests
                     + string.Join(", ", FormatCapabilities.AllFormatTags)
             );
 
-        foreach (var (prefix, shapeId) in ReadmeRows)
+        foreach (var (prefix, shapeId, r1Tokens) in ReadmeRows)
         {
             var row = dataRows.FirstOrDefault(l => l.StartsWith(prefix, StringComparison.Ordinal));
             await Assert
@@ -623,7 +639,7 @@ public class FormatCapabilitiesTests
             var verdicts = string.Concat(
                 Cells(row!).Skip(1).Take(5).Select(c => c.Length == 0 ? '?' : c[0])
             );
-            var expected = FormatCapabilities.MatrixCells(shapeId);
+            var expected = r1Tokens ?? FormatCapabilities.MatrixCells(shapeId);
 
             await Assert
                 .That(verdicts)
@@ -633,6 +649,11 @@ public class FormatCapabilitiesTests
                         + $"'{verdicts}' vs tables '{expected}' (column order "
                         + string.Join(", ", FormatCapabilities.AllFormatTags)
                         + ")"
+                        + (
+                            r1Tokens is null
+                                ? ""
+                                : " [frozen R1 tokens: R2 Task 7 regenerates this row from spec §6]"
+                        )
                 );
         }
     }
