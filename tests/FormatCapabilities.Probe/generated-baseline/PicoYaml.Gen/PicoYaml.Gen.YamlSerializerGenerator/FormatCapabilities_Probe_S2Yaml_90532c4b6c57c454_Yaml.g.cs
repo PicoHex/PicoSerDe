@@ -14,12 +14,14 @@ S2Yaml> {
         var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);
         yw.WritePropertyName("V"u8);
         yw.WriteStartMapping(); // increase depth for sequence indentation
+        yw.WriteStartSequence();
         foreach (var __item in v.V ?? new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>(0))
         {
             yw.WriteStartSequenceBlock();
             global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.SerializeBlock(yw, __item);
             yw.WriteEndSequenceBlock();
         }
+        yw.WriteEndSequence();
         yw.WriteEndMapping(); // restore depth
     } }
 file readonly struct S2Yaml_YD : IDeserializer<S2Yaml> {

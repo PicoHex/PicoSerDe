@@ -56,15 +56,20 @@ public class FormatCapabilitiesTests
         ("S4", "toml", Effect.DropMember),
         ("S4", "yaml", Effect.Supported),
         ("S4", "ini", Effect.DropMember),
+        // S5/S6/S12/S13 x yaml: R2 Task 4 gave the writer the null literal (WriteNull) and
+        // the four nullable emit sites their null branch, so the four cells moved to
+        // Supported. S5/S6/S13 x toml stay dropped (no null literal in TOML) and x ini stay
+        // dropped (INI's empty value is indistinguishable from ""); S12 x toml keeps
+        // DropElement (member emitted, element lost).
         ("S5", "json", Effect.Supported),
         ("S5", "msgpack", Effect.Supported),
         ("S5", "toml", Effect.DropMember),
-        ("S5", "yaml", Effect.DropMember),
+        ("S5", "yaml", Effect.Supported),
         ("S5", "ini", Effect.DropMember),
         ("S6", "json", Effect.Supported),
         ("S6", "msgpack", Effect.Supported),
         ("S6", "toml", Effect.DropMember),
-        ("S6", "yaml", Effect.DropMember),
+        ("S6", "yaml", Effect.Supported),
         ("S6", "ini", Effect.DropMember),
         // S7/S8 x {json,msgpack,toml,yaml}: R2 Task 2 implemented the extended-collection
         // family, so these eight cells moved to Supported. S7/S8 x ini stay dropped — ini
@@ -105,12 +110,12 @@ public class FormatCapabilitiesTests
         ("S12", "json", Effect.Supported),
         ("S12", "msgpack", Effect.Supported),
         ("S12", "toml", Effect.DropElement),
-        ("S12", "yaml", Effect.DropElement),
+        ("S12", "yaml", Effect.Supported),
         ("S12", "ini", Effect.DropMember),
         ("S13", "json", Effect.Supported),
         ("S13", "msgpack", Effect.Supported),
         ("S13", "toml", Effect.DropMember),
-        ("S13", "yaml", Effect.DropMember),
+        ("S13", "yaml", Effect.Supported),
         ("S13", "ini", Effect.DropMember),
     ];
 
@@ -481,12 +486,10 @@ public class FormatCapabilitiesTests
     /// are dropped today and Supported in the target. Replacing TargetRules with a copy of
     /// Rules goes red here immediately.
     /// <para>
-    /// One entry needs its evidence spelled out, because two hand-counts of this set already
-    /// disagreed: <c>NullableValueLeaf × yaml</c> IS promoted. The decision point is walked
-    /// by S5, S6 and S13, and DecisionTables.Facts says true for all three in yaml (YAML can
-    /// express null; only the generator does not do it yet). So "every shape using it is
-    /// representable" holds and BuildTargetRules promotes the cell — the spec facts decide
-    /// that, not a hand-written summary.
+    /// R2 Task 4 consumed the two yaml nullable entries this set used to carry: the cells are
+    /// flipped, so "dropped today" no longer holds for them. The remaining entries are the
+    /// debts the model still records (recursion, TOML's object container, ini's member
+    /// positions).
     /// </para>
     /// </summary>
     [Test]
@@ -500,8 +503,8 @@ public class FormatCapabilitiesTests
             // is Task 6); ExtendedKindAsElement x ini was never promoted (S8 is a fact).
             ("ini", Decision.ExtendedKindResolves),
             ("toml", Decision.NestedObjectContainer),
-            ("yaml", Decision.NullableValueLeaf),
-            ("yaml", Decision.NullableRefLeaf),
+            // NullableValueLeaf x yaml and NullableRefLeaf x yaml used to sit here; R2 Task 4
+            // flipped those two cells, so they are no longer "dropped today".
             // DictValueCollection x {json,msgpack,toml,yaml} used to sit here; R2 Task 3
             // flipped those four cells, so they are no longer "dropped today". ini keeps its
             // entry because S10 x ini is a format FACT (no nesting inside a member).

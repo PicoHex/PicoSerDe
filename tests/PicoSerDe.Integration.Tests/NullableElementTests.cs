@@ -71,9 +71,33 @@ public class NullableElementTests
         await Assert.That(back.Map["n"]).IsNull();
     }
 
+    /// <summary>
+    /// R2 Task 4: yaml was in this list and is not any more — it writes the null literal, so
+    /// all four members (value leaf, reference leaf, object element, object value) round-trip
+    /// with their nulls. The two formats that stay here carry no null at all: TOML has no
+    /// null literal (a format fact) and INI's empty value is indistinguishable from "".
+    /// </summary>
+    [Test]
+    public async Task Yaml_NullableElements_RoundTrip()
+    {
+        var root = Sample();
+        var text = YamlSerializer.Serialize(root);
+        var back = YamlSerializer.Deserialize<NullableElemHolder>(Encoding.UTF8.GetBytes(text));
+
+        await Assert.That(text).Contains("- null").Because("actual=" + text);
+        await Assert.That(back!.Nums.Count).IsEqualTo(3).Because("actual=" + text);
+        await Assert.That(back.Nums[1]).IsNull();
+        await Assert.That(back.Texts.Count).IsEqualTo(2);
+        await Assert.That(back.Texts[1]).IsNull();
+        await Assert.That(back.Objs.Count).IsEqualTo(2);
+        await Assert.That(back.Objs[0]!.Name).IsEqualTo("x");
+        await Assert.That(back.Objs[1]).IsNull();
+        await Assert.That(back.Map["n"]).IsNull();
+        await Assert.That(back.Map["k"]!.Name).IsEqualTo("m");
+    }
+
     [Test]
     [Arguments("toml")]
-    [Arguments("yaml")]
     [Arguments("ini")]
     public async Task SectionFormats_DropNullableElementMembers(string format)
     {

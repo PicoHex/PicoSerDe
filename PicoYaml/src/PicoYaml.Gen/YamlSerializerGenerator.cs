@@ -1082,16 +1082,37 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             case "dict":
                 s.Append(ind);
                 s.AppendLine("yw.WriteStartMapping();");
+                // Same nullable-VALUE handling as the member arm (see EmitSerialize):
+                // re-bind the entry to the unwrapped value after the null branch so the
+                // kind switch stays one copy and keeps its bytes for non-nullable values.
                 s.Append(ind);
-                s.Append("foreach (var __kvp in ");
+                s.Append("foreach (var ");
+                s.Append(p.ElementIsNullableValue ? "__kvpHolder" : "__kvp");
+                s.Append(" in ");
                 s.Append(accessor);
                 if (PicoSerDe.Gen.GenInfrastructure.IsConditionallyOmittable(p))
                     s.Append(" ?? []");
                 s.AppendLine(")");
                 s.Append(ind);
                 s.AppendLine("{");
-                s.Append(ind);
-                s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
+                if (p.ElementIsNullableValue)
+                {
+                    s.Append(ind);
+                    s.AppendLine("    yw.WritePropertyName(__kvpHolder.Key);");
+                    s.Append(ind);
+                    s.AppendLine(
+                        "    if (__kvpHolder.Value == null) { yw.WriteNull(); continue; }"
+                    );
+                    s.Append(ind);
+                    s.AppendLine(
+                        "    var __kvp = System.Collections.Generic.KeyValuePair.Create(__kvpHolder.Key, __kvpHolder.Value.Value);"
+                    );
+                }
+                else
+                {
+                    s.Append(ind);
+                    s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
+                }
                 switch (p.ElementTypeKind)
                 {
                     case "list":
@@ -1137,10 +1158,27 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                             "YamlInner",
                             p.ElementTypeName!
                         );
-                        s.Append(ind);
-                        s.Append("    ");
-                        s.Append(dsn);
-                        s.AppendLine(".Serialize(yw, __kvp.Value);");
+                        // Nullable object value: same null-literal branch as the member arm.
+                        if (p.ElementIsNullableReference)
+                        {
+                            s.Append(ind);
+                            s.AppendLine("    if (__kvp.Value == null)");
+                            s.Append(ind);
+                            s.AppendLine("        yw.WriteNull();");
+                            s.Append(ind);
+                            s.AppendLine("    else");
+                            s.Append(ind);
+                            s.Append("        ");
+                            s.Append(dsn);
+                            s.AppendLine(".Serialize(yw, __kvp.Value);");
+                        }
+                        else
+                        {
+                            s.Append(ind);
+                            s.Append("    ");
+                            s.Append(dsn);
+                            s.AppendLine(".Serialize(yw, __kvp.Value);");
+                        }
                         break;
                     }
                     case "dict":
@@ -1520,6 +1558,28 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 );
                 s.Append(pad);
                 s.AppendLine("        var __dk = Encoding.UTF8.GetString(reader.KeySpan);");
+                // Same nullable VALUE guard as the sync arm, so streaming and buffered
+                // reads cannot disagree about what `n: null` means (the two arms are
+                // hand-maintained twins).
+                if (p.ElementIsNullableValue)
+                {
+                    s.Append(pad);
+                    s.AppendLine("        if (reader.IsNullLiteral)");
+                    s.Append(pad);
+                    s.AppendLine("        {");
+                    s.Append(pad);
+                    s.Append("            ");
+                    s.Append(tgt);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine("[__dk] = null;");
+                    s.Append(pad);
+                    s.AppendLine("        }");
+                    s.Append(pad);
+                    s.AppendLine("        else");
+                    s.Append(pad);
+                    s.AppendLine("        {");
+                }
                 switch (p.ElementTypeKind)
                 {
                     case "int32":
@@ -1642,6 +1702,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         s.Append(p.Name);
                         s.AppendLine("[__dk] = Encoding.UTF8.GetString(reader.ValueSpan);");
                         break;
+                }
+                if (p.ElementIsNullableValue)
+                {
+                    s.Append(pad);
+                    s.AppendLine("        }");
                 }
                 s.Append(pad);
                 s.AppendLine("    }");
@@ -2163,6 +2228,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append("yw.WriteStartMapping(); // increase depth for sequence indentation");
                 s.AppendLine();
+                // The object list opens a sequence ONLY for the writer's bookkeeping: its
+                // items are written with WriteStartSequenceBlock ("-" line + depth), which
+                // emits the bytes, so WriteStartSequence/WriteEndSequence add nothing to an
+                // existing wire — they make `_sequenceDepth` truthful so a null ELEMENT can
+                // be written as "- null" by YamlWriter.WriteNull. An empty object list still
+                // writes nothing at all (WriteEndSequence stays silent while `_depth > 0`).
+                s.Append(ind);
+                s.AppendLine("yw.WriteStartSequence();");
                 s.Append(ind);
                 s.Append("foreach (var __item in ");
                 s.Append(
@@ -2180,7 +2253,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 else if (p.TypeKind == "array")
                 {
                     s.Append(" ?? System.Array.Empty<");
-                    s.Append(elemTypeName);
+                    // The ANNOTATED element name: `List<Dto?>` must get a `Dto?[]`
+                    // fallback, or the `??` result is a `List<Dto>` and the assignment
+                    // back into the member is CS8619 (R2 Task 4 made this shape emittable).
+                    s.Append(p.ElementTypeNameAnnotated ?? elemTypeName);
                     s.AppendLine(">())");
                 }
                 else if (PicoSerDe.Gen.GenInfrastructure.IsExtendedCollectionKind(p.TypeKind))
@@ -2193,11 +2269,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 else
                 {
                     s.Append(" ?? new System.Collections.Generic.List<");
-                    s.Append(elemTypeName);
+                    s.Append(p.ElementTypeNameAnnotated ?? elemTypeName);
                     s.AppendLine(">(0))");
                 }
                 s.Append(ind);
                 s.AppendLine("{");
+                if (p.ElementIsNullableReference)
+                {
+                    // A null ELEMENT of an object list is the null literal, not a skipped
+                    // item: skipping shifts every following element by one.
+                    s.Append(ind);
+                    s.AppendLine("    if (__item == null) { yw.WriteNull(); continue; }");
+                }
                 s.Append(ind);
                 s.AppendLine("    yw.WriteStartSequenceBlock();");
                 s.Append(ind);
@@ -2209,6 +2292,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    yw.WriteEndSequenceBlock();");
                 s.Append(ind);
                 s.AppendLine("}");
+                s.Append(ind);
+                s.AppendLine("yw.WriteEndSequence();");
                 s.Append(ind);
                 s.AppendLine("yw.WriteEndMapping(); // restore depth");
             }
@@ -2322,8 +2407,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("\"u8);");
             s.Append(ind);
             s.AppendLine("yw.WriteStartMapping();");
+            // R2 Task 4: a nullable VALUE (Dictionary<string,int?>) cannot go through the
+            // per-kind emitters verbatim — none of them takes an `int?` (WriteNumber(int)
+            // would be CS1503, `.ToString()` would silently write ""). The entry is
+            // re-bound to a KeyValuePair of the UNWRAPPED value after the null branch, so
+            // the kind switch below stays exactly one copy and its emitted text does not
+            // change for any non-nullable value.
             s.Append(ind);
-            s.Append("foreach (var __kvp in ");
+            s.Append("foreach (var ");
+            s.Append(p.ElementIsNullableValue ? "__kvpHolder" : "__kvp");
+            s.Append(" in ");
             s.Append(target);
             s.Append('.');
             s.Append(p.Name);
@@ -2334,8 +2427,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(">(0))");
             s.Append(ind);
             s.AppendLine("{");
-            s.Append(ind);
-            s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
+            if (p.ElementIsNullableValue)
+            {
+                s.Append(ind);
+                s.AppendLine("    yw.WritePropertyName(__kvpHolder.Key);");
+                s.Append(ind);
+                s.AppendLine("    if (__kvpHolder.Value == null) { yw.WriteNull(); continue; }");
+                s.Append(ind);
+                s.AppendLine(
+                    "    var __kvp = System.Collections.Generic.KeyValuePair.Create(__kvpHolder.Key, __kvpHolder.Value.Value);"
+                );
+            }
+            else
+            {
+                s.Append(ind);
+                s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
+            }
             switch (p.ElementTypeKind)
             {
                 case "list":
@@ -2395,10 +2502,28 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         "YamlInner",
                         p.ElementTypeName!
                     );
-                    s.Append(ind);
-                    s.Append("    ");
-                    s.Append(dsn);
-                    s.AppendLine(".Serialize(yw, __kvp.Value);");
+                    // A nullable object value (Dictionary<string,Dto?>): null literal, not a
+                    // call into the inner helper with a possibly-null argument.
+                    if (p.ElementIsNullableReference)
+                    {
+                        s.Append(ind);
+                        s.AppendLine("    if (__kvp.Value == null)");
+                        s.Append(ind);
+                        s.AppendLine("        yw.WriteNull();");
+                        s.Append(ind);
+                        s.AppendLine("    else");
+                        s.Append(ind);
+                        s.Append("        ");
+                        s.Append(dsn);
+                        s.AppendLine(".Serialize(yw, __kvp.Value);");
+                    }
+                    else
+                    {
+                        s.Append(ind);
+                        s.Append("    ");
+                        s.Append(dsn);
+                        s.AppendLine(".Serialize(yw, __kvp.Value);");
+                    }
                     break;
                 }
                 case "any":
@@ -2704,6 +2829,35 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         string io = "__item"
     )
     {
+        // A nullable VALUE element (List<int?>, List<List<DateTime?>>) needs the null branch
+        // first: no writer overload takes an int?, so the unwrapped value goes to the
+        // non-nullable core and a null becomes the YAML null literal. Same two-step shape the
+        // JSON generator uses (EmitSerializeElement) — "unwrapped core" + "null literal",
+        // never "skip the element", which is what an omission cannot distinguish from a
+        // missing element after the round trip.
+        if (p.ElementIsNullableValue)
+        {
+            s.Append(ind);
+            s.AppendLine("if (" + io + " == null)");
+            s.Append(ind);
+            s.AppendLine("    yw.WriteNull();");
+            s.Append(ind);
+            s.AppendLine("else");
+            s.Append(ind);
+            s.AppendLine("{");
+            EmitSerializeListElement(
+                s,
+                p with
+                {
+                    ElementIsNullableValue = false,
+                },
+                ind + "    ",
+                io + ".Value"
+            );
+            s.Append(ind);
+            s.AppendLine("}");
+            return;
+        }
         switch (p.ElementTypeKind)
         {
             case "string":
@@ -2713,6 +2867,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine("if (" + io + " != null)");
                     s.Append(ind);
                     s.AppendLine("    yw.WriteSequenceItem(Encoding.UTF8.GetBytes(" + io + "));");
+                    // R2 Task 4: a null ELEMENT is written as the null literal, not skipped.
+                    // Skipping is what made `List<string?>` read back one element short, and
+                    // the reader has always been able to take `- null`.
+                    s.Append(ind);
+                    s.AppendLine("else");
+                    s.Append(ind);
+                    s.AppendLine("    yw.WriteNull();");
                 }
                 else
                 {
@@ -2726,9 +2887,26 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "YamlDictInner",
                     p.ElementTypeName!
                 );
-                s.Append(ind);
-                s.Append(sn);
-                s.AppendLine(".Serialize(yw, " + io + ");");
+                // Nullable dict element: null literal, not a call with a null argument.
+                if (p.ElementIsNullableReference)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (" + io + " == null)");
+                    s.Append(ind);
+                    s.AppendLine("    yw.WriteNull();");
+                    s.Append(ind);
+                    s.AppendLine("else");
+                    s.Append(ind);
+                    s.Append("    ");
+                    s.Append(sn);
+                    s.AppendLine(".Serialize(yw, " + io + ");");
+                }
+                else
+                {
+                    s.Append(ind);
+                    s.Append(sn);
+                    s.AppendLine(".Serialize(yw, " + io + ");");
+                }
                 break;
             }
             case "object":
@@ -2737,14 +2915,33 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "YamlInner",
                     p.ElementTypeName!
                 );
-                s.Append(ind);
+                // A nullable object element (S14): the null literal, never a call into the
+                // inner helper with a null (that is a CS8604 today and an NRE after).
+                if (p.ElementIsNullableReference)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (" + io + " == null)");
+                    s.Append(ind);
+                    s.AppendLine("    yw.WriteNull();");
+                    s.Append(ind);
+                    s.AppendLine("else");
+                    s.Append(ind);
+                    s.AppendLine("{");
+                }
+                var inner = p.ElementIsNullableReference ? ind + "    " : ind;
+                s.Append(inner);
                 s.AppendLine("yw.WriteStartSequenceBlock();");
-                s.Append(ind);
+                s.Append(inner);
                 s.Append("    ");
                 s.Append(sn);
                 s.AppendLine(".SerializeBlock(yw, " + io + ");");
-                s.Append(ind);
+                s.Append(inner);
                 s.AppendLine("yw.WriteEndSequenceBlock();");
+                if (p.ElementIsNullableReference)
+                {
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
                 break;
             }
             case "int32":
@@ -2896,6 +3093,19 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    while ((__more = r.Read()) && r.TokenType == TokenType.String)");
                 s.Append(pad);
                 s.AppendLine("    {");
+                if (p.ElementIsNullableReference)
+                {
+                    // A null ELEMENT of an object list (S14): the null literal token belongs
+                    // in the list as null, not through the inner helper (which would build a
+                    // default object out of a token it cannot read). `IsNestedSequenceItem`
+                    // excludes the BARE DASH: an object item is written as "-" plus its
+                    // indented block, and that dash reads as an empty value (`IsNullLiteral`
+                    // is true for it), so a guard without this check eats every object item.
+                    s.Append(pad);
+                    s.AppendLine(
+                        "        if (r.IsNullLiteral && !r.IsNestedSequenceItem) { __tmpList.Add(null!); continue; }"
+                    );
+                }
                 s.Append(pad);
                 s.Append("        var __item = ");
                 s.Append(sn);
@@ -2953,12 +3163,30 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    do");
                 s.Append(pad);
                 s.AppendLine("    {");
-                s.Append(pad);
-                s.Append("        var __item = ");
+                if (p.ElementIsNullableReference)
+                {
+                    // Same bare-dash exclusion as the block-sequence arm above.
+                    s.Append(pad);
+                    s.AppendLine(
+                        "        if (r.IsNullLiteral && !r.IsNestedSequenceItem) { __tmpList.Add(null!); }"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("        else");
+                    s.Append(pad);
+                    s.AppendLine("        {");
+                }
+                var objPad = p.ElementIsNullableReference ? pad + "            " : pad + "        ";
+                s.Append(objPad);
+                s.Append("var __item = ");
                 s.Append(sn2);
                 s.AppendLine(".Deserialize(ref r);");
-                s.Append(pad);
-                s.AppendLine("        __tmpList.Add(__item);");
+                s.Append(objPad);
+                s.AppendLine("__tmpList.Add(__item);");
+                if (p.ElementIsNullableReference)
+                {
+                    s.Append(pad);
+                    s.AppendLine("        }");
+                }
                 s.Append(pad);
                 s.AppendLine(
                     "    } while ((__more = r.Read()) && r.TokenType == TokenType.String);"
@@ -3055,6 +3283,26 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName) {");
             s.Append(pad);
             s.AppendLine("        var __dk = Encoding.UTF8.GetString(r.KeySpan);");
+            // R2 Task 4: `null` is a null literal, not a value the scalar parsers may see
+            // (they throw). A nullable VALUE reads it into the entry as null; every other
+            // value kind keeps the unguarded switch below, byte for byte.
+            if (p.ElementIsNullableValue)
+            {
+                s.Append(pad);
+                s.AppendLine("        if (r.IsNullLiteral)");
+                s.Append(pad);
+                s.AppendLine("        {");
+                s.Append(pad);
+                s.Append("            ");
+                EmitTgt();
+                s.AppendLine("[__dk] = null;");
+                s.Append(pad);
+                s.AppendLine("        }");
+                s.Append(pad);
+                s.AppendLine("        else");
+                s.Append(pad);
+                s.AppendLine("        {");
+            }
             switch (p.ElementTypeKind)
             {
                 case "int32":
@@ -3173,12 +3421,44 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         "YamlDictInner",
                         p.ElementTypeName!
                     );
-                    s.Append(pad);
-                    s.Append("        ");
-                    EmitTgt();
-                    s.Append("[__dk] = ");
-                    s.Append(dsn);
-                    s.AppendLine(".Deserialize(ref r);");
+                    if (p.ElementIsNullableReference)
+                    {
+                        s.Append(pad);
+                        // Only an EXPLICIT null token (`n: null` / `n: ~`) is a null value
+                        // here: in a dictionary entry an empty value followed by an indented
+                        // block IS the object/dict value, and that token looks like an empty
+                        // (i.e. null-ish) value to IsNullLiteral.
+                        s.AppendLine("        if (r.IsNullLiteral && r.ValueSpan.Length > 0)");
+                        s.Append(pad);
+                        s.AppendLine("        {");
+                        s.Append(pad);
+                        s.Append("            ");
+                        EmitTgt();
+                        s.AppendLine("[__dk] = null;");
+                        s.Append(pad);
+                        s.AppendLine("        }");
+                        s.Append(pad);
+                        s.AppendLine("        else");
+                        s.Append(pad);
+                        s.AppendLine("        {");
+                        s.Append(pad);
+                        s.Append("            ");
+                        EmitTgt();
+                        s.Append("[__dk] = ");
+                        s.Append(dsn);
+                        s.AppendLine(".Deserialize(ref r);");
+                        s.Append(pad);
+                        s.AppendLine("        }");
+                    }
+                    else
+                    {
+                        s.Append(pad);
+                        s.Append("        ");
+                        EmitTgt();
+                        s.Append("[__dk] = ");
+                        s.Append(dsn);
+                        s.AppendLine(".Deserialize(ref r);");
+                    }
                     break;
                 }
                 case "object":
@@ -3187,12 +3467,46 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         "YamlInner",
                         p.ElementTypeName!
                     );
-                    s.Append(pad);
-                    s.Append("        ");
-                    EmitTgt();
-                    s.Append("[__dk] = ");
-                    s.Append(dsn);
-                    s.AppendLine(".Deserialize(ref r);");
+                    // S14: a null object VALUE is a null literal, not an inner-helper call
+                    // on a token the helper cannot read.
+                    if (p.ElementIsNullableReference)
+                    {
+                        s.Append(pad);
+                        // Only an EXPLICIT null token (`n: null` / `n: ~`) is a null value
+                        // here: in a dictionary entry an empty value followed by an indented
+                        // block IS the object/dict value, and that token looks like an empty
+                        // (i.e. null-ish) value to IsNullLiteral.
+                        s.AppendLine("        if (r.IsNullLiteral && r.ValueSpan.Length > 0)");
+                        s.Append(pad);
+                        s.AppendLine("        {");
+                        s.Append(pad);
+                        s.Append("            ");
+                        EmitTgt();
+                        s.AppendLine("[__dk] = null;");
+                        s.Append(pad);
+                        s.AppendLine("        }");
+                        s.Append(pad);
+                        s.AppendLine("        else");
+                        s.Append(pad);
+                        s.AppendLine("        {");
+                        s.Append(pad);
+                        s.Append("            ");
+                        EmitTgt();
+                        s.Append("[__dk] = ");
+                        s.Append(dsn);
+                        s.AppendLine(".Deserialize(ref r);");
+                        s.Append(pad);
+                        s.AppendLine("        }");
+                    }
+                    else
+                    {
+                        s.Append(pad);
+                        s.Append("        ");
+                        EmitTgt();
+                        s.Append("[__dk] = ");
+                        s.Append(dsn);
+                        s.AppendLine(".Deserialize(ref r);");
+                    }
                     break;
                 }
                 default:
@@ -3201,6 +3515,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     EmitTgt();
                     s.AppendLine("[__dk] = Encoding.UTF8.GetString(r.ValueSpan);");
                     break;
+            }
+            if (p.ElementIsNullableValue)
+            {
+                s.Append(pad);
+                s.AppendLine("        }");
             }
             s.Append(pad);
             s.AppendLine("    }");
@@ -3435,6 +3754,38 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         string lo = "__tmpList"
     )
     {
+        // A nullable VALUE element (List<int?>, List<List<DateTime?>>): `null` is a null
+        // literal and must never reach the scalar parsers (they throw), and the value goes
+        // into the nullable slot unchanged — `T` converts to `T?` implicitly, so the
+        // unwrapped core below needs no cast. The unguarded core is byte-identical to what
+        // every non-nullable element kind already emits.
+        if (p.ElementIsNullableValue)
+        {
+            s.Append(pad);
+            s.AppendLine("if (r.IsNullLiteral)");
+            s.Append(pad);
+            s.AppendLine("{");
+            s.Append(pad);
+            s.AppendLine("    " + lo + ".Add(null);");
+            s.Append(pad);
+            s.AppendLine("}");
+            s.Append(pad);
+            s.AppendLine("else");
+            s.Append(pad);
+            s.AppendLine("{");
+            EmitDeserializeListElementTemp(
+                s,
+                p with
+                {
+                    ElementIsNullableValue = false,
+                },
+                pad + "    ",
+                lo
+            );
+            s.Append(pad);
+            s.AppendLine("}");
+            return;
+        }
         switch (p.ElementTypeKind)
         {
             case "float32":
@@ -3590,10 +3941,30 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "YamlDictInner",
                     p.ElementTypeName!
                 );
-                s.Append(pad);
-                s.Append(lo + ".Add(");
-                s.Append(sn);
-                s.AppendLine(".Deserialize(ref r));");
+                if (p.ElementIsNullableReference)
+                {
+                    s.Append(pad);
+                    s.AppendLine(
+                        $"if (r.IsNullLiteral && !r.IsNestedSequenceItem) {{ {lo}.Add(null!); }}"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("else");
+                    s.Append(pad);
+                    s.AppendLine("{");
+                    s.Append(pad);
+                    s.Append("    " + lo + ".Add(");
+                    s.Append(sn);
+                    s.AppendLine(".Deserialize(ref r));");
+                    s.Append(pad);
+                    s.AppendLine("}");
+                }
+                else
+                {
+                    s.Append(pad);
+                    s.Append(lo + ".Add(");
+                    s.Append(sn);
+                    s.AppendLine(".Deserialize(ref r));");
+                }
                 break;
             }
             case "object":
@@ -3602,10 +3973,31 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "YamlInner",
                     p.ElementTypeName!
                 );
-                s.Append(pad);
-                s.Append(lo + ".Add(");
-                s.Append(sn);
-                s.AppendLine(".Deserialize(ref r));");
+                // S14: a null object ELEMENT is a null literal, not an inner-helper call.
+                if (p.ElementIsNullableReference)
+                {
+                    s.Append(pad);
+                    s.AppendLine(
+                        $"if (r.IsNullLiteral && !r.IsNestedSequenceItem) {{ {lo}.Add(null!); }}"
+                    );
+                    s.Append(pad);
+                    s.AppendLine("else");
+                    s.Append(pad);
+                    s.AppendLine("{");
+                    s.Append(pad);
+                    s.Append("    " + lo + ".Add(");
+                    s.Append(sn);
+                    s.AppendLine(".Deserialize(ref r));");
+                    s.Append(pad);
+                    s.AppendLine("}");
+                }
+                else
+                {
+                    s.Append(pad);
+                    s.Append(lo + ".Add(");
+                    s.Append(sn);
+                    s.AppendLine(".Deserialize(ref r));");
+                }
                 break;
             }
             default:

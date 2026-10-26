@@ -104,9 +104,11 @@ public class CapabilityGuardTests
         (
             Decision.NullableRefLeaf,
             "W3 R-5: the sites ask Decision.NullableValueLeaf on purpose. NullableRefLeaf is "
-                + "DropElement in toml/yaml, and no member-level site can perform an "
-                + "element-level drop - asking it there would turn S12 from 'member emitted, "
-                + "element lost' into 'member dropped'. Consumed by DecideShape(\"S12\")."
+                + "an ELEMENT-level answer (toml still drops the element) and no member-level "
+                + "site can perform an element-level drop - asking it there would turn S12 "
+                + "from 'member emitted, element lost' into 'member dropped'. R2 Task 4 made "
+                + "it Supported in yaml, where the element is now written as '- null'; the row "
+                + "stays an element answer either way. Consumed by DecideShape(\"S12\")."
         ),
     ];
 

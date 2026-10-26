@@ -331,7 +331,7 @@ build log instead of surfacing later as a mysteriously empty property.
 | `List<Dto>` — list of objects | ✅ | ✅ | ✅ `[[Table]]` | ✅ block sequence of mappings | ❌ see ¹ |
 | `List<List<int>>` — nested primitive list | ✅ | ✅ | ✅ `G = [[1, 2], [3]]` | ✅ nested block sequence | ❌ `PICOSERDE004` |
 | `List<List<Dto>>` — list of lists of objects | ✅ | ✅ | ❌ `PICOSERDE004` | ✅ nested block sequence | ❌ `PICOSERDE004` |
-| `List<List<int?>>` — nullable leaf in a nested list | ✅ | ✅ | ❌ `PICOSERDE004` | ❌ `PICOSERDE004` ² | ❌ `PICOSERDE004` |
+| `List<List<int?>>` — nullable leaf in a nested list | ✅ | ✅ | ❌ `PICOSERDE004` | ✅ `- null` | ❌ `PICOSERDE004` |
 | Recursive member (`Node? Child`, `List<Node>` on `Node`) | ✅ | ✅ | ❌ `PICOSERDE003` | ❌ `PICOSERDE003` ³ | ❌ `PICOSERDE003` |
 
 ✅ means the generated code both writes and reads the shape, and each ✅ shape is
@@ -354,11 +354,12 @@ loss in the generator; that path is instrumented now). A **top-level**
 `List<SomeDto>` does round-trip in INI: each item becomes a numbered section
 (`[0]`, `[1]`, …). For an object list *inside* a DTO use TOML, YAML or JSON.
 
-² **YAML nullable leaves.** `List<List<int?>>`, `List<List<MyEnum?>>`,
-`List<List<Dto?>>` and `Dictionary<string, List<int?>>` have no representation and
-are dropped. A nullable *reference* leaf is still written — `List<List<string?>>`
-round-trips, and null string items are skipped on write (YAML writes no null).
-The generator diagnostic, not this table, is the authority for your build.
+² **YAML nullable leaves.** YAML can express a null (`null`, `Null`, `NULL` or `~`),
+so a nullable leaf is written as the null literal — `List<int?>`, `List<List<int?>>`,
+`List<string?>`, `List<Dto?>` and `Dictionary<string, int?>` all round-trip, with
+"null" (a value), "empty" (an empty collection) and "missing" (no member at all) kept
+apart. TOML has no null literal at all, which is why the same shapes are dropped
+there; the generator diagnostic, not this table, is the authority for your build.
 
 ³ **Recursion.** The self-referencing *member* is dropped; the type's other
 members still round-trip, which is why a recursive DTO still serializes

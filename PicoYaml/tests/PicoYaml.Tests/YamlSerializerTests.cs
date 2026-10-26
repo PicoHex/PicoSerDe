@@ -344,20 +344,24 @@ public class YamlSerializerTests
     }
 
     [Test]
-    public async Task NullableStringArray_RoundTrip_SkipsNulls()
+    public async Task NullableStringArray_RoundTrip_KeepsNulls()
     {
-        // YAML reader/writer don't natively support null in sequences.
-        // Null elements are skipped during serialization.
+        // R2 Task 4: the writer has a null literal now, so a null ELEMENT is written as
+        // `- null` and keeps its position. It used to be skipped, which shifted every
+        // following element left by one on the way back.
         var model = new YamlNullableStringArrayModel { Name = "test", Items = ["a", null, "b"] };
         var bytes = YamlSerializer.SerializeToUtf8Bytes(model);
+        var text = Encoding.UTF8.GetString(bytes);
         var result = YamlSerializer.Deserialize<YamlNullableStringArrayModel>(bytes);
 
+        await Assert.That(text).Contains("- null").Because("actual=" + text);
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Name).IsEqualTo("test");
         await Assert.That(result.Items).IsNotNull();
-        await Assert.That(result.Items.Length).IsEqualTo(2);
+        await Assert.That(result.Items.Length).IsEqualTo(3);
         await Assert.That(result.Items[0]).IsEqualTo("a");
-        await Assert.That(result.Items[1]).IsEqualTo("b");
+        await Assert.That(result.Items[1]).IsNull();
+        await Assert.That(result.Items[2]).IsEqualTo("b");
     }
 }
 

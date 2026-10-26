@@ -153,6 +153,54 @@ public ref struct YamlWriter
         WriteNewLine();
     }
 
+    /// <summary>
+    /// Writes the null literal <c>null</c> in whichever position the writer is in: a mapping
+    /// value (<c>Key: null</c>), an item of the innermost open sequence (<c>- null</c>), or a
+    /// bare document value (<c>null</c>). This is the write-side half of
+    /// <see cref="YamlReader.IsNullLiteral"/>; without it a serializer can only omit a null,
+    /// which reads back as "the value was missing".
+    /// <para>
+    /// Literal choice, YAML 1.1 vs 1.2: both tag resolutions spell
+    /// <c>tag:yaml.org,2002:null</c> the same four ways — <c>null</c>, <c>Null</c>,
+    /// <c>NULL</c>, <c>~</c> (and the empty value). This writes <c>null</c>, the lowercase
+    /// form every 1.1 and 1.2 implementation agrees on and the one the capability spec's D1
+    /// ruling names for sequence items. A bare dash is NOT an option here: <c>-</c> with
+    /// nothing after it is already this writer's nested-sequence-item marker
+    /// (<see cref="WriteStartSequenceBlock"/>), so it has to keep reading back as an empty
+    /// sequence rather than as null.
+    /// </para>
+    /// <para>
+    /// Unlike <see cref="WriteString(ReadOnlySpan{byte})"/> this does not go through
+    /// <see cref="NeedsQuoting"/> on purpose: the four characters of the STRING "null" must
+    /// stay a quoted string (that call quotes them), while a null must stay unquoted, because
+    /// the reader treats a quoted scalar as never-null.
+    /// </para>
+    /// </summary>
+    public void WriteNull()
+    {
+        if (_afterKey)
+        {
+            // Mapping value: the key's line is still open (`Key:`), so the separating space
+            // and the newline are this call's job — the contract WriteString/WriteNumber keep.
+            WriteByte((byte)' ');
+            _afterKey = false;
+            WriteRaw("null"u8);
+            WriteNewLine();
+            return;
+        }
+        if (_sequenceDepth > 0)
+        {
+            // Sequence item: reuse the scalar-item prefix so the dash, the indentation and
+            // the "this level wrote content" bookkeeping stay in one place.
+            WriteSequencePrefix();
+            WriteRaw("null"u8);
+            WriteNewLine();
+            return;
+        }
+        WriteRaw("null"u8);
+        WriteNewLine();
+    }
+
     public void WriteBoolean(bool value)
     {
         if (_afterKey)

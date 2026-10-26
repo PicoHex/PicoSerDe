@@ -12,6 +12,18 @@ S14Yaml> {
     public void Serialize(IBufferWriter<byte> w, S14Yaml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoYaml.YamlOptions?)options;
         var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);
+        yw.WritePropertyName("V"u8);
+        yw.WriteStartMapping(); // increase depth for sequence indentation
+        yw.WriteStartSequence();
+        foreach (var __item in v.V ?? new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto?>(0))
+        {
+            if (__item == null) { yw.WriteNull(); continue; }
+            yw.WriteStartSequenceBlock();
+            global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.SerializeBlock(yw, __item);
+            yw.WriteEndSequenceBlock();
+        }
+        yw.WriteEndSequence();
+        yw.WriteEndMapping(); // restore depth
     } }
 file readonly struct S14Yaml_YD : IDeserializer<S14Yaml> {
     public S14Yaml Deserialize(ReadOnlySpan<byte> d) {
@@ -24,7 +36,54 @@ file readonly struct S14Yaml_YD : IDeserializer<S14Yaml> {
                 continue;
             }
             var k = r.KeySpan;
-            if (!r.Read()) break;
+            if (TextHelpers.Eq(k, "V"u8)) {
+                var __tmpList = new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto?>(16);
+                bool __more;
+                __more = r.Read();
+                if (!__more)
+                {
+                    // The document ended at this key: there is no list to read.
+                }
+                else if (r.TokenType == TokenType.ObjectStart)
+                {
+                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    while ((__more = r.Read()) && r.TokenType == TokenType.String)
+                    {
+                        if (r.IsNullLiteral && !r.IsNestedSequenceItem) { __tmpList.Add(null!); continue; }
+                        var __item = global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r); // Deserialize reads ObjectStart(item) internally
+                        __tmpList.Add(__item);
+                    }
+                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // it. `__more` then reports whether a member token is still available.
+                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                }
+                else if (r.TokenType == TokenType.String)
+                {
+                    // No wrapper: a flat sequence follows the key (`- item` at the same
+                    // indentation). The probe token belongs to the list, so consume it here.
+                    do
+                    {
+                        if (r.IsNullLiteral && !r.IsNestedSequenceItem) { __tmpList.Add(null!); }
+                        else
+                        {
+                            var __item = global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r);
+                            __tmpList.Add(__item);
+                        }
+                    } while ((__more = r.Read()) && r.TokenType == TokenType.String);
+                }
+                else
+                {
+                    // No wrapper and no sequence item: the list is empty and the probe token
+                    // is already the sibling property this member must not eat (C-21). It is
+                    // left in place, so `__more` stays true and the loop re-dispatches it.
+                }
+                o.V = __tmpList;
+                if (!__more) break;
+            }
+            else {
+                // Unknown property — skip its value to avoid infinite loop
+                if (!r.Read()) break;
+            }
         }
         return o;
     } }
@@ -45,8 +104,58 @@ S14Yaml? result) {
                 continue;
             }
             var k = r.KeySpan;
-            r.Mark();
-            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            if (TextHelpers.Eq(k, "V"u8)) {
+                var __tmpList = new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto?>(16);
+                bool __more;
+                __more = r.Read();
+                if (!__more)
+                {
+                    // The document ended at this key: there is no list to read.
+                }
+                else if (r.TokenType == TokenType.ObjectStart)
+                {
+                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    while ((__more = r.Read()) && r.TokenType == TokenType.String)
+                    {
+                        if (r.IsNullLiteral && !r.IsNestedSequenceItem) { __tmpList.Add(null!); continue; }
+                        var __item = global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r); // Deserialize reads ObjectStart(item) internally
+                        __tmpList.Add(__item);
+                    }
+                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // it. `__more` then reports whether a member token is still available.
+                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                }
+                else if (r.TokenType == TokenType.String)
+                {
+                    // No wrapper: a flat sequence follows the key (`- item` at the same
+                    // indentation). The probe token belongs to the list, so consume it here.
+                    do
+                    {
+                        if (r.IsNullLiteral && !r.IsNestedSequenceItem) { __tmpList.Add(null!); }
+                        else
+                        {
+                            var __item = global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r);
+                            __tmpList.Add(__item);
+                        }
+                    } while ((__more = r.Read()) && r.TokenType == TokenType.String);
+                }
+                else
+                {
+                    // No wrapper and no sequence item: the list is empty and the probe token
+                    // is already the sibling property this member must not eat (C-21). It is
+                    // left in place, so `__more` stays true and the loop re-dispatches it.
+                }
+                o.V = __tmpList;
+                if (!__more) break;
+                if (r.NeedsMoreData) {
+                    r.RewindToMark();
+                    return ReadStatus.NeedMoreData;
+                }
+            }
+            else {
+                r.Mark();
+                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            }
         }
         // Reached via a container read that hit the buffer end.
 #pragma warning disable CS0162 // generated: branch shape decides reachability

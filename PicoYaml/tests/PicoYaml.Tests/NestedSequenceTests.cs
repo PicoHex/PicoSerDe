@@ -330,9 +330,10 @@ public class NestedSeqTests
     }
 
     /// <summary>
-    /// <c>List&lt;List&lt;string?&gt;&gt;</c> is representable: a null reference element is simply
-    /// not written, exactly like the flat <c>List&lt;string?&gt;</c> member — the nested chain
-    /// keeps that behavior instead of being dropped.
+    /// <c>List&lt;List&lt;string?&gt;&gt;</c> is representable, and a null reference element is
+    /// written as the YAML null literal (R2 Task 4) instead of being skipped: the nested
+    /// chain keeps <c>[a, null, b]</c> as three elements, and <c>[null]</c> as ONE element
+    /// rather than an empty row.
     /// </summary>
     [Test]
     public async Task NestedNullableStringGrid_RoundTrips()
@@ -344,10 +345,12 @@ public class NestedSeqTests
             Encoding.UTF8.GetBytes(text)
         );
         await Assert.That(back!.Grid.Count).IsEqualTo(2).Because("actual=" + text);
-        await Assert.That(back.Grid[0]!.Count).IsEqualTo(2).Because("actual=" + text);
+        await Assert.That(back.Grid[0]!.Count).IsEqualTo(3).Because("actual=" + text);
         await Assert.That(back.Grid[0]![0]).IsEqualTo("a");
-        await Assert.That(back.Grid[0]![1]).IsEqualTo("b");
-        await Assert.That(back.Grid[1]).IsEmpty();
+        await Assert.That(back.Grid[0]![1]).IsNull();
+        await Assert.That(back.Grid[0]![2]).IsEqualTo("b");
+        await Assert.That(back.Grid[1]!.Count).IsEqualTo(1).Because("actual=" + text);
+        await Assert.That(back.Grid[1]![0]).IsNull();
         await Assert.That(back.Count).IsEqualTo(5);
     }
 
