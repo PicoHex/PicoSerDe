@@ -29,9 +29,11 @@ file readonly struct S2Toml_TomlDes : IDeserializer<S2Toml> {
                 continue;
             }
             if (r.TokenType == TokenType.ArrayStart) {
+                var __arrPos = r.BytesConsumed;
                 if (TextHelpers.Eq(r.TablePath, "V"u8)) {
                     var __item = new global::FormatCapabilities.Probe.ProbeDto();
                     while (true) {
+                        var __itPos = r.BytesConsumed;
                         while (r.Read() && r.TokenType == TokenType.PropertyName) {
                             var __k = r.KeySpan;
                             switch (__k.Length)
@@ -100,10 +102,13 @@ file readonly struct S2Toml_TomlDes : IDeserializer<S2Toml> {
                         o.V ??= new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>();
                         o.V.Add(__item);
                         if (r.TokenType != TokenType.ArrayStart) break;
+                        if (r.BytesConsumed == __itPos) break;
                         __item = new global::FormatCapabilities.Probe.ProbeDto();
                     }
-                    continue;
                 }
+                if (r.TokenType == TokenType.None) break;
+                if (r.TokenType == TokenType.ArrayStart && r.BytesConsumed == __arrPos && !r.Read()) break;
+                continue;
             }
             if (!r.Read()) break;
         }
@@ -126,10 +131,12 @@ S2Toml? result) {
                 continue;
             }
             if (r.TokenType == TokenType.ArrayStart) {
+                var __arrPos = r.BytesConsumed;
                 if (TextHelpers.Eq(r.TablePath, "V"u8)) {
                     int __cnt = o.V?.Count ?? 0;
                     var __item = new global::FormatCapabilities.Probe.ProbeDto();
                     while (true) {
+                        var __itPos = r.BytesConsumed;
                         while (r.Read() && r.TokenType == TokenType.PropertyName) {
                             var __k = r.KeySpan;
                             switch (__k.Length)
@@ -203,10 +210,12 @@ S2Toml? result) {
                         o.V ??= new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>();
                         o.V.Add(__item);
                         if (r.TokenType != TokenType.ArrayStart) break;
+                        if (r.BytesConsumed == __itPos) break;
                         __item = new global::FormatCapabilities.Probe.ProbeDto();
                     }
-                    continue;
                 }
+                if (r.BytesConsumed == __arrPos) { r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; } }
+                continue;
             }
             r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }
         }

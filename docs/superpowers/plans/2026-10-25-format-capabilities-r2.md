@@ -15,6 +15,11 @@
 - **R2 是 `x+1`**：wire 输出**允许变化**，但**只允许向 §6 终态方向变**。任何「今天 OK 的格变成 MISMATCH」都是回归。
 - **两张表保持 `internal`**：`api/*.public.txt` 在整个 R2 内**零 diff**（D5）。
 - **单一能力来源**（I-3）：格式字面量不得出现在判定逻辑里；例外只有 `TypeKindResolver` 的 `byte[]→bytes`（编码选择），且它已带 `// encoding, not capability` 标记。
+- **R2 的字节门禁换了含义**：R1 是"必须逐字节相同"（零 wire 证明）；R2 **允许** wire 变，
+  所以门禁变成「**基线与当前生成的差异 = 本任务预期要改的形状**」。任何改动生成代码的任务，
+  **必须在同一个 commit 里刷新 `generated-baseline/`**，并在报告里逐文件说明"为什么这个文件该变"。
+  > **T0 踩过的坑**：T0 改了 TOML 生成代码（`__tblPos` 推进守卫）却没刷基线，合并后 main 自己就有
+  > 3 个文件与基线不同 —— 于是 T1 的字节门禁"红"其实是 T0 的账。基线不刷新，后面每个任务都会误报。
 - **每个任务必须说明它翻哪些格**，并在 PR 描述里逐格列出「格式 / 形状 / 前 / 后」。
 - **禁止"只翻表"**：任何把 `Rules` 格改成 `Supported` 的改动，必须伴随生成器改动 **且** 由探针实测该格 OK。守卫测试会抓这种假绿。
 - 构建一律 `dotnet build PicoSerDe.slnx -c Debug -m:1`，要求 **0 warning / 0 error**；测试 `dotnet test PicoSerDe.slnx -c Debug --no-progress` 要求 **0 failed**。

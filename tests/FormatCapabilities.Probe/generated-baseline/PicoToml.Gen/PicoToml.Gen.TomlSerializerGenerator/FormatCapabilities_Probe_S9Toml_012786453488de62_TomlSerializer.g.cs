@@ -38,6 +38,7 @@ file readonly struct S9Toml_TomlDes : IDeserializer<S9Toml> {
                 continue;
             }
             if (r.TokenType == TokenType.ObjectStart) {
+                var __tblPos = r.BytesConsumed;
                 var tbl = r.TablePath;
                 if (TextHelpers.Eq(tbl, "V"u8)) {
                     o.V ??= new System.Collections.Generic.Dictionary<string, int>();
@@ -47,6 +48,8 @@ file readonly struct S9Toml_TomlDes : IDeserializer<S9Toml> {
                         o.V[__dk] = __dv;
                     }
                 }
+                if (r.TokenType == TokenType.None) break;
+                if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __tblPos && !r.Read()) break;
                 continue;
             }
             if (!r.Read()) break;
@@ -79,6 +82,7 @@ S9Toml? result) {
                 continue;
             }
             if (r.TokenType == TokenType.ObjectStart) {
+                var __tblPos = r.BytesConsumed;
                 var tbl = r.TablePath;
                 if (TextHelpers.Eq(tbl, "V"u8)) {
                     o.V ??= new System.Collections.Generic.Dictionary<string, int>();
@@ -89,6 +93,7 @@ S9Toml? result) {
                     }
                 }
                 if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }
+                if (r.BytesConsumed == __tblPos) { r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; } }
                 continue;
             }
             r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }
