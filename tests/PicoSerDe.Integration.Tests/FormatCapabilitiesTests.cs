@@ -557,7 +557,92 @@ public class FormatCapabilitiesTests
             .Because("ini cannot express S2, so the target must stay blocked");
     }
 
-    // ── README matrix (R1 exit criterion: the README is generated from the table) ────────
+    // ── spec §6 terminal matrix (I-4: the README is a rendering of ONE source) ───────────
+
+    /// <summary>
+    /// Spec §6 ("目标矩阵（终态，只有 ✅/❌）"), transcribed row by row: the five tokens of
+    /// every modelled shape, in <see cref="FormatCapabilities.AllFormatTags"/> order.
+    /// <para>
+    /// This is the ONE hand-written copy of the PROMISE, and it is deliberately not derived
+    /// from anything: §6 groups its rows (<c>S1–S4</c>, <c>S5/S6</c>, <c>S11a/S11b</c>), and
+    /// "the tables reproduce §6" is exactly the claim that has to be checked rather than
+    /// assumed (spec §6: "一致性由测试强制（I-4）"). If a value here and the tables disagree,
+    /// ONE of them is wrong and a human has to decide which — that is the point of the test,
+    /// not a nuisance.
+    /// </para>
+    /// <para>
+    /// Footnote ⁵ (<c>S9 × ini</c>) is a VALUE-level condition (a dict key containing
+    /// <c>\n</c>/<c>\r</c>/<c>=</c> does not survive INI's line convention — spec §2 R5), not
+    /// an exception to the ✅: the token stays ✅ and the README cell carries the note.
+    /// </para>
+    /// </summary>
+    private static readonly (string ShapeId, string Tokens)[] SpecSection6 =
+    [
+        // §6 row `S1–S4（列表族）`: `INI: S1 ✅ / 其余 ❌`.
+        ("S1", "✅✅✅✅✅"),
+        ("S2", "✅✅✅✅❌"),
+        ("S3", "✅✅✅✅❌"),
+        ("S4", "✅✅✅✅❌"),
+        // §6 row `S5/S6（可空值叶子）`: TOML has no null literal, INI cannot tell null from "".
+        ("S5", "✅✅❌✅❌"),
+        ("S6", "✅✅❌✅❌"),
+        // §6 row `S7（扩展集合成员）` — ✅ in all five.
+        ("S7", "✅✅✅✅✅"),
+        // §6 row `S8（扩展集合元素）` — INI carries no nesting inside a member.
+        ("S8", "✅✅✅✅❌"),
+        // §6 row `S9（字典）` — ✅ everywhere; INI conditional (footnote ⁵, see above).
+        ("S9", "✅✅✅✅✅"),
+        // §6 row `S10（字典值为集合）`.
+        ("S10", "✅✅✅✅❌"),
+        // §6 row `S11a/S11b（递归）`: the MEMBER position — TOML/YAML hold a cycle as nested
+        // tables/mappings, INI's sections are flat.
+        ("S11a", "✅✅✅✅❌"),
+        ("S11b", "✅✅✅✅❌"),
+        // §6 rows `S12（含 null 的字符串列表）` / `S13（含 null 值的字典）`.
+        ("S12", "✅✅❌✅❌"),
+        ("S13", "✅✅❌✅❌"),
+    ];
+
+    /// <summary>
+    /// I-4, the code half: <see cref="FormatCapabilities.MatrixCells"/> must <b>be</b> spec §6.
+    /// It answers "what can this format express" (the terminal口径 — <c>DecideShapeTarget</c>),
+    /// not "what did the last release do": the matrix is the format's capability statement,
+    /// and a release that drops a shape the format can hold is a ⏸ debt for the diagnostic to
+    /// report, not a capability the matrix should quietly write down as ❌.
+    /// <para>
+    /// All 14 shapes, not just the five the README happens to document: <c>MatrixCells</c> is
+    /// the single source I-4 names, so its whole surface is pinned even where the README is
+    /// silent. Reverting it to the current-state table goes red here the moment the two tables
+    /// disagree — which is how the <c>toml × S11b</c> lie (matrix said ✅, the guard still
+    /// dropped the member) would have been caught before a release, and how the next one will.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Matrix_cells_are_the_spec_section6_terminal_matrix()
+    {
+        // 14 rows written out, 14 shapes in the model: a shape going missing from the fixture
+        // must not silently shrink the comparison.
+        await Assert.That(SpecSection6.Length).IsEqualTo(FormatCapabilities.AllShapeIds.Count);
+
+        var wrong = new List<string>();
+        foreach (var shapeId in FormatCapabilities.AllShapeIds)
+        {
+            var expected = Section6Tokens(shapeId);
+            var actual = FormatCapabilities.MatrixCells(shapeId);
+            if (actual != expected)
+                wrong.Add($"{shapeId}: spec §6 says {expected}, MatrixCells said {actual}");
+        }
+
+        await Assert
+            .That(wrong)
+            .IsEmpty()
+            .Because(
+                "MatrixCells no longer reproduces spec §6 (column order "
+                    + string.Join(", ", FormatCapabilities.AllFormatTags)
+                    + "): "
+                    + string.Join(" | ", wrong)
+            );
+    }
 
     /// <summary>
     /// The README's limits matrix has <b>five</b> rows and <b>no S-id column</b>, and every
@@ -567,45 +652,30 @@ public class FormatCapabilitiesTests
     /// shapeId it documents. Order matters: it is the README's own order, so a reordered
     /// matrix shows up as a mismatch instead of passing by accident.
     /// <para>
-    /// The README documents <b>TODAY's</b> limits, so the expected tokens come from the
-    /// current-state table via <see cref="FormatCapabilities.MatrixCells"/>; deriving them
-    /// from <c>DecideShapeTarget</c> would write R2's capabilities into an R1 document
-    /// (spec C2).
-    /// </para>
-    /// <para>
-    /// A row whose cells have ALREADY moved in R2 carries its own frozen token string instead
-    /// (<c>R1ReadmeTokens</c>), because the README is a RELEASE document: it describes the
-    /// published release, and re-deriving it from a table that R2 has moved would demand a
-    /// README edit in every task that flips a cell. R2 Task 5 flipped S11a in toml/yaml and
-    /// deliberately did <b>not</b> touch the README — the matrix is regenerated from the spec
-    /// §6 terminal table by R2 Task 7, which also removes the frozen value here. Until then
-    /// this fixture still catches an accidental README edit, and it says so out loud.
+    /// R1 froze a per-row token string here for every row whose cells had already moved,
+    /// because the README documented the PUBLISHED release while the tables had moved on.
+    /// R2 Task 7 removed the last two frozen rows (S4, S11a) together with the口径 change:
+    /// a README row now IS a §6 row, and re-freezing one would hide exactly the drift this
+    /// test exists to surface.
     /// </para>
     /// </summary>
-    private static readonly (string Prefix, string ShapeId, string? R1ReadmeTokens)[] ReadmeRows =
+    private static readonly (string Prefix, string ShapeId)[] ReadmeRows =
     [
-        ("| `List<Dto>`", "S2", null),
-        ("| `List<List<int>>`", "S3", null),
-        // R2 Task 6 turned S4 into ✅✅✅✅❌ (toml holds an inline
-        // array of inline tables now). The README still documents the R1 release — toml ❌
-        // there — and the regeneration is R2 Task 7's job, so the row is frozen exactly
-        // like S11a below. Task 7 deletes both frozen strings.
-        ("| `List<List<Dto>>`", "S4", "✅✅❌✅❌"),
-        ("| `List<List<int?>>`", "S6", null),
-        // R2 Task 5 turned S11a into ✅✅✅✅❌ (toml/yaml now hold a cycle). The README still
-        // documents the R1 release: ❌ for toml and yaml.
-        ("| Recursive member", "S11a", "✅✅❌❌❌"),
+        ("| `List<Dto>`", "S2"),
+        ("| `List<List<int>>`", "S3"),
+        ("| `List<List<Dto>>`", "S4"),
+        ("| `List<List<int?>>`", "S6"),
+        ("| Recursive member", "S11a"),
     ];
 
     /// <summary>
-    /// The exit criterion "README's limits matrix is generated from the table", made
-    /// executable without regenerating the README: per row, compare the <b>verdict glyph</b>
-    /// that starts each of the five format cells with the five tokens of
-    /// <see cref="FormatCapabilities.MatrixCells"/>. The annotations stay untouched — they
-    /// are the part of a cell a reader actually needs (which diagnostic, which syntax).
+    /// I-4, the document half: per README row, compare the <b>verdict glyph</b> that starts
+    /// each of the five format cells with the five §6 tokens. The annotations stay
+    /// hand-written — they are the part of a cell a reader actually needs (which diagnostic,
+    /// which syntax) — so only the first character of a cell is compared.
     /// </summary>
     [Test]
-    public async Task Readme_matrix_cells_match_the_tables()
+    public async Task Readme_matrix_cells_match_spec_section6()
     {
         var matrix = ReadmeMatrix();
         var header = Cells(matrix[0]);
@@ -631,7 +701,7 @@ public class FormatCapabilitiesTests
                     + string.Join(", ", FormatCapabilities.AllFormatTags)
             );
 
-        foreach (var (prefix, shapeId, r1Tokens) in ReadmeRows)
+        foreach (var (prefix, shapeId) in ReadmeRows)
         {
             var row = dataRows.FirstOrDefault(l => l.StartsWith(prefix, StringComparison.Ordinal));
             await Assert
@@ -644,23 +714,33 @@ public class FormatCapabilitiesTests
             var verdicts = string.Concat(
                 Cells(row!).Skip(1).Take(5).Select(c => c.Length == 0 ? '?' : c[0])
             );
-            var expected = r1Tokens ?? FormatCapabilities.MatrixCells(shapeId);
+            var expected = Section6Tokens(shapeId);
 
             await Assert
                 .That(verdicts)
                 .IsEqualTo(expected)
                 .Because(
-                    $"README's {shapeId} row and the current-state tables disagree: cells "
-                        + $"'{verdicts}' vs tables '{expected}' (column order "
+                    $"README's {shapeId} row and spec §6 disagree: cells '{verdicts}' vs §6 "
+                        + $"'{expected}' (column order "
                         + string.Join(", ", FormatCapabilities.AllFormatTags)
-                        + ")"
-                        + (
-                            r1Tokens is null
-                                ? ""
-                                : " [frozen R1 tokens: R2 Task 7 regenerates this row from spec §6]"
-                        )
+                        + "); MatrixCells currently says '"
+                        + FormatCapabilities.MatrixCells(shapeId)
+                        + "'. The README matrix is regenerated from §6 — fix the cell, never "
+                        + "the fixture"
                 );
         }
+    }
+
+    /// <summary>The five §6 tokens of one shape; an unknown id is a fixture bug, not a skip.</summary>
+    private static string Section6Tokens(string shapeId)
+    {
+        foreach (var (id, tokens) in SpecSection6)
+            if (id == shapeId)
+                return tokens;
+
+        throw new InvalidOperationException(
+            $"spec §6 fixture has no row for {shapeId}; it must cover every modelled shape"
+        );
     }
 
     /// <summary>

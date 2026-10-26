@@ -330,9 +330,9 @@ build log instead of surfacing later as a mysteriously empty property.
 |---|---|:---:|---|---|---|
 | `List<Dto>` — list of objects | ✅ | ✅ | ✅ `[[Table]]` | ✅ block sequence of mappings | ❌ see ¹ |
 | `List<List<int>>` — nested primitive list | ✅ | ✅ | ✅ `G = [[1, 2], [3]]` | ✅ nested block sequence | ❌ `PICOSERDE004` |
-| `List<List<Dto>>` — list of lists of objects | ✅ | ✅ | ❌ `PICOSERDE004` | ✅ nested block sequence | ❌ `PICOSERDE004` |
+| `List<List<Dto>>` — list of lists of objects | ✅ | ✅ | ✅ `G = [[{ Name = "a" }]]` | ✅ nested block sequence | ❌ `PICOSERDE004` |
 | `List<List<int?>>` — nullable leaf in a nested list | ✅ | ✅ | ❌ `PICOSERDE004` | ✅ `- null` | ❌ `PICOSERDE004` |
-| Recursive member (`Node? Child`, `List<Node>` on `Node`) | ✅ | ✅ | ❌ `PICOSERDE003` | ❌ `PICOSERDE003` ³ | ❌ `PICOSERDE003` |
+| Recursive member (`Node? Child`) | ✅ | ✅ | ✅ nested tables (`[Child]`) ³ | ✅ nested mappings ³ | ❌ `PICOSERDE003` ³ |
 
 ✅ means the generated code both writes and reads the shape, and each ✅ shape is
 exercised by a round-trip test in the suite. Both diagnostics are
@@ -361,11 +361,18 @@ so a nullable leaf is written as the null literal — `List<int?>`, `List<List<i
 apart. TOML has no null literal at all, which is why the same shapes are dropped
 there; the generator diagnostic, not this table, is the authority for your build.
 
-³ **Recursion.** The self-referencing *member* is dropped; the type's other
-members still round-trip, which is why a recursive DTO still serializes
-"partially" in the section-based formats. JSON and MsgPack keep the member
-(cycle-safe extraction + seeded helpers, including on polymorphic bases) — see
-[Streaming](#streaming-incremental-chunked).
+³ **Recursion.** The row above is the self-referencing *member* (`Node? Child`):
+it round-trips in every format except INI, which drops it with `PICOSERDE003`
+while the type's other members still round-trip — a recursive DTO therefore
+still serializes "partially" there. JSON and MsgPack keep it too (cycle-safe
+extraction + seeded helpers, including on polymorphic bases) — see
+[Streaming](#streaming-incremental-chunked). Two further *positions* a cycle can
+sit in are **not** covered by the ✅: a recursive collection **element**
+(`List<Node>` **on `Node`**) and a recursive **dict value**
+(`Dictionary<string, Node>` on `Node`) are closed in JSON and MsgPack only —
+TOML and YAML still drop those members with `PICOSERDE003`, reported as a debt
+(`⏸`, reopen: the format can carry one, the emitter has no route for a table
+inside an array yet).
 
 Two shapes sit outside this matrix. A **collection dictionary value**
 (`Dictionary<string, List<T>>`; nested dictionaries are fine) is dropped in
