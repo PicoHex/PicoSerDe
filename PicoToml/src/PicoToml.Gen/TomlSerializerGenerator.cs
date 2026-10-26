@@ -1014,12 +1014,18 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.AppendLine("            if (r.TokenType == TokenType.ArrayStart) {");
             s.AppendLine("                var __arrPos = r.BytesConsumed;");
+            // The ARM match is same-level as well: a hand-written `[[Parent.Items]]` names the
+            // member by its LAST dotted segment (`TextHelpers.EqLastSegment`). Matching the whole
+            // path against the bare member name skipped the entire section instead of mis-reading
+            // one element (C-1). `[table]` headers below keep whole-path matching on purpose: a
+            // nested table is dispatched by prefix inside its own helper, and relaxing those would
+            // let a real-world `[tool.ruff]` populate a member named `ruff`.
             for (int ai = 0; ai < listObjProps.Length; ai++)
             {
                 var ap = listObjProps[ai];
                 s.Append("                ");
                 s.Append(ai == 0 ? "if" : "else if");
-                s.Append(" (TextHelpers.Eq(r.TablePath, \"");
+                s.Append(" (TextHelpers.EqLastSegment(r.TablePath, \"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName));
                 s.AppendLine("\"u8)) {");
                 var elemTypeName = ap.ElementTypeName ?? "object";
@@ -1072,8 +1078,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 // element — a value the document never had — because the loop reused
                 // every `ArrayStart` token. Stop instead and let the enclosing dispatch
                 // advance past the header it does not own.
+                // The name is compared AT THE SAME LEVEL — the header's LAST dotted segment
+                // (`TextHelpers.EqLastSegment`). A hand-written `[[Parent.Items]]` carries the whole
+                // path while an arm owns ONE member, and whole-path equality matched no header at all:
+                // every element of a standard nested array-of-tables was silently dropped (C-1).
                 s.AppendLine(
-                    "                        if (!TextHelpers.Eq(r.TablePath, \""
+                    "                        if (!TextHelpers.EqLastSegment(r.TablePath, \""
                         + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName)
                         + "\"u8)) break;"
                 );
@@ -1303,13 +1313,19 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             s.AppendLine("            if (r.TokenType == TokenType.ArrayStart) {");
             s.AppendLine("                var __arrPos = r.BytesConsumed;");
+            // The ARM match is same-level as well: a hand-written `[[Parent.Items]]` names the
+            // member by its LAST dotted segment (`TextHelpers.EqLastSegment`). Matching the whole
+            // path against the bare member name skipped the entire section instead of mis-reading
+            // one element (C-1). `[table]` headers below keep whole-path matching on purpose: a
+            // nested table is dispatched by prefix inside its own helper, and relaxing those would
+            // let a real-world `[tool.ruff]` populate a member named `ruff`.
             for (int ai = 0; ai < listObjProps.Length; ai++)
             {
                 var ap = listObjProps[ai];
                 var elemTypeName = ap.ElementTypeName ?? "object";
                 s.Append("                ");
                 s.Append(ai == 0 ? "if" : "else if");
-                s.Append(" (TextHelpers.Eq(r.TablePath, \"");
+                s.Append(" (TextHelpers.EqLastSegment(r.TablePath, \"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName));
                 s.AppendLine("\"u8)) {");
                 s.Append("                    int __cnt = o.");
@@ -1362,8 +1378,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 // element — a value the document never had — because the loop reused
                 // every `ArrayStart` token. Stop instead and let the enclosing dispatch
                 // advance past the header it does not own.
+                // The name is compared AT THE SAME LEVEL — the header's LAST dotted segment
+                // (`TextHelpers.EqLastSegment`). A hand-written `[[Parent.Items]]` carries the whole
+                // path while an arm owns ONE member, and whole-path equality matched no header at all:
+                // every element of a standard nested array-of-tables was silently dropped (C-1).
                 s.AppendLine(
-                    "                        if (!TextHelpers.Eq(r.TablePath, \""
+                    "                        if (!TextHelpers.EqLastSegment(r.TablePath, \""
                         + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName)
                         + "\"u8)) break;"
                 );
@@ -2737,8 +2757,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 // element — a value the document never had — because the loop reused
                 // every `ArrayStart` token. Stop instead and let the enclosing dispatch
                 // advance past the header it does not own.
+                // The name is compared AT THE SAME LEVEL — the header's LAST dotted segment
+                // (`TextHelpers.EqLastSegment`). A hand-written `[[Parent.Items]]` carries the whole
+                // path while an arm owns ONE member, and whole-path equality matched no header at all:
+                // every element of a standard nested array-of-tables was silently dropped (C-1).
                 s.AppendLine(
-                    "    if (!TextHelpers.Eq(r.TablePath, \""
+                    "    if (!TextHelpers.EqLastSegment(r.TablePath, \""
                         + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName)
                         + "\"u8)) break;"
                 );
@@ -3803,12 +3827,18 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine("                if (r.TokenType == TokenType.ArrayStart) {");
                     s.AppendLine("                    var __arrPos = r.BytesConsumed;");
                     var __alFirst = true;
+                    // The ARM match is same-level as well: a hand-written `[[Parent.Items]]` names the
+                    // member by its LAST dotted segment (`TextHelpers.EqLastSegment`). Matching the whole
+                    // path against the bare member name skipped the entire section instead of mis-reading
+                    // one element (C-1). `[table]` headers below keep whole-path matching on purpose: a
+                    // nested table is dispatched by prefix inside its own helper, and relaxing those would
+                    // let a real-world `[tool.ruff]` populate a member named `ruff`.
                     foreach (var ap in __polyListObjs)
                     {
                         var __alKw = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref __alFirst);
                         s.Append("                    ");
                         s.Append(__alKw);
-                        s.Append(" (TextHelpers.Eq(r.TablePath, \"");
+                        s.Append(" (TextHelpers.EqLastSegment(r.TablePath, \"");
                         s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName));
                         s.AppendLine("\"u8)) {");
                         var __alElemType = ap.ElementTypeName ?? "object";
@@ -3846,8 +3876,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                         // element — a value the document never had — because the loop reused
                         // every `ArrayStart` token. Stop instead and let the enclosing dispatch
                         // advance past the header it does not own.
+                        // The name is compared AT THE SAME LEVEL — the header's LAST dotted segment
+                        // (`TextHelpers.EqLastSegment`). A hand-written `[[Parent.Items]]` carries the whole
+                        // path while an arm owns ONE member, and whole-path equality matched no header at all:
+                        // every element of a standard nested array-of-tables was silently dropped (C-1).
                         s.AppendLine(
-                            "                        if (!TextHelpers.Eq(r.TablePath, \""
+                            "                        if (!TextHelpers.EqLastSegment(r.TablePath, \""
                                 + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName)
                                 + "\"u8)) break;"
                         );

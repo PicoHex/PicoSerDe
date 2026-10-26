@@ -30,7 +30,7 @@ file readonly struct S2Toml_TomlDes : IDeserializer<S2Toml> {
             }
             if (r.TokenType == TokenType.ArrayStart) {
                 var __arrPos = r.BytesConsumed;
-                if (TextHelpers.Eq(r.TablePath, "V"u8)) {
+                if (TextHelpers.EqLastSegment(r.TablePath, "V"u8)) {
                     var __item = new global::FormatCapabilities.Probe.ProbeDto();
                     while (true) {
                         var __itPos = r.BytesConsumed;
@@ -102,7 +102,7 @@ file readonly struct S2Toml_TomlDes : IDeserializer<S2Toml> {
                         o.V ??= new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>();
                         o.V.Add(__item);
                         if (r.TokenType != TokenType.ArrayStart) break;
-                        if (!TextHelpers.Eq(r.TablePath, "V"u8)) break;
+                        if (!TextHelpers.EqLastSegment(r.TablePath, "V"u8)) break;
                         if (r.BytesConsumed == __itPos) break;
                         __item = new global::FormatCapabilities.Probe.ProbeDto();
                     }
@@ -133,7 +133,7 @@ S2Toml? result) {
             }
             if (r.TokenType == TokenType.ArrayStart) {
                 var __arrPos = r.BytesConsumed;
-                if (TextHelpers.Eq(r.TablePath, "V"u8)) {
+                if (TextHelpers.EqLastSegment(r.TablePath, "V"u8)) {
                     int __cnt = o.V?.Count ?? 0;
                     var __item = new global::FormatCapabilities.Probe.ProbeDto();
                     while (true) {
@@ -211,7 +211,7 @@ S2Toml? result) {
                         o.V ??= new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>();
                         o.V.Add(__item);
                         if (r.TokenType != TokenType.ArrayStart) break;
-                        if (!TextHelpers.Eq(r.TablePath, "V"u8)) break;
+                        if (!TextHelpers.EqLastSegment(r.TablePath, "V"u8)) break;
                         if (r.BytesConsumed == __itPos) break;
                         __item = new global::FormatCapabilities.Probe.ProbeDto();
                     }

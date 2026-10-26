@@ -145,6 +145,8 @@ public class TomlUnknownTableHangTests
     [Test]
     [Arguments("[[Items]]\n", 1)]
     [Arguments("[[Unknown]]\n", 0)]
+    // The polymorphic emitter is the third `[[…]]` dispatch site.
+    [Arguments("[[Parent.Items]]\nName = \"a\"\n[[Parent.Items]]\nName = \"b\"\n", 2)]
     public async Task EmptyArrayOfTablesInPolymorphicPayload_TerminatesWithinBudget(
         string body,
         int expectedCount
@@ -183,6 +185,11 @@ public class TomlUnknownTableHangTests
     // rule the `[Unknown]` cases above assert). Zero would be wrong too — the
     // element that IS there must survive.
     [Arguments("[[Items]]\nName = \"a\"\n[[Unknown]]\n", 1)]
+    // A foreign header BETWEEN two real ones must not cost the second element: the
+    // element loop breaks on the name it does not own, and the enclosing dispatch
+    // advances past exactly that one header, so the next `[[Items]]` is read as the
+    // element it is (2 — never 1, and never the phantom empty element round 0 added).
+    [Arguments("[[Items]]\nName = \"a\"\n[[Unknown]]\n[[Items]]\nName = \"b\"\n", 2)]
     public async Task EmptyArrayOfTables_TerminatesWithinBudget(string input, int expectedCount)
     {
         var model = await Run(
@@ -196,6 +203,9 @@ public class TomlUnknownTableHangTests
     [Test]
     [Arguments("[[Items]]\n", 1)]
     [Arguments("[[Unknown]]\n", 0)]
+    // The streaming emitter has its OWN arm match for `[[…]]` (and its own element
+    // guard), so the dotted-header contract is pinned through this entry point too.
+    [Arguments("[[Parent.Items]]\nName = \"a\"\n[[Parent.Items]]\nName = \"b\"\n", 2)]
     public async Task EmptyArrayOfTablesThroughStreamingEntryPoint_TerminatesWithinBudget(
         string input,
         int expectedCount
@@ -211,6 +221,39 @@ public class TomlUnknownTableHangTests
                     .GetAwaiter()
                     .GetResult(),
             Escape(input) + " via DeserializeFromStreamAsync"
+        );
+
+        await Assert.That(model.Items.Count).IsEqualTo(expectedCount);
+    }
+
+    // ── C-1: the header names the member by its LAST segment ────────────────────
+
+    /// <summary>
+    /// A HAND-WRITTEN header carries the whole dotted path: <c>[[Parent.Items]]</c> is how
+    /// TOML itself nests an array of tables, and every real-world file that nests one looks
+    /// like this. Our reader is flat and a generated arm knows exactly one member, so the
+    /// comparison has to be same-level — the header's LAST segment vs the member name.
+    /// Comparing the whole path against the bare name matched no arm at all and dropped
+    /// every element (C-1: fix round 1's guard regressed this; before that guard the same
+    /// input was silently read as 0 elements because the ARM match was whole-path too).
+    /// </summary>
+    [Test]
+    [Arguments("[[Parent.Items]]\nName = \"a\"\n[[Parent.Items]]\nName = \"b\"\n", 2)]
+    [Arguments("[[Parent.Items]]\nName = \"a\"\n", 1)]
+    // A foreign PARENT path is still a header for the member it ends with: the flat
+    // reader cannot represent `Unknown`, but the element written under it is real data
+    // and "can't represent the parent" must not turn into "drop the child".
+    [Arguments("[[Unknown.Items]]\nName = \"a\"\n", 1)]
+    // ... while a header whose last segment is NOT this member stays foreign.
+    [Arguments("[[Items.Unknown]]\nName = \"a\"\n", 0)]
+    public async Task DottedArrayOfTablesHeader_NamesTheMemberByItsLastSegment(
+        string input,
+        int expectedCount
+    )
+    {
+        var model = await Run(
+            () => TomlSerializer.Deserialize<UnknownTableListModel>(bytes(input))!,
+            Escape(input)
         );
 
         await Assert.That(model.Items.Count).IsEqualTo(expectedCount);

@@ -2651,14 +2651,6 @@ internal static class GenInfrastructure
     }
 
     /// <summary>
-    /// True when a collection level <em>inside</em> a nested chain is itself a nullable
-    /// reference (<c>List&lt;List&lt;int&gt;?&gt;</c>, <c>int[]?[]</c>). TOML has no null at all,
-    /// so there is nothing to write for a null inner array and nothing to skip that
-    /// would not silently change the element count — such a chain is unrepresentable.
-    /// The nullability of the innermost <em>scalar</em> element is a different case and
-    /// is handled by the per-element skip/null rules.
-    /// </summary>
-    /// <summary>
     /// True when every member of <paramref name="type"/> fits the INLINE TABLE form
     /// <c>{ Name = "a", N = 1 }</c> — the one shape an object can take as an ARRAY
     /// ELEMENT (TOML S4: <c>V = [[{ Name = "a" }]]</c>).
@@ -2695,6 +2687,14 @@ internal static class GenInfrastructure
         return true;
     }
 
+    /// <summary>
+    /// True when a collection level <em>inside</em> a nested chain is itself a nullable
+    /// reference (<c>List&lt;List&lt;int&gt;?&gt;</c>, <c>int[]?[]</c>). TOML has no null at all,
+    /// so there is nothing to write for a null inner array and nothing to skip that
+    /// would not silently change the element count — such a chain is unrepresentable.
+    /// The nullability of the innermost <em>scalar</em> element is a different case and
+    /// is handled by the per-element skip/null rules.
+    /// </summary>
     private static bool HasNullableCollectionLevel(ITypeSymbol elementType, string formatTag)
     {
         var current = elementType;

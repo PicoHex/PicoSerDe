@@ -181,6 +181,12 @@
 
 > **T2 实测补账**：`S7×ini` 在 §6 是 ✅、今天仍 MISMATCH，而原计划**没有任务认领它**
 > （代码注释与测试都写"Task 6"，但 Task 6 的 Files/Steps 里没有它）。现正式归入本任务。
+>
+> **T6 实测补账（格账）**：本任务 **3 格认领 + 1 格接力 = 实翻 4 格**。第 4 格 `toml S9`
+> 是**两段接力**才变 OK 的格：`Task 0`（`f34d5be`）只修掉**挂死**（TIMEOUT → MISMATCH），
+> 本任务修**写侧**（**D-9b**：`NeedsKeyQuoting` 的字符集）才把它推到 OK —— 缺任一段都到不了 OK。
+> 所以「24 格谁来认领」的账上 Task 6 仍只算 **3**，另记 **+1 接力**（见 §自检 1）；
+> 而实测翻转与探针复核都是 **4 格**（接力那格也在里面）。
 
 **Files:**
 - Modify: `PicoYaml/src/PicoYaml/YamlWriter.cs`（键转义）
@@ -192,7 +198,7 @@
 
 - [ ] **Step 1: 写 yaml S9 测试**（键含 `\n`、`"`、`:`），断言往返等价；写 toml S4 测试（`List<List<Dto>>`）。
 - [ ] **Step 2: 跑，确认两条红**。
-- [ ] **Step 3: 修 writer 的键转义 / toml 的嵌套表发射；跑 → 绿；探针复核 2 格 OK**。
+- [ ] **Step 3: 修 writer 的键转义 / toml 的嵌套表发射；跑 → 绿；探针复核 4 格 OK**（3 认领 + 1 接力 `toml S9`）。
 - [ ] **Step 4: spec 修正（桶 C）**：`ini S9` 的 ✅ 加脚注「键字符集受限：不含 `\n`/`=`」；把该 boundary 值移入 R5 的清单，**不在 R2 实现**。
 - [ ] **Step 5: 提交**
 
@@ -262,7 +268,7 @@
 
 ## 自检（写完后执行）
 
-1. **spec 覆盖**：§6 的 24 格是否每格都有任务认领？（Task 2: 8、Task 3: 4、Task 4: 4、Task 5: 4、Task 6: 3（yaml S9 / toml S4 / **S7×ini**）、Task 0: 1（toml S9 的**挂死**部分）、Task 6 的 spec 修正: 1（ini S9））
+1. **spec 覆盖**：§6 的 24 格是否每格都有任务认领？（Task 2: 8、Task 3: 4、Task 4: 4、Task 5: 4、Task 6: **3 认领**（yaml S9 / toml S4 / **S7×ini**）**+ 1 接力**（`toml S9`：Task 0 修挂死、Task 6 修写侧 **D-9b**，两段合成才 OK；接力 ≠ 认领，账上分开记）、Task 0: 1（toml S9 的**挂死**部分）、Task 6 的 spec 修正: 1（ini S9））
    > **W0 实测修正**：`toml|S9` 由 Task 0 只解决**挂死**；其 MISMATCH 的其余原因（写侧裸 key 不转义，
    > `TomlWriter.NeedsKeyQuoting` 不含 `
 `/``/控制字符）已改挂 **Task 6**。即 Task 0 认领的是「不再 TIMEOUT」，不是「变 OK」。
