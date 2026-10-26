@@ -526,23 +526,28 @@ public class SilentDropDiagnosticTests
     }
 
     /// <summary>
-    /// ⏸ half of I-5 on the SAME shape in the format that CAN hold it: YAML has a null
-    /// literal (spec §3 S5, written as a bare <c>- null</c>), so the drop is our debt
-    /// (D-7b). Claiming "cannot be represented by this format" here is the concrete mislead
-    /// D-4 ② names.
+    /// ⏸ half of I-5, moved to the debt that is STILL open in yaml: a dict value whose
+    /// sequence ends in an OBJECT (<c>Dictionary&lt;string,List&lt;Row&gt;&gt;</c>, R2 Task 3's
+    /// deferred gap). The FACTS say yaml can hold it, so the message must say "not
+    /// implemented yet" and must not claim a format limit — blaming the format for our own
+    /// gap is exactly D-4 ②.
+    /// <para>
+    /// The shape this fixture used to pin (<c>List&lt;int?&gt;</c>, S5) was PAID by R2 Task 4:
+    /// yaml writes <c>- null</c> now, so there is no drop message left to inspect.
+    /// </para>
     /// </summary>
     [Test]
-    public async Task Yaml_null_element_reports_our_debt()
+    public async Task Yaml_dict_of_object_list_reports_our_debt()
     {
         var drop = DropMessage(
-            RunYaml(NullableIntList("PicoYaml", "PicoYamlSerializable")),
+            RunYaml(DictOfObjectList("PicoYaml", "PicoYamlSerializable")),
             "Doc.V"
         );
 
         await Assert
             .That(drop.StartsWith(Deferred, StringComparison.Ordinal))
             .IsTrue()
-            .Because($"yaml CAN express a null element, so this is a debt {Deferred}: {drop}");
+            .Because($"yaml CAN express it, so this is a debt {Deferred}: {drop}");
         await Assert
             .That(drop)
             .Contains("has not implemented it yet")
@@ -558,6 +563,31 @@ public class SilentDropDiagnosticTests
     }
 
     /// <summary>
+    /// R2 Task 4 paid the debt this fixture used to pin (<c>List&lt;int?&gt;</c>, S5): yaml
+    /// writes the null literal, so nothing is dropped and the member must reach the code.
+    /// Keeping the old ⏸ assertion would demand the bug back.
+    /// </summary>
+    [Test]
+    public async Task Yaml_null_element_is_emitted_not_dropped()
+    {
+        var (ids, generated, messages) = RunYaml(
+            NullableIntList("PicoYaml", "PicoYamlSerializable")
+        );
+
+        await Assert
+            .That(ids)
+            .DoesNotContain(Id)
+            .Because(
+                "yaml writes the null literal now, so S5 x yaml is not a drop: "
+                    + string.Join(" | ", messages)
+            );
+        await Assert
+            .That(generated)
+            .Contains("WriteNull")
+            .Because("the null ELEMENT must reach the writer (a skipped element shifts the list)");
+    }
+
+    /// <summary>
     /// I-5's discriminating half: the SAME member in the SAME shape, dropped by two formats,
     /// must not produce the same sentence — otherwise one template satisfies both tests
     /// above merely by containing both phrases. This is the test the plan's Step 2 expects
@@ -570,8 +600,10 @@ public class SilentDropDiagnosticTests
             RunToml(NullableIntList("PicoToml", "PicoTomlSerializable")),
             "Doc.V"
         );
+        // The ⏸ half moved to yaml's still-open debt (R2 Task 4 paid S5 x yaml): the SAME
+        // member name in the SAME kind of shape, dropped for a different reason.
         var yaml = DropMessage(
-            RunYaml(NullableIntList("PicoYaml", "PicoYamlSerializable")),
+            RunYaml(DictOfObjectList("PicoYaml", "PicoYamlSerializable")),
             "Doc.V"
         );
 
@@ -584,7 +616,7 @@ public class SilentDropDiagnosticTests
         await Assert
             .That(yaml.StartsWith(Deferred, StringComparison.Ordinal))
             .IsTrue()
-            .Because($"yaml x S5 is our debt: {yaml}");
+            .Because($"yaml's remaining dict-of-object-list gap is our debt: {yaml}");
 
         // Spec C4 (spec review D2): a debt message must CARRY the reopen pointer, not
         // only say "recorded gap" — otherwise the reader cannot find the condition.
@@ -599,25 +631,31 @@ public class SilentDropDiagnosticTests
     }
 
     /// <summary>
-    /// The cell D-4 ② names by hand: S14 x yaml. YAML can hold a null object element
-    /// (PyYAML reads <c>- null</c>; spec §3 footnote ¹) but the generator drops the whole
-    /// member — a DEBT in yaml, a FACT in the two formats that carry no null at all.
+    /// The cell D-4 ② named by hand: S14 x yaml. YAML can hold a null object element
+    /// (PyYAML reads <c>- null</c>; spec §3 footnote ¹) and R2 Task 4 implemented it while
+    /// closing the nullable leaf family — so the member is emitted with a null branch, while
+    /// TOML, which carries no null literal at all, keeps the terminal ⛔ sentence.
     /// </summary>
     [Test]
-    public async Task Object_null_element_is_a_debt_in_yaml_and_a_fact_in_toml()
+    public async Task Object_null_element_is_emitted_in_yaml_and_a_fact_in_toml()
     {
-        var yaml = DropMessage(
-            RunYaml(ObjectNullElementList("PicoYaml", "PicoYamlSerializable")),
-            "Doc.V"
+        var (ids, generated, messages) = RunYaml(
+            ObjectNullElementList("PicoYaml", "PicoYamlSerializable")
         );
         var toml = DropMessage(
             RunToml(ObjectNullElementList("PicoToml", "PicoTomlSerializable")),
             "Doc.V"
         );
 
-        await Assert.That(yaml.StartsWith(Deferred, StringComparison.Ordinal)).IsTrue();
+        await Assert
+            .That(ids)
+            .DoesNotContain(Id)
+            .Because("yaml writes the null literal now: " + string.Join(" | ", messages));
+        await Assert
+            .That(generated)
+            .Contains("WriteNull")
+            .Because("a null object element is a null literal, not a skipped item");
         await Assert.That(toml.StartsWith(Impossible, StringComparison.Ordinal)).IsTrue();
-        await Assert.That(yaml).IsNotEqualTo(toml);
     }
 
     /// <summary>

@@ -65,6 +65,7 @@ M:PicoYaml.YamlWriter.WriteEndMapping() : void
 M:PicoYaml.YamlWriter.WriteEndSequence() : void
 M:PicoYaml.YamlWriter.WriteEndSequenceBlock() : void
 M:PicoYaml.YamlWriter.WriteInt64(long value) : void
+M:PicoYaml.YamlWriter.WriteNull() : void
 M:PicoYaml.YamlWriter.WriteNumber(int value) : void
 M:PicoYaml.YamlWriter.WritePropertyName(System.ReadOnlySpan`1<byte> utf8Name) : void
 M:PicoYaml.YamlWriter.WritePropertyName(System.ReadOnlySpan`1<char> name) : void

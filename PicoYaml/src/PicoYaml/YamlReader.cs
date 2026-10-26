@@ -615,6 +615,14 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
     {
         _valueWasQuoted = false;
         _seqItemWasBareDash = false;
+        // R2 Task 4: the value span belongs to the token that CARRIES an inline value. It
+        // used to survive into the next token, so a PropertyName whose value is the indented
+        // block below it (`k:` + block) reported the PREVIOUS token's value ("null", a number,
+        // whatever) — indistinguishable from `k: null`. Clearing it makes "no inline value"
+        // observable as an empty span, which is what lets generated code tell a null literal
+        // from a block value without a new reader API. Tokens that have an inline value set
+        // it below, so nothing that reads a scalar changes.
+        _valueSpan = default;
         if (++_tokenCount > MaxTokens)
             throw new FormatException(
                 $"Exceeded maximum token count of {MaxTokens}; likely an infinite loop in YAML parsing"

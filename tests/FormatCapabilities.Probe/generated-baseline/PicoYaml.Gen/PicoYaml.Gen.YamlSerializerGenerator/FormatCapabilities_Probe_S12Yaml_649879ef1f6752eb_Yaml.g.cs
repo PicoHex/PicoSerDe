@@ -18,6 +18,8 @@ S12Yaml> {
         {
             if (__item != null)
                 yw.WriteSequenceItem(Encoding.UTF8.GetBytes(__item));
+            else
+                yw.WriteNull();
         }
         yw.WriteEndSequence();
     } }

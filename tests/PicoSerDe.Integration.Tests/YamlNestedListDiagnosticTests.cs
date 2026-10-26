@@ -78,11 +78,12 @@ public class YamlNestedListDiagnosticTests
     }
 
     /// <summary>
-    /// F5 review I-3: the innermost element's nullability decides representability. Before
-    /// the fix only the outermost element was inspected, so <c>List&lt;List&lt;int?&gt;&gt;</c> slipped
-    /// through and the generated <c>WriteSequenceItem(int?)</c> did not compile (CS1503) —
-    /// a hard build break where the pre-F5 contract was PICOSERDE004 + dropped member.
-    /// Each shape below must report the diagnostic and leave no code behind.
+    /// F5 review I-3: the innermost element's nullability decides how the element must be
+    /// written. F5 could only DROP these shapes (a nullable reached
+    /// <c>WriteSequenceItem(int?)</c>, CS1503). R2 Task 4 gave the writer a null literal, so
+    /// the contract is now the positive one: the member IS emitted, and the generated code
+    /// carries the null branch (<c>yw.WriteNull()</c>) — the CS1503 hazard has to be gone
+    /// without the member disappearing.
     /// </summary>
     [Test]
     [Arguments("System.Collections.Generic.List<System.Collections.Generic.List<int?>>")]
@@ -95,7 +96,7 @@ public class YamlNestedListDiagnosticTests
     [Arguments(
         "System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int?[]>>"
     )]
-    public async Task Yaml_NestedNullableElementMember_IsDroppedWithTheDiagnostic(string shape)
+    public async Task Yaml_NestedNullableElementMember_IsEmittedWithTheNullBranch(string shape)
     {
         var source =
             """
@@ -116,11 +117,18 @@ public class YamlNestedListDiagnosticTests
             + "public static class Probe { public static string Run() => YamlSerializer.Serialize(new ProbeDoc()); }";
 
         var (ids, generated) = RunGenerator(source);
-        await Assert.That(ids).Contains(Id).Because("shape=" + shape + " ids=" + ids.Length);
+        await Assert
+            .That(ids)
+            .DoesNotContain(Id)
+            .Because("yaml can write a null literal now (shape=" + shape + ")");
         await Assert
             .That(generated)
-            .DoesNotContain("Member")
-            .Because("the unrepresentable member must not be emitted (shape=" + shape + ")");
+            .Contains("Member")
+            .Because("the member must reach the code (shape=" + shape + ")");
+        await Assert
+            .That(generated)
+            .Contains("WriteNull")
+            .Because("the nullable leaf needs the null branch (shape=" + shape + ")");
         await Assert.That(generated).Contains("Name").Because("the sibling member must survive");
     }
 
@@ -162,11 +170,13 @@ public class YamlNestedListDiagnosticTests
     }
 
     /// <summary>
-    /// The over-drop fix must not re-open the genuinely unrepresentable shape: an object
-    /// element is kept, a nested nullable sequence is still dropped — in the same document.
+    /// The two members of one document must not interfere: an object list and a nested
+    /// nullable sequence are both emitted now (R2 Task 4), each with its own null handling
+    /// and neither stealing the other's depth/bookkeeping. This used to be the "kept vs
+    /// still dropped" fixture; the drop half is gone with the debt.
     /// </summary>
     [Test]
-    public async Task Yaml_ObjectElementKept_NestedNullableElementStillDropped()
+    public async Task Yaml_ObjectElementAndNestedNullableSequence_AreBothEmitted()
     {
         const string source = """
             using PicoYaml;
@@ -191,9 +201,13 @@ public class YamlNestedListDiagnosticTests
             """;
 
         var (ids, generated) = RunGenerator(source);
-        await Assert.That(ids).Contains(Id).Because("the nested nullable sequence stays dropped");
+        await Assert.That(ids).DoesNotContain(Id).Because("both members are representable in yaml");
         await Assert.That(generated).Contains("Items").Because("the object list must be emitted");
-        await Assert.That(generated).DoesNotContain("Grid").Because("Grid must stay dropped");
+        await Assert
+            .That(generated)
+            .Contains("Grid")
+            .Because("Grid is emitted now, null branch too");
+        await Assert.That(generated).Contains("WriteNull").Because("the nullable leaf writes null");
     }
 
     private static (string[] DiagnosticIds, string Generated) RunGenerator(string source)

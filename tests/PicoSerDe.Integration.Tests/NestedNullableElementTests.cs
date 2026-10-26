@@ -37,9 +37,11 @@ public class NestedNullableElemHolder
 }
 
 /// <summary>
-/// The nested shapes whose innermost element is not representable by YAML must be
-/// dropped (never emitted as code that cannot compile). A fixed member is asserted by
-/// name so a silent "dropped everything" regression cannot pass either.
+/// The nested shapes whose innermost element is a nullable leaf. F5 had to drop them in
+/// yaml (no null literal in the writer = CS1503 on <c>int?</c>); R2 Task 4 gave the writer
+/// <c>WriteNull</c>, so they are emitted and must round-trip with the nulls in place. A
+/// fixed member is still asserted by name so a silent "dropped everything" regression cannot
+/// pass either.
 /// </summary>
 public class NestedNullableElementTests
 {
@@ -72,8 +74,15 @@ public class NestedNullableElementTests
             Count = 5,
         };
 
+    /// <summary>
+    /// R2 Task 4: every one of these members used to be DROPPED in yaml (PICOSERDE004) —
+    /// the writer had no null literal, so an <c>int?</c> had nowhere to go (F5 review I-3's
+    /// CS1503 hazard). The writer writes <c>- null</c> now, so the assertion flips from
+    /// "must not appear" to "must appear AND must keep the null": the value-level checks are
+    /// what a member that appears but loses its nulls cannot pass.
+    /// </summary>
     [Test]
-    public async Task Yaml_NestedNullableElementMembers_AreDroppedWithTheDiagnostic()
+    public async Task Yaml_NestedNullableElementMembers_RoundTrip()
     {
         var text = YamlSerializer.Serialize(Sample());
         await Assert.That(text).Contains("Name: root").Because("actual=" + text);
@@ -89,7 +98,36 @@ public class NestedNullableElementTests
                 "NullableIntArrayMap",
             }
         )
-            await Assert.That(text).DoesNotContain(member).Because("dropped member " + member);
+            await Assert.That(text).Contains(member).Because("emitted member " + member);
+
+        await Assert.That(text).Contains("- null").Because("actual=" + text);
+
+        var back = YamlSerializer.Deserialize<NestedNullableElemHolder>(
+            Encoding.UTF8.GetBytes(text)
+        );
+        await Assert.That(back!.Name).IsEqualTo("root").Because("actual=" + text);
+        await Assert.That(back.Count).IsEqualTo(5);
+
+        await Assert.That(back.NullableInts.Count).IsEqualTo(1);
+        await Assert.That(back.NullableInts[0].Count).IsEqualTo(2);
+        await Assert.That(back.NullableInts[0][1]).IsNull();
+
+        await Assert.That(back.NullableIntArrays.Count).IsEqualTo(1);
+        await Assert.That(back.NullableIntArrays[0].Length).IsEqualTo(2);
+        await Assert.That(back.NullableIntArrays[0][1]).IsNull();
+
+        await Assert.That(back.NullableEnums.Count).IsEqualTo(1);
+        await Assert.That(back.NullableEnums[0][1]).IsNull();
+
+        await Assert.That(back.NullableObjs.Count).IsEqualTo(1);
+        await Assert.That(back.NullableObjs[0][1]).IsNull();
+        await Assert.That(back.NullableObjs[0][0]!.Name).IsEqualTo("a");
+
+        await Assert.That(back.NullableIntMap.Count).IsEqualTo(1);
+        await Assert.That(back.NullableIntMap["k"][1]).IsNull();
+
+        await Assert.That(back.NullableIntArrayMap.Count).IsEqualTo(1);
+        await Assert.That(back.NullableIntArrayMap["k"][0][1]).IsNull();
     }
 
     /// <summary>

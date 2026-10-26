@@ -80,20 +80,24 @@ internal static class DecisionTables
         [("toml", Decision.NestedObjectContainer)] = Effect.DropMember,
         [("yaml", Decision.NestedObjectContainer)] = Effect.Supported,
         [("ini", Decision.NestedObjectContainer)] = Effect.DropMember,
-        // Nullable VALUE leaf: toml/ini cannot hold null at all; yaml could (spec §3) but
-        // the generator does not implement it yet (D-7b) — the difference between the two
-        // is exactly what Facts/TargetRules record.
+        // Nullable VALUE leaf: toml/ini cannot hold null at all. yaml can (spec §3) and R2
+        // Task 4 taught the writer the null literal (`YamlWriter.WriteNull`) AND the four
+        // emit/read sites the nullable branch (List<int?>, List<List<int?>>, Dictionary<,int?>),
+        // so its cell is the target value now — the difference between toml/ini and yaml is no
+        // longer "can the format" but "does the generator", and it is closed.
         [("json", Decision.NullableValueLeaf)] = Effect.Supported,
         [("msgpack", Decision.NullableValueLeaf)] = Effect.Supported,
         [("toml", Decision.NullableValueLeaf)] = Effect.DropMember,
-        [("yaml", Decision.NullableValueLeaf)] = Effect.DropMember,
+        [("yaml", Decision.NullableValueLeaf)] = Effect.Supported,
         [("ini", Decision.NullableValueLeaf)] = Effect.DropMember,
-        // Nullable REFERENCE leaf: same null story, but toml/yaml emit the member and lose
-        // the element (D-7a/D-7b) — a DropElement, which is why the effect is three-valued.
+        // Nullable REFERENCE leaf: toml emits the member and loses the element (D-7a) — a
+        // DropElement, which is why the effect is three-valued. yaml was DropElement for the
+        // same reason (D-7b) and is Supported since R2 Task 4: a null ELEMENT is written as
+        // `- null` instead of being skipped.
         [("json", Decision.NullableRefLeaf)] = Effect.Supported,
         [("msgpack", Decision.NullableRefLeaf)] = Effect.Supported,
         [("toml", Decision.NullableRefLeaf)] = Effect.DropElement,
-        [("yaml", Decision.NullableRefLeaf)] = Effect.DropElement,
+        [("yaml", Decision.NullableRefLeaf)] = Effect.Supported,
         [("ini", Decision.NullableRefLeaf)] = Effect.DropMember,
         // Extended collection as an ELEMENT (S8). This row is the one that used to be
         // decided by a LITERAL kind list in the extractor, so the cell could say Supported

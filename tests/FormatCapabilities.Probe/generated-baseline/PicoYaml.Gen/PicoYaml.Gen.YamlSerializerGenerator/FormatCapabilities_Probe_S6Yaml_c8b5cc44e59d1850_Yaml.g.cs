@@ -12,6 +12,32 @@ S6Yaml> {
     public void Serialize(IBufferWriter<byte> w, S6Yaml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoYaml.YamlOptions?)options;
         var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);
+        yw.WritePropertyName("V"u8);
+        yw.WriteStartSequence();
+        foreach (var __item in v.V ?? new System.Collections.Generic.List<global::System.Collections.Generic.List<int?>>(0))
+        {
+            if (__item is null || __item.Count == 0)
+            {
+                yw.WriteEmptySequenceItem();
+            }
+            else
+            {
+                yw.WriteStartSequenceBlock();
+                yw.WriteStartSequence();
+                foreach (var __item1 in __item ?? new System.Collections.Generic.List<int?>(0))
+                {
+                    if (__item1 == null)
+                        yw.WriteNull();
+                    else
+                    {
+                        yw.WriteSequenceItem(__item1.Value);
+                    }
+                }
+                yw.WriteEndSequence();
+                yw.WriteEndSequenceBlock();
+            }
+        }
+        yw.WriteEndSequence();
     } }
 file readonly struct S6Yaml_YD : IDeserializer<S6Yaml> {
     public S6Yaml Deserialize(ReadOnlySpan<byte> d) {
@@ -24,7 +50,142 @@ file readonly struct S6Yaml_YD : IDeserializer<S6Yaml> {
                 continue;
             }
             var k = r.KeySpan;
-            if (!r.Read()) break;
+            if (TextHelpers.Eq(k, "V"u8)) {
+                var __tmpList = new System.Collections.Generic.List<global::System.Collections.Generic.List<int?>>(16);
+                bool __more;
+                __more = r.Read();
+                if (!__more)
+                {
+                    // The document ended at this key: there is no list to read.
+                }
+                else if (r.TokenType == TokenType.ObjectStart)
+                {
+                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    __more = r.Read();
+                    while (__more && r.TokenType == TokenType.String)
+                    {
+                        var __seq1 = new System.Collections.Generic.List<int?>(16);
+                        if (r.IsEmptySequenceMarker)
+                        {
+                            // A "- []" item: the inner sequence has no elements.
+                            __more = r.Read();
+                        }
+                        else if (r.IsNestedSequenceItem)
+                        {
+                            // A bare dash: the inner sequence is the indented block that follows.
+                            if (!r.Read())
+                            {
+                                // The chunk (or the document) ended inside the item: a resumed
+                                // read restarts the member from its mark, so stopping here is safe
+                                // and the streaming dispatcher decides whether to wait for more.
+                                __more = false;
+                            }
+                            else if (r.TokenType != TokenType.ObjectStart)
+                            {
+                                // A dash with no indented block below it ("-", "- # note"): the item has no
+                                // value, so it reads like an empty inner sequence instead of failing.
+                            }
+                            else
+                            {
+                                __more = r.Read();
+                                while (__more && r.TokenType == TokenType.String)
+                                {
+                                    if (r.IsNullLiteral)
+                                    {
+                                        __seq1.Add(null);
+                                    }
+                                    else
+                                    {
+                                        if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                        __seq1.Add(__ev);
+                                    }
+                                    __more = r.Read();
+                                }
+                                if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                            }
+                        }
+                        else if (r.IsNullLiteral)
+                        {
+                            // A null item ("- null", "- *alias"): no element for the inner sequence.
+                            __more = r.Read();
+                        }
+                        else
+                        {
+                            throw new System.FormatException($"Expected a nested sequence item at offset {r.BytesConsumed}");
+                        }
+                        __tmpList.Add(__seq1);
+                    }
+                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                }
+                else if (r.TokenType == TokenType.String)
+                {
+                    // No wrapper: the probe token is the first item of a flat sequence.
+                    while (__more && r.TokenType == TokenType.String)
+                    {
+                        var __seq1 = new System.Collections.Generic.List<int?>(16);
+                        if (r.IsEmptySequenceMarker)
+                        {
+                            // A "- []" item: the inner sequence has no elements.
+                            __more = r.Read();
+                        }
+                        else if (r.IsNestedSequenceItem)
+                        {
+                            // A bare dash: the inner sequence is the indented block that follows.
+                            if (!r.Read())
+                            {
+                                // The chunk (or the document) ended inside the item: a resumed
+                                // read restarts the member from its mark, so stopping here is safe
+                                // and the streaming dispatcher decides whether to wait for more.
+                                __more = false;
+                            }
+                            else if (r.TokenType != TokenType.ObjectStart)
+                            {
+                                // A dash with no indented block below it ("-", "- # note"): the item has no
+                                // value, so it reads like an empty inner sequence instead of failing.
+                            }
+                            else
+                            {
+                                __more = r.Read();
+                                while (__more && r.TokenType == TokenType.String)
+                                {
+                                    if (r.IsNullLiteral)
+                                    {
+                                        __seq1.Add(null);
+                                    }
+                                    else
+                                    {
+                                        if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                        __seq1.Add(__ev);
+                                    }
+                                    __more = r.Read();
+                                }
+                                if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                            }
+                        }
+                        else if (r.IsNullLiteral)
+                        {
+                            // A null item ("- null", "- *alias"): no element for the inner sequence.
+                            __more = r.Read();
+                        }
+                        else
+                        {
+                            throw new System.FormatException($"Expected a nested sequence item at offset {r.BytesConsumed}");
+                        }
+                        __tmpList.Add(__seq1);
+                    }
+                }
+                else
+                {
+                    // No wrapper and no sequence item: the list is empty and the probe token
+                    // is already the sibling property this member must not eat (C-21).
+                }
+                o.V = __tmpList;
+                if (!__more) break;
+            }
+            else {
+                // Unknown property — skip its value to avoid infinite loop
+                if (!r.Read()) break;
+            }
         }
         return o;
     } }
@@ -45,8 +206,146 @@ S6Yaml? result) {
                 continue;
             }
             var k = r.KeySpan;
-            r.Mark();
-            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            if (TextHelpers.Eq(k, "V"u8)) {
+                var __tmpList = new System.Collections.Generic.List<global::System.Collections.Generic.List<int?>>(16);
+                bool __more;
+                __more = r.Read();
+                if (!__more)
+                {
+                    // The document ended at this key: there is no list to read.
+                }
+                else if (r.TokenType == TokenType.ObjectStart)
+                {
+                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    __more = r.Read();
+                    while (__more && r.TokenType == TokenType.String)
+                    {
+                        var __seq1 = new System.Collections.Generic.List<int?>(16);
+                        if (r.IsEmptySequenceMarker)
+                        {
+                            // A "- []" item: the inner sequence has no elements.
+                            __more = r.Read();
+                        }
+                        else if (r.IsNestedSequenceItem)
+                        {
+                            // A bare dash: the inner sequence is the indented block that follows.
+                            if (!r.Read())
+                            {
+                                // The chunk (or the document) ended inside the item: a resumed
+                                // read restarts the member from its mark, so stopping here is safe
+                                // and the streaming dispatcher decides whether to wait for more.
+                                __more = false;
+                            }
+                            else if (r.TokenType != TokenType.ObjectStart)
+                            {
+                                // A dash with no indented block below it ("-", "- # note"): the item has no
+                                // value, so it reads like an empty inner sequence instead of failing.
+                            }
+                            else
+                            {
+                                __more = r.Read();
+                                while (__more && r.TokenType == TokenType.String)
+                                {
+                                    if (r.IsNullLiteral)
+                                    {
+                                        __seq1.Add(null);
+                                    }
+                                    else
+                                    {
+                                        if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                        __seq1.Add(__ev);
+                                    }
+                                    __more = r.Read();
+                                }
+                                if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                            }
+                        }
+                        else if (r.IsNullLiteral)
+                        {
+                            // A null item ("- null", "- *alias"): no element for the inner sequence.
+                            __more = r.Read();
+                        }
+                        else
+                        {
+                            throw new System.FormatException($"Expected a nested sequence item at offset {r.BytesConsumed}");
+                        }
+                        __tmpList.Add(__seq1);
+                    }
+                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                }
+                else if (r.TokenType == TokenType.String)
+                {
+                    // No wrapper: the probe token is the first item of a flat sequence.
+                    while (__more && r.TokenType == TokenType.String)
+                    {
+                        var __seq1 = new System.Collections.Generic.List<int?>(16);
+                        if (r.IsEmptySequenceMarker)
+                        {
+                            // A "- []" item: the inner sequence has no elements.
+                            __more = r.Read();
+                        }
+                        else if (r.IsNestedSequenceItem)
+                        {
+                            // A bare dash: the inner sequence is the indented block that follows.
+                            if (!r.Read())
+                            {
+                                // The chunk (or the document) ended inside the item: a resumed
+                                // read restarts the member from its mark, so stopping here is safe
+                                // and the streaming dispatcher decides whether to wait for more.
+                                __more = false;
+                            }
+                            else if (r.TokenType != TokenType.ObjectStart)
+                            {
+                                // A dash with no indented block below it ("-", "- # note"): the item has no
+                                // value, so it reads like an empty inner sequence instead of failing.
+                            }
+                            else
+                            {
+                                __more = r.Read();
+                                while (__more && r.TokenType == TokenType.String)
+                                {
+                                    if (r.IsNullLiteral)
+                                    {
+                                        __seq1.Add(null);
+                                    }
+                                    else
+                                    {
+                                        if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                        __seq1.Add(__ev);
+                                    }
+                                    __more = r.Read();
+                                }
+                                if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                            }
+                        }
+                        else if (r.IsNullLiteral)
+                        {
+                            // A null item ("- null", "- *alias"): no element for the inner sequence.
+                            __more = r.Read();
+                        }
+                        else
+                        {
+                            throw new System.FormatException($"Expected a nested sequence item at offset {r.BytesConsumed}");
+                        }
+                        __tmpList.Add(__seq1);
+                    }
+                }
+                else
+                {
+                    // No wrapper and no sequence item: the list is empty and the probe token
+                    // is already the sibling property this member must not eat (C-21).
+                }
+                o.V = __tmpList;
+                if (!__more) break;
+                if (r.NeedsMoreData) {
+                    r.RewindToMark();
+                    return ReadStatus.NeedMoreData;
+                }
+            }
+            else {
+                r.Mark();
+                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            }
         }
         // Reached via a container read that hit the buffer end.
 #pragma warning disable CS0162 // generated: branch shape decides reachability

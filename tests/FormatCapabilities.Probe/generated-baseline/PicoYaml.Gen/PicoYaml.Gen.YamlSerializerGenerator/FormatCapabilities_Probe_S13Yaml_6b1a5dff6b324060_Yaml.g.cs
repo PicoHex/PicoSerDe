@@ -12,6 +12,16 @@ S13Yaml> {
     public void Serialize(IBufferWriter<byte> w, S13Yaml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoYaml.YamlOptions?)options;
         var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);
+        yw.WritePropertyName("V"u8);
+        yw.WriteStartMapping();
+        foreach (var __kvpHolder in v.V ?? new System.Collections.Generic.Dictionary<string, int?>(0))
+        {
+            yw.WritePropertyName(__kvpHolder.Key);
+            if (__kvpHolder.Value == null) { yw.WriteNull(); continue; }
+            var __kvp = System.Collections.Generic.KeyValuePair.Create(__kvpHolder.Key, __kvpHolder.Value.Value);
+            yw.WriteNumber(__kvp.Value);
+        }
+        yw.WriteEndMapping();
     } }
 file readonly struct S13Yaml_YD : IDeserializer<S13Yaml> {
     public S13Yaml Deserialize(ReadOnlySpan<byte> d) {
@@ -24,7 +34,28 @@ file readonly struct S13Yaml_YD : IDeserializer<S13Yaml> {
                 continue;
             }
             var k = r.KeySpan;
-            if (!r.Read()) break;
+            if (TextHelpers.Eq(k, "V"u8)) {
+                o.V ??= new System.Collections.Generic.Dictionary<string, int?>();
+                if (!r.Read()) break; // document ended here
+                if (r.TokenType == TokenType.ObjectStart) {
+                    while (r.Read() && r.TokenType == TokenType.PropertyName) {
+                        var __dk = Encoding.UTF8.GetString(r.KeySpan);
+                        if (r.IsNullLiteral)
+                        {
+                            o.V[__dk] = null;
+                        }
+                        else
+                        {
+                        if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                        o.V[__dk] = __dv;
+                        }
+                    }
+                } // exits at ObjectEnd
+            }
+            else {
+                // Unknown property — skip its value to avoid infinite loop
+                if (!r.Read()) break;
+            }
         }
         return o;
     } }
@@ -45,8 +76,32 @@ S13Yaml? result) {
                 continue;
             }
             var k = r.KeySpan;
-            r.Mark();
-            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            if (TextHelpers.Eq(k, "V"u8)) {
+                o.V ??= new System.Collections.Generic.Dictionary<string, int?>();
+                if (!r.Read()) break; // document ended here
+                if (r.TokenType == TokenType.ObjectStart) {
+                    while (r.Read() && r.TokenType == TokenType.PropertyName) {
+                        var __dk = Encoding.UTF8.GetString(r.KeySpan);
+                        if (r.IsNullLiteral)
+                        {
+                            o.V[__dk] = null;
+                        }
+                        else
+                        {
+                        if (!r.TryGetInt32(out var __dv)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                        o.V[__dk] = __dv;
+                        }
+                    }
+                } // exits at ObjectEnd
+                if (r.NeedsMoreData) {
+                    r.RewindToMark();
+                    return ReadStatus.NeedMoreData;
+                }
+            }
+            else {
+                r.Mark();
+                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            }
         }
         // Reached via a container read that hit the buffer end.
 #pragma warning disable CS0162 // generated: branch shape decides reachability
