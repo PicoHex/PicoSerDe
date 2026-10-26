@@ -40,10 +40,13 @@ file readonly struct S11bToml_TomlDes : IDeserializer<S11bToml> {
                 continue;
             }
             if (r.TokenType == TokenType.ObjectStart) {
+                var __tblPos = r.BytesConsumed;
                 var tbl = r.TablePath;
                 if (TextHelpers.Eq(tbl, "B"u8)) {
                     o.B = global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bTomlPartner_0c7cd577fdc408d9TomlInner.Deserialize(ref r);
                 }
+                if (r.TokenType == TokenType.None) break;
+                if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __tblPos && !r.Read()) break;
                 continue;
             }
             if (!r.Read()) break;
@@ -77,11 +80,13 @@ S11bToml? result) {
                 continue;
             }
             if (r.TokenType == TokenType.ObjectStart) {
+                var __tblPos = r.BytesConsumed;
                 var tbl = r.TablePath;
                 if (TextHelpers.Eq(tbl, "B"u8)) {
                     o.B = global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bTomlPartner_0c7cd577fdc408d9TomlInner.Deserialize(ref r);
                 }
                 if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }
+                if (r.BytesConsumed == __tblPos) { r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; } }
                 continue;
             }
             r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }
