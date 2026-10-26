@@ -67,10 +67,13 @@ public class CapabilityGuardTests
     [
         (
             "AnonTypeHandler.cs",
-            "a second extraction pipeline (anonymous types), out of I-3's scope in R1: its "
-                + "literals name the writer/options types and gate SupportsAnonCollections "
-                + "(PICOSERDE005). Converging it is R2 work; listing it here keeps the guard "
-                + "from claiming coverage it does not have."
+            "a second extraction pipeline (anonymous types): R2 Task 8 converged its DROP "
+                + "decision onto FormatCapabilities.AnonCollectionSupported (it used to be "
+                + "`fmtTag is \"json\"`), so no format literal gates a drop there any more. "
+                + "What remains is a name table — `\"json\" => \"JsonWriter\"`, "
+                + "`\"ini\" => \"IniOptions\"` and their four siblings — i.e. one type name "
+                + "per format, not a capability answer; a lookup table of the names the "
+                + "generated code has to call cannot be asked of a capability model."
         ),
     ];
 

@@ -585,7 +585,7 @@ internal static class GenInfrastructure
     /// <see cref="Location.None"/> rather than <c>null</c>: a null location is exactly what
     /// made PICOSERDE001 unlocatable and unsuppressable per site (I-1).
     /// </summary>
-    private static Location SourceLocationOf(ISymbol symbol)
+    internal static Location SourceLocationOf(ISymbol symbol)
     {
         foreach (var location in symbol.Locations)
             if (location.IsInSource)
@@ -616,8 +616,15 @@ internal static class GenInfrastructure
                 & ~SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier
         );
 
-    /// <summary>The declared-type text for a diagnostic — see <see cref="DeclaredTypeFormat"/>.</summary>
-    private static string DeclaredTypeOf(ITypeSymbol type) =>
+    /// <summary>
+    /// The declared-type text for a diagnostic — see <see cref="DeclaredTypeFormat"/>.
+    /// <para>
+    /// <c>internal</c> since R2 Task 8: the anonymous-type surface (spec D-8) spells the
+    /// member's declared type with THIS method, so the sixth emit surface cannot drift into a
+    /// second spelling of the same shape (I-5).
+    /// </para>
+    /// </summary>
+    internal static string DeclaredTypeOf(ITypeSymbol type) =>
         type.ToDisplayString(DeclaredTypeFormat);
 
     /// <summary>
@@ -788,36 +795,84 @@ internal static class GenInfrastructure
     }
 
     /// <summary>
-    /// An anonymous-type collection member can only be emitted by the JSON writer:
-    /// MsgPack's array/map headers require an element count up front, TOML/INI embed
-    /// the key in every scalar call and YAML writes per-item sequence entries. Such a
-    /// member is dropped with this diagnostic instead of vanishing silently (review
-    /// Task 2 / Important 2 — anonymous collection members are not supported by the
-    /// section-based formats).
+    /// ⛔ sibling of the anonymous-type collection drop: the FORMAT cannot hold a flat
+    /// collection at all, so no generator change can help either. Unreachable today — all
+    /// five formats hold one (spec §3 S1) — but the branch is selected by the facts table
+    /// rather than written into the template, so the day a format answers "no" the wording
+    /// follows without an edit here (spec C1 / I-5).
     /// </summary>
-    private static readonly DiagnosticDescriptor UnsupportedAnonCollectionMemberWarning = new(
+    private static readonly DiagnosticDescriptor AnonCollectionImpossibleWarning = new(
         id: "PICOSERDE005",
-        title: "Anonymous-type collection member skipped by this format",
-        messageFormat: "Anonymous-type member '{0}' cannot be serialized by {1} — it will be ignored; use a named DTO instead",
+        title: "Anonymous-type collection member dropped: this format cannot hold a collection",
+        messageFormat: FormatCapabilities.ImpossibleMarker
+            + " Member '{0}' (declared type '{1}') of an anonymous type was dropped by the {2} source generator: the {2} format cannot represent a collection. Nothing on the generator side can change that — use a format that can, or use a named DTO instead.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
     );
 
     /// <summary>
-    /// Reports PICOSERDE005 for an anonymous-type collection member the format's
-    /// writer cannot emit. Called from <c>AnonTypeHandler</c> while generating the
-    /// interceptor, so the drop is visible in the build log instead of silently
-    /// losing the member's data.
+    /// ⏸ the anonymous-type collection drop as it actually is: the format CAN hold the
+    /// collection, OUR anonymous-type emitter has no form for it (spec §3 S1 is ✅ in all
+    /// five formats). Same id as its ⛔ sibling (D4: the id is the public contract, the
+    /// wording is not), same marker source, and the <c>reopen:</c> tail C4 asks for.
+    /// <para>
+    /// D-10: the old single template said "cannot be serialized by {format}" — our missing
+    /// emitter stated as a fact about the format, which is the same class of lie as the R1
+    /// <c>toml × S11b</c> cell (spec C1). It also carried no verdict glyph at all, so this
+    /// was the ONE drop channel a reader could not tell apart from a format fact, and it was
+    /// emitted with <c>location: null</c> — not navigable, not suppressible per site (I-1).
+    /// </para>
     /// </summary>
-    public static void ReportUnsupportedAnonCollectionMember(
+    private static readonly DiagnosticDescriptor AnonCollectionDeferredWarning = new(
+        id: "PICOSERDE005",
+        title: "Anonymous-type collection member dropped: not implemented yet",
+        messageFormat: FormatCapabilities.DeferredMarker
+            + " Member '{0}' (declared type '{1}') of an anonymous type was dropped by the {2} source generator: the {2} format can hold a collection, but this generator has no collection form in its anonymous-type emitter yet. The drop is a recorded gap, not a format limit. reopen: the condition is tracked as debt in the format-capabilities matrix (spec §3/§6).",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// Reports the anonymous-type collection drop in the wording the FACTS settle: ⏸ when the
+    /// format can hold a collection (every format today — spec §3 S1), ⛔ when it cannot.
+    /// <para>
+    /// Called from <c>AnonTypeHandler</c> while generating the interceptor, i.e. from the
+    /// sixth emit surface, so the drop is visible in the build log instead of silently
+    /// losing the member's data (spec D-8/D-10). The verdict and the drop DECISION both come
+    /// from the capability model — the extraction site asks
+    /// <see cref="FormatCapabilities.AnonCollectionSupported"/> and this method asks
+    /// <see cref="FormatCapabilities.AnonCollectionIsFormatFact"/> — so this surface tells
+    /// the same story as the five named-DTO surfaces.
+    /// </para>
+    /// </summary>
+    public static void ReportDroppedAnonCollectionMember(
         SourceProductionContext spc,
         string formatTag,
-        string memberName
+        string memberName,
+        string declaredType,
+        Location? location
     ) =>
         spc.ReportDiagnostic(
-            Diagnostic.Create(UnsupportedAnonCollectionMemberWarning, null, memberName, formatTag)
+            Diagnostic.Create(
+                DescribeAnonCollection(
+                    FormatCapabilities.AnonCollectionIsFormatFact(formatTag)
+                        ? DropVerdict.FormatCannot
+                        : DropVerdict.GeneratorGap
+                ),
+                location,
+                memberName,
+                declaredType,
+                formatTag
+            )
         );
+
+    /// <summary>PICOSERDE005's template for a verdict.</summary>
+    private static DiagnosticDescriptor DescribeAnonCollection(DropVerdict verdict) =>
+        verdict == DropVerdict.FormatCannot
+            ? AnonCollectionImpossibleWarning
+            : AnonCollectionDeferredWarning;
 
     /// <summary>Reports a skipped type whose generated file name collided.</summary>
     public static void ReportHintNameCollision(

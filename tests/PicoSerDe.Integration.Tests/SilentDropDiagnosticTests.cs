@@ -484,6 +484,27 @@ public class SilentDropDiagnosticTests
             }
             """;
 
+    /// <summary>
+    /// D-10 / D-8: an anonymous-type collection member. The anonymous type must be created
+    /// AT THE CALL SITE — the anonymous pipeline hooks serializer invocations, so an
+    /// anonymous type built in a property initializer is never seen (and a fixture shaped
+    /// that way would make this test pass without exercising anything).
+    /// </summary>
+    private static string AnonCollectionMember(string sender, string returnType) =>
+        $$"""
+            public static class AnonCaller
+            {
+                public static {{returnType}} Run() =>
+                    {{sender}}(
+                        new
+                        {
+                            Name = "x",
+                            Xs = new System.Collections.Generic.List<int> { 1, 2 },
+                        }
+                    );
+            }
+            """;
+
     /// <summary>§3 S11a: self recursion.</summary>
     private static string SelfRecursive(string ns, string attr) =>
         $$"""
@@ -971,9 +992,10 @@ public class SilentDropDiagnosticTests
     }
 
     /// The invariant behind the tests above, applied to every diagnostic the five generators
-    /// produce for three dropped shapes: each drop message is greppable (starts with ⛔ or
-    /// ⏸) and names the format. A new drop site that forgets this fails here rather than
-    /// in a user's build log.
+    /// produce for FIVE dropped shapes — four on a named DTO plus the anonymous-type
+    /// collection member, which is a drop surface of its own (spec D-10 / D-8): each drop
+    /// message is greppable (starts with ⛔ or ⏸) and names the format. A new drop site that
+    /// forgets this fails here rather than in a user's build log.
     /// </summary>
     [Test]
     public async Task Every_drop_message_carries_a_verdict_marker_and_the_format()
@@ -982,37 +1004,75 @@ public class SilentDropDiagnosticTests
             string Tag,
             string Ns,
             string Attr,
+            string AnonSender,
+            string AnonReturn,
             Func<string, (string[] Ids, string Generated, string[] Messages)> Run
         )[]
         {
-            ("json", "PicoJetson", "PicoJsonSerializable", SilentDropDiagnosticTests.RunJson),
+            (
+                "json",
+                "PicoJetson",
+                "PicoJsonSerializable",
+                "PicoJetson.JsonSerializer.Serialize",
+                "string",
+                SilentDropDiagnosticTests.RunJson
+            ),
             (
                 "msgpack",
                 "PicoMsgPack",
                 "PicoMsgPackSerializable",
+                "PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes",
+                "byte[]",
                 SilentDropDiagnosticTests.RunMsgPack
             ),
-            ("toml", "PicoToml", "PicoTomlSerializable", SilentDropDiagnosticTests.RunToml),
-            ("yaml", "PicoYaml", "PicoYamlSerializable", SilentDropDiagnosticTests.RunYaml),
-            ("ini", "PicoIni", "PicoIniSerializable", SilentDropDiagnosticTests.RunIni),
+            (
+                "toml",
+                "PicoToml",
+                "PicoTomlSerializable",
+                "PicoToml.TomlSerializer.Serialize",
+                "string",
+                SilentDropDiagnosticTests.RunToml
+            ),
+            (
+                "yaml",
+                "PicoYaml",
+                "PicoYamlSerializable",
+                "PicoYaml.YamlSerializer.Serialize",
+                "string",
+                SilentDropDiagnosticTests.RunYaml
+            ),
+            (
+                "ini",
+                "PicoIni",
+                "PicoIniSerializable",
+                "PicoIni.IniSerializer.Serialize",
+                "string",
+                SilentDropDiagnosticTests.RunIni
+            ),
         };
 
-        foreach (var (tag, ns, attr, run) in formats)
+        foreach (var (tag, ns, attr, anonSender, anonReturn, run) in formats)
         {
-            // Four shapes, because the set of DROPPED shapes differs per format: json drops
-            // only the object-leaf dict value (its remaining S10 gap) and ini drops all four.
-            // The union keeps the test non-vacuous for every format without pretending that
-            // each one drops the same thing.
+            // Five shapes, because the set of DROPPED shapes differs per format: json drops
+            // only the object-leaf dict value (its remaining S10 gap), and ini drops four of
+            // the five. The union keeps the test non-vacuous for every format without
+            // pretending that each one drops the same thing.
+            //
+            // The FIFTH sample is the anonymous-type collection member (spec D-10 / D-8): the
+            // fourth drop surface. Its message carried no verdict glyph at all until R2 — so
+            // "every drop message is greppable" was true of the four named samples and false
+            // of the one surface no test drove through here.
             var messages = run(NullableIntList(ns, attr))
                 .Messages.Concat(run(DictOfList(ns, attr)).Messages)
                 .Concat(run(DictOfObjectList(ns, attr)).Messages)
                 .Concat(run(SelfRecursive(ns, attr)).Messages)
+                .Concat(run(AnonCollectionMember(anonSender, anonReturn)).Messages)
                 .ToArray();
 
             await Assert
                 .That(messages)
                 .IsNotEmpty()
-                .Because($"{tag} drops at least one of the four shapes, so it must report it");
+                .Because($"{tag} drops at least one of the five shapes, so it must report it");
 
             foreach (var message in messages)
             {
@@ -1095,7 +1155,10 @@ public class SilentDropDiagnosticTests
             "SilentDropDiagAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
             PlatformReferences(),
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+            // allowUnsafe: the anonymous-type sample (D-10) cannot be generated without it —
+            // the interceptor reads the anonymous layout through pointers. It changes nothing
+            // for the named-DTO samples: unsafe code is only ever EMITTED for that path.
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true)
         );
 
         var driver = CSharpGeneratorDriver.Create(generator);

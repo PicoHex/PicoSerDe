@@ -316,6 +316,40 @@ internal static class FormatCapabilities
     internal static bool InlineNestedLeafKindsAreClosed(string formatTag) =>
         DecisionTables.InlineNestedLeafKindsByFormat.ContainsKey(formatTag);
 
+    /// <summary>
+    /// Does this format's ANONYMOUS-TYPE emitter have a form for a COLLECTION member?
+    /// <para>
+    /// The question the anonymous interceptor path (the sixth emit surface, spec D-8) used to
+    /// answer with <c>fmtTag is "json"</c>. It is a LIMIT of our emitter — every format can
+    /// hold a <c>List&lt;int&gt;</c> (spec §3 S1) — so a "no" here means the member is dropped
+    /// with the ⏸ debt verdict, never with a claim about the format. Kept out of
+    /// <see cref="Decision"/> on purpose: a Decision value is a point on a SHAPE's path, and
+    /// an anonymous type is not one of the modelled shapes.
+    /// </para>
+    /// </summary>
+    internal static bool AnonCollectionSupported(string formatTag) =>
+        DecisionTables.AnonCollectionFormats.Contains(formatTag);
+
+    /// <summary>
+    /// Is the anonymous-type collection drop a FORMAT fact (⛔) or our gap (⏸)?
+    /// <para>
+    /// Derived from the facts table instead of being written into the message: the shape being
+    /// refused is a flat scalar collection (<see cref="FlatScalarListShape"/>), whose
+    /// representability every one of the five formats already answers. Today all five answer
+    /// "yes", so the drop is uniformly ⏸ — and the day a format gains a "no" (a sixth format,
+    /// or a corrected fact), the wording follows the table without anyone editing a sentence
+    /// (spec C1: our progress must never be written as a format fact).
+    /// </para>
+    /// </summary>
+    internal static bool AnonCollectionIsFormatFact(string formatTag) =>
+        !CanRepresent(formatTag, FlatScalarListShape);
+
+    /// <summary>
+    /// The shape an anonymous-type collection member has: a flat list of scalars (spec §3 S1).
+    /// Named here so the derivation above cannot quietly point at a different row.
+    /// </summary>
+    private const string FlatScalarListShape = "S1";
+
     // ── README matrix (Task 8) ─────────────────────────────────────────────────────
 
     /// <summary>

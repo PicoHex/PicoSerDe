@@ -31,7 +31,17 @@ internal readonly record struct AnonFieldInfo(
     // the member onto the underlying numeric kind is what printed 2 instead of
     // "High" on both sides.
     string? EnumTypeName = null,
-    string? LayoutKind = null
+    string? LayoutKind = null,
+    // R2 Task 8 (spec D-10): the two facts the shared drop diagnostic needs, and which the
+    // anonymous surface had no way to supply — which is exactly why PICOSERDE005 was emitted
+    // with `location: null` and without the member's declared type (the two halves of I-1/I-5
+    // the named-DTO surfaces got in R1).
+    //   DeclaredTypeName — how the member's type is spelled in a message;
+    //   MemberLocation   — the member's own declaration site (the `Xs` name token inside the
+    //                      anonymous initializer), so the drop is navigable and pragma-
+    //                      suppressible per site.
+    string? DeclaredTypeName = null,
+    Location? MemberLocation = null
 );
 
 internal sealed class AnonTypeInfo : IEquatable<AnonTypeInfo>
@@ -329,7 +339,9 @@ internal static class AnonTypeHandler
                     elemName,
                     isNullable,
                     enumTypeName,
-                    layoutKind
+                    layoutKind,
+                    GenInfrastructure.DeclaredTypeOf(p.Type),
+                    GenInfrastructure.SourceLocationOf(p)
                 )
             );
         }
@@ -729,9 +741,21 @@ internal static class AnonTypeHandler
     /// <c>WriteStartArray(int count)</c>/<c>WriteStartObject(int count)</c> require
     /// the element count up front (a parameterless call is CS7036), TOML/INI embed
     /// the key in every scalar call and YAML writes per-item sequence entries.
-    /// Members of the other formats are dropped — loudly, PICOSERDE005.
+    /// Members of the other formats are dropped — loudly, PICOSERDE005, in the ⏸ wording the
+    /// facts table settles (the format can hold the collection; our emitter has no form).
     /// </summary>
-    private static bool SupportsAnonCollections(string fmtTag) => fmtTag is "json";
+    /// <summary>
+    /// Does this format's anonymous-type emitter have a form for a collection member?
+    /// <para>
+    /// Asks the capability model (spec D-8): this used to be <c>fmtTag is "json"</c>, a
+    /// format literal inside a drop decision — the one shape I-3 bans, and the reason
+    /// <c>CapabilityGuardTests</c> had to list this file as out of scope. The answer lives in
+    /// <c>DecisionTables.AnonCollectionFormats</c> with the other emitter limits now, so the
+    /// sixth emit surface decides its drops the same way the five named-DTO surfaces do.
+    /// </para>
+    /// </summary>
+    private static bool SupportsAnonCollections(string fmtTag) =>
+        FormatCapabilities.AnonCollectionSupported(fmtTag);
 
     /// <summary>
     /// Per-interceptor emission state: the generation context for the
@@ -764,7 +788,13 @@ internal static class AnonTypeHandler
         public void ReportDroppedCollection(AnonFieldInfo f)
         {
             if (_reported.Add(f.Name))
-                GenInfrastructure.ReportUnsupportedAnonCollectionMember(Spc, FmtTag, f.Name);
+                GenInfrastructure.ReportDroppedAnonCollectionMember(
+                    Spc,
+                    FmtTag,
+                    f.Name,
+                    f.DeclaredTypeName ?? f.TypeKind,
+                    f.MemberLocation
+                );
         }
     }
 
@@ -797,11 +827,15 @@ internal static class AnonTypeHandler
 
         if (scope.IsDropped(f))
         {
-            // Review Task 2 (Important 2): the member cannot be represented, so it is
-            // dropped — but never silently: PICOSERDE005 makes the loss visible in the
-            // build log (previously only a comment in generated code recorded it).
+            // Review Task 2 (Important 2): this emitter has no form for the member, so it is
+            // dropped — but never silently: PICOSERDE005 makes the loss visible in the build
+            // log (previously only a comment in generated code recorded it).
+            // D-10: the comment used to say the collection "cannot be represented in
+            // {format} anonymous types", i.e. OUR missing emitter stated as a fact about the
+            // format — the same sentence the diagnostic carried. The format can hold a
+            // collection (spec §3 S1); this generator cannot, here.
             sb.AppendLine(
-                $"{indent}// {f.Name}: collection members cannot be represented in {scope.FmtTag} anonymous types — omitted (PICOSERDE005)"
+                $"{indent}// {f.Name}: this generator's {scope.FmtTag} anonymous-type emitter has no collection form — omitted (PICOSERDE005)"
             );
             scope.ReportDroppedCollection(f);
             return;
@@ -982,10 +1016,10 @@ internal static class AnonTypeHandler
         string valueVar
     )
     {
-        // JSON is the only format that reaches this method (see
-        // SupportsAnonCollections): its writer exposes count-free WriteStartArray() /
-        // WriteStartObject(). Every other writer needs the element count up front and
-        // its anonymous collection members are dropped with PICOSERDE005 instead.
+        // Only the formats DecisionTables.AnonCollectionFormats names reach this method
+        // (json today, via SupportsAnonCollections): that writer exposes count-free
+        // WriteStartArray() / WriteStartObject(). Every other writer needs the element count
+        // up front, so its anonymous collection members are dropped with PICOSERDE005.
         const string start = "WriteStartArray";
         const string end = "WriteEndArray";
 
