@@ -303,8 +303,9 @@ $ dotnet publish PicoJetson/samples/PicoJetson.Sample/PicoJetson.Sample.csproj \
   PicoJetson.Sample -> D:\…\samples\PicoJetson.Sample\bin\Release\net10.0\win-x64\PicoJetson.Sample.dll
   Generating native code
   PicoJetson.Sample -> C:\Users\aeond\AppData\Local\Temp\r2-aot\
-（publish exit=0）
 ```
+
+（首次运行**没有**用 `; echo $?` 捕获 publish 的退出码 —— 原先写在这一行位置的 `exit=0` 只是叙述，不是捕获到的输出；捕获形式见本节末「Fix round 1 重跑」。）
 
 产物与运行（R1 也做了这一步：AOT 通过了但跑不起来是另一种失败）：
 
@@ -323,7 +324,38 @@ $ wc -l < /tmp/aot-run.txt
 60
 ```
 
-**`exit=0`（publish）+ `exit=0`（原生 exe 跑完 60 行示例输出）。**
+**`exit=0`（publish，本节末的捕获）+ `exit=0`（原生 exe 跑完 60 行示例输出）。**
+
+> **Fix round 1 重跑（把 publish 的退出码真正捕获下来）**
+> 上一段末尾的 `exit=0` 是叙述而非捕获 —— 与本文件「命令在上、真实输出在下」的规格不符（评审 I-2）。
+> 因此同一 publish 重跑一次，用 `; echo $?` 捕获退出码；`-o` 换到新目录，以免覆盖上面那批已被外部核对过的原生产物。
+>
+> ```
+> $ dotnet publish PicoJetson/samples/PicoJetson.Sample/PicoJetson.Sample.csproj \
+>     -c Release -r win-x64 -p:PublishAot=true -o /tmp/r2-aot-rerun ; echo $?
+>   Determining projects to restore...
+>   Restored D:\…\PicoJetson\samples\PicoJetson.Sample\PicoJetson.Sample.csproj (in 5.52 sec).
+>   Restored D:\…\PicoJetson\src\PicoJetson\PicoJetson.csproj (in 5.52 sec).
+>   Restored D:\…\PicoSerDe.Core\src\PicoSerDe.Core.csproj (in 5.52 sec).
+>   Restored D:\…\PicoJetson\src\PicoJetson.Gen\PicoJetson.Gen.csproj (in 5.52 sec).
+>   PicoSerDe.Core -> D:\…\PicoSerDe.Core\src\bin\Release\net10.0\PicoSerDe.Core.dll
+>   PicoJetson.Gen -> D:\…\PicoJetson\src\PicoJetson.Gen\bin\Release\netstandard2.0\PicoJetson.Gen.dll
+>   PicoJetson -> D:\…\PicoJetson\src\PicoJetson\bin\Release\net10.0\PicoJetson.dll
+>   PicoJetson.Sample -> D:\…\PicoJetson\samples\PicoJetson.Sample\bin\Release\net10.0\win-x64\PicoJetson.Sample.dll
+>   Generating native code
+>   PicoJetson.Sample -> C:\Users\aeond\AppData\Local\Temp\r2-aot-rerun\
+> 0
+> $ ls -l /tmp/r2-aot-rerun/PicoJetson.Sample.exe
+> -rwxr-xr-x 1 aeond 197609 1893888 Oct 26 19:00 /tmp/r2-aot-rerun/PicoJetson.Sample.exe
+> $ cd /tmp/r2-aot-rerun && ./PicoJetson.Sample.exe > /tmp/aot-run-rerun.txt 2>&1; echo $?
+> 0
+> $ wc -l < /tmp/aot-run-rerun.txt
+> 60
+> ```
+>
+> 两次 exe 的字节数**相同**（`1893888`），两次运行都输出 60 行；`diff /tmp/aot-run.txt /tmp/aot-run-rerun.txt` 只有两处必然
+> 不同的字节 —— 随机 `Id` GUID，以及程序自报的产物目录（`…\r2-aot\` → `…\r2-aot-rerun\`）。
+> 即：这一节的产物数字是**稳定可复现**的，不只是「跑过一次」。
 
 ---
 
@@ -371,8 +403,18 @@ last=v2026.10.0 apiChanged=true year=2026 resetOnYearChange=false -> 2026.11.0
 | `Dictionary<string,int?>`（S13） | 同上 `<empty>` | `V:\n  a: 2147483647\n  n: null\n  e: 0\n` |
 | `List<string?>`（S12） | 列表写得出来，但 **`null` 元素被静默跳过**：5 个元素只写 4 个 | 写 `- null`，5 个元素全写 |
 
-> S12 的这一变在 `baseline-cells.txt` 的 **wire 列看不见**（该列按 180 字符截断，正好断在 `- "p` 处）；
-> 可见的是 expected / actual 两列 —— 旧 actual 少了 `null` 那一项（4 项：`p|ipe…` / `q"uote` / 空串 / `ünï 测试`），
+> S12 的这一变**在 wire 列里直接看得见**：旧 wire 从 `- "p\|ipe …"` 直接跳到 `- "q\"uote"`，两者之间**没有** `- null`；
+> 新的 wire 在**同一位置**多出一行 `- null`。三条复核命令（行末为真实输出）：
+>
+> * `grep '^CELL|yaml|S12|' tests/FormatCapabilities.Probe/baseline-cells.txt | grep -c -F '\n- null\n'` ⇒ `1`
+> * `git show 739e820:tests/FormatCapabilities.Probe/baseline-cells.txt | grep '^CELL|yaml|S12|' | grep -c -F '\n- null\n'` ⇒ `0`
+> * `grep '^CELL|yaml|S12|' tests/FormatCapabilities.Probe/baseline-cells.txt | grep -c '~'` ⇒ `0`（没有截断标记）
+>
+> **该列没有被截断**：`Column()` 只在超过 `MaxColumnChars = 180` 时追加 `~`（`Probe.cs:179`、`:772-773`），
+> 而这一行的 wire 列不带 `~`，且整列以最后一个元素 `- ünï 测试\n` 正常收尾（截断会把这个尾切掉）。
+> 长度也印证这一点：整列**含转义** 142（旧）/ 150（新）个字符，其中最长的一段（boundary）原文分别只有 94 / 101 个字符。
+> （量法：按探针自己的 `\|` 转义规则拆列；naive 的 `awk -F'|'` 会把这一行切成 10 段、量出 `wire_len=53` 这种假数字。）
+> 另一条独立可见的是 actual 列 —— 旧 actual 少了 `null` 那一项（4 项：`p|ipe…` / `q"uote` / 空串 / `ünï 测试`），
 > 新的 actual 与 expected 逐项相等（5 项）。这就是它由 MISMATCH 转 OK 的原因。
 
 **② TOML / YAML 的递归成员现在写出整棵链**（S11a/S11b）
@@ -463,7 +505,7 @@ after:   "n\nline" = 2
 | 1 | **`dotnet csharpier format` 未跑** | 本任务没有改任何 `.cs`（`git status --porcelain` 只有 `?? docs/r2/`）⇒ 无格式化对象。**不是**「跑了但没输出」 |
 | 2 | **`git push` / merge / 主工作树** | 未做。本 worktree（`.worktrees/r2-w9`, branch `r2/w9`）之外零改动 |
 | 3 | **`README.md` 未改** | 按任务书由 T7 定稿（`6458f9e`）。但见下面第 4 条 |
-| 4 | **README 的散文段落与实测矩阵冲突（本任务发现，未修）** | 以下五处仍按 R1 的说法写，R2 之后已不成立：<br>① `README.md:301-303`「集合作为字典值 `Dictionary<string, List<T>>` 被丢 `PICOSERDE004`」—— T3 之后 JSON/MsgPack/TOML/YAML 都能往返（S10×4 已 OK）；<br>② `README.md:377-380`「…is dropped in **every** format」—— 同上；<br>③ `PicoMsgPack/README.md:71-73` 同一句；<br>④ `PicoYaml/README.md:118-119`「`List<List<int?>>` / `Dictionary<string, List<int?>>` report `PICOSERDE004`」—— T4 之后 YAML 能写 null（S5/S6/S12/S13 已 OK）；<br>⑤ `PicoYaml/README.md:120`「a **recursive member** (`Node Child` on `Node`) reports `PICOSERDE003`」与 `:122-123`「null string items are skipped on write (YAML writes no null)」—— T5 之后 YAML 的 S11a/S11b 已 OK，T4 之后写的正是 null 字面量。<br>**为什么全绿也抓不到**：I-4 的守卫 `FormatCapabilitiesTests.ReadmeMatrix()`（`:750-762`）只读以 `Shape (C#)` 开头的那 5 行表格（`| Shape (C#) … |`），**表格之外的散文没有任何测试**。**归属：README 所有者（根 README 已由 T7 定稿）/ 下一次文档批**。证据：`sed -n '296,306p;374,382p' README.md; sed -n '69,74p' PicoMsgPack/README.md; sed -n '115,125p' PicoYaml/README.md` |
+| 4 | **README 的散文段落与实测矩阵冲突（本任务发现，未修）—— ⛔ 阻塞 `2026.11.0` 打 tag** | 以下五处仍按 R1 的说法写，R2 之后已不成立：<br>① `README.md:301-303`「集合作为字典值 `Dictionary<string, List<T>>` 被丢 `PICOSERDE004`」—— T3 之后 JSON/MsgPack/TOML/YAML 都能往返（S10×4 已 OK）；<br>② `README.md:377-380`「…is dropped in **every** format」—— 同上；<br>③ `PicoMsgPack/README.md:71-73` 同一句；<br>④ `PicoYaml/README.md:118-119`「`List<List<int?>>` / `Dictionary<string, List<int?>>` report `PICOSERDE004`」—— T4 之后 YAML 能写 null（S5/S6/S12/S13 已 OK）；<br>⑤ `PicoYaml/README.md:120`「a **recursive member** (`Node Child` on `Node`) reports `PICOSERDE003`」与 `:122-123`「null string items are skipped on write (YAML writes no null)」—— T5 之后 YAML 的 S11a/S11b 已 OK，T4 之后写的正是 null 字面量。<br>**为什么全绿也抓不到**：I-4 的守卫 `FormatCapabilitiesTests.ReadmeMatrix()`（`:750-762`）只读以 `Shape (C#)` 开头的那 5 行表格（`| Shape (C#) … |`），**表格之外的散文没有任何测试**。**状态：发布阻塞（不是「下一次文档批」）** —— `x+1` 的用户可见含义正是「以前报 `PICOSERDE004` 的形状现在能用了」，而用户读到的 README 还在说「被丢弃」；**在这 5 处改掉之前，不得给 `2026.11.0` 打 tag**，本文件也不得被当成「发布已就绪」的凭据。**归属：README 所有者（根 README 已由 T7 定稿）**。证据：`sed -n '296,306p;374,382p' README.md; sed -n '69,74p' PicoMsgPack/README.md; sed -n '115,125p' PicoYaml/README.md` |
 | 5 | 探针数字 ≠ 任务书数字 | 见 §3.4 的「与任务书数字的差异」：实测翻 **23** 格（任务书写 24+1）。差额可逐项对账，不是漏做 |
 | 6 | spec §6 的脚注 ⁵ 位置 | 定义在 spec:174（§3 表格之后），§6（spec:241）只带标记。读者从 §6 需要向上翻 —— 纯可读性问题，本任务不改 spec |
 | 7 | `S14/S15` | §6 仍写「待测」；探针把它们当 `CELL-OBS`（5 OK / 5 MISMATCH）观测、**不评分**，不进这 70 格。本批不改其状态 |
