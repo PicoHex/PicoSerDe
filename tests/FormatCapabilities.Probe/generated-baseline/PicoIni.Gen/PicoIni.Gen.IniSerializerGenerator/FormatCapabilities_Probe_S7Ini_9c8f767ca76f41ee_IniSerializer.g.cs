@@ -10,6 +10,7 @@ S7Ini> {
     public void Serialize(IBufferWriter<byte> writer, S7Ini value, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoIni.IniOptions?)options;
         var iw = new IniWriter(writer, indented: __opts?.Indented ?? false);
+        iw.WriteKeyValue("V"u8, string.Join(",", value.V));
     } }
 
 file readonly struct S7IniIniDeserializer : IDeserializer<S7Ini> {
@@ -20,6 +21,25 @@ file readonly struct S7IniIniDeserializer : IDeserializer<S7Ini> {
             if (reader.TokenType == TokenType.PropertyName) {
                 var __k = reader.GetStringRaw();
                 reader.ReadValue(); // fast path: consume pending value
+                if (TextHelpers.Eq(__k, "V"u8)) {
+                    var __tmpList_V = new System.Collections.Generic.List<int>(16);
+                    var __raw = Encoding.UTF8.GetString(reader.GetStringRaw());
+                    int __p = 0, __seg = 0;
+                    while (__p < __raw.Length) {
+                        if (__raw[__p] == '\\' && __p + 1 < __raw.Length) __p += 2;
+                        else if (__raw[__p] == ',') {
+                            var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg, __p - __seg).Replace("\\\\", "\\").Replace("\\,", ",")).AsSpan();
+                            __tmpList_V.Add(int.Parse(__rv, System.Globalization.CultureInfo.InvariantCulture));
+                            __seg = ++__p;
+                        }
+                        else __p++;
+                    }
+                    if (__seg < __raw.Length) {
+                        var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg).Replace("\\\\", "\\").Replace("\\,", ",")).AsSpan();
+                        __tmpList_V.Add(int.Parse(__rv, System.Globalization.CultureInfo.InvariantCulture));
+                    }
+                    obj.V = new System.Collections.Generic.HashSet<int>(__tmpList_V);
+                }
             }
         }
         return obj;
@@ -36,6 +56,25 @@ S7Ini? result) {
             if (reader.TokenType == TokenType.PropertyName) {
                 var __k = reader.GetStringRaw();
                 reader.ReadValue(); // fast path: consume pending value
+                if (TextHelpers.Eq(__k, "V"u8)) {
+                    var __tmpList_V = new System.Collections.Generic.List<int>(16);
+                    var __raw = Encoding.UTF8.GetString(reader.GetStringRaw());
+                    int __p = 0, __seg = 0;
+                    while (__p < __raw.Length) {
+                        if (__raw[__p] == '\\' && __p + 1 < __raw.Length) __p += 2;
+                        else if (__raw[__p] == ',') {
+                            var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg, __p - __seg).Replace("\\\\", "\\").Replace("\\,", ",")).AsSpan();
+                            __tmpList_V.Add(int.Parse(__rv, System.Globalization.CultureInfo.InvariantCulture));
+                            __seg = ++__p;
+                        }
+                        else __p++;
+                    }
+                    if (__seg < __raw.Length) {
+                        var __rv = Encoding.UTF8.GetBytes(__raw.Substring(__seg).Replace("\\\\", "\\").Replace("\\,", ",")).AsSpan();
+                        __tmpList_V.Add(int.Parse(__rv, System.Globalization.CultureInfo.InvariantCulture));
+                    }
+                    obj.V = new System.Collections.Generic.HashSet<int>(__tmpList_V);
+                }
             }
         }
         if (reader.NeedsMoreData) {

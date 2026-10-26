@@ -782,9 +782,14 @@ public class SilentDropDiagnosticTests
     /// element-position cell must NOT be consulted. A heuristic keyed on "the declared type
     /// is a collection" would have flipped this cell to ⛔ and swapped one wrong message for
     /// another; keying on "the ELEMENT is itself a collection" leaves it alone.
+    /// <para>
+    /// R2 Task 6 paid the debt this control used to demonstrate: INI writes the seven
+    /// extended kinds as the same comma-separated line a <c>List&lt;T&gt;</c> is, so there is no
+    /// message to classify any more.
+    /// </para>
     /// </summary>
     [Test]
-    public async Task Unresolvable_collection_with_a_scalar_element_stays_a_debt_in_ini()
+    public async Task Unresolvable_collection_with_a_scalar_element_is_emitted_in_ini()
     {
         const string source = """
             using PicoIni;
@@ -796,16 +801,19 @@ public class SilentDropDiagnosticTests
             }
             """;
 
-        var drop = DropMessage(RunIni(source), "Doc.V");
+        var run = RunIni(source);
 
+        // R2 Task 6 PAID this debt: the member is emitted (a comma-separated line), so the
+        // control asserts the stronger thing — no drop message at all — while the S8 shape
+        // above stays a ⛔ format fact. The old "⏸ debt" assertion would demand the gap
+        // back.
         await Assert
-            .That(drop.StartsWith(Deferred, StringComparison.Ordinal))
-            .IsTrue()
-            .Because($"S7 x ini is ✅ in spec §3, so this is our debt, not the format's: {drop}");
-        await Assert
-            .That(drop.Contains(Impossible, StringComparison.Ordinal))
-            .IsFalse()
-            .Because("marking a ✅ cell ⛔ is the mislead this fix must not introduce");
+            .That(run.Messages.Where(m => m.Contains("Doc.V", StringComparison.Ordinal)))
+            .IsEmpty()
+            .Because(
+                $"S7 x ini is ✅ and implemented since R2 Task 6: {string.Join(" | ", run.Messages)}"
+            );
+        await Assert.That(run.Generated).Contains("string.Join");
     }
 
     /// <summary>
@@ -864,31 +872,42 @@ public class SilentDropDiagnosticTests
     }
 
     /// <summary>
-    /// PICOSERDE001's side of the same question: a <c>HashSet&lt;int&gt;</c> member is dropped by
-    /// four formats as a DEBT (spec §3 S7 is ✅ everywhere — D-1 is an implementation gap),
-    /// so the old "cannot be resolved by this format" wording sent those users off to change
-    /// a type every format can hold.
+    /// "Our debt, not a format limit" (C1/C4), on the debt R2 Task 6 still leaves open: a
+    /// nested chain whose LEAF kind the TOML inline emitter has no form for. A dictionary
+    /// leaf is representable (<c>V = [[{ a = 1 }]]</c> is plain TOML 1.0, and spec §3 S4 /
+    /// §9 measure exactly that), so the message must be ⏸ with a reopen pointer — not ⛔.
+    /// <para>
+    /// This test used to use ini's <c>HashSet&lt;int&gt;</c> as its example (S7 x ini was the
+    /// last debt on that row); R2 Task 6 implemented it, so the example had to move to a
+    /// debt that is still real rather than be deleted with the gap.
+    /// </para>
     /// </summary>
     [Test]
-    public async Task Unresolvable_extended_collection_is_reported_as_a_debt()
+    public async Task Unresolvable_nested_leaf_kind_is_reported_as_a_debt()
     {
-        // yaml/toml/msgpack paid this debt in R2 Task 2 (S7 is Supported there now); ini
-        // has not (its S7 column belongs to Task 6), so ini is the remaining example of
-        // "our debt, not a format limit".
         const string source = """
-            using PicoIni;
+            using PicoToml;
 
-            [PicoIniSerializable]
+            [PicoTomlSerializable]
             public partial class Doc
             {
-                public System.Collections.Generic.HashSet<int> V { get; set; } = new();
+                public System.Collections.Generic.List<System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, int>>> V { get; set; } = new();
             }
             """;
 
-        var drop = DropMessage(RunIni(source), "Doc.V");
+        var drop = DropMessage(RunToml(source), "Doc.V");
 
-        await Assert.That(drop.StartsWith(Deferred, StringComparison.Ordinal)).IsTrue();
-        await Assert.That(drop).Contains("ini");
+        await Assert
+            .That(drop.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because(
+                $"S4 x toml is ✅, so a missing leaf form is OUR emitter and not the format: {drop}"
+            );
+        await Assert
+            .That(drop.Contains(Impossible, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("marking a ✅ cell ⛔ is the mislead C1 forbids");
+        await Assert.That(drop).Contains("toml");
     }
 
     /// <summary>

@@ -53,7 +53,9 @@ public class FormatCapabilitiesTests
         ("S3", "ini", Effect.DropMember),
         ("S4", "json", Effect.Supported),
         ("S4", "msgpack", Effect.Supported),
-        ("S4", "toml", Effect.DropMember),
+        // R2 Task 6 taught the TOML writer the inline-table-as-ARRAY-ELEMENT form, so the
+        // nested object list (S4) is emitted: the cell moved to Supported.
+        ("S4", "toml", Effect.Supported),
         ("S4", "yaml", Effect.Supported),
         ("S4", "ini", Effect.DropMember),
         // S5/S6/S12/S13 x yaml: R2 Task 4 gave the writer the null literal (WriteNull) and
@@ -72,13 +74,14 @@ public class FormatCapabilitiesTests
         ("S6", "yaml", Effect.Supported),
         ("S6", "ini", Effect.DropMember),
         // S7/S8 x {json,msgpack,toml,yaml}: R2 Task 2 implemented the extended-collection
-        // family, so these eight cells moved to Supported. S7/S8 x ini stay dropped — ini
-        // has no nesting (S8 is a format FACT) and its member position is R2 Task 6.
+        // family, so these eight cells moved to Supported. R2 Task 6 closed the last one,
+        // S7 x ini (a comma-separated line, exactly like List<T>); S8 x ini stays dropped
+        // because INI has no nesting at all — a format FACT, not a debt.
         ("S7", "json", Effect.Supported),
         ("S7", "msgpack", Effect.Supported),
         ("S7", "toml", Effect.Supported),
         ("S7", "yaml", Effect.Supported),
-        ("S7", "ini", Effect.DropMember),
+        ("S7", "ini", Effect.Supported),
         ("S8", "json", Effect.Supported),
         ("S8", "msgpack", Effect.Supported),
         ("S8", "toml", Effect.Supported),
@@ -502,20 +505,18 @@ public class FormatCapabilitiesTests
     {
         (string Fmt, Decision D)[] expected =
         [
-            // ExtendedKindResolves x {msgpack,toml,yaml} and ExtendedKindAsElement x
-            // {json,msgpack,toml,yaml} used to sit here; R2 Task 2 flipped those eight
-            // cells, so they are no longer "dropped today". ini keeps its entry (S7 x ini
-            // is Task 6); ExtendedKindAsElement x ini was never promoted (S8 is a fact).
-            ("ini", Decision.ExtendedKindResolves),
-            ("toml", Decision.NestedObjectContainer),
-            // NullableValueLeaf x yaml and NullableRefLeaf x yaml used to sit here; R2 Task 4
-            // flipped those two cells, so they are no longer "dropped today".
-            // DictValueCollection x {json,msgpack,toml,yaml} used to sit here; R2 Task 3
-            // flipped those four cells, so they are no longer "dropped today". ini keeps its
-            // entry because S10 x ini is a format FACT (no nesting inside a member).
-            // RecursiveSelf x {toml,yaml} and RecursiveMutual x yaml used to sit here; R2
-            // Task 5 flipped those three cells, so the recursion row is no longer a debt in
-            // any format that can express it.
+            // EMPTY, and that is the R2 result: every (format, decision) pair whose facts
+            // say the shape is representable is Supported today.
+            //
+            // The entries this set carried are gone one task at a time, and the last two
+            // left with R2 Task 6:
+            //   ExtendedKindResolves x {msgpack,toml,yaml} / x ini — Task 2 and Task 6.
+            //   NestedObjectContainer x toml — Task 6 (inline table as an array element).
+            //   NullableValueLeaf/NullableRefLeaf x yaml — Task 4.
+            //   DictValueCollection x {json,msgpack,toml,yaml} — Task 3.
+            //   RecursiveSelf x {toml,yaml} / RecursiveMutual x yaml — Task 5.
+            // A pair whose format cannot express the shape is NOT an entry either: it is
+            // never promoted (ini x S8/S10, toml/ini x S5/S12/S13, ...).
         ];
 
         var actual = (
@@ -585,7 +586,11 @@ public class FormatCapabilitiesTests
     [
         ("| `List<Dto>`", "S2", null),
         ("| `List<List<int>>`", "S3", null),
-        ("| `List<List<Dto>>`", "S4", null),
+        // R2 Task 6 turned S4 into ✅✅✅✅❌ (toml holds an inline
+        // array of inline tables now). The README still documents the R1 release — toml ❌
+        // there — and the regeneration is R2 Task 7's job, so the row is frozen exactly
+        // like S11a below. Task 7 deletes both frozen strings.
+        ("| `List<List<Dto>>`", "S4", "✅✅❌✅❌"),
         ("| `List<List<int?>>`", "S6", null),
         // R2 Task 5 turned S11a into ✅✅✅✅❌ (toml/yaml now hold a cycle). The README still
         // documents the R1 release: ❌ for toml and yaml.

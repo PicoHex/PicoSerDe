@@ -99,6 +99,7 @@ M:PicoToml.TomlWriter.WriteKeyValue(string key, ushort value) : void
 M:PicoToml.TomlWriter.WriteNestedTable(System.ReadOnlySpan`1<byte> utf8Name) : void
 M:PicoToml.TomlWriter.WriteStartArray(System.ReadOnlySpan`1<byte> key) : void
 M:PicoToml.TomlWriter.WriteStartInlineTable(string key) : void
+M:PicoToml.TomlWriter.WriteStartInlineTableValue() : void
 M:PicoToml.TomlWriter.WriteTable(System.ReadOnlySpan`1<byte> utf8Name) : void
 M:PicoToml.TomlWriter.WriteTable(string name) : void
 P:PicoToml.TomlKeyAttribute.Key : string { get; }

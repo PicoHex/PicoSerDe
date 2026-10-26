@@ -86,8 +86,13 @@ public class NestedListOfObjectsTests
         await Assert.That(back!.Rows[0][0].Name).IsEqualTo("a");
     }
 
+    /// <summary>
+    /// Only INI still drops a nested object list. TOML left this group in R2 Task 6: it
+    /// writes an inline array of inline tables (`Rows = [[{ Name = "a" }]]`, spec §3 S4)
+    /// and reads it back, so the "section formats" name no longer covers it — what
+    /// remains is INI's structural limit (no nesting inside a member at all).
+    /// </summary>
     [Test]
-    [Arguments("toml")]
     [Arguments("ini")]
     public async Task SectionFormats_DropNestedListMember(string format)
     {

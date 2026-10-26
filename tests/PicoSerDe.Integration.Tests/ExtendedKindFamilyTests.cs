@@ -64,6 +64,12 @@ public class ExtendedKindFamilyTests
     [Arguments("msgpack")]
     [Arguments("toml")]
     [Arguments("yaml")]
+    // R2 Task 6 closed the last cell of this row: INI's member position used to be a
+    // DropMember because only json resolved the kinds, even though spec §6 says S7 × ini
+    // is ✅ (an INI scalar list is a comma-separated line — a set/queue/stack is the same
+    // line). S8 × ini stays ❌ (no nesting inside a member, a format fact) and is NOT
+    // exercised here.
+    [Arguments("ini")]
     public async Task Every_extended_kind_as_a_member_round_trips(string format)
     {
         var model = new RvKindMemberModel
@@ -87,6 +93,9 @@ public class ExtendedKindFamilyTests
             )!,
             "toml" => TomlSerializer.Deserialize<RvKindMemberModel>(
                 TomlSerializer.SerializeToUtf8Bytes(model)
+            )!,
+            "ini" => IniSerializer.Deserialize<RvKindMemberModel>(
+                IniSerializer.SerializeToUtf8Bytes(model)
             )!,
             _ => YamlSerializer.Deserialize<RvKindMemberModel>(
                 YamlSerializer.SerializeToUtf8Bytes(model)

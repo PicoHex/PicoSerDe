@@ -109,6 +109,27 @@ public static class TextHelpers
         return true;
     }
 
+    /// <summary>
+    /// True when the LAST dotted segment of <paramref name="path"/> is <paramref name="name"/>
+    /// (a path with no dot is the name itself). This is the same-level comparison between a
+    /// table header and the ONE member a generated arm dispatches.
+    /// <para>
+    /// Needed because a TOML header carries the whole dotted path while an arm knows a single
+    /// member: <c>[[Parent.Items]]</c> is how a real document nests an array of tables, and
+    /// comparing the whole path against the bare name <c>Items</c> matches no arm at all —
+    /// every element is then silently dropped (C-1, R2 Task 6 fix round 1). A reader that
+    /// cannot represent the parent path must still read the member the header ends with.
+    /// It is NOT a replacement for <see cref="Eq"/> where the caller really does mean the
+    /// whole path (a nested table helper dispatches its own child prefix).
+    /// </para>
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool EqLastSegment(ReadOnlySpan<byte> path, ReadOnlySpan<byte> name)
+    {
+        var dot = path.LastIndexOf((byte)'.');
+        return Eq(dot < 0 ? path : path.Slice(dot + 1), name);
+    }
+
     // ── Escape-sequence helpers (shared by all format readers) ──
 
     /// <summary>

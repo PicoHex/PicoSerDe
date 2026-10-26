@@ -1451,8 +1451,21 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
+            // R2 Task 6: the SEVEN extended collection kinds (S7) are the same
+            // comma-separated line a List<T> is — spec §6 says S7 x ini is
+            // representable, and it is: the wire has no notion of "collection kind",
+            // only the declared type on the way back has. Spelling `is "list" or
+            // "array"` here is what sent HashSet<int> to the scalar fallback
+            // (`value.H.ToString()`, i.e. "System.Collections.Generic.HashSet`1[...]").
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
                 s.Append("string.Join(\",\", ");
-                s.Append(acc);
+                s.Append(IniSequenceSource(p, acc));
                 if (p.ElementTypeKind == "string")
                     s.Append(
                         ".Select(__s => __s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")))"
@@ -1484,6 +1497,18 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
         }
     }
+
+    /// <summary>
+    /// The enumerable a comma-joined INI list is built from.
+    /// <para>
+    /// <c>Memory&lt;T&gt;</c>/<c>ReadOnlyMemory&lt;T&gt;</c> are VIEWS, not sequences: they have
+    /// to be materialised before <c>string.Join</c>/LINQ can see them. Every other kind
+    /// (List, array, HashSet, Queue, Stack, LinkedList, ImmutableArray) enumerates as
+    /// itself, which is why this is the only difference the sequence arm has to know.
+    /// </para>
+    /// </summary>
+    private static string IniSequenceSource(PropertyInfo p, string acc) =>
+        p.TypeKind is "memory" or "readonlymemory" ? acc + ".ToArray()" : acc;
 
     private static void EmitKeyDispatch(
         StringBuilder s,
@@ -1653,10 +1678,10 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             p.NestedProperties,
             null
         );
-        // C-30: a null literal must not reach the scalar parsers. The INI
-        // list/array members are comma-separated scalars, so an empty value
-        // keeps its existing "empty list" meaning there.
-        var __scalar = p.TypeKind is not ("list" or "array");
+        // C-30: a null literal must not reach the scalar parsers. A sequence member is
+        // not a scalar: its empty value keeps the "empty collection" meaning (list, array
+        // and the seven extended kinds alike), so only real scalars take the guard.
+        var __scalar = !PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind);
         if (__scalar)
             EmitNullLiteralGuard(s, p, () => EmitAssignTarget(s, p, target, ctorAssign), pad);
         switch (p.TypeKind)
@@ -1917,7 +1942,18 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(pad);
                 s.AppendLine("}");
                 break;
+            // R2 Task 6: `array` and the seven extended kinds share ONE body. They differ
+            // only in how the temp list becomes the DECLARED type, and that half is
+            // GenInfrastructure.EmitCollectionFromList — the same helper the other four
+            // formats use, so a new kind is added there and nowhere here.
             case "array":
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
                 s.Append(pad);
                 s.Append("var __tmpList_");
                 s.Append(p.Name);
@@ -1966,11 +2002,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(");");
                 s.Append(pad);
                 s.AppendLine("}");
-                s.Append(pad);
-                EmitAssignTarget(s, p, target, ctorAssign);
-                s.Append(" = __tmpList_");
-                s.Append(p.Name);
-                s.AppendLine(".ToArray();");
+                PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                    s,
+                    p.TypeKind!,
+                    "__tmpList_" + p.Name,
+                    ctorAssign ? target : target + "." + p.Name,
+                    p.ElementTypeName ?? "object",
+                    pad
+                );
                 break;
         }
         if (__scalar)

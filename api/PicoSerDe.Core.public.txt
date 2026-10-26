@@ -124,6 +124,7 @@ M:PicoSerDe.Core.StreamingFunc`2.Invoke(ref TReader reader, T partial, out T res
 M:PicoSerDe.Core.StreamingRunner.RunAsync``3(System.IO.Stream stream, PicoSerDe.Core.StreamingFunc`2<TReader, T> func, PicoSerDe.Core.SerOptions options, PicoSerDe.Core.StreamStep`3<TReader, TState, T> step, System.Threading.CancellationToken ct) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoSerDe.Core.TextHelpers.AppendCodepoint(byte[] buf, int di, int cp) : int static
 M:PicoSerDe.Core.TextHelpers.Eq(System.ReadOnlySpan`1<byte> a, System.ReadOnlySpan`1<byte> b, bool caseSensitive = false) : bool static
+M:PicoSerDe.Core.TextHelpers.EqLastSegment(System.ReadOnlySpan`1<byte> path, System.ReadOnlySpan`1<byte> name) : bool static
 M:PicoSerDe.Core.TextHelpers.IsBomAtStart(System.ReadOnlySpan`1<byte> data) : bool static
 M:PicoSerDe.Core.TextHelpers.IsBomAtStart(ref System.Buffers.SequenceReader`1<byte> reader) : bool static
 M:PicoSerDe.Core.TextHelpers.IsDigit(byte b) : bool static

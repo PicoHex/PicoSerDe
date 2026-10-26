@@ -2103,55 +2103,61 @@ internal static class GenInfrastructure
                 var leafIsAnnotated =
                     leafElement.NullableAnnotation == NullableAnnotation.Annotated;
                 var leafKind = TypeKindResolver.Resolve(leafElement, formatTag).Kind;
-                // A nested collection chain (List<List<T>>, T[][], ...) needs a
-                // per-element encoding for the inner collection. TOML has one: an
-                // inline array of inline arrays (`G = [[1, 2], [3]]`), so a scalar
-                // leaf is representable (F6). Only the array-of-tables form has no
-                // nested equivalent ("array table of array tables"), so an object or
-                // dict leaf stays dropped — that is the only part of the old blanket
-                // rule that was actually true for TOML. Leaf kinds that neither the
-                // TOML list writer nor the TOML list reader has a case for (enum,
-                // decimal, Guid, DateTime, ...) stay dropped as well, exactly as
-                // before. INI has no array syntax at all and keeps dropping every
-                // nested chain.
-                var tomlNestedLeafRepresentable =
-                    leafKind
-                    is "string"
-                        or "int32"
-                        or "int64"
-                        or "int16"
-                        or "uint16"
-                        or "sbyte"
-                        or "byte"
-                        or "uint32"
-                        or "uint64"
-                        or "float32"
-                        or "float64"
-                        or "boolean";
-                // Two different format facts, both from the table:
-                //   NestedScalarContainer blocked ⇒ this format has no nested chain at all
-                //                                   (ini) — every chain dies.
-                //   NestedObjectContainer blocked ⇒ the format can hold a chain of scalars
-                //                                   (toml inline arrays) but not one whose
-                //                                   innermost element is an object/dict.
-                // Collapsing the two into one lookup would lose TOML's second branch and
-                // turn S4/S6 from dropped into emitted.
+                // A nested collection chain (List<List<T>>, T[][], ...) needs a per-element
+                // encoding for the inner collection. TOML has one: an inline array of inline
+                // arrays (`G = [[1, 2], [3]]`), whose innermost element may also be an INLINE
+                // TABLE since R2 Task 6 (`V = [[{ Name = "a" }]]`, spec §3 S4), so a
+                // scalar or an inline-shaped object leaf is representable. INI has no array
+                // syntax at all, so every chain dies there.
+                //
+                // TWO questions, and they are different kinds of question:
+                //   — can the FORMAT hold this shape?  -> the table (Decision, an Effect).
+                //   — does OUR inline emitter have a form for this leaf kind? -> a per-format
+                //     LIMIT (DecisionTables.InlineNestedLeafKindsByFormat): the innermost element
+                //     is the only thing such an emitter writes with a form of its own, and TOML
+                //     writes a scalar directly or an object as an inline table and NOTHING else (a
+                //     `[table]` header cannot live inside an array).
+                // A leaf kind the emitter has no form for stays DROPPED and reported. That is
+                // the difference between "S4 x toml is Supported" and "every S4-shaped member
+                // is emittable": a dict leaf is a recorded gap (⏸), never `ToString()` on the
+                // wire.
+                var leafHasInlineForm =
+                    FormatCapabilities.InlineNestedLeafKindSupported(formatTag, leafKind!)
+                    && (
+                        leafKind != "object"
+                        // The INLINE-TABLE question only exists for the format whose object leaf
+                        // IS one: a format with a per-kind encoder (json/msgpack/yaml) writes an
+                        // object leaf with its own emitter and has no such restriction. Asking it
+                        // unconditionally is what dropped a json `List<List<Recursive>>` (the leaf
+                        // holds an object member, i.e. it is not "inline shaped").
+                        || !FormatCapabilities.InlineNestedLeafKindsAreClosed(formatTag)
+                        || IsInlineTableShaped(leafElement, formatTag)
+                    );
+                // The chain FORM is a format fact of its own: ini has none, so everything dies
+                // there before the leaf question is even asked.
                 var kindIsNested = ek is "list" or "array";
                 var chainFormBlocked =
                     FormatCapabilities.Decide(formatTag, Decision.NestedScalarContainer)
                     != Effect.Supported;
-                var objectLeafInChainBlocked =
-                    FormatCapabilities.Decide(formatTag, Decision.NestedObjectContainer)
-                    != Effect.Supported;
+                // NOTE (R2 Task 6): `NestedObjectContainer` is no longer read HERE. It used to
+                // be this site's "the format can hold a scalar chain but not an object leaf"
+                // gate — the last format that split the two rows that way was TOML, and S4 x
+                // toml is Supported now, so every format with a chain form also holds object
+                // leaves. The FACT question is still answered by that row for the SHAPE
+                // (`Paths["S4"]`), and the drop below still reports against it; what remains
+                // here is the EMITTER question, which no Effect can express (see
+                // InlineNestedLeafKindsByFormat).
+                // The null rule is scoped to the formats whose inline emitter is kind-limited:
+                // it is the READ side of that same emitter that cannot express a nullable
+                // collection level, so a format with no limit (json/msgpack/yaml) must not be
+                // narrowed by it — `List<List<int>?>` round-trips there today.
                 var nestedListUnsupported =
                     kindIsNested
                     && (
                         chainFormBlocked
-                        || objectLeafInChainBlocked
-                            && (
-                                !tomlNestedLeafRepresentable
-                                || HasNullableCollectionLevel(elementType, formatTag)
-                            )
+                        || !leafHasInlineForm
+                        || FormatCapabilities.InlineNestedLeafKindsAreClosed(formatTag)
+                            && HasNullableCollectionLevel(elementType, formatTag)
                     );
                 // Outer test: "this format cannot hold null at all" (toml/yaml/ini today).
                 // Inner test: "this format has no nesting inside one member" (ini) — that is
@@ -2642,6 +2648,43 @@ internal static class GenInfrastructure
             current = inner;
         }
         return current;
+    }
+
+    /// <summary>
+    /// True when every member of <paramref name="type"/> fits the INLINE TABLE form
+    /// <c>{ Name = "a", N = 1 }</c> — the one shape an object can take as an ARRAY
+    /// ELEMENT (TOML S4: <c>V = [[{ Name = "a" }]]</c>).
+    /// <para>
+    /// This is the second half of the leaf question the capability table answers by KIND
+    /// ("object" is in <c>InlineNestedLeafKindsByFormat</c>): the kind says the format has an
+    /// inline-table form, this says THIS object can use it. A member that is itself an object
+    /// or a dictionary needs a <c>[table]</c> header, which cannot live inside an array; a
+    /// member that is a collection would be written fine but read back truncated (the
+    /// inline-table read path scans a value up to the next comma); a member this format cannot
+    /// even name has no emitter at all.
+    /// </para>
+    /// <para>
+    /// Deliberately over-strict: an ignored or write-only member still counts as a member, so
+    /// an object it is unsure about stays DROPPED and reported (⏸) instead of being written
+    /// as text that reads back wrong. Over-strictness costs a gap; the other direction costs a
+    /// silent data change.
+    /// </para>
+    /// </summary>
+    private static bool IsInlineTableShaped(ITypeSymbol type, string formatTag)
+    {
+        if (type is not INamedTypeSymbol nts)
+            return false;
+        foreach (var member in nts.GetMembers())
+        {
+            if (member is not IPropertySymbol prop || prop.IsStatic || prop.IsIndexer)
+                continue;
+            var (kind, _, _) = TypeKindResolver.Resolve(prop.Type, formatTag);
+            if (kind is null || kind is "object" or "dict" or "any")
+                return false;
+            if (IsSequenceKind(kind))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>

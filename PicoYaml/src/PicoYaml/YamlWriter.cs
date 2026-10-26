@@ -40,14 +40,7 @@ public ref struct YamlWriter
         WriteNewLine();
     }
 
-    public void WritePropertyName(ReadOnlySpan<byte> utf8Name)
-    {
-        for (int i = 0; i < _depth; i++)
-            WriteRaw("  "u8);
-        WriteRaw(utf8Name);
-        WriteRaw(":"u8);
-        _afterKey = true;
-    }
+    public void WritePropertyName(ReadOnlySpan<byte> utf8Name) => WriteName(utf8Name);
 
     public void WritePropertyName(scoped ReadOnlySpan<char> name)
     {
@@ -56,21 +49,45 @@ public ref struct YamlWriter
         {
             Span<byte> buf = stackalloc byte[max];
             int w = Encoding.UTF8.GetBytes(name, buf);
-            for (int i = 0; i < _depth; i++)
-            {
-                _buffer.Write("  "u8);
-                _bytesWritten += 2;
-            }
-            _buffer.Write(buf[..w]);
-            _bytesWritten += w;
-            _buffer.Write(":"u8);
-            _bytesWritten++;
-            _afterKey = true;
+            WriteName(buf[..w]);
         }
         else
         {
-            WritePropertyName(Encoding.UTF8.GetBytes(name.ToArray()));
+            WriteName(Encoding.UTF8.GetBytes(name.ToArray()));
         }
+    }
+
+    /// <summary>
+    /// Writes <c>  name:</c> at the current depth, quoting and escaping the name when it is
+    /// not a safe plain scalar.
+    /// <para>
+    /// A KEY is a scalar like any other: it may carry a separator, a quote or a control
+    /// character, and writing it raw produced a document no reader could read back
+    /// (<c>n\nline: 2</c> is two lines; <c>c:olon: 1</c> splits at the wrong colon).
+    /// Values have always gone through <see cref="NeedsQuoting"/>/<see cref="WriteEscaped"/>
+    /// — this is that same pair, applied to the position the writer had skipped (spec
+    /// §3 S9 x yaml: the format can hold such a key, so the writer owes the quoted
+    /// form <c>"n\nline": 2</c>).
+    /// </para>
+    /// </summary>
+    private void WriteName(scoped ReadOnlySpan<byte> utf8Name)
+    {
+        for (int i = 0; i < _depth; i++)
+            WriteRaw("  "u8);
+        // A leading '-' is the one indicator the VALUE rule deliberately allows (a dash
+        // is a valid list-item marker there), and in a KEY position it is not safe at
+        // all: `- dash: 6` is a sequence item, not a mapping entry, and the line is lost.
+        // Everything else NeedsQuoting rejects is rejected for keys too.
+        if (NeedsQuoting(utf8Name) || utf8Name[0] == (byte)'-')
+        {
+            WriteByte((byte)'"');
+            WriteEscaped(utf8Name);
+            WriteByte((byte)'"');
+        }
+        else
+            WriteRaw(utf8Name);
+        WriteRaw(":"u8);
+        _afterKey = true;
     }
 
     public void WriteString(ReadOnlySpan<byte> utf8Value)
@@ -456,7 +473,7 @@ public ref struct YamlWriter
         WriteByte((byte)'\n');
     }
 
-    private void WriteRaw(ReadOnlySpan<byte> utf8)
+    private void WriteRaw(scoped ReadOnlySpan<byte> utf8)
     {
         _buffer.Write(utf8);
         _bytesWritten += utf8.Length;
@@ -475,7 +492,7 @@ public ref struct YamlWriter
         WriteByte((byte)'\n');
     }
 
-    private void WriteEscaped(ReadOnlySpan<byte> u)
+    private void WriteEscaped(scoped ReadOnlySpan<byte> u)
     {
         for (int i = 0; i < u.Length; i++)
         {

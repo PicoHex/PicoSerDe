@@ -146,6 +146,12 @@ public class TomlSectionOrderTests
     [Test]
     public async Task PolyDerived_ObjectBeforeScalar_EmitsScalarsBeforeTheTable()
     {
+        // R2 Task 6: the discriminator key is QUOTED now. `$` is not in TOML 1.0's
+        // bare-key grammar (`[A-Za-z0-9_-]+`), so `$type = "derived"` was not TOML at
+        // all — tomllib rejects it. NeedsKeyQuoting used to be a six-character blacklist
+        // that never held `$`; asking the grammar instead (spec D-9b) fixed this one for
+        // free. The reader still accepts the bare form (canonical write, lenient read),
+        // which is why the hand-written payloads in PolymorphicTests keep working.
         // The polymorphic serializer walks the derived type's members: it needs
         // the same "sections last" ordering.
         var text = TomlSerializer.Serialize<SectionOrderPolyBase>(
@@ -157,7 +163,9 @@ public class TomlSectionOrderTests
         );
         await Assert
             .That(text)
-            .IsEqualTo("$type = \"derived\"\nKind = \"\"\nName = \"n\"\n[Address]\nCity = \"X\"\n");
+            .IsEqualTo(
+                "\"$type\" = \"derived\"\nKind = \"\"\nName = \"n\"\n[Address]\nCity = \"X\"\n"
+            );
     }
 
     [Test]
