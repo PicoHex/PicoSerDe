@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using PicoIni.Gen;
 using PicoJetson.Gen;
 using PicoMsgPack.Gen;
+using PicoSerDe.Gen;
 using PicoToml.Gen;
 using PicoYaml.Gen;
 
@@ -352,6 +353,558 @@ public class SilentDropDiagnosticTests
             .That(lines[declaredOn][span.StartLinePosition.Character..])
             .StartsWith("V")
             .Because("the location must start at the member name");
+    }
+
+    // ── I-5 (D-4): ONE drop id, THREE verdicts — ⛔ "the format cannot", ⏸ "we have
+    // not", ⚠ "this member cannot be read at all" ──
+    // W4 left I-5 unenforced: every drop used one sentence ("cannot be represented by this
+    // format"), so the reader of a REPORTABLE cell was told to change a type that is
+    // perfectly expressible (D-4 ②). These tests pin the two verdicts against the facts
+    // table, one cell at a time, in BOTH directions: a format fact must not claim a debt,
+    // and a debt must not claim the format cannot hold the shape.
+    //
+    // The glyphs are repeated here ON PURPOSE (fix round 1): the templates take them from
+    // `GenInfrastructure.{Impossible,Deferred,MemberError}Marker` — that is the single
+    // source — and this file spells them out as a GOLDEN value. The shared infrastructure
+    // is an analyzer-only compile item (not linked into this project), so the test cannot
+    // reference the constant; keeping the literal means changing the constant turns these
+    // tests red instead of letting the generator and the tests drift apart silently.
+
+    private const string Impossible = "\u26D4";
+    private const string Deferred = "\u23F8";
+    private const string MemberError = "\u26A0";
+
+    /// <summary>§3 S5: <c>List&lt;int?&gt;</c> — TOML has no null literal, YAML has one.</summary>
+    private static string NullableIntList(string ns, string attr) =>
+        $$"""
+            using {{ns}};
+
+            [{{attr}}]
+            public partial class Doc
+            {
+                public System.Collections.Generic.List<int?> V { get; set; } = new();
+            }
+            """;
+
+    /// <summary>§3 S14: <c>List&lt;Row?&gt;</c> — a null ELEMENT of an object list.</summary>
+    private static string ObjectNullElementList(string ns, string attr) =>
+        $$"""
+            using {{ns}};
+
+            public class Row
+            {
+                public string Name { get; set; } = "";
+            }
+
+            [{{attr}}]
+            public partial class Doc
+            {
+                public System.Collections.Generic.List<Row?> V { get; set; } = new();
+            }
+            """;
+
+    /// <summary>
+    /// Plan Task 7 Step 1 / spec §4 D-4 ①: a recursive skip must name a member the USER
+    /// declared. The declaring type used to be rendered with the property's nullable
+    /// annotation, so the message read <c>Doc2?.Child</c> — a name nobody wrote and nobody
+    /// can search for.
+    /// </summary>
+    [Test]
+    public async Task Recursive_diagnostic_names_the_member_the_user_declared()
+    {
+        const string mutual = """
+            using PicoYaml;
+            [PicoYamlSerializable] public partial class Doc { public string K { get; set; } = ""; public Doc2? Child { get; set; } }
+            [PicoYamlSerializable] public partial class Doc2 { public string K { get; set; } = ""; public Doc? Child { get; set; } }
+            """;
+
+        var messages = RunYaml(mutual).Messages;
+
+        await Assert
+            .That(messages.Any(m => m.Contains("Doc.Child") || m.Contains("Doc2.Child")))
+            .IsTrue()
+            .Because(
+                $"the drop must name a member of a type the user declared: {string.Join(" | ", messages)}"
+            );
+        await Assert
+            .That(messages.Any(m => m.Contains("?.Child")))
+            .IsFalse()
+            .Because("`Doc2?.Child` is not a member the user declared (D-4 ①)");
+    }
+
+    /// <summary>§3 S10: a dict whose VALUE is a collection (D-3).</summary>
+    private static string DictOfList(string ns, string attr) =>
+        $$"""
+            using {{ns}};
+
+            [{{attr}}]
+            public partial class Doc
+            {
+                public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> V { get; set; } = new();
+            }
+            """;
+
+    /// <summary>§3 S11a: self recursion.</summary>
+    private static string SelfRecursive(string ns, string attr) =>
+        $$"""
+            using {{ns}};
+
+            [{{attr}}]
+            public partial class Node
+            {
+                public string Name { get; set; } = "";
+                public Node? Child { get; set; }
+            }
+            """;
+
+    private static string DropMessage(
+        (string[] Ids, string Generated, string[] Messages) run,
+        string member
+    ) => run.Messages.Single(m => m.Contains(member, StringComparison.Ordinal));
+
+    /// <summary>
+    /// ⛔ half of I-5 on a cell the FACTS settle: TOML has no null literal (spec §3 S5), so
+    /// no generator change can ever make this member serializable. The message must say so,
+    /// and must not offer a "not implemented yet" hope.
+    /// </summary>
+    [Test]
+    public async Task Toml_null_element_reports_the_format_fact()
+    {
+        var drop = DropMessage(
+            RunToml(NullableIntList("PicoToml", "PicoTomlSerializable")),
+            "Doc.V"
+        );
+
+        await Assert
+            .That(drop.StartsWith(Impossible, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"a cell the format cannot express must be marked {Impossible}: {drop}");
+        await Assert
+            .That(drop)
+            .Contains("cannot be represented")
+            .Because("the reader has to see that the FORMAT is the limit, not this generator");
+        await Assert.That(drop.Contains(Deferred, StringComparison.Ordinal)).IsFalse();
+        await Assert.That(drop).Contains("toml").Because("I-5: the message names the format");
+        await Assert.That(drop).Contains("List<int?>").Because("I-5: the message names the shape");
+        await Assert.That(drop).Contains("Doc.V").Because("I-5: the message names the member");
+    }
+
+    /// <summary>
+    /// ⏸ half of I-5 on the SAME shape in the format that CAN hold it: YAML has a null
+    /// literal (spec §3 S5, written as a bare <c>- null</c>), so the drop is our debt
+    /// (D-7b). Claiming "cannot be represented by this format" here is the concrete mislead
+    /// D-4 ② names.
+    /// </summary>
+    [Test]
+    public async Task Yaml_null_element_reports_our_debt()
+    {
+        var drop = DropMessage(
+            RunYaml(NullableIntList("PicoYaml", "PicoYamlSerializable")),
+            "Doc.V"
+        );
+
+        await Assert
+            .That(drop.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"yaml CAN express a null element, so this is a debt {Deferred}: {drop}");
+        await Assert
+            .That(drop)
+            .Contains("has not implemented it yet")
+            .Because("the reader must be able to tell our gap from the format's limit");
+        await Assert
+            .That(drop.Contains(Impossible, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("blaming the format for our own gap is exactly D-4 ②");
+        await Assert
+            .That(drop.Contains("cannot be represented", StringComparison.Ordinal))
+            .IsFalse()
+            .Because("yaml can represent it");
+    }
+
+    /// <summary>
+    /// I-5's discriminating half: the SAME member in the SAME shape, dropped by two formats,
+    /// must not produce the same sentence — otherwise one template satisfies both tests
+    /// above merely by containing both phrases. This is the test the plan's Step 2 expects
+    /// to be RED on the pre-Task-7 code (both formats rendered one message).
+    /// </summary>
+    [Test]
+    public async Task Fact_and_debt_messages_are_distinguishable()
+    {
+        var toml = DropMessage(
+            RunToml(NullableIntList("PicoToml", "PicoTomlSerializable")),
+            "Doc.V"
+        );
+        var yaml = DropMessage(
+            RunYaml(NullableIntList("PicoYaml", "PicoYamlSerializable")),
+            "Doc.V"
+        );
+
+        await Assert.That(Impossible).IsNotEqualTo(Deferred);
+        await Assert.That(toml).IsNotEqualTo(yaml).Because("two verdicts, two sentences");
+        await Assert
+            .That(toml.StartsWith(Impossible, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"toml x S5 is a format fact: {toml}");
+        await Assert
+            .That(yaml.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"yaml x S5 is our debt: {yaml}");
+
+        // Spec C4 (spec review D2): a debt message must CARRY the reopen pointer, not
+        // only say "recorded gap" — otherwise the reader cannot find the condition.
+        await Assert
+            .That(yaml)
+            .Contains("reopen:")
+            .Because($"C4: the debt message has to point at its reopen condition: {yaml}");
+        await Assert
+            .That(toml.Contains("reopen:", StringComparison.Ordinal))
+            .IsFalse()
+            .Because("a format fact is terminal, so it must not promise a reopen");
+    }
+
+    /// <summary>
+    /// The cell D-4 ② names by hand: S14 x yaml. YAML can hold a null object element
+    /// (PyYAML reads <c>- null</c>; spec §3 footnote ¹) but the generator drops the whole
+    /// member — a DEBT in yaml, a FACT in the two formats that carry no null at all.
+    /// </summary>
+    [Test]
+    public async Task Object_null_element_is_a_debt_in_yaml_and_a_fact_in_toml()
+    {
+        var yaml = DropMessage(
+            RunYaml(ObjectNullElementList("PicoYaml", "PicoYamlSerializable")),
+            "Doc.V"
+        );
+        var toml = DropMessage(
+            RunToml(ObjectNullElementList("PicoToml", "PicoTomlSerializable")),
+            "Doc.V"
+        );
+
+        await Assert.That(yaml.StartsWith(Deferred, StringComparison.Ordinal)).IsTrue();
+        await Assert.That(toml.StartsWith(Impossible, StringComparison.Ordinal)).IsTrue();
+        await Assert.That(yaml).IsNotEqualTo(toml);
+    }
+
+    /// <summary>
+    /// The other cell D-4 ② names: a dict whose value is a collection (S10 / D-3) is
+    /// reportable in four formats and structurally impossible in INI (its sections hold no
+    /// nesting). Same shape, two verdicts — the message comes from the facts, not from the
+    /// fact that the emitter happens to lack a case.
+    /// </summary>
+    [Test]
+    public async Task Dict_of_list_is_a_debt_in_toml_and_a_fact_in_ini()
+    {
+        var toml = DropMessage(RunToml(DictOfList("PicoToml", "PicoTomlSerializable")), "Doc.V");
+        var ini = DropMessage(RunIni(DictOfList("PicoIni", "PicoIniSerializable")), "Doc.V");
+
+        await Assert
+            .That(toml.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"TOML can hold a dict of collections (S10), so this is a debt: {toml}");
+        await Assert
+            .That(ini.StartsWith(Impossible, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"INI cannot nest inside a member (S10), so this is a fact: {ini}");
+    }
+
+    /// <summary>
+    /// PICOSERDE003 gets the same treatment, and now carries the format and a way out:
+    /// TOML and YAML can hold a cycle (spec §3 S11a — nested tables / nested mappings),
+    /// INI cannot (it is flat). The old single sentence — "cannot be represented by this
+    /// format", with no format named — told the TOML user to remove a cycle the format
+    /// supports.
+    /// </summary>
+    [Test]
+    public async Task Recursion_is_a_debt_in_toml_and_a_fact_in_ini()
+    {
+        var toml = DropMessage(
+            RunToml(SelfRecursive("PicoToml", "PicoTomlSerializable")),
+            "Node.Child"
+        );
+        var ini = DropMessage(
+            RunIni(SelfRecursive("PicoIni", "PicoIniSerializable")),
+            "Node.Child"
+        );
+
+        await Assert
+            .That(toml.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"TOML can hold a recursive member (S11a): {toml}");
+        await Assert.That(ini.StartsWith(Impossible, StringComparison.Ordinal)).IsTrue();
+        await Assert
+            .That(toml)
+            .Contains("toml")
+            .Because("W4 review item 2: PICOSERDE003 never named the format it was talking about");
+        await Assert
+            .That(toml)
+            .Contains("cycle")
+            .Because("the message has to say WHAT is recursive, not just that it is");
+    }
+
+    /// <summary>
+    /// The cell session W5 left behind (review I-1): <c>List&lt;HashSet&lt;int&gt;&gt;</c> (spec §3 S8)
+    /// is <b>❌ in INI</b> — the format has no nesting at all — but the "type cannot be
+    /// resolved" channel had no decision point and hard-coded the ⏸ wording, so the message
+    /// claimed "the ini format can express this shape". That is D-4 ② in the other
+    /// direction: a format fact shipped as reopenable debt.
+    /// <para>
+    /// The verdict now asks the ELEMENT-position cell when (and only when) the declared
+    /// type is a collection whose element is itself a collection, which is precisely S8.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Unresolvable_collection_of_collections_is_a_fact_in_ini()
+    {
+        const string source = """
+            using PicoIni;
+
+            [PicoIniSerializable]
+            public partial class Doc
+            {
+                public System.Collections.Generic.List<System.Collections.Generic.HashSet<int>> V { get; set; } = new();
+            }
+            """;
+
+        var drop = DropMessage(RunIni(source), "Doc.V");
+
+        await Assert
+            .That(drop.StartsWith(Impossible, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"S8 x ini is ❌ in spec §3, so the message must be a format fact: {drop}");
+        await Assert
+            .That(drop.Contains(Deferred, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("⏸ would tell the reader the format could hold it — the mirror of D-4 ②");
+        await Assert.That(drop).Contains("ini").Because("I-5: the message names the format");
+    }
+
+    /// <summary>
+    /// The NEGATIVE control for the test above, and the reason the fix is safe: S7
+    /// (<c>HashSet&lt;int&gt;</c>) is ✅ in INI (spec §3 — a comma-separated scalar list), so its
+    /// element-position cell must NOT be consulted. A heuristic keyed on "the declared type
+    /// is a collection" would have flipped this cell to ⛔ and swapped one wrong message for
+    /// another; keying on "the ELEMENT is itself a collection" leaves it alone.
+    /// </summary>
+    [Test]
+    public async Task Unresolvable_collection_with_a_scalar_element_stays_a_debt_in_ini()
+    {
+        const string source = """
+            using PicoIni;
+
+            [PicoIniSerializable]
+            public partial class Doc
+            {
+                public System.Collections.Generic.HashSet<int> V { get; set; } = new();
+            }
+            """;
+
+        var drop = DropMessage(RunIni(source), "Doc.V");
+
+        await Assert
+            .That(drop.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"S7 x ini is ✅ in spec §3, so this is our debt, not the format's: {drop}");
+        await Assert
+            .That(drop.Contains(Impossible, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("marking a ✅ cell ⛔ is the mislead this fix must not introduce");
+    }
+
+    /// <summary>
+    /// The dict-key limit, proven from both sides (review I-3). A key kind this generator
+    /// cannot emit is only a FORMAT fact where the format itself narrows its key set: INI
+    /// reads a key as raw line text, so only <c>string</c> can be a key there ⇒ ⛔. Where the
+    /// format's key set is the model's widest one, the missing kind is a case our emitters
+    /// never wrote ⇒ ⏸ — the old code called both "cannot be represented", which is C1's
+    /// exact prohibition (implementation progress written as a format fact).
+    /// </summary>
+    [Test]
+    public async Task Dict_key_kind_is_a_fact_in_ini_and_a_debt_where_the_format_narrows_nothing()
+    {
+        const string nsIni = "PicoIni";
+        const string nsYaml = "PicoYaml";
+
+        static string KeyedBy(string ns, string attr) =>
+            $$"""
+                using {{ns}};
+
+                public class Row
+                {
+                    public string Name { get; set; } = "";
+                }
+
+                [{{attr}}]
+                public partial class Doc
+                {
+                    public System.Collections.Generic.Dictionary<Row, int> KeyedItems { get; set; } = new();
+                }
+                """;
+
+        var ini = DropMessage(RunIni(KeyedBy(nsIni, "PicoIniSerializable")), "Doc.KeyedItems");
+        var yaml = DropMessage(RunYaml(KeyedBy(nsYaml, "PicoYamlSerializable")), "Doc.KeyedItems");
+
+        // The table itself must answer the way the messages do (no second copy of the fact).
+        await Assert
+            .That(FormatCapabilities.AllowedDictKeyKinds("ini").Count)
+            .IsLessThan(FormatCapabilities.AllowedDictKeyKinds("yaml").Count)
+            .Because("ini is the only format that narrows the key set — that is the fact");
+
+        await Assert
+            .That(ini.StartsWith(Impossible, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"INI narrowed its key set, so the drop is a format fact: {ini}");
+        await Assert
+            .That(yaml.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because(
+                $"yaml narrowed nothing: the missing key case is OUR emitter, not the format: {yaml}"
+            );
+        await Assert
+            .That(yaml.Contains("cannot be represented", StringComparison.Ordinal))
+            .IsFalse()
+            .Because("C1: implementation progress must not be written as a format fact");
+    }
+
+    /// <summary>
+    /// PICOSERDE001's side of the same question: a <c>HashSet&lt;int&gt;</c> member is dropped by
+    /// four formats as a DEBT (spec §3 S7 is ✅ everywhere — D-1 is an implementation gap),
+    /// so the old "cannot be resolved by this format" wording sent those users off to change
+    /// a type every format can hold.
+    /// </summary>
+    [Test]
+    public async Task Unresolvable_extended_collection_is_reported_as_a_debt()
+    {
+        const string source = """
+            using PicoYaml;
+
+            [PicoYamlSerializable]
+            public partial class Doc
+            {
+                public System.Collections.Generic.HashSet<int> V { get; set; } = new();
+            }
+            """;
+
+        var drop = DropMessage(RunYaml(source), "Doc.V");
+
+        await Assert.That(drop.StartsWith(Deferred, StringComparison.Ordinal)).IsTrue();
+        await Assert.That(drop).Contains("yaml");
+    }
+
+    /// <summary>
+    /// R2's literal reading (W4 review, counter-example 1): a set-only property is a member
+    /// that never reaches the generated code and used to leave with a bare <c>continue</c>.
+    /// It is the THIRD class (fix round 1, review I-2): no format can serialize a value it
+    /// cannot read, so it is neither "the format cannot" (the declared type here is
+    /// <c>int</c>, which every format holds) nor our debt (no generator change helps). The
+    /// old assertion nailed the misleading sentence — "The json format cannot represent it …
+    /// use a format that can" — which sends the reader to four dead ends.
+    /// </summary>
+    [Test]
+    public async Task Write_only_property_reports_a_diagnostic()
+    {
+        const string source = """
+            using PicoJetson;
+
+            [PicoJsonSerializable]
+            public partial class Doc
+            {
+                public string Name { get; set; } = "";
+                public int WriteOnly { set { _ = value; } }
+            }
+            """;
+
+        var warning = RunDiagnostics(new JsonSerializerGenerator(), source)
+            .Single(d => d.GetMessage().Contains("Doc.WriteOnly", StringComparison.Ordinal));
+        var message = warning.GetMessage();
+
+        await Assert.That(warning.Id).IsEqualTo(UnresolvableTypeId);
+        await Assert
+            .That(message.StartsWith(MemberError, StringComparison.Ordinal))
+            .IsTrue()
+            .Because(
+                $"I-2: a member nobody can read is its own class, not a format fact: {message}"
+            );
+        await Assert
+            .That(message.Contains(Impossible, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("⛔ is reserved for 'the format cannot express the shape'");
+        await Assert
+            .That(message.Contains(Deferred, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("this is not our debt either: no generator change can serialize it");
+        await Assert
+            .That(message)
+            .Contains("no getter")
+            .Because("the message has to name the actual cause");
+        await Assert
+            .That(message.Contains("use a format that can", StringComparison.Ordinal))
+            .IsFalse()
+            .Because("I-2: no other format can help, so that advice is a dead end");
+        await Assert
+            .That(message.Contains("cannot represent", StringComparison.Ordinal))
+            .IsFalse()
+            .Because("claiming json cannot represent an int is simply false");
+        await Assert
+            .That(warning.Location.IsInSource)
+            .IsTrue()
+            .Because("I-1: every drop is navigable and pragma-suppressible");
+    }
+
+    /// The invariant behind the tests above, applied to every diagnostic the five generators
+    /// produce for three dropped shapes: each drop message is greppable (starts with ⛔ or
+    /// ⏸) and names the format. A new drop site that forgets this fails here rather than
+    /// in a user's build log.
+    /// </summary>
+    [Test]
+    public async Task Every_drop_message_carries_a_verdict_marker_and_the_format()
+    {
+        var formats = new (
+            string Tag,
+            string Ns,
+            string Attr,
+            Func<string, (string[] Ids, string Generated, string[] Messages)> Run
+        )[]
+        {
+            ("json", "PicoJetson", "PicoJsonSerializable", SilentDropDiagnosticTests.RunJson),
+            (
+                "msgpack",
+                "PicoMsgPack",
+                "PicoMsgPackSerializable",
+                SilentDropDiagnosticTests.RunMsgPack
+            ),
+            ("toml", "PicoToml", "PicoTomlSerializable", SilentDropDiagnosticTests.RunToml),
+            ("yaml", "PicoYaml", "PicoYamlSerializable", SilentDropDiagnosticTests.RunYaml),
+            ("ini", "PicoIni", "PicoIniSerializable", SilentDropDiagnosticTests.RunIni),
+        };
+
+        foreach (var (tag, ns, attr, run) in formats)
+        {
+            var messages = run(NullableIntList(ns, attr))
+                .Messages.Concat(run(DictOfList(ns, attr)).Messages)
+                .Concat(run(SelfRecursive(ns, attr)).Messages)
+                .ToArray();
+
+            await Assert
+                .That(messages)
+                .IsNotEmpty()
+                .Because($"{tag} drops all three shapes, so it must report them");
+
+            foreach (var message in messages)
+            {
+                var marked =
+                    message.StartsWith(Impossible, StringComparison.Ordinal)
+                    || message.StartsWith(Deferred, StringComparison.Ordinal);
+                await Assert
+                    .That(marked)
+                    .IsTrue()
+                    .Because(
+                        $"every drop message needs a {Impossible}/{Deferred} verdict: {message}"
+                    );
+                await Assert
+                    .That(message)
+                    .Contains(tag)
+                    .Because($"I-5: the message must name the format: {message}");
+            }
+        }
     }
 
     // ── drivers ────────────────────────────────────────────────────────────────────────

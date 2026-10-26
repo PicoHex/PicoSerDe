@@ -35,10 +35,11 @@ internal readonly record struct TypeInfo(
     // format (TOML/YAML/INI); surfaced as PICOSERDE003 by GenerateAll.
     // True for abstract classes (a polymorphic base that cannot be instantiated).
     bool IsAbstract = false,
-    ImmutableArray<string> SkippedRecursiveMembers = default,
-    // Members skipped because this format cannot represent them at all
-    // (e.g. nested lists in TOML/YAML/INI); surfaced as PICOSERDE004.
-    ImmutableArray<string> SkippedUnsupportedMembers = default,
+    ImmutableArray<SkippedMember> SkippedRecursiveMembers = default,
+    // Members skipped because this generator drops them (nested lists in TOML/YAML/INI, a
+    // dict value that is a collection, ...); surfaced as PICOSERDE004. Each record also
+    // says which side of the ⛔/⏸ line the drop is on (D-4 ②).
+    ImmutableArray<SkippedMember> SkippedUnsupportedMembers = default,
     // Members dropped because their TYPE could not be resolved for this format at
     // all; surfaced as PICOSERDE001. Carried on the TypeInfo (not on a shared
     // List<Diagnostic>) because the extraction runs inside the incremental
@@ -89,6 +90,53 @@ internal readonly record struct TypeInfo(
 }
 
 /// <summary>
+/// Why a member was dropped — THREE classes, because "dropped" has three different
+/// causes and only one of them is about the FORMAT (spec C4, defects D-4 ② / I-2).
+/// <para>
+/// ⛔ <see cref="DropVerdict.FormatCannot"/> — the FORMAT cannot express the shape: terminal, the
+/// reader has to change the format or the type. ⏸ <see cref="GeneratorGap"/> — the format
+/// CAN express it and this generator has not implemented it yet: our debt (spec R4),
+/// reopenable, and the reader must not be told to change anything. ⚠
+/// <see cref="MemberUnreadable"/> — neither: no format can serialize a value it cannot
+/// read, so the member itself has to change (it is not a format limit and it is not our
+/// debt; sending the reader to another format would be a dead end).
+/// </para>
+/// The verdict is decided at the extraction site — the only place that knows WHICH rule
+/// fired — by asking the facts table (<see cref="FormatCapabilities.CanRepresent"/>) for
+/// that rule's decision point. It is never derived from a format literal (I-3) and never
+/// from our implementation status (C1).
+/// </summary>
+internal enum DropVerdict
+{
+    /// <summary>⛔ The format cannot express the shape — nothing on our side can fix it.</summary>
+    FormatCannot,
+
+    /// <summary>⏸ The format can express it; this generator has not implemented it yet.</summary>
+    GeneratorGap,
+
+    /// <summary>⚠ The member itself is not serializable in ANY format (no getter to read).</summary>
+    MemberUnreadable,
+}
+
+/// <summary>
+/// One member this generator dropped during extraction, together with the side of the
+/// line it fell on (<see cref="DropVerdict"/>).
+/// <para>
+/// The verdict travels with the record so the reporting site (GenerateAll) does not have
+/// to re-derive it: only the extraction site knows which rule fired.
+/// </para>
+/// </summary>
+internal readonly record struct SkippedMember(
+    // "Namespace.Type.Member", as the user declared it.
+    string Name,
+    // The member's declared type text, so the message can name the SHAPE (I-5) without
+    // the reader having to look the member up.
+    string DeclaredType,
+    // ⛔ / ⏸ / ⚠ — see <see cref="DropVerdict"/>.
+    DropVerdict Verdict
+);
+
+/// <summary>
 /// One member that never reached the generated code because its declared type is
 /// not resolvable for the current format (a class with no public members, a
 /// collection whose element kind this format cannot express, a cycle the format
@@ -106,7 +154,9 @@ internal readonly record struct UnsupportedTypeMember(
     // also silences the next member that is dropped for a real mistake (I-1). A
     // Location describes a span and compares by (tree, span); it holds no symbol and
     // no compilation, so the model stays pure and cacheable.
-    Location? Location = null
+    Location? Location = null,
+    // Which side of the line this drop is on; see <see cref="DropVerdict"/>.
+    DropVerdict Verdict = DropVerdict.GeneratorGap
 );
 
 /// <summary>Describes one derived type in a polymorphic hierarchy.</summary>
@@ -179,27 +229,118 @@ public readonly record struct AttributeHelpers(
 
 internal static class GenInfrastructure
 {
+    // ── verdict markers ────────────────────────────────────────────────────────────────
+    // ⛔ and ⏸ are NOT defined here. "The FORMAT cannot" vs "we have not implemented it"
+    // IS a capability verdict, so both glyphs have their ONE definition in
+    // FormatCapabilities (shared by all five generators) and every messageFormat below
+    // REFERENCES them:
+    //
+    //     FormatCapabilities.ImpossibleMarker   ⛔
+    //     FormatCapabilities.DeferredMarker     ⏸
+    //
+    // Never spell a glyph here. A second copy compiles, emits the same bytes and breaks
+    // no behavioural test, so `VerdictMarkerGuardTests` fails on any literal ⛔/⏸ outside
+    // FormatCapabilities.cs (a rename or a value change in one copy would otherwise leave
+    // the two sites disagreeing silently).
+    //
+    // ⚠ stays local because it is not a capability verdict at all: it says the MEMBER is
+    // unreadable, i.e. no format and no generator change can help (review I-2).
+
+    /// <summary>
+    /// ⚠ the MEMBER is not serializable in any format (no getter), so neither a format
+    /// fact nor our debt: the member has to change. A distinct marker on purpose — the
+    /// ⛔ bucket is reserved for "the format cannot", and telling the reader to try another
+    /// format here would be a dead end (review I-2).
+    /// </summary>
+    private const string MemberErrorMarker = "\u26A0";
+
     /// <summary>
     /// Why a member's declared type could not be resolved for this format. Kept as
     /// constants so the two extraction paths (public field, property) cannot drift
     /// into two different explanations of the same drop.
+    /// <para>
+    /// A reason says WHAT happened, never which side of the line the drop is on: the same
+    /// fact ("it closes a type cycle") is a format fact in INI and our debt in TOML, so
+    /// the marker comes from the facts table instead of from the wording (see
+    /// <see cref="DropVerdict"/>).
+    /// </para>
     /// </summary>
     private const string UnresolvableTypeReason =
-        "its declared type is not a scalar, collection, dictionary or object shape this format can express";
+        "no shape could be resolved for its declared type";
 
-    private const string RecursiveFieldReason =
-        "it refers back into a type cycle this format cannot represent";
+    private const string RecursiveFieldReason = "it closes a type cycle";
 
     /// <summary>
-    /// A member whose TYPE could not be resolved for the current format never
-    /// reached the generated code. Reported as PICOSERDE001 (D-6) with the type
-    /// name, the member name, the declared type, the format and a reason — and a
-    /// suggestion, because a warning the reader cannot act on is noise.
+    /// A set-only property has no getter, so there is no value to write out — the member
+    /// never reaches the generated code. Silent until now (spec review W4 read R2
+    /// literally: every dropped member reports).
     /// </summary>
-    private static readonly DiagnosticDescriptor UnsupportedTypeWarning = new(
+    private const string WriteOnlyPropertyReason =
+        "it has no getter, so there is no value to serialize";
+
+    /// <summary>
+    /// Defensive: the kind resolver answered "dict" but the declared type is not an
+    /// <c>INamedTypeSymbol</c> with two type arguments, so its key and value types cannot
+    /// be inspected. Reported instead of a bare <c>continue</c> (R2 has no silent exit).
+    /// </summary>
+    private const string UninspectableDictionaryReason =
+        "its declared type resolves to a dictionary whose key and value types cannot be inspected";
+
+    /// <summary>
+    /// A member whose TYPE could not be resolved for the current format never reached the
+    /// generated code. Reported as PICOSERDE001 (D-6) with the member name, the declared
+    /// type (the shape), the format, a reason and a way out — a warning the reader cannot
+    /// act on is noise.
+    /// <para>
+    /// THREE templates under ONE id (D4: the id is the public contract, the wording is
+    /// not): {0} member, {1} declared type, {2} format, {3} reason. ⛔ says the format
+    /// cannot express it (terminal); ⏸ says the format can and the generator has not
+    /// implemented it yet (our debt, spec R4); ⚠ says the MEMBER cannot be read at all, so
+    /// no format and no generator change can help (review I-2). All three are greppable on
+    /// their marker, and each marker is a constant, not a literal in the template.
+    /// </para>
+    /// </summary>
+    private static readonly DiagnosticDescriptor UnsupportedTypeImpossibleWarning = new(
         id: "PICOSERDE001",
-        title: "Member dropped: its type cannot be resolved by this format",
-        messageFormat: "Member '{0}.{1}' was dropped by the {3} source generator: type '{2}' cannot be resolved ({4}). The member is not serialized or deserialized — give it a type this format can express, or remove it.",
+        title: "Member dropped: this format cannot represent its type",
+        messageFormat: FormatCapabilities.ImpossibleMarker
+            + " Member '{0}' (declared type '{1}') was dropped by the {2} source generator: {3}. The {2} format cannot represent it, so nothing on the generator side can change that — use a format that can, or change the member's type.",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// The ⏸ sibling of <see cref="UnsupportedTypeImpossibleWarning"/>: the same drop, but
+    /// the format CAN express the shape — the gap is ours (spec R4), with the same id so
+    /// `NoWarn PICOSERDE001` keeps working for both. The tail is the REOPEN POINTER C4 asks
+    /// for (<c>reopen:</c>): the condition lives in spec §3/§6, and the message has to say
+    /// where — "recorded gap" alone tells the reader it is reopenable but not where the
+    /// condition is written down (spec review D2).
+    /// </summary>
+    private static readonly DiagnosticDescriptor UnsupportedTypeDeferredWarning = new(
+        id: "PICOSERDE001",
+        title: "Member dropped: not implemented yet (this format can hold it)",
+        messageFormat: FormatCapabilities.DeferredMarker
+            + " Member '{0}' (declared type '{1}') was dropped by the {2} source generator: {3}. The {2} format can express this shape, but this generator has not implemented it yet — the drop is a recorded gap, not a format limit. reopen: the condition is tracked as debt in the format-capabilities matrix (spec §3/§6).",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// The ⚠ third class (review I-2): the member has no getter, so there is no value to
+    /// write in ANY format. It is neither a format limit (the type may be perfectly
+    /// expressible) nor our debt (no generator change can serialize what cannot be read),
+    /// so it must not borrow either wording: "the json format cannot represent `int`" is a
+    /// false sentence, and "use a format that can" sends the reader to four dead ends.
+    /// Same id, same severity, same suppressions.
+    /// </summary>
+    private static readonly DiagnosticDescriptor UnsupportedTypeMemberErrorWarning = new(
+        id: "PICOSERDE001",
+        title: "Member dropped: it has no getter, so there is no value to serialize",
+        messageFormat: MemberErrorMarker
+            + " Member '{0}' (declared type '{1}') was dropped by the {2} source generator: {3}. No format can serialize a member it cannot read, so another format will not help — make the member readable (add a getter) or remove it.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
@@ -220,27 +361,50 @@ internal static class GenInfrastructure
     );
 
     /// <summary>
-    /// A recursive/self-referencing member cannot be represented by the
-    /// section-based formats (TOML/YAML/INI); the member is skipped and this
-    /// shared diagnostic makes the skip visible (never silent).
+    /// A recursive/self-referencing member is skipped by the section-based generators
+    /// (TOML/YAML/INI); this shared diagnostic makes the skip visible (never silent).
+    /// <para>
+    /// {0} member, {1} format, {2} declared type. A cycle is a format fact only where the
+    /// facts table says so (INI); TOML and YAML CAN hold one (spec §3: S11a/S11b), so their
+    /// skip is ⏸ — the old single wording ("cannot be represented by this format")
+    /// told those users to change a type that is perfectly expressible (D-4 ②).
+    /// </para>
     /// </summary>
-    private static readonly DiagnosticDescriptor RecursiveMemberSkippedWarning = new(
+    private static readonly DiagnosticDescriptor RecursiveMemberImpossibleWarning = new(
         id: "PICOSERDE003",
-        title: "Recursive member skipped by this format",
-        messageFormat: "Member '{0}' is recursive/self-referencing and cannot be represented by this format — it will be ignored",
+        title: "Recursive member dropped: this format cannot hold a type cycle",
+        messageFormat: FormatCapabilities.ImpossibleMarker
+            + " Member '{0}' (declared type '{2}') closes a type cycle, and the {1} format cannot represent one. Use a format that can hold recursion, or remove the cycle.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
     );
 
     /// <summary>
-    /// Reports PICOSERDE003 for every recursive member skipped during
-    /// extraction. Called by the TOML/YAML/INI generators from GenerateAll
+    /// The ⏸ sibling of <see cref="RecursiveMemberImpossibleWarning"/>: same id, same
+    /// member, but the format can hold the cycle (TOML/YAML today). The <c>reopen:</c> tail
+    /// is the pointer spec C4 asks for — the condition lives in spec §3/§6.
+    /// </summary>
+    private static readonly DiagnosticDescriptor RecursiveMemberDeferredWarning = new(
+        id: "PICOSERDE003",
+        title: "Recursive member dropped: not implemented yet (this format can hold a cycle)",
+        messageFormat: FormatCapabilities.DeferredMarker
+            + " Member '{0}' (declared type '{2}') closes a type cycle; the {1} format can represent one, but this generator has not implemented it yet. The drop is a recorded gap, not a format limit. reopen: the condition is tracked as debt in the format-capabilities matrix (spec §3/§6).",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// Reports PICOSERDE003 for every recursive member skipped during extraction, in the
+    /// ⛔ or the ⏸ wording the extraction already decided (it is the only place that
+    /// knows which rule fired). Called by the TOML/YAML/INI generators from GenerateAll
     /// (JSON/MsgPack support recursion and never record skips).
     /// </summary>
     public static void ReportSkippedRecursiveMembers(
         SourceProductionContext spc,
-        IEnumerable<TypeInfo> typeInfos
+        IEnumerable<TypeInfo> typeInfos,
+        string formatTag
     )
     {
         // A type discovered from several usage sites produces one TypeInfo per
@@ -251,12 +415,28 @@ internal static class GenInfrastructure
             if (t.SkippedRecursiveMembers.IsDefaultOrEmpty)
                 continue;
             foreach (var member in t.SkippedRecursiveMembers)
-                if (reported.Add(member))
+                if (reported.Add(member.Name))
                     spc.ReportDiagnostic(
-                        Diagnostic.Create(RecursiveMemberSkippedWarning, null, member)
+                        Diagnostic.Create(
+                            DescribeRecursive(member.Verdict),
+                            null,
+                            member.Name,
+                            formatTag,
+                            member.DeclaredType
+                        )
                     );
         }
     }
+
+    /// <summary>
+    /// PICOSERDE003's template for a verdict. A cycle is only ever ⛔ or ⏸ (a member with no
+    /// getter never reaches this list); the third class falls back to the ⏸ wording rather
+    /// than inventing a fourth sentence, and the switch keeps the mapping exhaustive.
+    /// </summary>
+    private static DiagnosticDescriptor DescribeRecursive(DropVerdict verdict) =>
+        verdict == DropVerdict.FormatCannot
+            ? RecursiveMemberImpossibleWarning
+            : RecursiveMemberDeferredWarning;
 
     /// <summary>
     /// Leading keyword of an if/else-if dispatch chain: "if" for the first
@@ -272,26 +452,49 @@ internal static class GenInfrastructure
     }
 
     /// <summary>
-    /// A member whose shape this format cannot represent at all (for example a
-    /// nested list in TOML/YAML/INI) is dropped with this shared diagnostic
-    /// instead of emitting non-compiling or lossy code.
+    /// A member this generator drops instead of emitting non-compiling or lossy code
+    /// (a nested list in TOML/YAML/INI, a dict value that is a collection, ...).
+    /// <para>
+    /// {0} member, {1} format, {2} declared type. TWO templates under ONE id (D4: the id
+    /// is the public contract, the wording is not): ⛔ when the format cannot express the
+    /// shape, ⏸ when it can and the drop is our gap (spec R4). This is D-4 ②: the old
+    /// single "cannot be represented by this format" wording told the user of a ⏸ cell
+    /// (S14 x yaml, a dict value that is a collection) to change a type that is fine.
+    /// </para>
     /// </summary>
-    private static readonly DiagnosticDescriptor UnsupportedMemberSkippedWarning = new(
+    private static readonly DiagnosticDescriptor UnsupportedMemberImpossibleWarning = new(
         id: "PICOSERDE004",
-        title: "Member skipped by this format",
-        messageFormat: "Member '{0}' cannot be represented by this format — it will be ignored",
+        title: "Member dropped: this format cannot represent its shape",
+        messageFormat: FormatCapabilities.ImpossibleMarker
+            + " Member '{0}' (declared type '{2}') cannot be represented by the {1} format. Use a format that can, or change the member's type.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
     );
 
     /// <summary>
-    /// Reports PICOSERDE004 for every unsupported member skipped during
-    /// extraction. Called by the TOML/YAML/INI generators from GenerateAll.
+    /// The ⏸ sibling of <see cref="UnsupportedMemberImpossibleWarning"/>. The <c>reopen:</c>
+    /// tail is the pointer spec C4 asks for — the condition lives in spec §3/§6.
+    /// </summary>
+    private static readonly DiagnosticDescriptor UnsupportedMemberDeferredWarning = new(
+        id: "PICOSERDE004",
+        title: "Member dropped: not implemented yet (this format can represent it)",
+        messageFormat: FormatCapabilities.DeferredMarker
+            + " Member '{0}' (declared type '{2}') is dropped by the {1} generator even though the {1} format can represent it: this generator has not implemented it yet. The drop is a recorded gap, not a format limit. reopen: the condition is tracked as debt in the format-capabilities matrix (spec §3/§6).",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// Reports PICOSERDE004 for every unsupported member skipped during extraction, in the
+    /// ⛔ or the ⏸ wording the extraction already decided. Called by all five
+    /// generators from GenerateAll.
     /// </summary>
     public static void ReportUnsupportedMembers(
         SourceProductionContext spc,
-        IEnumerable<TypeInfo> typeInfos
+        IEnumerable<TypeInfo> typeInfos,
+        string formatTag
     )
     {
         // A type discovered from several usage sites carries the same skip on
@@ -302,12 +505,34 @@ internal static class GenInfrastructure
             if (t.SkippedUnsupportedMembers.IsDefaultOrEmpty)
                 continue;
             foreach (var member in t.SkippedUnsupportedMembers)
-                if (reported.Add(member))
+                if (reported.Add(member.Name))
                     spc.ReportDiagnostic(
-                        Diagnostic.Create(UnsupportedMemberSkippedWarning, null, member)
+                        Diagnostic.Create(
+                            DescribeUnsupported(member.Verdict),
+                            null,
+                            member.Name,
+                            formatTag,
+                            member.DeclaredType
+                        )
                     );
         }
     }
+
+    /// <summary>PICOSERDE004's template for a verdict (never ⚠: a member that reaches this
+    /// list was resolved, it is the shape that is dropped).</summary>
+    private static DiagnosticDescriptor DescribeUnsupported(DropVerdict verdict) =>
+        verdict == DropVerdict.FormatCannot
+            ? UnsupportedMemberImpossibleWarning
+            : UnsupportedMemberDeferredWarning;
+
+    /// <summary>PICOSERDE001's template for a verdict — the only id that has all three.</summary>
+    private static DiagnosticDescriptor DescribeUnsupportedType(DropVerdict verdict) =>
+        verdict switch
+        {
+            DropVerdict.FormatCannot => UnsupportedTypeImpossibleWarning,
+            DropVerdict.MemberUnreadable => UnsupportedTypeMemberErrorWarning,
+            _ => UnsupportedTypeDeferredWarning,
+        };
 
     /// <summary>
     /// Accumulates the members dropped because their type is unresolvable. The
@@ -331,7 +556,8 @@ internal static class GenInfrastructure
             string memberName,
             string declaredTypeName,
             string reason,
-            Location? location
+            Location? location,
+            DropVerdict verdict
         )
         {
             if (_seen.Add(typeName + "." + memberName))
@@ -341,7 +567,8 @@ internal static class GenInfrastructure
                         memberName,
                         declaredTypeName,
                         reason,
-                        location ?? Location.None
+                        location ?? Location.None,
+                        verdict
                     )
                 );
         }
@@ -368,6 +595,148 @@ internal static class GenInfrastructure
     }
 
     /// <summary>
+    /// How a dropped member's declared type is spelled in a diagnostic: source-like (no
+    /// <c>global::</c> noise) but nullability-preserving, because <c>Row</c> and <c>Row?</c>
+    /// are different SHAPES — the difference between a nesting drop and a null drop (I-5).
+    /// </summary>
+    private static readonly SymbolDisplayFormat DeclaredTypeFormat =
+        SymbolDisplayFormat.CSharpErrorMessageFormat.WithMiscellaneousOptions(
+            SymbolDisplayFormat.CSharpErrorMessageFormat.MiscellaneousOptions
+                | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier
+        );
+
+    /// <summary>
+    /// How the DECLARING type of a dropped member is spelled: as the type is declared, i.e.
+    /// without the `?` that belongs to the property's use of it. `Doc2?.Child` is not a name
+    /// a reader can search for, nor one they ever wrote (spec §4 D-4 ①).
+    /// </summary>
+    private static readonly SymbolDisplayFormat DeclaringTypeNameFormat =
+        SymbolDisplayFormat.CSharpErrorMessageFormat.WithMiscellaneousOptions(
+            SymbolDisplayFormat.CSharpErrorMessageFormat.MiscellaneousOptions
+                & ~SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier
+        );
+
+    /// <summary>The declared-type text for a diagnostic — see <see cref="DeclaredTypeFormat"/>.</summary>
+    private static string DeclaredTypeOf(ITypeSymbol type) =>
+        type.ToDisplayString(DeclaredTypeFormat);
+
+    /// <summary>
+    /// The verdict for "no shape could be resolved for this declared type", the one channel
+    /// with no decision point of its own.
+    /// <para>
+    /// It is ⏸ by default — an unnameable kind is an encoding gap (char/Half/... resolve only
+    /// for json), so no fact says the format cannot hold the value. The one exception is a
+    /// collection whose ELEMENT is ITSELF a collection: <c>List&lt;HashSet&lt;int&gt;&gt;</c> (S8)
+    /// makes the resolver give up one level too early, and the element-position cell
+    /// (<see cref="Decision.ExtendedKindAsElement"/>) is a format fact there — INI has no
+    /// nesting at all (spec §3 S8 x ini = ❌), so reporting ⏸ with "the ini format can
+    /// express this shape" was the mirror image of D-4 ② (review I-1).
+    /// </para>
+    /// <para>
+    /// The predicate is deliberately narrow: it asks the element cell only when the element
+    /// is itself a collection, so S7 (<c>HashSet&lt;int&gt;</c>, whose element is <c>int</c>) is
+    /// never asked and keeps its ⏸ in every format — guessing a decision point from "the
+    /// declared type is a collection" would have flipped a ✅ cell to ⛔ and swapped one wrong
+    /// message for another. Both candidate points (element / nested chain) agree on all five
+    /// formats, so an unresolvable chain cannot be judged the wrong way round.
+    /// </para>
+    /// </summary>
+    private static DropVerdict UnresolvableDropVerdict(ITypeSymbol type, string formatTag) =>
+        ElementIsItselfACollection(type)
+        && !FormatCapabilities.CanRepresent(formatTag, Decision.ExtendedKindAsElement)
+            ? DropVerdict.FormatCannot
+            : DropVerdict.GeneratorGap;
+
+    /// <summary>
+    /// True when <paramref name="type"/> is a collection whose element is itself a collection
+    /// (<c>List&lt;HashSet&lt;int&gt;&gt;</c>, <c>int[][]</c>, <c>List&lt;List&lt;int&gt;&gt;</c>). Precision
+    /// matters: <c>HashSet&lt;int&gt;</c> is a collection whose element is <c>int</c>, so it does
+    /// NOT qualify (see <see cref="UnresolvableDropVerdict"/>).
+    /// </summary>
+    private static bool ElementIsItselfACollection(ITypeSymbol type)
+    {
+        ITypeSymbol? element = type switch
+        {
+            IArrayTypeSymbol array => array.ElementType,
+            INamedTypeSymbol { TypeArguments.Length: 1 } named => named.TypeArguments[0],
+            _ => null,
+        };
+
+        return element is IArrayTypeSymbol
+            || element is INamedTypeSymbol { TypeArguments.Length: 1 };
+    }
+
+    /// <summary>
+    /// Records one member this generator drops from a list/dict path, together with the
+    /// side of the ⛔/⏸ line it fell on: ⛔ when the FACTS table says the format
+    /// cannot express decision point <paramref name="point"/>, ⏸ when it can and the
+    /// drop is our gap (spec R4).
+    /// <para>
+    /// Asking here — at the site that knows WHICH rule fired — is what keeps the message
+    /// honest: the same member is a ⛔ in one format and a ⏸ in the next, and the
+    /// answer must come from the facts (C1), never from a format literal (I-3).
+    /// </para>
+    /// </summary>
+    private static SkippedMember SkippedBy(
+        INamedTypeSymbol type,
+        IPropertySymbol member,
+        string formatTag,
+        Decision point
+    ) =>
+        new(
+            $"{type.ToDisplayString(DeclaringTypeNameFormat)}.{member.Name}",
+            DeclaredTypeOf(member.Type),
+            !FormatCapabilities.CanRepresent(formatTag, point)
+                ? DropVerdict.FormatCannot
+                : DropVerdict.GeneratorGap
+        );
+
+    /// <summary>
+    /// Records a member dropped because our emitters cannot key its dictionary's key kind,
+    /// with the verdict the capability TABLE gives that drop (review I-3).
+    /// <para>
+    /// The key set in <see cref="FormatCapabilities.AllowedDictKeyKinds"/> is what the
+    /// generated code implements, so the fact that a kind is missing from it does NOT by
+    /// itself make the drop a format fact: a format that accepts fewer key kinds than the
+    /// model's widest set is the one narrowing (INI reads a key as raw line text, so only
+    /// <c>string</c> can be a key there) ⇒ ⛔. A format whose key set is the widest one has
+    /// narrowed nothing; a kind outside it (an object, a float, a list) is a case our
+    /// emitters never wrote ⇒ our gap ⏸, never "the yaml format cannot represent it" (C1:
+    /// our progress must not be written as a format fact).
+    /// </para>
+    /// </summary>
+    private static SkippedMember SkippedByDictKeyKind(
+        INamedTypeSymbol type,
+        IPropertySymbol member,
+        string formatTag
+    ) =>
+        new(
+            $"{type.ToDisplayString(DeclaringTypeNameFormat)}.{member.Name}",
+            DeclaredTypeOf(member.Type),
+            FormatNarrowsDictKeySet(formatTag) ? DropVerdict.FormatCannot : DropVerdict.GeneratorGap
+        );
+
+    /// <summary>
+    /// Did THIS format narrow the dictionary key set, or is the missing key kind ours?
+    /// <para>
+    /// Derived from the table (<see cref="FormatCapabilities.AllowedDictKeyKinds"/>) — a
+    /// format that declares fewer key kinds than the widest format does is stating a limit
+    /// of its own (INI); one that declares the widest set is simply mirroring what our
+    /// emitters implement, and a kind beyond that set is unimplemented code, not an
+    /// unrepresentable format. No second copy of the key sets, no format literal.
+    /// </para>
+    /// </summary>
+    private static bool FormatNarrowsDictKeySet(string formatTag)
+    {
+        var narrowed = FormatCapabilities.AllowedDictKeyKinds(formatTag).Count;
+        foreach (var fmt in FormatCapabilities.AllFormatTags)
+            if (FormatCapabilities.AllowedDictKeyKinds(fmt).Count > narrowed)
+                return true;
+
+        return false;
+    }
+
+    /// <summary>
     /// Turns the per-<see cref="TypeInfo"/> record of dropped members into
     /// PICOSERDE001 diagnostics. Separate from
     /// <see cref="ReportCollectedDiagnostics"/> so a generator expresses the
@@ -390,10 +759,9 @@ internal static class GenInfrastructure
                 if (!reported.Add(m.TypeName + "." + m.MemberName))
                     continue;
                 yield return Diagnostic.Create(
-                    UnsupportedTypeWarning,
+                    DescribeUnsupportedType(m.Verdict),
                     m.Location ?? Location.None,
-                    m.TypeName,
-                    m.MemberName,
+                    m.TypeName + "." + m.MemberName,
                     m.DeclaredTypeName,
                     formatTag,
                     m.Reason
@@ -835,8 +1203,8 @@ internal static class GenInfrastructure
             ns = string.Empty;
 
         var useCamelCase = attrs.HasCamelCase(namedType);
-        var skippedRecursive = new List<string>();
-        var skippedUnsupported = new List<string>();
+        var skippedRecursive = new List<SkippedMember>();
+        var skippedUnsupported = new List<SkippedMember>();
         // Extraction cannot report (it runs in the transform, which must be pure),
         // so the PICOSERDE001 records travel on the TypeInfo to GenerateAll.
         var droppedMembers = new UnsupportedTypeMemberCollector();
@@ -990,8 +1358,8 @@ internal static class GenInfrastructure
         AttributeHelpers attrs,
         string formatTag,
         HashSet<INamedTypeSymbol>? visiting,
-        List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null,
+        List<SkippedMember>? skippedRecursive = null,
+        List<SkippedMember>? skippedUnsupported = null,
         UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
@@ -1025,8 +1393,8 @@ internal static class GenInfrastructure
         string formatTag,
         HashSet<INamedTypeSymbol>? visiting,
         out bool isRecursiveRef,
-        List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null,
+        List<SkippedMember>? skippedRecursive = null,
+        List<SkippedMember>? skippedUnsupported = null,
         UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
@@ -1078,8 +1446,8 @@ internal static class GenInfrastructure
         bool useCamelCase,
         bool includeFields = false,
         HashSet<INamedTypeSymbol>? visiting = null,
-        List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null,
+        List<SkippedMember>? skippedRecursive = null,
+        List<SkippedMember>? skippedUnsupported = null,
         UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
@@ -1135,8 +1503,8 @@ internal static class GenInfrastructure
         UnsupportedTypeMemberCollector? droppedMembers,
         bool includeFields = false,
         HashSet<INamedTypeSymbol>? visiting = null,
-        List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null
+        List<SkippedMember>? skippedRecursive = null,
+        List<SkippedMember>? skippedUnsupported = null
     )
     {
         // Base chain, most-base first: inherited members precede the derived
@@ -1232,8 +1600,8 @@ internal static class GenInfrastructure
         ref int autoKey,
         bool includeFields = false,
         HashSet<INamedTypeSymbol>? visiting = null,
-        List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null
+        List<SkippedMember>? skippedRecursive = null,
+        List<SkippedMember>? skippedUnsupported = null
     )
     {
         var list = new List<PropertyInfo>();
@@ -1253,12 +1621,18 @@ internal static class GenInfrastructure
                     // D-6 site 1: a public field (IncludeFields / ref struct) of a
                     // type this format cannot resolve used to `continue` silently —
                     // the member vanished from every generated serializer.
+                    // ⏸, not ⛔: an unnameable kind is our gap — a json-only scalar kind
+                    // (char, Half, ...) lands here, and that is an encoding debt, not a
+                    // format fact (DecisionTables.EncodingOnlyDecisions). The one
+                    // exception is a collection whose element is itself a collection —
+                    // see <see cref="UnresolvableDropVerdict"/>.
                     droppedMembers?.Add(
-                        type.ToDisplayString(),
+                        type.ToDisplayString(DeclaringTypeNameFormat),
                         field.Name,
-                        field.Type.ToDisplayString(),
+                        DeclaredTypeOf(field.Type),
                         UnresolvableTypeReason,
-                        SourceLocationOf(field)
+                        SourceLocationOf(field),
+                        UnresolvableDropVerdict(field.Type, formatTag)
                     );
                     continue;
                 }
@@ -1302,12 +1676,17 @@ internal static class GenInfrastructure
                     // D-6 site 1 (cycle branch): the property path below records the
                     // same drop in `skippedRecursive` (=> PICOSERDE003), but a field
                     // never reaches that list, so it is reported here as 001.
+                    // A cycle is a format fact only where the facts table says so: TOML
+                    // and YAML can hold one (spec §3, S11a), so their drop is our gap.
                     droppedMembers?.Add(
-                        type.ToDisplayString(),
+                        type.ToDisplayString(DeclaringTypeNameFormat),
                         field.Name,
-                        field.Type.ToDisplayString(),
+                        DeclaredTypeOf(field.Type),
                         RecursiveFieldReason,
-                        SourceLocationOf(field)
+                        SourceLocationOf(field),
+                        FormatCapabilities.CanRepresent(formatTag, Decision.RecursiveSelf)
+                            ? DropVerdict.GeneratorGap
+                            : DropVerdict.FormatCannot
                     );
                     continue;
                 }
@@ -1342,7 +1721,24 @@ internal static class GenInfrastructure
             if (!includeReadOnlyProperties && prop.IsReadOnly && prop.SetMethod is null)
                 continue;
             if (prop.GetMethod is null)
+            {
+                // A set-only property never reaches the generated code: there is no
+                // getter, so there is no value to write. Dropped silently until now
+                // (spec review W4 read R2 literally — every dropped member reports). ⚠ is
+                // the THIRD class (review I-2): no format can serialize a value it cannot
+                // read, so this is neither "the format cannot" (the declared type may be
+                // `int`, which every format can hold) nor our debt (no generator change
+                // helps) — the member has to change, and the message says exactly that.
+                droppedMembers?.Add(
+                    type.ToDisplayString(DeclaringTypeNameFormat),
+                    prop.Name,
+                    DeclaredTypeOf(prop.Type),
+                    WriteOnlyPropertyReason,
+                    SourceLocationOf(prop),
+                    DropVerdict.MemberUnreadable
+                );
                 continue;
+            }
             // Cross-format [PicoIgnore]: Always strips the property entirely;
             // other conditions keep it and are honored by the emit paths.
             var ignoreCondition = GetPicoIgnoreCondition(prop);
@@ -1358,12 +1754,16 @@ internal static class GenInfrastructure
             {
                 // D-6 site 2: collected into a list no generator ever passed, so the
                 // member disappeared with no diagnostic at all.
+                // ⏸: see the field site above — "not resolvable here" is our gap, except
+                // for the collection-of-collections shape (S8 x ini) whose element-position
+                // cell IS a format fact (review I-1, spec §3).
                 droppedMembers?.Add(
-                    type.ToDisplayString(),
+                    type.ToDisplayString(DeclaringTypeNameFormat),
                     prop.Name,
-                    prop.Type.ToDisplayString(),
+                    DeclaredTypeOf(prop.Type),
                     UnresolvableTypeReason,
-                    SourceLocationOf(prop)
+                    SourceLocationOf(prop),
+                    UnresolvableDropVerdict(prop.Type, formatTag)
                 );
                 continue;
             }
@@ -1417,7 +1817,11 @@ internal static class GenInfrastructure
                     // The element kind is not expressible in THIS format (extended
                     // collections resolve for json only, for example). Dropping it
                     // silently was the fourth and last silent loss in this extractor.
-                    skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                    // The verdict asks the ELEMENT-position cell (S8), not the member one:
+                    // four formats drop this as a gap, ini as a fact.
+                    skippedUnsupported?.Add(
+                        SkippedBy(type, prop, formatTag, Decision.ExtendedKindAsElement)
+                    );
                     continue;
                 }
                 // Section-based formats cannot express nested lists or nullable
@@ -1512,7 +1916,18 @@ internal static class GenInfrastructure
                     );
                 if (nestedListUnsupported || nullableElementUnsupported)
                 {
-                    skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                    // Which rule fired decides which fact answers: a blocked chain form
+                    // is a NESTING fact (ini has none; toml holds scalars but not object
+                    // leaves), a blocked nullable element is the NULL fact (toml/ini have
+                    // no null; yaml has one and simply is not implemented -> ⏸).
+                    var elementDropPoint = nestedListUnsupported
+                        ? (
+                            chainFormBlocked
+                                ? Decision.NestedScalarContainer
+                                : Decision.NestedObjectContainer
+                        )
+                        : Decision.NullableValueLeaf;
+                    skippedUnsupported?.Add(SkippedBy(type, prop, formatTag, elementDropPoint));
                     continue;
                 }
                 // Extended collection kinds are not supported as nested elements yet —
@@ -1530,7 +1945,9 @@ internal static class GenInfrastructure
                         or "readonlymemory"
                 )
                 {
-                    skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                    skippedUnsupported?.Add(
+                        SkippedBy(type, prop, formatTag, Decision.ExtendedKindAsElement)
+                    );
                     continue;
                 }
                 // INI cannot represent a nested object list (its sections are flat) —
@@ -1544,7 +1961,9 @@ internal static class GenInfrastructure
                     && ek == "object"
                 )
                 {
-                    skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                    skippedUnsupported?.Add(
+                        SkippedBy(type, prop, formatTag, Decision.ObjectListInMember)
+                    );
                     continue;
                 }
                 elementTypeKind = ek;
@@ -1607,7 +2026,12 @@ internal static class GenInfrastructure
                     {
                         // Same rule as the element path: a key/value kind that this
                         // format cannot express is reported, never dropped silently.
-                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                        // ⏸: a kind this format cannot NAME is an encoding gap (like
+                        // ScalarKindResolves, whose cells the model keeps as encoding-only)
+                        // — no fact says the format cannot hold such a value.
+                        skippedUnsupported?.Add(
+                            SkippedBy(type, prop, formatTag, Decision.ScalarKindResolves)
+                        );
                         continue;
                     }
                     // Generators only emit key parsing for the kind set the model allows
@@ -1622,7 +2046,14 @@ internal static class GenInfrastructure
                     var dictKeyKinds = FormatCapabilities.AllowedDictKeyKinds(formatTag);
                     if (!dictKeyKinds.Contains(kk))
                     {
-                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                        // Drop — but the VERDICT comes from the table, not from the fact
+                        // that a kind is missing from this format's set (review I-3): the
+                        // set is what our emitters key, so a kind outside it is either a
+                        // format fact (the format narrowed its key set — INI reads a key as
+                        // raw line text) or our missing case (yaml/msgpack can key a complex
+                        // value, json/toml can stringify a scalar). See
+                        // <see cref="SkippedByDictKeyKind"/>.
+                        skippedUnsupported?.Add(SkippedByDictKeyKind(type, prop, formatTag));
                         continue;
                     }
                     // Dict values that are collections are not representable by
@@ -1632,7 +2063,11 @@ internal static class GenInfrastructure
                     // own helper path and stay supported.
                     if (vk is "list" or "array")
                     {
-                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                        // S10: four formats can express a dict of collections and have not
+                        // implemented it (⏸, D-3); ini cannot (⛔).
+                        skippedUnsupported?.Add(
+                            SkippedBy(type, prop, formatTag, Decision.DictValueCollection)
+                        );
                         continue;
                     }
                     // Same rule for dict values.
@@ -1660,7 +2095,14 @@ internal static class GenInfrastructure
                         )
                     )
                     {
-                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                        // Same split as the list path: a nullable VALUE is the null fact
+                        // (toml/ini have none, yaml has one and is not implemented), an
+                        // object/dict value in a flat-member format is the nesting fact.
+                        var dictDropPoint =
+                            valueIsNullableValue || valueIsAnnotated
+                                ? Decision.NullableValueLeaf
+                                : Decision.NestedScalarContainer;
+                        skippedUnsupported?.Add(SkippedBy(type, prop, formatTag, dictDropPoint));
                         continue;
                     }
                     // Extended collection kinds are not supported as dict values yet —
@@ -1677,7 +2119,9 @@ internal static class GenInfrastructure
                             or "readonlymemory"
                     )
                     {
-                        skippedUnsupported?.Add($"{type.ToDisplayString()}.{prop.Name}");
+                        skippedUnsupported?.Add(
+                            SkippedBy(type, prop, formatTag, Decision.ExtendedKindAsElement)
+                        );
                         continue;
                     }
                     keyTypeKind = kk;
@@ -1731,6 +2175,20 @@ internal static class GenInfrastructure
                 }
                 else
                 {
+                    // Defensive: the kind resolver answered "dict" but the declared type
+                    // is not a two-argument INamedTypeSymbol, so its key/value types cannot
+                    // be inspected. Unreachable today (the resolver only says "dict" for
+                    // that symbol shape); reported instead of a bare `continue` so R2 has
+                    // no silent exit left even if the resolver grows a new dict arm. ⏸:
+                    // no fact says the format cannot hold it, so it is our gap.
+                    droppedMembers?.Add(
+                        type.ToDisplayString(DeclaringTypeNameFormat),
+                        prop.Name,
+                        DeclaredTypeOf(prop.Type),
+                        UninspectableDictionaryReason,
+                        SourceLocationOf(prop),
+                        DropVerdict.GeneratorGap
+                    );
                     continue;
                 }
             }
@@ -1756,13 +2214,13 @@ internal static class GenInfrastructure
                 && FormatCapabilities.Decide(formatTag, Decision.RecursiveSelf) != Effect.Supported
             )
             {
-                // TOML/YAML/INI cannot represent arbitrarily deep nesting; drop
-                // the recursive member and record it so GenerateAll surfaces a
-                // shared PICOSERDE003 diagnostic (never silently). This member is
-                // NOT also recorded as PICOSERDE001: one member, one diagnostic
-                // (the field path has no 003 channel, which is why it reports 001).
-                var skipped = $"{type.ToDisplayString()}.{prop.Name}";
-                skippedRecursive?.Add(skipped);
+                // TOML/YAML/INI drop the recursive member; record it so GenerateAll
+                // surfaces a shared PICOSERDE003 diagnostic (never silently). This member
+                // is NOT also recorded as PICOSERDE001: one member, one diagnostic (the
+                // field path has no 003 channel, which is why it reports 001).
+                // The verdict is the FACTS answer: ini cannot hold a cycle (⛔), toml and
+                // yaml can (S11a/S11b in spec §3) and simply do not implement it (⏸).
+                skippedRecursive?.Add(SkippedBy(type, prop, formatTag, Decision.RecursiveSelf));
                 continue;
             }
 
@@ -1885,8 +2343,8 @@ internal static class GenInfrastructure
         string formatTag,
         AttributeHelpers attrs,
         HashSet<INamedTypeSymbol>? visiting = null,
-        List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null,
+        List<SkippedMember>? skippedRecursive = null,
+        List<SkippedMember>? skippedUnsupported = null,
         UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
@@ -1986,8 +2444,8 @@ internal static class GenInfrastructure
         string formatTag,
         AttributeHelpers attrs,
         HashSet<INamedTypeSymbol>? visiting = null,
-        List<string>? skippedRecursive = null,
-        List<string>? skippedUnsupported = null,
+        List<SkippedMember>? skippedRecursive = null,
+        List<SkippedMember>? skippedUnsupported = null,
         UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
