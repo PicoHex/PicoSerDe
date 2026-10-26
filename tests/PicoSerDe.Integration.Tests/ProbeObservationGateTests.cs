@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace PicoSerDe.Integration.Tests;
 
 /// <summary>
@@ -14,10 +16,17 @@ namespace PicoSerDe.Integration.Tests;
 /// matrix.
 /// </para>
 /// <para>
-/// The gate has two halves. The checked-in <c>baseline-observations.txt</c> is the probe's
-/// recording (refresh it with the command in the probe's own header), and this fixture is
-/// spec §3's table spelled out. Both must agree — so refreshing the recording without
-/// touching the spec fails here, and editing the spec without re-measuring fails too.
+/// The gate has two halves, and each one is welded to the document it claims to guard. One
+/// half is the checked-in <c>baseline-observations.txt</c> (the probe's recording — refresh it
+/// with the command in the probe's own header). The other half is <b>spec §3's observation
+/// table itself</b>: this test PARSES
+/// <c>docs/superpowers/specs/2026-10-25-format-capabilities-design.md</c> and reads the
+/// <c>实测 verdict</c> column out of the markdown, instead of restating the table in a fixture
+/// here. Editing the document is therefore a way to make the gate red, which is the whole
+/// point. (The first version of this gate compared the recording with a hand-copied
+/// transcription of §3 living in this file, so the document itself stayed unguarded: rot §3
+/// alone and everything was still green. A gate that guards a copy of the thing it names
+/// guards nothing — the two rotted rows that motivated this test are exactly that failure.)
 /// </para>
 /// <para>
 /// <b>Known limitation, stated instead of implied</b>: the gate compares the RECORDING with
@@ -30,32 +39,86 @@ namespace PicoSerDe.Integration.Tests;
 /// </summary>
 public class ProbeObservationGateTests
 {
-    /// <summary>shapeId → (format → the verdict spec §3 records). Written out, never derived.</summary>
-    private static readonly (string Shape, string Tag, string Verdict, string Why)[] SpecSection3 =
+    /// <summary>
+    /// Spec §3 is the source of truth for the observation verdicts, so the gate reads the file
+    /// rather than a transcription of it.
+    /// </summary>
+    private const string SpecDocument =
+        "docs/superpowers/specs/2026-10-25-format-capabilities-design.md";
+
+    /// <summary>The two observation shapes — measurements, not capability rows (spec §3).</summary>
+    private static readonly string[] ObservationShapes = ["S14", "S15"];
+
+    private static readonly string[] ObservationFormats =
     [
-        // S14 — an object list with a null ELEMENT.
-        ("S14", "json", "OK", "JSON has a null literal; the element round-trips."),
-        ("S14", "msgpack", "OK", "nil element; the element round-trips."),
-        ("S14", "toml", "MISMATCH", "TOML has no null literal, so the whole member is dropped."),
-        ("S14", "yaml", "OK", "R2 Task 4 wrote `- null`, so the member is no longer dropped."),
-        (
-            "S14",
-            "ini",
-            "MISMATCH",
-            "an object list inside a member is outside INI's convention (same cause as S2)."
-        ),
-        // S15 — the scalar family (float/decimal/DateTime/TimeSpan/Guid/enum?).
-        (
-            "S15",
-            "json",
-            "MISMATCH",
-            "no NaN literal: the boundary value throws ArgumentException."
-        ),
-        ("S15", "msgpack", "OK", "every member survives, NaN included."),
-        ("S15", "toml", "MISMATCH", "the NaN boundary throws (debt: TOML has `nan`)."),
-        ("S15", "yaml", "MISMATCH", "the NaN boundary throws (debt: YAML has `.nan`)."),
-        ("S15", "ini", "OK", "every member survives, including a default DateTime."),
+        "json",
+        "msgpack",
+        "toml",
+        "yaml",
+        "ini",
     ];
+
+    /// <summary>
+    /// Two observation shapes × five formats. Spelled out as a number so that a row dropping
+    /// out of EITHER side (document or recording) is a red test, not a quietly thinner table.
+    /// </summary>
+    private const int ObservationCellCount = 10;
+
+    /// <summary>
+    /// The only row shape the gate accepts: <c>| S14 × yaml | `OK` | …</c>. The §3 fact table
+    /// (<c>| S14 `List&lt;Dto?&gt;` … |</c>) and §6's target matrix (<c>| S14/S15 |</c>) do not
+    /// match, which is how the parse stays on the observation table.
+    /// </summary>
+    private static readonly Regex ObservationRow = new(
+        "^(?<shape>S\\d+) × (?<tag>[a-z]+)$",
+        RegexOptions.CultureInvariant
+    );
+
+    /// <summary>
+    /// The gate is only as good as its parse: if the table moves or is reworded, the parser
+    /// would find nothing and every assertion below would pass vacuously over an empty set.
+    /// This test is the one that fails in that world, and it also pins the shape/format
+    /// vocabulary the probe measures.
+    /// </summary>
+    [Test]
+    public async Task The_gate_parses_the_observation_table_out_of_the_spec_document()
+    {
+        var spec = SpecObservations();
+
+        await Assert
+            .That(spec.Length)
+            .IsEqualTo(ObservationCellCount)
+            .Because(
+                $"{SpecDocument} must hold 2 observation shapes x 5 formats = "
+                    + $"{ObservationCellCount} rows shaped `| Sxx × format | `VERDICT` | …`; "
+                    + $"the parse found {spec.Length}. If this is 0, the table moved and the "
+                    + "rest of this class is green over nothing"
+            );
+
+        await Assert
+            .That(spec.Select(r => (r.Shape, r.Tag)).Distinct().Count())
+            .IsEqualTo(ObservationCellCount)
+            .Because("a duplicated row would let one cell be gated twice and another not at all");
+
+        foreach (var (shape, tag, verdict, _) in spec)
+        {
+            await Assert
+                .That(ObservationShapes.Contains(shape))
+                .IsTrue()
+                .Because($"{shape} is not an observation shape — spec §3 measures S14 and S15");
+            await Assert
+                .That(ObservationFormats.Contains(tag))
+                .IsTrue()
+                .Because($"{tag} is not one of the five formats the probe drives");
+            await Assert
+                .That(verdict)
+                .IsIn("OK", "MISMATCH", "TIMEOUT", "SKIPPED_AFTER_TIMEOUT")
+                .Because(
+                    $"{shape} x {tag}: spec §3's verdict column must hold a probe verdict, "
+                        + $"found '{verdict}'"
+                );
+        }
+    }
 
     /// <summary>
     /// The recording exists, holds exactly the ten observation cells, and each of them is a
@@ -69,10 +132,10 @@ public class ProbeObservationGateTests
 
         await Assert
             .That(lines.Length)
-            .IsEqualTo(SpecSection3.Length)
+            .IsEqualTo(ObservationCellCount)
             .Because(
-                "the probe measures S14/S15 x five formats = 10 observations; the recording has "
-                    + $"{lines.Length}"
+                "the probe measures S14/S15 x five formats = "
+                    + $"{ObservationCellCount} observations; the recording has {lines.Length}"
             );
 
         foreach (var line in lines)
@@ -121,7 +184,7 @@ public class ProbeObservationGateTests
                     + "turn a measurement into a capability claim"
             );
 
-        foreach (var (shape, _, _, _) in SpecSection3)
+        foreach (var (shape, _, _, _) in SpecObservations())
         {
             await Assert
                 .That(PicoSerDe.Gen.FormatCapabilities.AllShapeIds.Contains(shape))
@@ -134,8 +197,9 @@ public class ProbeObservationGateTests
     }
 
     /// <summary>
-    /// Spec §3's recorded verdict for every observation, checked against the recording. This
-    /// is the assertion that would have caught both rotted rows.
+    /// Spec §3's recorded verdict for every observation, checked against the recording — the
+    /// two sides being the DOCUMENT and the probe's recording, with no third copy in between.
+    /// This is the assertion that would have caught both rotted rows.
     /// </summary>
     [Test]
     public async Task Every_observation_verdict_matches_spec_section3()
@@ -148,7 +212,7 @@ public class ProbeObservationGateTests
             byCell[(cells[2], cells[1])] = cells[3];
         }
 
-        foreach (var (shape, tag, verdict, why) in SpecSection3)
+        foreach (var (shape, tag, verdict, detail) in SpecObservations())
         {
             if (!byCell.TryGetValue((shape, tag), out var recorded))
             {
@@ -162,36 +226,76 @@ public class ProbeObservationGateTests
                 .That(recorded)
                 .IsEqualTo(verdict)
                 .Because(
-                    $"{shape} x {tag} disagrees with spec §3: recorded '{recorded}', spec says "
-                        + $"'{verdict}' ({why}). Either re-measure the probe and refresh "
-                        + "baseline-observations.txt, or correct spec §3 — never only one of the "
-                        + "two: that is exactly how the two rotted rows survived a whole round"
+                    $"{shape} x {tag} disagrees with spec §3: recorded '{recorded}', §3 says "
+                        + $"'{verdict}' (§3's own note: {Excerpt(detail)}). Either re-measure the "
+                        + "probe and refresh baseline-observations.txt, or correct spec §3 — "
+                        + "never only one of the two: that is exactly how the two rotted rows "
+                        + "survived a whole round"
                 );
         }
     }
 
     /// <summary>
-    /// No orphan rows: every recorded cell has a spec §3 row. Without this the fixture could
-    /// cover a subset and still look complete.
+    /// No orphan rows: every recorded cell has a spec §3 row. Without this the document could
+    /// describe a subset and the other direction would still look complete.
     /// </summary>
     [Test]
     public async Task The_recording_has_no_cell_spec_section3_does_not_describe()
     {
-        var lines = ObservationLines();
+        var spec = SpecObservations();
 
-        foreach (var line in lines)
+        foreach (var line in ObservationLines())
         {
             var cells = line.Split('|');
             await Assert
-                .That(SpecSection3.Any(s => s.Shape == cells[2] && s.Tag == cells[1]))
+                .That(spec.Any(s => s.Shape == cells[2] && s.Tag == cells[1]))
                 .IsTrue()
                 .Because(
                     $"the recording measures {cells[2]} x {cells[1]}, which spec §3 does not "
-                        + "describe — add the row to the fixture (and to spec §3) or stop "
-                        + "measuring it"
+                        + "describe — add the row to spec §3 (the gate reads the document, not a "
+                        + "copy of it) or stop measuring it"
                 );
         }
     }
+
+    /// <summary>
+    /// The observation table of spec §3, parsed out of the markdown: every
+    /// <c>| Sxx × format | `VERDICT` | detail |</c> row, in file order. This is the only place
+    /// a verdict may come from on the document side.
+    /// </summary>
+    private static (string Shape, string Tag, string Verdict, string Detail)[] SpecObservations()
+    {
+        var rows = new List<(string, string, string, string)>();
+        foreach (var raw in RepositoryFile(SpecDocument).Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (!line.StartsWith("| S", StringComparison.Ordinal))
+                continue;
+
+            var columns = line.Split('|');
+            if (columns.Length < 4)
+                continue;
+
+            var match = ObservationRow.Match(columns[1].Trim());
+            if (!match.Success)
+                continue;
+
+            rows.Add(
+                (
+                    match.Groups["shape"].Value,
+                    match.Groups["tag"].Value,
+                    columns[2].Trim().Trim('`'),
+                    columns[3].Trim()
+                )
+            );
+        }
+
+        return rows.ToArray();
+    }
+
+    /// <summary>§3's note column, shortened so a failure message stays readable.</summary>
+    private static string Excerpt(string detail) =>
+        detail.Length <= 220 ? detail : detail[..220] + "…";
 
     /// <summary>The <c>CELL-OBS</c> lines of the checked-in recording, in file order.</summary>
     private static string[] ObservationLines() =>

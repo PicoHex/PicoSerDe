@@ -129,8 +129,12 @@ currently gets wrong about them, and what the library must do about it
 
 **测量方式**：`tests/FormatCapabilities.Probe` 为两个形状各加 5 个模型，打印 `CELL-OBS|<format>|<shape>|<verdict>|<wire>|<expected>|<actual>`
 （**不**进入 70 格统计：`grep -c '^CELL|'` 仍是 70）。**R2 T8 起这 10 行的记录入库并受测试门禁**：
-`tests/FormatCapabilities.Probe/baseline-observations.txt` 是探针输出，本表逐格由
-`ProbeObservationGateTests` 与它比对 —— 上面的值再腐化会先红，而不是只留在文档里。S15 一个模型带六个成员（`f`/`d`/`when`/`span`/`id`/`day`），
+`tests/FormatCapabilities.Probe/baseline-observations.txt` 是探针输出；`ProbeObservationGateTests`
+**直接解析本表**（即本实测表里 `| Sxx × format | `VERDICT` | …` 行的「实测 verdict」列，不是测试里的
+一份手抄副本）并与记录逐格比对 —— **改本表**或**改记录**任一侧都会先红，而不是只留在文档里；
+若表格被改到解析不出来，`The_gate_parses_the_observation_table_out_of_the_spec_document` 会红，
+而不是让其余断言对着空集合变绿。**仍不在门禁内的**：探针本身不跑（探针工程不在 `PicoSerDe.slnx` 里），
+所以「行为变了但没人重跑探针」时记录与代码可以一起静止 —— 这条限制写在测试类注释里。S15 一个模型带六个成员（`f`/`d`/`when`/`span`/`id`/`day`），
 因为这一行的问题是**逐标量**的：一个格式可以保住 `decimal` 而丢掉 `TimeSpan`。每格三个值
 （`empty` = 全默认 · `single` = 常规值 · `boundary` = `NaN`、`decimal.MaxValue`、`DateTimeKind.Local`、
 `TimeSpan.MinValue`、全 `f` 的 `Guid`、`null` enum）。`reason=…;diff=` 列逐值列出**没活下来**的成员。
@@ -184,14 +188,14 @@ currently gets wrong about them, and what the library must do about it
 | **D-7b** | 值级丢失 | YAML：同上。YAML 有 null ⇒ 应**支持** |
 | **D-3** | 实现缺口 | 两种「容器套容器」可表达却丢弃：①`Dictionary<string, List<T>>`（S10）在 JSON/MsgPack/TOML/YAML；②嵌套对象数组（S4）× TOML —— 两条均在 R2 修完（① T3、② T6） |
 | **D-4** | 诊断措辞 | ①递归诊断指向**内层类型**的成员而非用户声明的成员；②欠账格与不可表示格**共用同一条消息**「cannot be represented by this format」，对可表示的格构成误导 |
-| **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与消息，口径可能与具名类型不一致 |
+| **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与消息，口径可能与具名类型不一致。**R2 T8 已修 4/5 轴**（`53dfb69`）：①丢弃决策 → `DecisionTables.AnonCollectionFormats`（`AnonTypeHandler` 里已无任何格式字面量**参与判定**，只剩 `"json" => "JsonWriter"` 那种名字表）；②判定口径 → `FormatCapabilities.AnonCollectionIsFormatFact` 由 `CanRepresent(tag,"S1")` **推导**，不写死；③消息 → 与 001/003/004 完全同形的 ⛔/⏸ 兄弟对（头部标记 + `reopen:` 尾句）；④位置/声明类型 → `GenInfrastructure.SourceLocationOf`/`DeclaredTypeOf` 提权共用（是同一个拼法，不是抄一份）。**第 5 轴（id）未并，且这是有意的**：按 §5 **D4**（id 年内稳定、消息可变），把 `005` 并进 `004` 等于让一个已发布 id 消失 —— 比 renumber 更硬的契约破坏；id 归并须跨任务一次性收口（实现 + README 三处 + `NoWarn`），**不能**在 R2 T8 单方面制造 T9 不知道的文档债。⇒ **在该裁定落地前，D-8 不算全修**（`53dfb69` 的 D-8 部分因此标 PARTIAL）。测试：`AnonCollectionDiagnosticTests`（决策 ≡ 能力模型 / verdict 由事实表推导两侧夹住） |
 | **D-9** | **挂死** | TOML：字典成员被写成**空表**时反序列化**永不返回**（纯 CPU 自旋）。判据不是「空表」本身，而是「回到外层循环时 token 仍是**未被消费的 `ObjectStart`**」—— 所以 `[V]`+EOF、`[V]`+后续 `[W]` 表头都会挂，而 `[V]` 后跟 `a = 7` 不挂。根因：生成代码的 `ObjectStart` 分支 `continue` 前不推进 reader（`TomlSerializerGenerator.cs:913-935`），而 `TomlReader.ReadSpan()` 在 EOF 只 `return false`、不换 token（`TomlReader.cs:777-785`） | 探针 W2 实测（`S9×toml` 空字典 → wire `[V]`）；三条独立证据见 `.superpowers/sdd/r1-w2/review-spec.md`。**R2 T0 已修**（`f34d5be`）：reader 在 final block 失败出口清 token + 发射层推进守卫，两层各承其重 |
 | **D-9b** | 静默 | TOML **写侧**：`TomlWriter.NeedsKeyQuoting` 只判 `空格 \t = [ ] . # "`，**不含** `\n`/`\r`/其他控制字符`/`\` ⇒ 含换行的键写出后**读不回来**（与 D-9 的挂死无关，是独立缺陷） | `TomlWriter.cs`；W0 实测（`toml\|S9` 从 TIMEOUT 变 MISMATCH 后露出）。**归属**：R2 Task 6 **已修**——黑名单换成 TOML 1.0 的 bare-key 文法（`[A-Za-z0-9_-]+`，其余一律加引号并转义），`toml\|S9` 由 MISMATCH 转 OK；回往测试 `TomlDictKeyQuotingTests`。同一修法顺带修正了推导键 `$type`的 wire（`$` 不在 bare-key 文法里 ⇒ 写成 `"$type"`）。**范围**：本条只覆盖 **KEY**；表头名（`WriteTable`/`WriteNestedTable`/`WriteArrayTable`）仍裸写，属 pre-existing，不在本条修复面内 |
 | **D-9c** | **挂死族** | 表头名**不在模型里**时发射层零 `Read()` ⇒ token 恒 `ObjectStart` ⇒ 自旋。触发面比 D-9 更广（`[tool.*]`/`[build-system]` 等真实文件必然命中）。实测需 **6 个派发分支 + 3 个内层循环**的推进守卫（`BytesConsumed` 未变则 `Read()`） | W0 fix round 1（`f34d5be`）+ 两份复核。**归属**：R2 T0 已修 |
 | **D-9d** | 静默 | `[[Unknown]]`（外来数组表头）会开出**第二个空元素**，不重查表名。今天测试把它钉成"2 个元素"的契约 ⇒ 将来修它必须同步改断言 | W0 fix round 1 实测。**归属**：R2 Task 6 **已修**——元素循环在接下一个 `[[…]]` 表头前重查表名（三个发射点：缓冲/流式/多态）。**正确元素数是 1**（`[[Items]]` + `Name = "a"` 就是一个元素；`Unknown` 不是 `Items`，贡献 0；0 也错，那个真元素必须活下来）；断言已同步改为 1（`TomlUnknownTableHangTests`）。**T6 fix round 1 修正比较口径**：重查与 arm 匹配都改成**同层比较**（`TextHelpers.EqLastSegment`，表头的**最后一段** vs 成员名）—— 拿**整条 `TablePath`** 与裸名比较时，手写的标准嵌套表头 `[[Parent.Items]]` 匹配不到任何 arm，元素**全部静默丢失**（实测 0 个，不是 1 个）；现由 `TomlUnknownTableHangTests.DottedArrayOfTablesHeader_NamesTheMemberByItsLastSegment` 钉住（`[[Parent.Items]]`×2 ⇒ **2 个元素**），流式与多态两个入口各有同一条用例。`[table]` 头**不**改：嵌套表由各自的 helper 按前缀派发，放松会把真实文件里的 `[tool.ruff]` 喂给名为 `ruff` 的成员 |
-| **D-10** | 误导 | `PICOSERDE005`（匿名类型）是**第四个 drop 通道**：无 ⛔/⏸/⚠ 标记、消息把「我们生成不了名字」写成 "cannot be serialized by {format}"、`location: null` 不可导航。它使 I-5 的「每条 drop 消息都带标记」**名义上有、实际没被强制**（现有测试的样本永远命不中它） | `GenInfrastructure.cs:798-820`；W5 第三轮 code review N-1。**归属**：R2（与 D-8 并入共用管线一起做） |
+| **D-10** | 误导 | `PICOSERDE005`（匿名类型）是**第四个 drop 通道**：无 ⛔/⏸/⚠ 标记、消息把「我们生成不了名字」写成 "cannot be serialized by {format}"、`location: null` 不可导航。它使 I-5 的「每条 drop 消息都带标记」**名义上有、实际没被强制**（现有测试的样本永远命不中它） | `GenInfrastructure.cs:798-820`；W5 第三轮 code review N-1。**归属**：R2（与 D-8 并入共用管线一起做）。**R2 T8 已修**（`53dfb69`）：①⏸/⛔ 由**事实表推导** —— 前缀取 `FormatCapabilities.DeferredMarker` 常量、模板由 `FormatCapabilities.AnonCollectionIsFormatFact(tag)`（= `!CanRepresent(tag,"S1")`）选，不按实现进度硬写；②消息**删掉**「cannot be serialized by {format}」（对可表达的格式是假话），改为「{format} can hold a collection, but this generator has no collection form yet」+ `reopen:` 尾句（C4）；③`location` 不再是 `null`：由 `GenInfrastructure.SourceLocationOf(成员符号)` 填**成员自己的声明位置**（匿名初始化器里的 `Xs` token，实测 `line=10 col=17 textAtSpan='Xs'`、`Location.IsInSource == true`），并补上声明类型 `DeclaredTypeOf`（与具名类型共用同一套拼法，helper 由 `private` 提为 `internal`）；④「每条 drop 消息都带标记」的样本数 **4 → 5**（新增匿名集合样本 —— 正是「样本永远命不中它」的那个洞口），`VerdictMarkerGuardTests` 的模板计数 **3 → 4**（⏸ 兄弟由 4 条参数化用例钉住）。**残留（不影响本条「已修」）**：⑤⛔ 兄弟模板今天不可达（五格式对 S1 全 ✅），它是「由事实表选模板」的产物、不是死代码，但无测试能发现其占位符写反；⑥「可按站点 `#pragma` 抑制」只被结构性推导覆盖（Warning 级 + 真实 span），没有专门编译级用例。测试：`AnonCollectionDiagnosticTests` / `SilentDropDiagnosticTests` / `VerdictMarkerGuardTests` |
 
-**归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）；**D-9 → R2**（R1 禁止改行为）。
+**归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）—— **R2 T8 已并 4/5 轴（`53dfb69`），id 轴待裁定**；**D-9 → R2**（R1 禁止改行为）；D-10 → **R2 T8 已修（`53dfb69`）**。
 
 ## 5. 裁定（维护者已定）
 

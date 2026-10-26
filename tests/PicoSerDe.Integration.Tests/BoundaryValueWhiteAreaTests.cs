@@ -87,17 +87,52 @@ public class BoundaryValueWhiteAreaTests
     }
 
     /// <summary>
-    /// The three formats that refuse <c>±Infinity</c>, each in its OWN class:
-    /// JSON cannot (no literal — spec §3 footnote ²), TOML/YAML can and we do not (footnote ³
-    /// — <c>inf</c>/<c>-inf</c> parse in `tomllib` and PyYAML). Pinning the refusal is the
-    /// point: the failure mode is an exception at the call site, and a silent rewrite to
-    /// <c>double.MaxValue</c> would be data corruption nobody would notice.
+    /// <b>⛔ FORMAT FACT</b>: JSON refuses <c>±Infinity</c> because it has no literal for it
+    /// (spec §3 footnote ²; R1′ 「特殊浮点仅在格式有字面量时可表示」). Nothing here is our gap,
+    /// so there is nothing to reopen and nothing to schedule.
+    /// <para>
+    /// Pinning the refusal is the point: the failure mode is an exception at the call site, and
+    /// a silent rewrite to <c>double.MaxValue</c> would be data corruption nobody would notice.
+    /// </para>
     /// </summary>
     [Test]
     [Arguments("json")]
+    public async Task Infinity_is_refused_by_json_because_the_format_has_no_literal(string tag)
+    {
+        var thrown = Assert.Throws<ArgumentException>(() =>
+            SerializeFloat(tag, new SpecialFloatModel { Dbl = double.PositiveInfinity })
+        );
+        await Assert
+            .That(thrown.Message)
+            .Contains("Infinity")
+            .Because(
+                "the refusal has to name what was refused, otherwise the reader is left with "
+                    + "an unexplained ArgumentException: "
+                    + thrown.Message
+            );
+    }
+
+    /// <summary>
+    /// <b>⏸ OUR DEBT, not a format fact</b>: TOML and YAML <i>can</i> hold <c>±Infinity</c>
+    /// (<c>inf</c>/<c>-inf</c> parse in `tomllib` and PyYAML — spec §3 footnote ³), so their
+    /// refusal today is our writer missing the literal. The reopen condition is exactly that:
+    /// emit the native literal, accept it on the read side.
+    /// <para>
+    /// It is a separate test, with "today" and "our writer" in its name, on purpose: the same
+    /// sentence D-10 removed from the generator's diagnostic ("cannot be serialized by
+    /// {format}", said of a format that can) had a second home in this file's test NAME. A
+    /// reader grepping a screen of green names must not come away believing TOML/YAML have no
+    /// infinity concept — so JSON's fact and this debt never share a name or a loop again.
+    /// Assertions are byte-for-byte the same two as the ⛔ test: this is a 口径 fix, not a
+    /// weaker or a stronger one.
+    /// </para>
+    /// </summary>
+    [Test]
     [Arguments("toml")]
     [Arguments("yaml")]
-    public async Task Infinity_is_refused_loudly_by_the_formats_that_have_no_form_for_it(string tag)
+    public async Task Infinity_is_refused_by_toml_and_yaml_today_because_our_writer_has_no_inf_literal_yet(
+        string tag
+    )
     {
         var thrown = Assert.Throws<ArgumentException>(() =>
             SerializeFloat(tag, new SpecialFloatModel { Dbl = double.PositiveInfinity })
@@ -208,35 +243,29 @@ public class BoundaryValueWhiteAreaTests
     // ── item 3: NaN throws but nothing diagnoses it ─────────────────────────────────
 
     /// <summary>
-    /// I-6 white area 3: the JSON/TOML/YAML writers throw on <c>NaN</c> and no diagnostic is
-    /// involved anywhere — which is correct-by-construction (the offending VALUE only exists
-    /// at run time; a source generator cannot see it) and is why this test pins the two
-    /// halves separately: the throw is the signal, and quiet generation is not a bug.
+    /// I-6 white area 3, half one: every writer that refuses <c>NaN</c> refuses it LOUDLY
+    /// (an <c>ArgumentException</c> naming what it refused) and no diagnostic is involved
+    /// anywhere — correct-by-construction, because the offending VALUE only exists at run time
+    /// and a source generator cannot see it. That is why the throw and the silence are pinned
+    /// separately: the throw is the signal, and quiet generation is not a bug.
     /// <para>
-    /// The three formats are in two classes: JSON has no NaN literal (a FACT, spec §3
-    /// footnote ²), TOML/YAML do (footnote ³) so their throw is OUR debt — recorded, with the
-    /// reopen condition (write the native <c>nan</c> literal) rather than hidden.
+    /// The three refusing formats are in TWO classes and no longer share a loop:
+    /// JSON has no NaN literal (<b>⛔ FACT</b>, spec §3 footnote ² — nothing to reopen);
+    /// TOML/YAML do (<b>⏸ OUR DEBT</b>, footnote ³ — reopen condition: write the native
+    /// <c>nan</c> literal and accept it on the read side). A single loop over
+    /// <c>{ "json", "toml", "yaml" }</c> under one "the format refuses NaN" name was exactly
+    /// the C1 mirror D-10 was fixed for, so the debt class now lives in its own test whose
+    /// name says whose gap it is.
     /// </para>
     /// </summary>
     [Test]
-    public async Task NaN_refuses_to_serialize_and_no_generator_diagnostic_could_have_said_so()
+    public async Task NaN_is_refused_by_json_because_the_format_has_no_literal()
     {
-        foreach (var tag in new[] { "json", "toml", "yaml" })
-        {
-            var thrown = Assert.Throws<ArgumentException>(() =>
-                SerializeFloat(tag, new SpecialFloatModel { Dbl = double.NaN })
-            );
-            await Assert.That(thrown.Message).Contains("NaN");
-        }
-
-        foreach (var tag in new[] { "msgpack", "ini" })
-        {
-            var back = RoundTripFloat(tag, new SpecialFloatModel { Dbl = double.NaN });
-            await Assert
-                .That(double.IsNaN(back.Dbl))
-                .IsTrue()
-                .Because($"{tag} has a NaN form, so NaN must survive the round trip");
-        }
+        const string tag = "json";
+        var thrown = Assert.Throws<ArgumentException>(() =>
+            SerializeFloat(tag, new SpecialFloatModel { Dbl = double.NaN })
+        );
+        await Assert.That(thrown.Message).Contains("NaN");
 
         // The "only throws, never diagnoses" half: generation is silent about it, and that is
         // the correct answer — no source generator can see a value that exists at run time.
@@ -259,6 +288,43 @@ public class BoundaryValueWhiteAreaTests
                 "a NaN cannot be diagnosed at generation time; pretending otherwise would be a "
                     + "diagnostic that never fires"
             );
+    }
+
+    /// <summary>
+    /// I-6 white area 3, half two — <b>⏸ OUR DEBT, not a format fact</b>: TOML and YAML both
+    /// have a NaN literal (<c>nan</c> / <c>.nan</c>, spec §3 footnote ³), so refusing it today
+    /// is our writer's gap. The assertion is identical to the ⛔ test's (an
+    /// <c>ArgumentException</c> whose message names <c>NaN</c>): the refusal is still a loud
+    /// failure rather than a silent rewrite, it is only the ownership that differs — and this
+    /// name may not be read as "TOML/YAML cannot express NaN".
+    /// </summary>
+    [Test]
+    public async Task NaN_is_refused_by_toml_and_yaml_today_because_our_writer_has_no_nan_literal_yet()
+    {
+        foreach (var tag in new[] { "toml", "yaml" })
+        {
+            var thrown = Assert.Throws<ArgumentException>(() =>
+                SerializeFloat(tag, new SpecialFloatModel { Dbl = double.NaN })
+            );
+            await Assert.That(thrown.Message).Contains("NaN");
+        }
+    }
+
+    /// <summary>
+    /// I-6 white area 3, the other side: the two formats that DO carry <c>NaN</c> must keep
+    /// carrying it (msgpack's float64 encoding, INI's IEEE text — spec §3 footnote ⁴).
+    /// </summary>
+    [Test]
+    public async Task NaN_round_trips_where_the_format_has_a_nan_form()
+    {
+        foreach (var tag in new[] { "msgpack", "ini" })
+        {
+            var back = RoundTripFloat(tag, new SpecialFloatModel { Dbl = double.NaN });
+            await Assert
+                .That(double.IsNaN(back.Dbl))
+                .IsTrue()
+                .Because($"{tag} has a NaN form, so NaN must survive the round trip");
+        }
     }
 
     // ── item 4: S14 — the whole member is dropped (and must say so) ─────────────────
