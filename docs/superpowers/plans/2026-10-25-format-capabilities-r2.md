@@ -127,6 +127,10 @@
 
 ## Task 3: 字典值为集合（4 格：S10×json/msgpack/toml/yaml）
 
+> **T2 复审留账**：有 2 个「同一 `ExtendedKind*` 判定点下未被探针/守卫覆盖的组合形状」（见
+> `.superpowers/sdd/r2/review-code-t2.md` 的 Important）。它们与 T2 同源文件、同源 helper，
+> **本任务一并消账**，不要留过 R2。
+
 **根因**：`GenInfrastructure.cs:2064` 的 `DictValueCollection` **无条件字面量判定，完全不问表**。
 
 **Files:**
@@ -169,7 +173,10 @@
 - [ ] **Step 4: 跑 → 绿；探针复核 4 格 OK**；**README 矩阵（`MatrixCells`）随之变为终态口径**（Task 7 会把它接上 §6）。
 - [ ] **Step 5: 提交**
 
-## Task 6: 单品格（yaml S9 键转义 / toml S4）
+## Task 6: 单品格（yaml S9 键转义 / toml S4 / **S7×ini**）
+
+> **T2 实测补账**：`S7×ini` 在 §6 是 ✅、今天仍 MISMATCH，而原计划**没有任务认领它**
+> （代码注释与测试都写"Task 6"，但 Task 6 的 Files/Steps 里没有它）。现正式归入本任务。
 
 **Files:**
 - Modify: `PicoYaml/src/PicoYaml/YamlWriter.cs`（键转义）
@@ -251,7 +258,7 @@
 
 ## 自检（写完后执行）
 
-1. **spec 覆盖**：§6 的 24 格是否每格都有任务认领？（Task 2: 8、Task 3: 4、Task 4: 4、Task 5: 4、Task 6: 2、Task 0: 1（toml S9 的**挂死**部分）、Task 6 的 spec 修正: 1（ini S9））
+1. **spec 覆盖**：§6 的 24 格是否每格都有任务认领？（Task 2: 8、Task 3: 4、Task 4: 4、Task 5: 4、Task 6: 3（yaml S9 / toml S4 / **S7×ini**）、Task 0: 1（toml S9 的**挂死**部分）、Task 6 的 spec 修正: 1（ini S9））
    > **W0 实测修正**：`toml|S9` 由 Task 0 只解决**挂死**；其 MISMATCH 的其余原因（写侧裸 key 不转义，
    > `TomlWriter.NeedsKeyQuoting` 不含 `
 `/``/控制字符）已改挂 **Task 6**。即 Task 0 认领的是「不再 TIMEOUT」，不是「变 OK」。
