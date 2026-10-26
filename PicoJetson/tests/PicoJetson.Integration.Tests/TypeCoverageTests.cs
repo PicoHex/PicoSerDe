@@ -339,10 +339,16 @@ public class TypeCoverageExtraTests
         await Assert.That(back.L[1].Count).IsEqualTo(0);
     }
 
+    /// <summary>
+    /// R2 Task 3 implemented the dict VALUE position, so an extended collection as a value
+    /// (<c>Dictionary&lt;string, HashSet&lt;int&gt;&gt;</c>) is emitted now instead of being
+    /// dropped. The old assertion demanded the member be MISSING — keeping it would demand
+    /// the bug back — so it is flipped to a round-trip, which is the stronger statement:
+    /// the member is present AND its value survives.
+    /// </summary>
     [Test]
-    public async Task Audit_NestedExtendedCollectionAsDictValue_DropsWithoutCompileBreak()
+    public async Task Audit_NestedExtendedCollectionAsDictValue_RoundTrips()
     {
-        // Dictionary<string, HashSet<int>> values are not supported yet — dropped.
         var dto = new NestedValueDictDto
         {
             M = new Dictionary<string, HashSet<int>> { ["a"] = new HashSet<int> { 1 } },
@@ -350,7 +356,15 @@ public class TypeCoverageExtraTests
         };
         var json = JsonSerializer.Serialize(dto);
         await Assert.That(json).Contains("\"Plain\":8");
-        await Assert.That(json.Contains("\"M\"")).IsFalse();
+        await Assert.That(json).Contains("\"M\"");
+        await Assert.That(json).Contains("\"a\":[1]");
+
+        var back = JsonSerializer.Deserialize<NestedValueDictDto>(
+            JsonSerializer.SerializeToUtf8Bytes(dto)
+        );
+        await Assert.That(back!.Plain).IsEqualTo(8);
+        await Assert.That(back.M.Count).IsEqualTo(1);
+        await Assert.That(back.M["a"]).IsEquivalentTo(new HashSet<int> { 1 });
     }
 
     [Test]

@@ -2236,15 +2236,23 @@ internal static class GenInfrastructure
                         skippedUnsupported?.Add(SkippedByDictKeyKind(type, prop, formatTag));
                         continue;
                     }
-                    // Dict values that are collections are not representable by
-                    // the generated dict emitters yet (they silently produced
-                    // non-compiling or lossy code); drop them with the shared
-                    // PICOSERDE004 diagnostic instead. Nested dicts have their
-                    // own helper path and stay supported.
-                    if (vk is "list" or "array")
+                    // A dict value that is a collection (S10). ONE cell answers this, and
+                    // the site ASKS it instead of testing a kind: which kinds are sequences
+                    // is a family FACT (IsSequenceKind), whether a format can hold such a
+                    // value is the TABLE's answer (DictValueCollection). This used to be two
+                    // unconditional kind lists — the same trap R2 Task 2 removed from the
+                    // ELEMENT site (ExtendedKindAsElement), in its second copy: a cell could
+                    // say Supported while the member was still dropped, and the seven extended
+                    // kinds were even reported against a row that says Supported (T2 review
+                    // I-2). Nested dicts have their own helper path and never reach here.
+                    if (
+                        IsSequenceKind(vk)
+                        && FormatCapabilities.Decide(formatTag, Decision.DictValueCollection)
+                            != Effect.Supported
+                    )
                     {
-                        // S10: four formats can express a dict of collections and have not
-                        // implemented it (⏸, D-3); ini cannot (⛔).
+                        // ini cannot nest inside a member (⛔, D-3); the four formats that can
+                        // implement it in R2 Task 3 and their cell now says Supported.
                         skippedUnsupported?.Add(
                             SkippedBy(type, prop, formatTag, Decision.DictValueCollection)
                         );
@@ -2285,25 +2293,6 @@ internal static class GenInfrastructure
                         skippedUnsupported?.Add(SkippedBy(type, prop, formatTag, dictDropPoint));
                         continue;
                     }
-                    // Extended collection kinds are not supported as dict values yet —
-                    // drop (instead of emitting value code that does not compile) and
-                    // report it: a bare `continue` here lost the member silently.
-                    if (
-                        vk
-                        is "hashset"
-                            or "queue"
-                            or "stack"
-                            or "linkedlist"
-                            or "immutablearray"
-                            or "memory"
-                            or "readonlymemory"
-                    )
-                    {
-                        skippedUnsupported?.Add(
-                            SkippedBy(type, prop, formatTag, Decision.ExtendedKindAsElement)
-                        );
-                        continue;
-                    }
                     keyTypeKind = kk;
                     keyTypeName = TypeKindResolver.MapTypeName(kk, keyType);
                     elementTypeKind = vk;
@@ -2322,6 +2311,85 @@ internal static class GenInfrastructure
                         valType
                     );
                     elementIsNrt = valType.NullableAnnotation == NullableAnnotation.Annotated;
+                    if (
+                        IsSequenceKind(vk)
+                        && valType
+                            is INamedTypeSymbol { TypeArguments.Length: 1 }
+                                or IArrayTypeSymbol
+                    )
+                    {
+                        // What the value's sequence ENDS in decides whether the four formats
+                        // can write it, and the answer is the same one the list-member arm
+                        // gives for its own chain — same helpers, so the two positions cannot
+                        // disagree:
+                        //   • a NULLABLE leaf (int?, Foo?) in a format with no null: the value
+                        //     writers have no overload for it (YamlWriter.WriteSequenceItem
+                        //     takes no int?), so the member is reported and dropped instead of
+                        //     emitting code that does not compile (F5 review I-3);
+                        //   • an OBJECT/DICT leaf: TOML has no inline table inside an inline
+                        //     array (NestedObjectContainer is a FACT there) and the other three
+                        //     would need a per-element helper this task did not build — a
+                        //     deferred drop, reported, never silent.
+                        var valueLeaf = InnermostCollectionElement(valType, formatTag);
+                        var valueLeafKind = TypeKindResolver.Resolve(valueLeaf, formatTag).Kind;
+                        var valueLeafIsNullableValue = IsNullableValueType(valueLeaf);
+                        var valueLeafIsAnnotated =
+                            valueLeaf.NullableAnnotation == NullableAnnotation.Annotated;
+                        var valueNullBlocked =
+                            FormatCapabilities.Decide(formatTag, Decision.NullableValueLeaf)
+                            != Effect.Supported;
+                        if (
+                            valueNullBlocked
+                            && (
+                                valueLeafIsNullableValue
+                                || valueLeafIsAnnotated
+                                    && (dictFlatMemberOnly || valueLeafKind is "object" or "dict")
+                                || HasNullableCollectionLevel(valType, formatTag)
+                            )
+                        )
+                        {
+                            skippedUnsupported?.Add(
+                                SkippedBy(type, prop, formatTag, Decision.NullableValueLeaf)
+                            );
+                            continue;
+                        }
+                        if (valueLeafKind is "object" or "dict" or "any")
+                        {
+                            skippedUnsupported?.Add(
+                                SkippedBy(type, prop, formatTag, Decision.NestedObjectContainer)
+                            );
+                            continue;
+                        }
+                        // S10's second half: the dict value is a sequence, so the emitters
+                        // need the same one-descriptor-per-level chain `List<List<T>>` gets
+                        // (BuildNestedListElement) — without it the value emitter has no way
+                        // to name the INNER element kind and falls back to ToString(). This is
+                        // deliberately the same builder the member arm above uses, one level
+                        // down, so a dict value and a list element of the same type describe
+                        // themselves identically.
+                        nestedProperties = BuildNestedListElement(
+                            valType,
+                            type,
+                            formatTag,
+                            attrs,
+                            visiting,
+                            skippedRecursive,
+                            skippedUnsupported,
+                            droppedMembers
+                        );
+                        if (nestedProperties.IsDefaultOrEmpty)
+                        {
+                            // The INNERMOST element kind is not expressible in this format
+                            // (the same rule the list-member arm applies when its element
+                            // kind resolves to null). Reported against the element-position
+                            // cell, exactly as that arm does, so the marker keeps saying
+                            // "our gap"/"format fact" instead of "supported".
+                            skippedUnsupported?.Add(
+                                SkippedBy(type, prop, formatTag, Decision.ExtendedKindAsElement)
+                            );
+                            continue;
+                        }
+                    }
                     if (vk is "object" && valType is INamedTypeSymbol vNtsObj)
                     {
                         nestedProperties = ExtractNestedPropertiesGuarded(

@@ -12,6 +12,19 @@ S10Yaml> {
     public void Serialize(IBufferWriter<byte> w, S10Yaml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoYaml.YamlOptions?)options;
         var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);
+        yw.WritePropertyName("V"u8);
+        yw.WriteStartMapping();
+        foreach (var __kvp in v.V ?? new System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<int>>(0))
+        {
+            yw.WritePropertyName(__kvp.Key);
+            yw.WriteStartSequence();
+            foreach (var __item in __kvp.Value ?? new System.Collections.Generic.List<int>(0))
+            {
+                yw.WriteSequenceItem(__item);
+            }
+            yw.WriteEndSequence();
+        }
+        yw.WriteEndMapping();
     } }
 file readonly struct S10Yaml_YD : IDeserializer<S10Yaml> {
     public S10Yaml Deserialize(ReadOnlySpan<byte> d) {
@@ -24,7 +37,58 @@ file readonly struct S10Yaml_YD : IDeserializer<S10Yaml> {
                 continue;
             }
             var k = r.KeySpan;
-            if (!r.Read()) break;
+            if (TextHelpers.Eq(k, "V"u8)) {
+                o.V ??= new System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<int>>();
+                if (!r.Read()) break; // document ended here
+                if (r.TokenType == TokenType.ObjectStart) {
+                    bool __dkHaveNext = false;
+                    while (true) {
+                        if (!__dkHaveNext && !r.Read()) break;
+                        __dkHaveNext = false;
+                        if (r.TokenType != TokenType.PropertyName) break;
+                        var __dk = Encoding.UTF8.GetString(r.KeySpan);
+                        var __dvl = new System.Collections.Generic.List<int>(16);
+                        bool __more;
+                        __more = r.Read();
+                        if (!__more)
+                        {
+                            // The document ended at this key: there is no sequence to read.
+                        }
+                        else if (r.TokenType == TokenType.ObjectStart)
+                        {
+                            // Indented block sequence: the wrapper ObjectStart was consumed.
+                            __more = r.Read();
+                            while (__more && r.TokenType == TokenType.String)
+                            {
+                                if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                __dvl.Add(__ev);
+                                __more = r.Read();
+                            }
+                            if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                        }
+                        else if (r.TokenType == TokenType.String)
+                        {
+                            // No wrapper: the probe token is the first item of a flat sequence.
+                            while (__more && r.TokenType == TokenType.String)
+                            {
+                                if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                __dvl.Add(__ev);
+                                __more = r.Read();
+                            }
+                        }
+                        else
+                        {
+                            // No wrapper and no sequence item: the value is an empty sequence.
+                        }
+                                                o.V[__dk] = __dvl;
+                        __dkHaveNext = true;
+                    }
+                } // exits at ObjectEnd
+            }
+            else {
+                // Unknown property — skip its value to avoid infinite loop
+                if (!r.Read()) break;
+            }
         }
         return o;
     } }
@@ -45,8 +109,62 @@ S10Yaml? result) {
                 continue;
             }
             var k = r.KeySpan;
-            r.Mark();
-            if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            if (TextHelpers.Eq(k, "V"u8)) {
+                o.V ??= new System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<int>>();
+                if (!r.Read()) break; // document ended here
+                if (r.TokenType == TokenType.ObjectStart) {
+                    bool __dkHaveNext = false;
+                    while (true) {
+                        if (!__dkHaveNext && !r.Read()) break;
+                        __dkHaveNext = false;
+                        if (r.TokenType != TokenType.PropertyName) break;
+                        var __dk = Encoding.UTF8.GetString(r.KeySpan);
+                        var __dvl = new System.Collections.Generic.List<int>(16);
+                        bool __more;
+                        __more = r.Read();
+                        if (!__more)
+                        {
+                            // The document ended at this key: there is no sequence to read.
+                        }
+                        else if (r.TokenType == TokenType.ObjectStart)
+                        {
+                            // Indented block sequence: the wrapper ObjectStart was consumed.
+                            __more = r.Read();
+                            while (__more && r.TokenType == TokenType.String)
+                            {
+                                if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                __dvl.Add(__ev);
+                                __more = r.Read();
+                            }
+                            if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                        }
+                        else if (r.TokenType == TokenType.String)
+                        {
+                            // No wrapper: the probe token is the first item of a flat sequence.
+                            while (__more && r.TokenType == TokenType.String)
+                            {
+                                if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                __dvl.Add(__ev);
+                                __more = r.Read();
+                            }
+                        }
+                        else
+                        {
+                            // No wrapper and no sequence item: the value is an empty sequence.
+                        }
+                                                o.V[__dk] = __dvl;
+                        __dkHaveNext = true;
+                    }
+                } // exits at ObjectEnd
+                if (r.NeedsMoreData) {
+                    r.RewindToMark();
+                    return ReadStatus.NeedMoreData;
+                }
+            }
+            else {
+                r.Mark();
+                if (!r.Read()) { result = o; return r.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success; }
+            }
         }
         // Reached via a container read that hit the buffer end.
 #pragma warning disable CS0162 // generated: branch shape decides reachability

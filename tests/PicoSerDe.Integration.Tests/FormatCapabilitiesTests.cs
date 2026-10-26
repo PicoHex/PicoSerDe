@@ -84,10 +84,13 @@ public class FormatCapabilitiesTests
         ("S9", "toml", Effect.Supported),
         ("S9", "yaml", Effect.Supported),
         ("S9", "ini", Effect.Supported),
-        ("S10", "json", Effect.DropMember),
-        ("S10", "msgpack", Effect.DropMember),
-        ("S10", "toml", Effect.DropMember),
-        ("S10", "yaml", Effect.DropMember),
+        // S10 x {json,msgpack,toml,yaml}: R2 Task 3 implemented the dict-VALUE position, so
+        // the four cells moved to Supported. S10 x ini stays dropped — its sections carry no
+        // nesting inside a member, which is a format FACT (spec §3).
+        ("S10", "json", Effect.Supported),
+        ("S10", "msgpack", Effect.Supported),
+        ("S10", "toml", Effect.Supported),
+        ("S10", "yaml", Effect.Supported),
         ("S10", "ini", Effect.DropMember),
         ("S11a", "json", Effect.Supported),
         ("S11a", "msgpack", Effect.Supported),
@@ -499,10 +502,9 @@ public class FormatCapabilitiesTests
             ("toml", Decision.NestedObjectContainer),
             ("yaml", Decision.NullableValueLeaf),
             ("yaml", Decision.NullableRefLeaf),
-            ("json", Decision.DictValueCollection),
-            ("msgpack", Decision.DictValueCollection),
-            ("toml", Decision.DictValueCollection),
-            ("yaml", Decision.DictValueCollection),
+            // DictValueCollection x {json,msgpack,toml,yaml} used to sit here; R2 Task 3
+            // flipped those four cells, so they are no longer "dropped today". ini keeps its
+            // entry because S10 x ini is a format FACT (no nesting inside a member).
             ("toml", Decision.RecursiveSelf),
             ("yaml", Decision.RecursiveSelf),
             ("yaml", Decision.RecursiveMutual),

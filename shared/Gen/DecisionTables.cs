@@ -123,12 +123,15 @@ internal static class DecisionTables
         [("toml", Decision.RecursiveMutual)] = Effect.Supported,
         [("yaml", Decision.RecursiveMutual)] = Effect.DropMember,
         [("ini", Decision.RecursiveMutual)] = Effect.DropMember,
-        // Dict value is a collection: all five formats drop the member at extraction time
-        // (GenInfrastructure, "Dict values that are collections …", D-3).
-        [("json", Decision.DictValueCollection)] = Effect.DropMember,
-        [("msgpack", Decision.DictValueCollection)] = Effect.DropMember,
-        [("toml", Decision.DictValueCollection)] = Effect.DropMember,
-        [("yaml", Decision.DictValueCollection)] = Effect.DropMember,
+        // Dict value is a collection (S10, D-3). This row used to be DropMember in all five
+        // formats because the extraction site tested the value's KIND and never asked this
+        // cell; R2 Task 3 wired the site to it and implemented the value position in the four
+        // formats, so they now say Supported. ini keeps DropMember: its sections carry no
+        // nesting at all, so S10 x ini is a format FACT (spec §3), not a gap.
+        [("json", Decision.DictValueCollection)] = Effect.Supported,
+        [("msgpack", Decision.DictValueCollection)] = Effect.Supported,
+        [("toml", Decision.DictValueCollection)] = Effect.Supported,
+        [("yaml", Decision.DictValueCollection)] = Effect.Supported,
         [("ini", Decision.DictValueCollection)] = Effect.DropMember,
         // Scalar kinds that only json resolves: appendix A command 2 lists every
         // `format == "json"` branch of TypeKindResolver.Resolve (char, half, biginteger,

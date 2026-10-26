@@ -12,6 +12,20 @@ namespace FormatCapabilities.Probe;
             var __opts = (global::PicoJetson.JsonOptions?)options;
             var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);
             jw.WriteStartObject();
+            var __name_V = jw.Options?.PropertyNamingPolicy?.ConvertName("V") ?? "V";
+            jw.WritePropertyName(__name_V);
+            jw.WriteStartObject();
+            foreach (var __kvp in value.V)
+            {
+                jw.WritePropertyName(Encoding.UTF8.GetBytes(__kvp.Key));
+                jw.WriteStartArray();
+                foreach (var __setItem in __kvp.Value)
+                {
+                    jw.WriteNumber(__setItem);
+                }
+                jw.WriteEndArray();
+            }
+            jw.WriteEndObject();
             jw.WriteEndObject();
         }
     }
@@ -24,19 +38,14 @@ namespace FormatCapabilities.Probe;
             var reader = new JsonReader(data, maxDepth: __opts?.MaxDepth ?? 256, options: __opts);
             try
             {
-            var obj = new S10Json();
-            reader.Read();
-            if (reader.TokenType == TokenType.Null) return null!;
-            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.");
-            while (reader.Read() && reader.TokenType == TokenType.PropertyName)
-            {
-                var propNameSpan = reader.GetStringRaw();
-                reader.Read();
-
-                reader.TrySkip();
-            }
-            if (reader.Read()) throw new System.FormatException($"Unexpected data after the document at offset {reader.BytesConsumed}");
-            return obj;
+                S10Json? result;
+                var __status = S10JsonStreaming.DeserializeStreaming(ref reader, null, out result);
+                if (__status == ReadStatus.EndOfInput)
+                    throw new System.FormatException($"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.");
+                if (__status == ReadStatus.NeedMoreData)
+                    throw new System.FormatException("Unexpected end of stream while parsing.");
+                if (reader.Read()) throw new System.FormatException($"Unexpected data after the document at offset {reader.BytesConsumed}");
+                return result!;
             }
             finally
             {
@@ -52,6 +61,67 @@ file static class S10JsonSerDeRegistration
     {
         global::PicoJetson.JsonSerializer.Register<global::FormatCapabilities.Probe.S10Json>(
             S10JsonJsonSer.Serialize, S10JsonJsonDeserializer.Deserialize);
+        global::PicoJetson.JsonSerializer.RegisterStreaming<
+global::FormatCapabilities.Probe.S10Json>(S10JsonStreaming.DeserializeStreaming);
     }
 }
 
+file static class S10JsonStreaming
+{
+    internal static ReadStatus DeserializeStreaming(ref JsonReader reader, S10Json? partial, out S10Json? result)
+    {
+        result = partial ?? new S10Json();
+
+
+        // ReadStart runs on the first invocation only.
+        if (!reader.IsResumed)
+        {
+            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;
+            if (reader.TokenType == TokenType.Null) { result = null; return ReadStatus.Success; }
+            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.");
+        }
+
+        while (true)
+        {
+            long __snap = reader.BytesConsumed;
+            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.Success;
+            if (reader.TokenType != TokenType.PropertyName) break;
+            var propNameSpan = reader.GetStringRaw();
+            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
+            if (TextHelpers.Eq(propNameSpan, "V"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            {
+                result.V ??= new();
+                if (reader.TokenType == TokenType.ObjectStart)
+                {
+                    while (reader.Read() && reader.TokenType == TokenType.PropertyName)
+                    {
+                        var __dictKey = System.Text.Encoding.UTF8.GetString(reader.GetStringRaw());
+                        reader.Read();
+                        var __dictList_V = new System.Collections.Generic.List<int>();
+                        if (reader.TokenType == TokenType.ArrayStart)
+                        {
+                            while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)
+                            {
+                                if (reader.TokenType == TokenType.Null)
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                if (!reader.TryGetInt32(out var __elementValue))
+                                {
+                                    if (!reader.TryGetInt64(out var __lev))
+                                        throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                    __elementValue = checked((int)__lev);
+                                }
+                                __dictList_V.Add(__elementValue);
+                            }
+                        }
+                        result.V[__dictKey] = __dictList_V;
+                    }
+                }
+            }
+            else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)
+                throw new System.FormatException($"Unexpected property '{Encoding.UTF8.GetString(propNameSpan)}' at offset {reader.BytesConsumed}");
+            else reader.TrySkip();
+            if (reader.NeedsMoreData) { reader.RewindTo(__snap); return ReadStatus.NeedMoreData; }
+        }
+        return ReadStatus.Success;
+    }
+}

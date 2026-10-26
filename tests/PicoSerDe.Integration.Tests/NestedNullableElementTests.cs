@@ -110,8 +110,10 @@ public class NestedNullableElementTests
     /// <summary>
     /// JSON can express a null element, so the drop must stay format-specific: the same
     /// fixture keeps its nested nullable lists there (regression guard for the shared
-    /// extractor). Dictionary values that are themselves collections stay unsupported in
-    /// every format (pre-existing rule), so only the list shapes are asserted here.
+    /// extractor). R2 Task 3 also implemented the dict VALUE position, so the two
+    /// dictionary-of-nested-list members are emitted in json now and have to round-trip —
+    /// they used to be dropped in every format, and "emitted" would be worth nothing
+    /// without the value-level assertion.
     /// </summary>
     [Test]
     public async Task Json_NestedNullableElementMembers_RoundTrip()
@@ -124,6 +126,16 @@ public class NestedNullableElementTests
         await Assert.That(back.NullableInts[0].Count).IsEqualTo(2);
         await Assert.That(back.NullableInts[0][1]).IsNull();
         await Assert.That(back.NullableObjs[0][1]).IsNull();
-        await Assert.That(json).DoesNotContain("NullableIntMap");
+
+        await Assert.That(json).Contains("NullableIntMap").Because("json=" + json);
+        await Assert.That(back.NullableIntMap.Count).IsEqualTo(1).Because("json=" + json);
+        await Assert.That(back.NullableIntMap["k"].Count).IsEqualTo(2);
+        await Assert.That(back.NullableIntMap["k"][0]).IsEqualTo(3);
+        await Assert.That(back.NullableIntMap["k"][1]).IsNull();
+
+        await Assert.That(json).Contains("NullableIntArrayMap").Because("json=" + json);
+        await Assert.That(back.NullableIntArrayMap.Count).IsEqualTo(1);
+        await Assert.That(back.NullableIntArrayMap["k"][0].Length).IsEqualTo(2);
+        await Assert.That(back.NullableIntArrayMap["k"][0][1]).IsNull();
     }
 }

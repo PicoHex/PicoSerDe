@@ -7,7 +7,17 @@ using FormatCapabilities.Probe;
 file static class S10MsgpackMsgPackSerializer {
     public static void Serialize(IBufferWriter<byte> writer, S10Msgpack value, global::PicoSerDe.Core.SerOptions? options) {
         var mw = new MsgPackWriter(writer, options: ((global::PicoMsgPack.MsgPackOptions?)options));
-        mw.WriteStartObject(0);
+        mw.WriteStartObject(1);
+        mw.WriteInt32(0);
+        mw.WriteStartObject(value.V.Count);
+        foreach (var __kv in value.V) {
+            mw.WriteString(Encoding.UTF8.GetBytes(__kv.Key));            mw.WriteStartArray(__kv.Value.Count);
+            foreach (var __nl0 in __kv.Value) {
+                mw.WriteInt32(__nl0);
+            }
+            mw.WriteEndArray();
+        }
+        mw.WriteEndObject();
         mw.WriteEndObject(); } }
 
 file static class S10MsgpackMsgPackDeserializer {
@@ -27,6 +37,21 @@ file static class S10MsgpackMsgPackDeserializer {
                 __k = __pos;
             }
             switch (__k) {
+                case 0:
+                obj.V ??= new Dictionary<string, global::System.Collections.Generic.List<int>>(16);
+                if (reader.TokenType == TokenType.ObjectStart) {
+                    while (reader.Read() && reader.TokenType == TokenType.PropertyName) {
+                        var __dk = Encoding.UTF8.GetString(reader.GetStringRaw()); reader.Read();
+                        var __nl1 = new List<int>(16);
+                        if (reader.TokenType == TokenType.ArrayStart) {
+                            while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                                if (!reader.TryGetInt32(out var __ev2))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                __nl1.Add(__ev2);
+                            } }
+                        obj.V[__dk] =(__nl1);
+                    } }
+                    break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
         }
@@ -53,6 +78,21 @@ file static class S10MsgpackMsgPackStreaming {
                 __k = __pos;
             }
             switch (__k) {
+                case 0:
+                obj.V ??= new Dictionary<string, global::System.Collections.Generic.List<int>>(16);
+                if (reader.TokenType == TokenType.ObjectStart) {
+                    while (reader.Read() && reader.TokenType == TokenType.PropertyName) {
+                        var __dk = Encoding.UTF8.GetString(reader.GetStringRaw()); reader.Read();
+                        var __nl3 = new List<int>(16);
+                        if (reader.TokenType == TokenType.ArrayStart) {
+                            while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                                if (!reader.TryGetInt32(out var __ev4))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                __nl3.Add(__ev4);
+                            } }
+                        obj.V[__dk] =(__nl3);
+                    } }
+                    break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
         }

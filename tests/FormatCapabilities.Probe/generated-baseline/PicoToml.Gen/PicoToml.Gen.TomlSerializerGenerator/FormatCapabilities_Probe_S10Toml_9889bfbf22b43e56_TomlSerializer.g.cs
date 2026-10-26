@@ -11,6 +11,16 @@ S10Toml> {
     public void Serialize(IBufferWriter<byte> w, S10Toml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoToml.TomlOptions?)options;
         var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);
+        tw.WriteTable("V"u8);
+        foreach (var __kvp in v.V)
+        {
+            tw.WriteStartArray(Encoding.UTF8.GetBytes(__kvp.Key));
+            foreach (var __item in __kvp.Value!)
+            {
+            tw.WriteArrayValue(__item);
+            }
+            tw.WriteEndArray();
+        }
     } }
 file readonly struct S10Toml_TomlDes : IDeserializer<S10Toml> {
     public S10Toml Deserialize(ReadOnlySpan<byte> d) {
@@ -20,7 +30,47 @@ file readonly struct S10Toml_TomlDes : IDeserializer<S10Toml> {
         while (true) {
             if (r.TokenType == TokenType.PropertyName) {
                 var k = r.KeySpan;
+                if (TextHelpers.Eq(k, "V"u8)) {
+                    o.V ??= new System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<int>>();
+                    r.Read(); // skip ObjectStart from inline table
+                    while (r.Read() && r.TokenType == TokenType.PropertyName) {
+                        var __dk = Encoding.UTF8.GetString(r.KeySpan);
+                        var __dl = new System.Collections.Generic.List<int>(16);
+                        if (r.Read() && r.TokenType == TokenType.ArrayStart)
+                        {
+                            while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                            {
+                                r.TryGetInt32(out var __ev);
+                                __dl.Add(__ev);
+                            }
+                        }
+                        o.V[__dk] = __dl;
+                    }
+                }
                 if (!r.Read()) break;
+                continue;
+            }
+            if (r.TokenType == TokenType.ObjectStart) {
+                var __tblPos = r.BytesConsumed;
+                var tbl = r.TablePath;
+                if (TextHelpers.Eq(tbl, "V"u8)) {
+                    o.V ??= new System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<int>>();
+                    while (r.Read() && r.TokenType == TokenType.PropertyName) {
+                        var __dk = Encoding.UTF8.GetString(r.KeySpan);
+                        var __dl = new System.Collections.Generic.List<int>(16);
+                        if (r.Read() && r.TokenType == TokenType.ArrayStart)
+                        {
+                            while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                            {
+                                r.TryGetInt32(out var __ev);
+                                __dl.Add(__ev);
+                            }
+                        }
+                        o.V[__dk] = __dl;
+                    }
+                }
+                if (r.TokenType == TokenType.None) break;
+                if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __tblPos && !r.Read()) break;
                 continue;
             }
             if (!r.Read()) break;
@@ -39,8 +89,48 @@ S10Toml? result) {
         while (true) {
             if (r.TokenType == TokenType.PropertyName) {
                 var k = r.KeySpan;
+                if (TextHelpers.Eq(k, "V"u8)) {
+                    o.V ??= new System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<int>>();
+                    r.Read(); // skip ObjectStart from inline table
+                    while (r.Read() && r.TokenType == TokenType.PropertyName) {
+                        var __dk = Encoding.UTF8.GetString(r.KeySpan);
+                        var __dl = new System.Collections.Generic.List<int>(16);
+                        if (r.Read() && r.TokenType == TokenType.ArrayStart)
+                        {
+                            while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                            {
+                                r.TryGetInt32(out var __ev);
+                                __dl.Add(__ev);
+                            }
+                        }
+                        o.V[__dk] = __dl;
+                    }
+                }
                 if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }
                 r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }
+                continue;
+            }
+            if (r.TokenType == TokenType.ObjectStart) {
+                var __tblPos = r.BytesConsumed;
+                var tbl = r.TablePath;
+                if (TextHelpers.Eq(tbl, "V"u8)) {
+                    o.V ??= new System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<int>>();
+                    while (r.Read() && r.TokenType == TokenType.PropertyName) {
+                        var __dk = Encoding.UTF8.GetString(r.KeySpan);
+                        var __dl = new System.Collections.Generic.List<int>(16);
+                        if (r.Read() && r.TokenType == TokenType.ArrayStart)
+                        {
+                            while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                            {
+                                r.TryGetInt32(out var __ev);
+                                __dl.Add(__ev);
+                            }
+                        }
+                        o.V[__dk] = __dl;
+                    }
+                }
+                if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }
+                if (r.BytesConsumed == __tblPos) { r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; } }
                 continue;
             }
             r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }

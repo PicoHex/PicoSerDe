@@ -96,15 +96,23 @@ public class RecursiveDiagnosticTests
         await Assert.That(ids).Contains("PICOSERDE004");
     }
 
+    /// <summary>
+    /// R2 Task 3 implemented the dict value position, so `Dictionary&lt;string, List&lt;int&gt;&gt;`
+    /// is EMITTED in TOML now and reports nothing. The drop that is still open is a dict
+    /// value whose sequence ends in an OBJECT: the facts say TOML can express it (S4), so
+    /// the member is reported as debt rather than silently lost.
+    /// </summary>
     [Test]
-    public async Task DictValueListMember_IsReported()
+    public async Task DictValueObjectListMember_IsReported()
     {
         const string source = """
             using PicoToml;
 
+            public class Leaf { public string Name { get; set; } = ""; }
+
             public class Holder
             {
-                public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> Map { get; set; } = new();
+                public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<Leaf>> Map { get; set; } = new();
             }
 
             public static class Probe
