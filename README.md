@@ -52,29 +52,43 @@ Every module has its own suite, cross-validated against a competitor implementat
 
 ## Performance Summary
 
-Numbers below are **PicoSerDe on NativeAOT vs competitors on JIT** — the
-competitors cannot run under NativeAOT at all. In a JIT environment,
-mature reflection-based parsers may still be faster; PicoSerDe's
-advantage is guaranteed deployability under trimming and self-contained
-publishing, not peak JIT throughput.
+Numbers are measured, and the mode is labelled per row rather than mixed into one
+column. "AOT vs AOT" is the strong claim: both sides compiled ahead of time and both
+actually finish. It is only possible where the competitor supports NativeAOT.
 
-Benchmarks: AOT self-contained, .NET 10, 100K iterations, win-x64.
+Benchmarks: .NET 10, win-x64, AMD Ryzen 7 6800H. Ratios are speedup over the
+competitor (higher is better); ranges are the spread over three consecutive runs on an
+otherwise idle machine, and the win counts are scenarios won out of those attempted.
 
-| Module | vs Competitor | Avg Speedup | Competitor AOT? |
-|--------|:------------:|:-----------:|:---:|
-| PicoJetson | System.Text.Json | **1.35x** | ✅ |
-| PicoMsgPack | MessagePack-CSharp | **1.40x** | ❌ |
-| PicoIni | ini-parser | 0.12x | ❌ |
-| PicoToml | Tommy | 0.30x | ❌ |
-| PicoYaml | — | — | ❌ |
+| Module | Competitor | AOT vs AOT | JIT vs JIT | Why the modes differ |
+|--------|------------|:----------:|:----------:|----------------------|
+| PicoJetson | System.Text.Json | **1.9–2.2x** (10–12/12) | — | STJ is AOT-ready, so no JIT row is needed |
+| PicoMsgPack | MessagePack-CSharp | **1.8–1.9x** (3–4/4) | 1.3–1.5x (7–8/8) | see below |
+| PicoIni | ini-parser | ~0.03–0.05x (~12 ms/POCO) | — | judge by absolute cost, see the ratio caveat |
+| PicoToml | Tommy | ~0.18–0.20x | — | |
+| PicoYaml | YamlDotNet | **~1.0x** (1–3/3) | — | parity, not a loss |
 
-> JSON/MessagePack are faster than or competitive with JIT-based
-> alternatives even in AOT mode. INI/TOML/YAML prioritize correct,
-> reflection-free parsing over peak throughput — their JIT competitors
-> benefit from years of runtime-level optimizations (cached keys,
-> direct span writes, dynamic code gen) that are incompatible with
-> NativeAOT. PicoSerDe is the **only** option that runs at all in a
-> fully-trimmed, self-contained NativeAOT deployment for these formats.
+**Why PicoMsgPack has two rows.** MessagePack-CSharp builds formatters for enums and
+generic collections at run time (`MakeGenericType` + `Activator.CreateInstance`), which
+NativeAOT cannot do. Its `[MessagePackObject]` types with `string`/`int` only are
+statically resolvable and run fine ahead of time — that is the AOT row, measured by
+`PicoMsgPack.Benchmarks.Aot`. The unified cross-format benchmark adds `DayOfWeek`,
+`Dictionary<string,string>` and `List<int>` to the same models, so under AOT it throws
+`MissingMethodException: No parameterless constructor defined for type ...` on the first
+complex model; that benchmark is therefore JIT-only and says so in its csproj.
+
+**The INI ratio moves for reasons unrelated to INI.** `Speedup = baseline / candidate`,
+and the candidate's absolute cost barely changed across two releases (11.6 ms to 12.1 ms)
+while the baseline drifted between 250 and 600 μs — so the ratio swung from 0.05x to
+0.03x without the candidate regressing. Judge INI by its absolute cost, not the ratio.
+
+> JSON/MessagePack are faster than or competitive with their JIT-based
+> alternatives even when both sides are compiled ahead of time. INI/TOML/YAML
+> prioritize correct, reflection-free parsing over peak throughput — their
+> competitors benefit from years of runtime-level optimizations (cached keys,
+> direct span writes, dynamic code gen) that are incompatible with NativeAOT.
+> PicoSerDe is the **only** option that runs at all in a fully-trimmed,
+> self-contained NativeAOT deployment for these formats.
 
 ---
 

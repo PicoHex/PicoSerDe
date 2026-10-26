@@ -85,6 +85,7 @@
   </Folder>
   <Folder Name="/PicoMsgPack/benchmarks/">
     <Project Path="PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks/PicoMsgPack.Benchmarks.csproj" />
+    <Project Path="PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks.Aot/PicoMsgPack.Benchmarks.Aot.csproj" />
   </Folder>
 
   <!-- Integration Tests -->

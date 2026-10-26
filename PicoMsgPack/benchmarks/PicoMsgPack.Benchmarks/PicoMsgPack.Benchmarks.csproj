@@ -2,8 +2,18 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <PublishAot>true</PublishAot>
-    <TrimMode>full</TrimMode>
+    <!--
+      JIT ONLY. This benchmark cannot run under NativeAOT and must not claim to:
+      MessagePack-CSharp builds formatters for enums and generic collections at run
+      time (MakeGenericType + Activator.CreateInstance), which NativeAOT cannot do.
+      Its models carry DayOfWeek, Dictionary<string,string> and List<int>, so an AOT
+      publish dies on the first complex model with MissingMethodException.
+
+      The AOT-vs-AOT numbers come from ../PicoMsgPack.Benchmarks.Aot, whose models
+      are restricted to statically resolvable types.
+    -->
+    <PublishAot>false</PublishAot>
+    <TrimMode>partial</TrimMode>
 <IsPackable>false</IsPackable>
   </PropertyGroup>
 
