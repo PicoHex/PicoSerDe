@@ -102,6 +102,7 @@ file readonly struct S2Toml_TomlDes : IDeserializer<S2Toml> {
                         o.V ??= new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>();
                         o.V.Add(__item);
                         if (r.TokenType != TokenType.ArrayStart) break;
+                        if (!TextHelpers.Eq(r.TablePath, "V"u8)) break;
                         if (r.BytesConsumed == __itPos) break;
                         __item = new global::FormatCapabilities.Probe.ProbeDto();
                     }
@@ -210,6 +211,7 @@ S2Toml? result) {
                         o.V ??= new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>();
                         o.V.Add(__item);
                         if (r.TokenType != TokenType.ArrayStart) break;
+                        if (!TextHelpers.Eq(r.TablePath, "V"u8)) break;
                         if (r.BytesConsumed == __itPos) break;
                         __item = new global::FormatCapabilities.Probe.ProbeDto();
                     }

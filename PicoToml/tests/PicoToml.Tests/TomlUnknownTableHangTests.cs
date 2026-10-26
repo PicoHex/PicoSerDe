@@ -173,11 +173,16 @@ public class TomlUnknownTableHangTests
     [Arguments("[[Items]]\n", 1)]
     [Arguments("[[Items]]\n[[Items]]\n", 2)]
     [Arguments("[[Unknown]]\n", 0)]
-    // Two elements, not one: the element loop does not re-check which table a
-    // subsequent `[[…]]` header names, so the foreign header starts (and terminates)
-    // a second, empty element. That is pre-existing behaviour, out of scope here —
-    // what this test pins is that the loop terminates and stops growing.
-    [Arguments("[[Items]]\nName = \"a\"\n[[Unknown]]\n", 2)]
+    // ONE element — and this used to be pinned as 2 (spec D-9d). The element loop
+    // reused every `[[…]]` header as "another element of this list" without
+    // re-checking the name, so a foreign `[[Unknown]]` header appended a second,
+    // EMPTY element: the model gained a value the document never had. The correct
+    // count follows TOML's own semantics, not our loop's shape: `[[Items]]` plus a
+    // `Name` line is exactly one element, and a table named `Unknown` is not
+    // `Items`, so it contributes nothing (the same "unknown header is ignored"
+    // rule the `[Unknown]` cases above assert). Zero would be wrong too — the
+    // element that IS there must survive.
+    [Arguments("[[Items]]\nName = \"a\"\n[[Unknown]]\n", 1)]
     public async Task EmptyArrayOfTables_TerminatesWithinBudget(string input, int expectedCount)
     {
         var model = await Run(

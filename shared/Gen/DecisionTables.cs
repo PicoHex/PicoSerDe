@@ -59,17 +59,21 @@ internal static class DecisionTables
     internal static readonly Dictionary<(string Fmt, Decision D), Effect> Rules = new()
     {
         // Extended collections as a plain member (S7). json always resolved the kind;
-        // R2 Task 2 opened it for msgpack/toml/yaml as well (TypeKindResolver asks THIS
-        // cell), so the four formats that can express it now do. ini keeps DropMember —
-        // its member position is R2 Task 6, and its cell is the last debt in this row.
+        // R2 Task 2 opened it for msgpack/toml/yaml and R2 Task 6 for ini (this row was
+        // the last debt in the table), because TypeKindResolver asks THIS cell: a
+        // format whose cell is Supported names the kind, and every format writes the
+        // seven kinds as the same plain sequence (spec §6: S7 is ✅ in all five).
         [("json", Decision.ExtendedKindResolves)] = Effect.Supported,
         [("msgpack", Decision.ExtendedKindResolves)] = Effect.Supported,
         [("toml", Decision.ExtendedKindResolves)] = Effect.Supported,
         [("yaml", Decision.ExtendedKindResolves)] = Effect.Supported,
-        [("ini", Decision.ExtendedKindResolves)] = Effect.DropMember,
-        // Nested containers — MUST be split scalar/object: S3 and S4 disagree in TOML
-        // (TOML holds an array of scalar arrays, but not an array of inline-table arrays
-        // as a member: D-3).
+        [("ini", Decision.ExtendedKindResolves)] = Effect.Supported,
+        // Nested containers — MUST be split scalar/object: a format can hold an array of
+        // scalar arrays (S3) and still have no form for an array whose innermost elements
+        // are objects (S4). TOML held only the first until R2 Task 6 taught the writer the
+        // missing form — an inline table as an ARRAY ELEMENT (`V = [[{ Name = "a" }]]`) —
+        // which is what spec §3 S4 / §9 already measured with tomllib. INI keeps
+        // DropMember: its sections carry no nesting at all (a format FACT, not a debt).
         [("json", Decision.NestedScalarContainer)] = Effect.Supported,
         [("msgpack", Decision.NestedScalarContainer)] = Effect.Supported,
         [("toml", Decision.NestedScalarContainer)] = Effect.Supported,
@@ -77,7 +81,7 @@ internal static class DecisionTables
         [("ini", Decision.NestedScalarContainer)] = Effect.DropMember,
         [("json", Decision.NestedObjectContainer)] = Effect.Supported,
         [("msgpack", Decision.NestedObjectContainer)] = Effect.Supported,
-        [("toml", Decision.NestedObjectContainer)] = Effect.DropMember,
+        [("toml", Decision.NestedObjectContainer)] = Effect.Supported,
         [("yaml", Decision.NestedObjectContainer)] = Effect.Supported,
         [("ini", Decision.NestedObjectContainer)] = Effect.DropMember,
         // Nullable VALUE leaf: toml/ini cannot hold null at all. yaml can (spec §3) and R2
@@ -312,6 +316,52 @@ internal static class DecisionTables
         "json",
         "msgpack",
     };
+
+    /// <summary>
+    /// format — the LEAF kinds that format's INLINE nested-array emitter can write. A
+    /// format with no entry here writes whatever kind the leaf resolves to (its emitters have
+    /// a form per kind); a format listed here is LIMITED to the kinds listed.
+    /// <para>
+    /// The innermost element of a nested chain (<c>List&lt;List&lt;T&gt;&gt;</c>) is the only thing
+    /// an inline-array emitter writes with a form of its own — every level above it is
+    /// just another bracket pair. TOML writes a scalar leaf directly and an OBJECT leaf as an
+    /// inline table (`V = [[{ Name = "a" }]]`, spec §3 S4 / §9), and nothing else:
+    /// a <c>[table]</c> header cannot live inside an array. Naming "object" here is a claim
+    /// about the EMITTER, not about the format — whether a particular object is
+    /// inline-shaped is a second question (its members must be scalars; an object member or
+    /// a collection member would need a table header or a value the inline reader cannot
+    /// scan), asked by <c>GenInfrastructure</c> before it emits. A leaf this table does not
+    /// name stays DROPPED and reported: never written as <c>ToString()</c> text, never as a
+    /// header inside an array (invariant I-2/R2-R3).
+    /// </para>
+    /// This is a LIMIT, not an <see cref="Effect"/>: a blocked leaf drops the whole member,
+    /// so there is no element-level answer to express. It is read through
+    /// <see cref="FormatCapabilities.InlineNestedLeafKindSupported"/> — never compared
+    /// against a format tag (I-3).
+    /// </summary>
+    internal static readonly Dictionary<string, HashSet<string>> InlineNestedLeafKindsByFormat =
+        new(StringComparer.Ordinal)
+        {
+            ["toml"] = new HashSet<string>(
+                [
+                    "string",
+                    "int32",
+                    "int64",
+                    "int16",
+                    "uint16",
+                    "sbyte",
+                    "byte",
+                    "uint32",
+                    "uint64",
+                    "float32",
+                    "float64",
+                    "boolean",
+                    // an inline table: `[[{ Name = "a", N = 1 }]]`
+                    "object",
+                ],
+                StringComparer.Ordinal
+            ),
+        };
 
     /// <summary>
     /// format → the key kinds that format accepts: ini takes "string" only (it reads a key

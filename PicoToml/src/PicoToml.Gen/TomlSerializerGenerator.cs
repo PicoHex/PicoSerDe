@@ -1067,6 +1067,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(
                     "                        if (r.TokenType != TokenType.ArrayStart) break;"
                 );
+                // D-9d: the NEXT `[[…]]` header is another element of THIS list only when
+                // it names this table. A foreign one (`[[Unknown]]`) used to append an EMPTY
+                // element — a value the document never had — because the loop reused
+                // every `ArrayStart` token. Stop instead and let the enclosing dispatch
+                // advance past the header it does not own.
+                s.AppendLine(
+                    "                        if (!TextHelpers.Eq(r.TablePath, \""
+                        + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName)
+                        + "\"u8)) break;"
+                );
                 // Local no-progress guard (I-3): the loop only used to stop because the
                 // reader reports a different token at EOF. If that ever regresses, this
                 // breaks instead of appending empty elements for ever (an OOM, not a hang).
@@ -1346,6 +1356,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".Add(__item);");
                 s.AppendLine(
                     "                        if (r.TokenType != TokenType.ArrayStart) break;"
+                );
+                // D-9d: the NEXT `[[…]]` header is another element of THIS list only when
+                // it names this table. A foreign one (`[[Unknown]]`) used to append an EMPTY
+                // element — a value the document never had — because the loop reused
+                // every `ArrayStart` token. Stop instead and let the enclosing dispatch
+                // advance past the header it does not own.
+                s.AppendLine(
+                    "                        if (!TextHelpers.Eq(r.TablePath, \""
+                        + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName)
+                        + "\"u8)) break;"
                 );
                 // Local no-progress guard (I-3), same reason as the buffered emitter.
                 s.AppendLine("                        if (r.BytesConsumed == __itPos) break;");
@@ -2619,6 +2639,28 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("tw.WriteEndArray();");
             return;
         }
+        if (node.ElementTypeKind == "object" && node.NestedProperties.Length > 0)
+        {
+            // The object leaf of a nested chain is an INLINE TABLE (`V = [[{ Name = "a" }]]`,
+            // spec §3 S4). WriteStartInlineTable always writes `key = { `, and an array
+            // element has no key, so the value form is what this position needs — the same
+            // per-member emitters then write the `name = value` pairs, comma separated, inside
+            // the braces.
+            var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                "TomlInner",
+                node.ElementTypeName!
+            );
+            s.Append(indent);
+            s.AppendLine("tw.WriteStartInlineTableValue();");
+            s.Append(indent);
+            s.Append(sn);
+            s.Append(".Serialize(tw, ");
+            s.Append(itemVar);
+            s.AppendLine(");");
+            s.Append(indent);
+            s.AppendLine("tw.WriteEndInlineTable();");
+            return;
+        }
         EmitSerializeListElement(s, node, indent, itemVar);
     }
 
@@ -2690,6 +2732,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("{");
                 s.Append(pad);
                 s.AppendLine("    if (r.TokenType != TokenType.ArrayStart) break;");
+                // D-9d: the NEXT `[[…]]` header is another element of THIS list only when
+                // it names this table. A foreign one (`[[Unknown]]`) used to append an EMPTY
+                // element — a value the document never had — because the loop reused
+                // every `ArrayStart` token. Stop instead and let the enclosing dispatch
+                // advance past the header it does not own.
+                s.AppendLine(
+                    "    if (!TextHelpers.Eq(r.TablePath, \""
+                        + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName)
+                        + "\"u8)) break;"
+                );
                 s.Append(pad);
                 s.Append("    var __item = new ");
                 s.Append(elemTypeName);
@@ -3343,6 +3395,58 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     }
 
     /// <summary>
+    /// Reads ONE inline table that is an ELEMENT of a nested array
+    /// (<c>V = [[{ Name = "a", N = 1 }]]</c>, spec §3 S4): the reader is positioned on
+    /// the <c>{</c> token, the properties are read with the same per-member emitters a
+    /// section uses, and the <c>}</c> ends the element.
+    /// <para>
+    /// The element type is a scalar-only object by construction: the extractor drops a leaf
+    /// whose members would need a <c>[table]</c> header or a nested value
+    /// (<c>GenInfrastructure.IsInlineTableShaped</c>), so no branch here has to place a table
+    /// inside an array.
+    /// </para>
+    /// </summary>
+    private static void EmitDeserializeInlineTableElement(
+        StringBuilder s,
+        PropertyInfo node,
+        string listVar,
+        string pad
+    )
+    {
+        var elemTypeName = node.ElementTypeName ?? "object";
+        s.Append(pad);
+        s.AppendLine("if (r.TokenType == TokenType.ObjectStart)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.Append("    var __inline = new ");
+        s.Append(elemTypeName);
+        s.AppendLine("();");
+        s.Append(pad);
+        s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName)");
+        s.Append(pad);
+        s.AppendLine("    {");
+        s.Append(pad);
+        s.AppendLine("        var __ik = r.KeySpan;");
+        EmitPropertyDispatch(
+            s,
+            node.NestedProperties,
+            "__ik",
+            "__inline",
+            pad + "        ",
+            pad + "            "
+        );
+        s.Append(pad);
+        s.AppendLine("    }");
+        s.Append(pad);
+        s.Append("    ");
+        s.Append(listVar);
+        s.AppendLine(".Add(__inline);");
+        s.Append(pad);
+        s.AppendLine("}");
+    }
+
+    /// <summary>
     /// Emits the body that reads ONE element of the collection described by
     /// <paramref name="node"/> into <paramref name="listVar"/>. For a nested level the
     /// reader is already positioned on the opening <c>[</c> of the inner inline array
@@ -3358,6 +3462,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         int depth
     )
     {
+        if (node.ElementTypeKind == "object" && node.NestedProperties.Length > 0)
+        {
+            EmitDeserializeInlineTableElement(s, node, listVar, pad);
+            return;
+        }
         if (
             !PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(node.ElementTypeKind)
             || node.NestedProperties.Length == 0
@@ -3731,6 +3840,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                         s.AppendLine(".Add(__item);");
                         s.AppendLine(
                             "                        if (r.TokenType != TokenType.ArrayStart) break;"
+                        );
+                        // D-9d: the NEXT `[[…]]` header is another element of THIS list only when
+                        // it names this table. A foreign one (`[[Unknown]]`) used to append an EMPTY
+                        // element — a value the document never had — because the loop reused
+                        // every `ArrayStart` token. Stop instead and let the enclosing dispatch
+                        // advance past the header it does not own.
+                        s.AppendLine(
+                            "                        if (!TextHelpers.Eq(r.TablePath, \""
+                                + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName)
+                                + "\"u8)) break;"
                         );
                         // Local no-progress guard (I-3), same reason as the buffered emitter.
                         s.AppendLine(

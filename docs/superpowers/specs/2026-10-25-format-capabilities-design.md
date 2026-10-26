@@ -90,6 +90,8 @@ currently gets wrong about them, and what the library must do about it
 ### R5 — 值级保真
 成员进入生成代码**不等于**保真。标记为支持的格必须由**含边界值**的往返测试支撑（null 元素、空集合、单元素、`NaN`/`±Inf`、`decimal` invariant、`DateTime.Kind`、含分隔符/引号/换行的字符串、`int.MaxValue`）。
 
+> **R5 清单新增一项（R2 T6 移交）**：**含 `\n` / `\r` / `=` 的字典键**。它不是"能力欠账"而是**格式约定下的不可承载**：INI 的字典是"成员级 `[V]` section + 键=行内原文"，键里出现换行或 `=` 时 `IniReader` 的键扫描（`IniReader.cs:597-608`）必然提前终止，而 `IniWriter.WriteKey`（`IniWriter.cs:371-376`）没有键转义 ⇒ 写出去读不回。R2 **不**为 INI 造一套键转义约定（那会改公共 wire 约定，属值级议题）；该 boundary 值改由 R5 记录，`S9 × INI` 的 ✅ 附条件 ⁵。**YAML/TOML 不受此限**：两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）。
+
 ## 3. 格式事实（实测，R1 的判据）
 
 ✅ 可表示 ｜ ❌ 不可表示。依据列给出判定来源。
@@ -104,7 +106,7 @@ currently gets wrong about them, and what the library must do about it
 | S6 `List<List<int?>>` 深层可空叶子 | ✅ | ✅ | ❌ 无 null | ✅ | ❌ |
 | S7 `HashSet<int>` 作成员 | ✅ | ✅ | ✅ | ✅ | ✅ |
 | S8 `List<HashSet<int>>` 作元素 | ✅ | ✅ | ✅ | ✅ | ❌ |
-| S9 `Dictionary<string,int>` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| S9 `Dictionary<string,int>` | ✅ | ✅ | ✅ | ✅ | ✅ ⁵ |
 | S10 `Dictionary<string, List<int>>` 字典值为集合 | ✅ | ✅ | ✅ | ✅ | ❌ |
 | S11a 自递归 / S11b 互递归 | ✅ | ✅ | ✅ 嵌套表 | ✅ | ❌ |
 | S12 `List<string?>` 含 null 元素 | ✅ | ✅ | ❌ 无 null | ✅ | ❌ |
@@ -159,6 +161,8 @@ currently gets wrong about them, and what the library must do about it
 ⁴ INI 的约定本身能承载（实测 `single`/`boundary` 全通，含 `NaN` 文本），失败点是**写读不对称**：默认值
    `When = 0001-01-01T00:00:00.0000000` 没有 `Kind` 后缀，读侧拒绝 ⇒ **欠账**（写读同一 canonical 形态即可闭合）。
 
+⁵ **`S9 × INI` 的 ✅ 附条件（R2 T6 修正）**：只在键**不含 `\n`、`\r`、`=`** 时成立。INI 的字典形式是本规格自己的约定（"成员级 `[V]` section + 键 = 行内原文"），而 `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 没有键转义 — 所以含换行/等号的键**写出去读不回**（探针的 boundary 键 `n\nline` 就是这一例）。这是**值级**约束，不是能力欠账：R2 **不**为 INI 造一套键转义约定（改公共 wire 约定属值级议题），该 boundary 值按 R2/R5 分工记入 **R5 的清单**（见 §2 R5 下的移交说明）。**同一形状在 YAML/TOML 不受此限** — 两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）并据此把这两格从 MISMATCH 转 OK。
+
 **结论补充**：S14 的 `❌` 仍只有「TOML 无 null」与「INI 结构性限制」；S15 的 `❌` 只有「JSON 无 NaN/±Inf 字面量」。
 其余「今天不支持」全部是欠账（S14 × yaml；S15 × toml/yaml 的 NaN；S15 × ini 的默认时间）。
 
@@ -172,14 +176,13 @@ currently gets wrong about them, and what the library must do about it
 | **D-5** | 数据损坏 | TOML 互递归往返**覆盖根成员**（写 `K="root"` + `[Child] K="c1"`，读回 `K="c1"`） |
 | **D-7a** | 值级丢失 | TOML：`List<string?>` 的 null 元素被静默跳过（成员在、值丢）。TOML 无 null ⇒ 应改为**类型级不支持 + 诊断** |
 | **D-7b** | 值级丢失 | YAML：同上。YAML 有 null ⇒ 应**支持** |
-| **D-3** | 实现缺口 | 两种「容器套容器」可表达却丢弃：①`Dictionary<string, List<T>>`（S10）在 JSON/MsgPack/TOML/YAML；②嵌套对象数组（S4）× TOML |
+| **D-3** | 实现缺口 | 两种「容器套容器」可表达却丢弃：①`Dictionary<string, List<T>>`（S10）在 JSON/MsgPack/TOML/YAML；②嵌套对象数组（S4）× TOML —— 两条均在 R2 修完（① T3、② T6） |
 | **D-4** | 诊断措辞 | ①递归诊断指向**内层类型**的成员而非用户声明的成员；②欠账格与不可表示格**共用同一条消息**「cannot be represented by this format」，对可表示的格构成误导 |
 | **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与消息，口径可能与具名类型不一致 |
 | **D-9** | **挂死** | TOML：字典成员被写成**空表**时反序列化**永不返回**（纯 CPU 自旋）。判据不是「空表」本身，而是「回到外层循环时 token 仍是**未被消费的 `ObjectStart`**」—— 所以 `[V]`+EOF、`[V]`+后续 `[W]` 表头都会挂，而 `[V]` 后跟 `a = 7` 不挂。根因：生成代码的 `ObjectStart` 分支 `continue` 前不推进 reader（`TomlSerializerGenerator.cs:913-935`），而 `TomlReader.ReadSpan()` 在 EOF 只 `return false`、不换 token（`TomlReader.cs:777-785`） | 探针 W2 实测（`S9×toml` 空字典 → wire `[V]`）；三条独立证据见 `.superpowers/sdd/r1-w2/review-spec.md`。**R2 T0 已修**（`f34d5be`）：reader 在 final block 失败出口清 token + 发射层推进守卫，两层各承其重 |
-| **D-9b** | 静默 | TOML **写侧**：`TomlWriter.NeedsKeyQuoting` 只判 `空格 	 = [ ] . # "`，**不含** `
+| **D-9b** | 静默 | TOML **写侧**：`TomlWriter.NeedsKeyQuoting` 只判 `空格 \t = [ ] . # "`，**不含** `\n`/`\r`/其他控制字符`/`\` ⇒ 含换行的键写出后**读不回来**（与 D-9 的挂死无关，是独立缺陷） | `TomlWriter.cs`；W0 实测（`toml\|S9` 从 TIMEOUT 变 MISMATCH 后露出）。**归属**：R2 Task 6 **已修**——黑名单换成 TOML 1.0 的 bare-key 文法（`[A-Za-z0-9_-]+`，其余一律加引号并转义），`toml\|S9` 由 MISMATCH 转 OK；回往测试 `TomlDictKeyQuotingTests`。同一修法顺带修正了推导键 `$type`的 wire（`$` 不在 bare-key 文法里 ⇒ 写成 `"$type"`） |
 | **D-9c** | **挂死族** | 表头名**不在模型里**时发射层零 `Read()` ⇒ token 恒 `ObjectStart` ⇒ 自旋。触发面比 D-9 更广（`[tool.*]`/`[build-system]` 等真实文件必然命中）。实测需 **6 个派发分支 + 3 个内层循环**的推进守卫（`BytesConsumed` 未变则 `Read()`） | W0 fix round 1（`f34d5be`）+ 两份复核。**归属**：R2 T0 已修 |
-| **D-9d** | 静默 | `[[Unknown]]`（外来数组表头）会开出**第二个空元素**，不重查表名。今天测试把它钉成"2 个元素"的契约 ⇒ 将来修它必须同步改断言 | W0 fix round 1 实测。**归属**：R2 待定（T6 或独立） |
-`/``/控制字符/`\` ⇒ 含换行的键写出后**读不回来**（与 D-9 的挂死无关，是独立缺陷） | `TomlWriter.cs`；W0 实测（`toml\|S9` 从 TIMEOUT 变 MISMATCH 后露出）。**归属**：R2 Task 6 |
+| **D-9d** | 静默 | `[[Unknown]]`（外来数组表头）会开出**第二个空元素**，不重查表名。今天测试把它钉成"2 个元素"的契约 ⇒ 将来修它必须同步改断言 | W0 fix round 1 实测。**归属**：R2 Task 6 **已修**——元素循环在接下一个 `[[…]]` 表头前重查表名（`TextHelpers.Eq(r.TablePath, <成员名>)`，三个发射点：缓冲/流式/多态）。**正确元素数是 1**（`[[Items]]` + `Name = "a"` 就是一个元素；`Unknown` 不是 `Items`，贡献 0；0 也错，那个真元素必须活下来）；断言已同步改为 1（`TomlUnknownTableHangTests`） |
 | **D-10** | 误导 | `PICOSERDE005`（匿名类型）是**第四个 drop 通道**：无 ⛔/⏸/⚠ 标记、消息把「我们生成不了名字」写成 "cannot be serialized by {format}"、`location: null` 不可导航。它使 I-5 的「每条 drop 消息都带标记」**名义上有、实际没被强制**（现有测试的样本永远命不中它） | `GenInfrastructure.cs:798-820`；W5 第三轮 code review N-1。**归属**：R2（与 D-8 并入共用管线一起做） |
 
 **归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）；**D-9 → R2**（R1 禁止改行为）。
@@ -225,7 +228,7 @@ currently gets wrong about them, and what the library must do about it
 | S5/S6（可空值叶子） | ✅ | ✅ | ❌ | ✅ | ❌ |
 | S7（扩展集合成员） | ✅ | ✅ | ✅ | ✅ | ✅ |
 | S8（扩展集合元素） | ✅ | ✅ | ✅ | ✅ | ❌ |
-| S9（字典） | ✅ | ✅ | ✅ | ✅ | ✅ |
+| S9（字典） | ✅ | ✅ | ✅ | ✅ | ✅ ⁵ |
 | S10（字典值为集合） | ✅ | ✅ | ✅ | ✅ | ❌ |
 | S11a/S11b（递归） | ✅ | ✅ | ✅ | ✅ | ❌ |
 | S12（含 null 的字符串列表） | ✅ | ✅ | ❌ | ✅ | ❌ |

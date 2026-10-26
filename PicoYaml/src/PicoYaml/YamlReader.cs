@@ -1021,15 +1021,31 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             _tokenType = TokenType.PropertyName;
             return true;
         }
-        int ks = _position;
-        // Line-bound key scan: never consume past \n/\r (audit BUG-01).
-        while (
-            _position < _data.Length
-            && _data[_position] != (byte)':'
-            && _data[_position] is not ((byte)'\n' or (byte)'\r')
-        )
+        // A QUOTED key: `"n\nline": 2`. The writer quotes any key that is not a safe
+        // plain scalar (a separator, a quote, a control character), so the scan has to
+        // honour the closing quote: a `:` INSIDE the key would otherwise end the key, and
+        // the escapes would come back as literal backslash sequences. The content is
+        // exact, so it is NOT trimmed — a quoted key may legitimately end with a space
+        // (spec §3 S9 x yaml).
+        if (_position < _data.Length && _data[_position] == (byte)'"')
+        {
             _position++;
-        _keySpan = TrimEnd(_data[ks.._position]);
+            _keySpan = ReadDoubleQuotedStringSpan();
+            while (_position < _data.Length && _data[_position] == (byte)' ')
+                _position++;
+        }
+        else
+        {
+            int ks = _position;
+            // Line-bound key scan: never consume past \n/\r (audit BUG-01).
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)':'
+                && _data[_position] is not ((byte)'\n' or (byte)'\r')
+            )
+                _position++;
+            _keySpan = TrimEnd(_data[ks.._position]);
+        }
         if (_position >= _data.Length && !_isFinalBlock)
             throw new IncompleteInputException();
         if (_position >= _data.Length || _data[_position] != (byte)':')
@@ -1440,15 +1456,31 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             _tokenType = TokenType.ObjectEnd;
             return true;
         }
-        int ks = _position;
-        // Line-bound key scan: never consume past \n/\r (audit BUG-01).
-        while (
-            _position < _data.Length
-            && _data[_position] != (byte)':'
-            && _data[_position] is not ((byte)'\n' or (byte)'\r')
-        )
+        // A QUOTED key: `"n\nline": 2`. The writer quotes any key that is not a safe
+        // plain scalar (a separator, a quote, a control character), so the scan has to
+        // honour the closing quote: a `:` INSIDE the key would otherwise end the key, and
+        // the escapes would come back as literal backslash sequences. The content is
+        // exact, so it is NOT trimmed — a quoted key may legitimately end with a space
+        // (spec §3 S9 x yaml).
+        if (_position < _data.Length && _data[_position] == (byte)'"')
+        {
             _position++;
-        _keySpan = TrimEnd(_data[ks.._position]);
+            _keySpan = ReadDoubleQuotedStringSpan();
+            while (_position < _data.Length && _data[_position] == (byte)' ')
+                _position++;
+        }
+        else
+        {
+            int ks = _position;
+            // Line-bound key scan: never consume past \n/\r (audit BUG-01).
+            while (
+                _position < _data.Length
+                && _data[_position] != (byte)':'
+                && _data[_position] is not ((byte)'\n' or (byte)'\r')
+            )
+                _position++;
+            _keySpan = TrimEnd(_data[ks.._position]);
+        }
         if (_position >= _data.Length && !_isFinalBlock)
             throw new IncompleteInputException();
         if (_position >= _data.Length || _data[_position] != (byte)':')
@@ -1971,16 +2003,32 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             }
 
             // Key: value
-            var keyBuf = RentBuf(256);
-            int kd = 0;
-            while (
-                !_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)':'
-            )
+            if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
             {
-                keyBuf[kd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                // Quoted key, sequence-mode half (see ReadSpan): honour the closing
+                // quote and unescape, so a key carrying `:` or a newline survives.
                 _seqReader.Advance(1);
+                _keySpan = ReadDoubleQuotedStringSeq();
+                while (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
+                )
+                    _seqReader.Advance(1);
             }
-            _keySpan = TrimEnd(keyBuf.AsSpan(0, kd));
+            else
+            {
+                var keyBuf = RentBuf(256);
+                int kd = 0;
+                while (
+                    !_seqReader.End
+                    && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)':'
+                )
+                {
+                    keyBuf[kd++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
+                    _seqReader.Advance(1);
+                }
+                _keySpan = TrimEnd(keyBuf.AsSpan(0, kd));
+            }
             _seqReader.Advance(1); // skip ':'
             if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' ')
                 _seqReader.Advance(1);

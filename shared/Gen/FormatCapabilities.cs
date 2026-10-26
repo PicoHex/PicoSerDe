@@ -289,6 +289,33 @@ internal static class FormatCapabilities
         );
     }
 
+    /// <summary>
+    /// Does this format's INLINE (nested-array) emitter have a form for this LEAF kind? A
+    /// format missing from <see cref="DecisionTables.InlineNestedLeafKindsByFormat"/> has no
+    /// limit, i.e. every kind the leaf resolves to is written.
+    /// <para>
+    /// The question only exists for the INNERMOST element of a chain: the levels above it
+    /// are bracket pairs in every format. A false answer drops the member (never a silent
+    /// <c>ToString()</c>), so this is a LIMIT and not an <see cref="Effect"/> — the same
+    /// family as <see cref="AllowedDictKeyKinds"/>.
+    /// </para>
+    /// </summary>
+    internal static bool InlineNestedLeafKindSupported(string formatTag, string leafKind) =>
+        !DecisionTables.InlineNestedLeafKindsByFormat.TryGetValue(formatTag, out var kinds)
+        || kinds.Contains(leafKind);
+
+    /// <summary>
+    /// Is this format's inline nested-array emitter limited to a closed set of leaf kinds?
+    /// <para>
+    /// Separate from <see cref="InlineNestedLeafKindSupported"/> because a limited emitter is
+    /// also the one whose READ path cannot express a nullable collection level inside the
+    /// chain, so the extractor applies the null rule to exactly those formats instead of
+    /// narrowing formats whose emitters never had the limit.
+    /// </para>
+    /// </summary>
+    internal static bool InlineNestedLeafKindsAreClosed(string formatTag) =>
+        DecisionTables.InlineNestedLeafKindsByFormat.ContainsKey(formatTag);
+
     // ── README matrix (Task 8) ─────────────────────────────────────────────────────
 
     /// <summary>

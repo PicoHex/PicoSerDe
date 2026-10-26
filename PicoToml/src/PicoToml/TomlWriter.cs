@@ -278,12 +278,36 @@ public ref struct TomlWriter
         _inlineDepth++;
     }
 
+    /// <summary>
+    /// Opens an inline table as a VALUE with no key of its own — one element of an
+    /// enclosing array, e.g. <c>V = [[{ Name = "a", N = 1 }]]</c>.
+    /// <para>
+    /// <see cref="WriteStartInlineTable"/> cannot express this: it always writes
+    /// <c>key = { </c>, and an array element has no key. Pair the call with
+    /// <see cref="WriteEndInlineTable"/>; inside an array that pair writes no newline, so the
+    /// bracket line stays one line (the enclosing <see cref="WriteEndArray"/> ends it).
+    /// </para>
+    /// </summary>
+    public void WriteStartInlineTableValue()
+    {
+        if (_inlineDepth >= _maxDepth)
+            throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
+        // The separating comma between two elements of the SAME array level is the array
+        // writer's bookkeeping, exactly as it is for WriteArrayValue.
+        if (_arrayDepth > 0)
+            ArrayBeforeValue();
+        WriteRaw("{ "u8);
+        _inlineDepth++;
+    }
+
     public void WriteEndInlineTable()
     {
         _inlineDepth--;
         _inlineCommaMask &= ~(1L << _inlineDepth);
         WriteRaw(" }"u8);
-        if (_inlineDepth == 0)
+        // Inside an array the closing brace stays on the bracket line: the newline belongs
+        // to the enclosing WriteEndArray, not to this element.
+        if (_inlineDepth == 0 && _arrayDepth == 0)
             WriteNewLine();
     }
 
@@ -463,6 +487,19 @@ public ref struct TomlWriter
             WriteRaw(utf8);
     }
 
+    /// <summary>
+    /// TOML 1.0's bare-key grammar, not a blacklist of characters: a bare key is
+    /// <c>[A-Za-z0-9_-]+</c>, so everything else is quoted and escaped through the same
+    /// basic-string writer the values use.
+    /// <para>
+    /// The old six-character blacklist (space, tab, <c>= [ ] . # "</c>) could be incomplete by
+    /// construction, and it was: a key carrying a NEWLINE, a carriage return, another
+    /// control character or a backslash was written raw, a raw newline ends the key/value
+    /// line, and the document it produced could not be read back (spec D-9b — found
+    /// right after D-9 stopped hanging on it). Asking the grammar instead makes "is this
+    /// character missing from the list?" an impossible question.
+    /// </para>
+    /// </summary>
     private static bool NeedsKeyQuoting(ReadOnlySpan<byte> u)
     {
         if (u.IsEmpty)
@@ -470,17 +507,13 @@ public ref struct TomlWriter
         for (int i = 0; i < u.Length; i++)
         {
             var b = u[i];
-            if (
-                b
-                is (byte)' '
-                    or (byte)'\t'
-                    or (byte)'='
-                    or (byte)'['
-                    or (byte)']'
-                    or (byte)'.'
-                    or (byte)'#'
-                    or (byte)'"'
-            )
+            var bare =
+                b is >= (byte)'a' and <= (byte)'z'
+                || b is >= (byte)'A' and <= (byte)'Z'
+                || b is >= (byte)'0' and <= (byte)'9'
+                || b == (byte)'_'
+                || b == (byte)'-';
+            if (!bare)
                 return true;
         }
         return false;

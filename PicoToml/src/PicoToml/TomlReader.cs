@@ -1328,6 +1328,22 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
             return true;
         }
 
+        if (_data[_position] == (byte)'{')
+        {
+            // An INLINE TABLE as an array element (`V = [[{ Name = "a" }]]`, spec §3
+            // S4): the same `{ … }` the member position reads, entered from inside an
+            // array. Without this branch the value scan below would stop at the first
+            // comma INSIDE the braces and hand back `{ Name = "a"` as a scalar.
+            _position++;
+            _inInlineTable = true;
+            _inlineTableDepth++;
+            // The ObjectStart token is this branch's job: ReadInlineTableSpan emits one
+            // only for the member position, where the brace is still unconsumed.
+            _inlineStartEmitted = true;
+            _tokenType = TokenType.ObjectStart;
+            return true;
+        }
+
         return ReadArrayValueSpan();
     }
 
@@ -1937,6 +1953,17 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
             _seqReader.Advance(1);
             _arrayDepth++;
             _tokenType = TokenType.ArrayStart;
+            return true;
+        }
+
+        if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'{')
+        {
+            // Inline table as an array element, sequence-mode half (see ReadArraySpan).
+            _seqReader.Advance(1);
+            _inInlineTable = true;
+            _inlineTableDepth++;
+            _inlineStartEmitted = true;
+            _tokenType = TokenType.ObjectStart;
             return true;
         }
 

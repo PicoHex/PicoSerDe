@@ -11,6 +11,19 @@ S4Toml> {
     public void Serialize(IBufferWriter<byte> w, S4Toml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoToml.TomlOptions?)options;
         var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);
+        tw.WriteStartArray("V"u8);
+        foreach (var __item in v.V)
+        {
+            tw.WriteStartArray(""u8);
+            foreach (var __item1 in __item)
+            {
+                tw.WriteStartInlineTableValue();
+                global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351TomlInner.Serialize(tw, __item1);
+                tw.WriteEndInlineTable();
+            }
+            tw.WriteEndArray();
+        }
+        tw.WriteEndArray();
     } }
 file readonly struct S4Toml_TomlDes : IDeserializer<S4Toml> {
     public S4Toml Deserialize(ReadOnlySpan<byte> d) {
@@ -20,6 +33,95 @@ file readonly struct S4Toml_TomlDes : IDeserializer<S4Toml> {
         while (true) {
             if (r.TokenType == TokenType.PropertyName) {
                 var k = r.KeySpan;
+                if (TextHelpers.Eq(k, "V"u8)) {
+                    var __tmpList = new System.Collections.Generic.List<global::System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>>(16);
+                    if (r.Read() && r.TokenType == TokenType.ArrayStart)
+                    {
+                        while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                        {
+                            if (r.TokenType == TokenType.ArrayStart)
+                            {
+                                var __tmpList1 = new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>(16);
+                                while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                                {
+                                    if (r.TokenType == TokenType.ObjectStart)
+                                    {
+                                        var __inline = new global::FormatCapabilities.Probe.ProbeDto();
+                                        while (r.Read() && r.TokenType == TokenType.PropertyName)
+                                        {
+                                            var __ik = r.KeySpan;
+                                            switch (__ik.Length)
+                                            {
+                                                case 1:
+                                                    if (TextHelpers.Eq(__ik, "D"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            throw new System.FormatException($"null value for non-nullable member D");
+                                                        }
+                                                        else
+                                                        {
+                                                        __inline.D = decimal.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);
+                                                        }
+                                                    }
+                                                    else if (TextHelpers.Eq(__ik, "F"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            throw new System.FormatException($"null value for non-nullable member F");
+                                                        }
+                                                        else
+                                                        {
+                                                        if (!r.TryGetFloat64(out var __v)) throw new System.FormatException($"Expected a floating-point number at offset {r.BytesConsumed}");
+                                                        __inline.F = __v;
+                                                        }
+                                                    }
+                                                    else if (TextHelpers.Eq(__ik, "N"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            throw new System.FormatException($"null value for non-nullable member N");
+                                                        }
+                                                        else
+                                                        {
+                                                        if (!r.TryGetInt32(out var __v)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                                        __inline.N = __v;
+                                                        }
+                                                    }
+                                                    break;
+                                                case 4:
+                                                    if (TextHelpers.Eq(__ik, "Name"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            __inline.Name = null!;
+                                                        }
+                                                        else
+                                                        {
+                                                        __inline.Name = Encoding.UTF8.GetString(r.ValueSpan);
+                                                        }
+                                                    }
+                                                    else if (TextHelpers.Eq(__ik, "When"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            throw new System.FormatException($"null value for non-nullable member When");
+                                                        }
+                                                        else
+                                                        {
+                                                        var __raw = Encoding.UTF8.GetString(r.ValueSpan);
+                                                        if (!System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt)) throw new System.FormatException($"Invalid DateTime at offset {r.BytesConsumed}");
+
+                                                        __inline.When = __dt;
+                                                        }
+                                                    }
+                                                    break;
+                                            }
+                                        }
+                                        __tmpList1.Add(__inline);
+                                    }
+                                }
+                                __tmpList.Add(__tmpList1);
+                            }
+                        }
+                    }
+                    o.V = __tmpList;
+                }
                 if (!r.Read()) break;
                 continue;
             }
@@ -39,6 +141,95 @@ S4Toml? result) {
         while (true) {
             if (r.TokenType == TokenType.PropertyName) {
                 var k = r.KeySpan;
+                if (TextHelpers.Eq(k, "V"u8)) {
+                    var __tmpList = new System.Collections.Generic.List<global::System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>>(16);
+                    if (r.Read() && r.TokenType == TokenType.ArrayStart)
+                    {
+                        while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                        {
+                            if (r.TokenType == TokenType.ArrayStart)
+                            {
+                                var __tmpList1 = new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>(16);
+                                while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                                {
+                                    if (r.TokenType == TokenType.ObjectStart)
+                                    {
+                                        var __inline = new global::FormatCapabilities.Probe.ProbeDto();
+                                        while (r.Read() && r.TokenType == TokenType.PropertyName)
+                                        {
+                                            var __ik = r.KeySpan;
+                                            switch (__ik.Length)
+                                            {
+                                                case 1:
+                                                    if (TextHelpers.Eq(__ik, "D"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            throw new System.FormatException($"null value for non-nullable member D");
+                                                        }
+                                                        else
+                                                        {
+                                                        __inline.D = decimal.Parse(Encoding.UTF8.GetString(r.ValueSpan), System.Globalization.CultureInfo.InvariantCulture);
+                                                        }
+                                                    }
+                                                    else if (TextHelpers.Eq(__ik, "F"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            throw new System.FormatException($"null value for non-nullable member F");
+                                                        }
+                                                        else
+                                                        {
+                                                        if (!r.TryGetFloat64(out var __v)) throw new System.FormatException($"Expected a floating-point number at offset {r.BytesConsumed}");
+                                                        __inline.F = __v;
+                                                        }
+                                                    }
+                                                    else if (TextHelpers.Eq(__ik, "N"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            throw new System.FormatException($"null value for non-nullable member N");
+                                                        }
+                                                        else
+                                                        {
+                                                        if (!r.TryGetInt32(out var __v)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
+                                                        __inline.N = __v;
+                                                        }
+                                                    }
+                                                    break;
+                                                case 4:
+                                                    if (TextHelpers.Eq(__ik, "Name"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            __inline.Name = null!;
+                                                        }
+                                                        else
+                                                        {
+                                                        __inline.Name = Encoding.UTF8.GetString(r.ValueSpan);
+                                                        }
+                                                    }
+                                                    else if (TextHelpers.Eq(__ik, "When"u8)) {
+                                                        if (r.IsNullLiteral)
+                                                        {
+                                                            throw new System.FormatException($"null value for non-nullable member When");
+                                                        }
+                                                        else
+                                                        {
+                                                        var __raw = Encoding.UTF8.GetString(r.ValueSpan);
+                                                        if (!System.DateTime.TryParse(__raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt)) throw new System.FormatException($"Invalid DateTime at offset {r.BytesConsumed}");
+
+                                                        __inline.When = __dt;
+                                                        }
+                                                    }
+                                                    break;
+                                            }
+                                        }
+                                        __tmpList1.Add(__inline);
+                                    }
+                                }
+                                __tmpList.Add(__tmpList1);
+                            }
+                        }
+                    }
+                    o.V = __tmpList;
+                }
                 if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }
                 r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }
                 continue;

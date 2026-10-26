@@ -14,7 +14,14 @@ namespace PicoToml.Tests;
 /// </summary>
 public class RecursiveDiagnosticTests
 {
-    private static string[] RunGenerator(string source)
+    private static string[] RunGenerator(string source) => RunGeneratorWithSource(source).Ids;
+
+    /// <summary>
+    /// The ids plus the generated text: "was it reported?" is only half of the contract for a
+    /// shape the generator IS supposed to emit ("did the emitter actually reach it?" is the
+    /// other half, the false-green the R2 reviews kept catching).
+    /// </summary>
+    private static (string[] Ids, string Source) RunGeneratorWithSource(string source)
     {
         var compilation = CSharpCompilation.Create(
             "RecursiveDiagAsm",
@@ -25,7 +32,8 @@ public class RecursiveDiagnosticTests
 
         var driver = CSharpGeneratorDriver.Create(new TomlSerializerGenerator());
         var result = driver.RunGenerators(compilation).GetRunResult();
-        return result.Diagnostics.Select(d => d.Id).ToArray();
+        var text = string.Concat(result.GeneratedTrees.Select(tree => tree.GetText().ToString()));
+        return (result.Diagnostics.Select(d => d.Id).ToArray(), text);
     }
 
     private static string AssemblyPath(System.Reflection.Assembly assembly) =>
@@ -78,8 +86,15 @@ public class RecursiveDiagnosticTests
         await Assert.That(ids.Count).IsEqualTo(1);
     }
 
+    /// <summary>
+    /// The nested OBJECT list (spec §3 S4) used to be dropped with PICOSERDE004, and this
+    /// test pinned exactly that. R2 Task 6 taught the TOML writer the missing form (an inline
+    /// table as an ARRAY ELEMENT, `Rows = [[{ Name = "a" }]]`), so the row is closed: the
+    /// member is emitted and nothing is reported. Keeping the old assertion would demand the
+    /// gap back.
+    /// </summary>
     [Test]
-    public async Task NestedListMember_IsReported()
+    public async Task NestedObjectListMember_IsEmittedAndNotReported()
     {
         const string source = """
             using PicoToml;
@@ -94,8 +109,10 @@ public class RecursiveDiagnosticTests
             }
             """;
 
-        var ids = RunGenerator(source);
-        await Assert.That(ids).Contains("PICOSERDE004");
+        var (ids, generated) = RunGeneratorWithSource(source);
+        await Assert.That(ids).DoesNotContain("PICOSERDE004");
+        // Not "the test passed because nothing was generated": the emitter has to be there.
+        await Assert.That(generated).Contains("WriteStartInlineTableValue").Because(generated);
     }
 
     /// <summary>

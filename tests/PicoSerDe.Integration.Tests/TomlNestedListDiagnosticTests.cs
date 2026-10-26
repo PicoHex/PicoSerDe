@@ -13,10 +13,12 @@ public class TomlNestedDropLeaf
 }
 
 /// <summary>
-/// F6 boundary: a nested <em>primitive</em> array is representable in TOML (an inline
-/// array of inline arrays) and is generated now; a nested <em>object</em> array is not
-/// (there is no array-table of array-tables), so it must still be dropped with
-/// PICOSERDE004 and leave the document otherwise intact.
+/// F6 boundary, both halves now open: a nested <em>primitive</em> array is an inline
+/// array of inline arrays, and since R2 Task 6 a nested <em>object</em> array is an
+/// inline array of inline TABLES (`Grid = [[{ Name = "a" }]]`, spec §3 S4) —
+/// the form the spec's own §9 probe measures with tomllib. There is still no
+/// array-table of array-tables, which is why the OLD code dropped the shape; the inline
+/// table is the form that exists.
 /// </summary>
 public class TomlNestedDropDoc
 {
@@ -28,8 +30,8 @@ public class TomlNestedDropDoc
 /// <summary>
 /// F6: <c>List&lt;List&lt;int&gt;&gt;</c> used to be dropped by the shared PICOSERDE004
 /// diagnostic for TOML even though TOML expresses it natively. This pins the
-/// diagnostic itself (needs a generator-driven compilation), plus the remaining
-/// boundary: the object-leaf chain stays unrepresentable.
+/// diagnostic itself (needs a generator-driven compilation) for BOTH halves of the
+/// row: the scalar leaf (F6) and the object leaf (R2 Task 6, spec §3 S4).
 /// </summary>
 public class TomlNestedListDiagnosticTests
 {
@@ -64,7 +66,7 @@ public class TomlNestedListDiagnosticTests
     }
 
     [Test]
-    public async Task Toml_NestedObjectListMember_IsDroppedWithTheDiagnostic()
+    public async Task Toml_NestedObjectListMember_IsEmittedWithoutTheDiagnostic()
     {
         const string source = """
             using PicoToml;
@@ -84,9 +86,16 @@ public class TomlNestedListDiagnosticTests
             }
             """;
 
+        // R2 Task 6: the debt this test named is paid. An array-of-tables cannot nest, but
+        // an INLINE TABLE inside an inline array can, so the member is emitted and nothing
+        // is reported. Keeping the old assertion would demand the gap back.
         var (ids, generated) = RunGenerator(source);
-        await Assert.That(ids).Contains(Id).Because("array tables cannot nest");
-        await Assert.That(generated).DoesNotContain("Rows").Because("the member must be dropped");
+        await Assert.That(ids).DoesNotContain(Id);
+        await Assert.That(generated).Contains("Rows").Because("the member is emitted now");
+        await Assert
+            .That(generated)
+            .Contains("WriteStartInlineTableValue")
+            .Because("the object element is an inline table, not a nested table header");
         await Assert.That(generated).Contains("Count").Because("the sibling must survive");
     }
 
@@ -123,7 +132,7 @@ public class TomlNestedListDiagnosticTests
     /// wire and leaves an empty collection behind, while its siblings round-trip.
     /// </summary>
     [Test]
-    public async Task Toml_NestedObjectListMember_IsDroppedAtRuntime()
+    public async Task Toml_NestedObjectListMember_RoundTripsAtRuntime()
     {
         var doc = new TomlNestedDropDoc
         {
@@ -136,7 +145,9 @@ public class TomlNestedListDiagnosticTests
 
         await Assert.That(toml).Contains("K = \"k\"");
         await Assert.That(toml).Contains("Count = 7");
-        await Assert.That(toml).DoesNotContain("Grid");
+        // An inline array of inline tables — never `[[Grid]]` (an array of tables cannot
+        // nest, which is what used to force the drop).
+        await Assert.That(toml).Contains("Grid = [[{").Because(toml);
         await Assert.That(toml).DoesNotContain("[[Grid");
 
         var back = TomlSerializer.Deserialize<TomlNestedDropDoc>(
@@ -145,7 +156,9 @@ public class TomlNestedListDiagnosticTests
         await Assert.That(back).IsNotNull();
         await Assert.That(back!.K).IsEqualTo("k");
         await Assert.That(back.Count).IsEqualTo(7);
-        await Assert.That(back.Grid.Count).IsEqualTo(0);
+        await Assert.That(back.Grid.Count).IsEqualTo(1).Because(toml);
+        await Assert.That(back.Grid[0].Count).IsEqualTo(1).Because(toml);
+        await Assert.That(back.Grid[0][0].Name).IsEqualTo("a").Because(toml);
     }
 
     private static (string[] DiagnosticIds, string Generated) RunGenerator(string source)
