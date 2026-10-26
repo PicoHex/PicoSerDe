@@ -230,15 +230,21 @@ public readonly record struct AttributeHelpers(
 internal static class GenInfrastructure
 {
     // ── verdict markers ────────────────────────────────────────────────────────────────
-    // The ONE definition of the three glyphs every drop message starts with. Every
-    // messageFormat below is built from these constants (never from a literal), so the
-    // glyph cannot drift between the six templates that carry a verdict (review M-1).
-
-    /// <summary>⛔ the FORMAT cannot express the shape (terminal).</summary>
-    private const string ImpossibleMarker = "\u26D4";
-
-    /// <summary>⏸ the format CAN express the shape; this generator has not (our debt).</summary>
-    private const string DeferredMarker = "\u23F8";
+    // ⛔ and ⏸ are NOT defined here. "The FORMAT cannot" vs "we have not implemented it"
+    // IS a capability verdict, so both glyphs have their ONE definition in
+    // FormatCapabilities (shared by all five generators) and every messageFormat below
+    // REFERENCES them:
+    //
+    //     FormatCapabilities.ImpossibleMarker   ⛔
+    //     FormatCapabilities.DeferredMarker     ⏸
+    //
+    // Never spell a glyph here. A second copy compiles, emits the same bytes and breaks
+    // no behavioural test, so `VerdictMarkerGuardTests` fails on any literal ⛔/⏸ outside
+    // FormatCapabilities.cs (a rename or a value change in one copy would otherwise leave
+    // the two sites disagreeing silently).
+    //
+    // ⚠ stays local because it is not a capability verdict at all: it says the MEMBER is
+    // unreadable, i.e. no format and no generator change can help (review I-2).
 
     /// <summary>
     /// ⚠ the MEMBER is not serializable in any format (no getter), so neither a format
@@ -297,7 +303,7 @@ internal static class GenInfrastructure
     private static readonly DiagnosticDescriptor UnsupportedTypeImpossibleWarning = new(
         id: "PICOSERDE001",
         title: "Member dropped: this format cannot represent its type",
-        messageFormat: ImpossibleMarker
+        messageFormat: FormatCapabilities.ImpossibleMarker
             + " Member '{0}' (declared type '{1}') was dropped by the {2} source generator: {3}. The {2} format cannot represent it, so nothing on the generator side can change that — use a format that can, or change the member's type.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
@@ -315,7 +321,7 @@ internal static class GenInfrastructure
     private static readonly DiagnosticDescriptor UnsupportedTypeDeferredWarning = new(
         id: "PICOSERDE001",
         title: "Member dropped: not implemented yet (this format can hold it)",
-        messageFormat: DeferredMarker
+        messageFormat: FormatCapabilities.DeferredMarker
             + " Member '{0}' (declared type '{1}') was dropped by the {2} source generator: {3}. The {2} format can express this shape, but this generator has not implemented it yet — the drop is a recorded gap, not a format limit. reopen: the condition is tracked as debt in the format-capabilities matrix (spec §3/§6).",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
@@ -367,7 +373,7 @@ internal static class GenInfrastructure
     private static readonly DiagnosticDescriptor RecursiveMemberImpossibleWarning = new(
         id: "PICOSERDE003",
         title: "Recursive member dropped: this format cannot hold a type cycle",
-        messageFormat: ImpossibleMarker
+        messageFormat: FormatCapabilities.ImpossibleMarker
             + " Member '{0}' (declared type '{2}') closes a type cycle, and the {1} format cannot represent one. Use a format that can hold recursion, or remove the cycle.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
@@ -382,7 +388,7 @@ internal static class GenInfrastructure
     private static readonly DiagnosticDescriptor RecursiveMemberDeferredWarning = new(
         id: "PICOSERDE003",
         title: "Recursive member dropped: not implemented yet (this format can hold a cycle)",
-        messageFormat: DeferredMarker
+        messageFormat: FormatCapabilities.DeferredMarker
             + " Member '{0}' (declared type '{2}') closes a type cycle; the {1} format can represent one, but this generator has not implemented it yet. The drop is a recorded gap, not a format limit. reopen: the condition is tracked as debt in the format-capabilities matrix (spec §3/§6).",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
@@ -459,7 +465,7 @@ internal static class GenInfrastructure
     private static readonly DiagnosticDescriptor UnsupportedMemberImpossibleWarning = new(
         id: "PICOSERDE004",
         title: "Member dropped: this format cannot represent its shape",
-        messageFormat: ImpossibleMarker
+        messageFormat: FormatCapabilities.ImpossibleMarker
             + " Member '{0}' (declared type '{2}') cannot be represented by the {1} format. Use a format that can, or change the member's type.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
@@ -473,7 +479,7 @@ internal static class GenInfrastructure
     private static readonly DiagnosticDescriptor UnsupportedMemberDeferredWarning = new(
         id: "PICOSERDE004",
         title: "Member dropped: not implemented yet (this format can represent it)",
-        messageFormat: DeferredMarker
+        messageFormat: FormatCapabilities.DeferredMarker
             + " Member '{0}' (declared type '{2}') is dropped by the {1} generator even though the {1} format can represent it: this generator has not implemented it yet. The drop is a recorded gap, not a format limit. reopen: the condition is tracked as debt in the format-capabilities matrix (spec §3/§6).",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,

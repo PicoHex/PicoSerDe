@@ -164,6 +164,9 @@ internal static class FormatCapabilities
         ShapesUsing(d).All(shapeId => CanRepresent(formatTag, shapeId));
 
     // ── diagnostics (I-5 / D-4) ────────────────────────────────────────────────────
+    // The ONE definition of the two capability verdict glyphs. `GenInfrastructure`'s
+    // messageFormats REFERENCE these constants (never a literal) and no other file in
+    // `shared/Gen` may spell ⛔ or ⏸ — `VerdictMarkerGuardTests` enforces both halves.
 
     /// <summary>
     /// The TERMINAL marker: the FORMAT cannot express the shape. No generator change can
@@ -179,14 +182,10 @@ internal static class FormatCapabilities
     /// </summary>
     internal const string DeferredMarker = "\u23F8";
 
-    /// <summary>
-    /// The marker a drop of decision point <paramref name="d"/> carries in
-    /// <paramref name="formatTag"/>: ⛔ when the FORMAT cannot express it, ⏸ when it can
-    /// and the drop is our gap. The FACTS answer — never a format literal and never the
-    /// implementation status (spec C1: progress must not be written as a format fact).
-    /// </summary>
-    internal static string MarkerFor(string formatTag, Decision d) =>
-        CanRepresent(formatTag, d) ? DeferredMarker : ImpossibleMarker;
+    // The marker a specific drop carries is NOT derived here: only the extraction site
+    // knows which decision point fired, so it asks `CanRepresent(formatTag, point)` and
+    // records the answer as a `DropVerdict` (`GenInfrastructure.SkippedBy`). There is no
+    // `MarkerFor`: it had zero callers (review W5-2, dead code).
 
     // ── reverse index ──────────────────────────────────────────────────────────────
 
