@@ -172,7 +172,7 @@ currently gets wrong about them, and what the library must do about it
 |---|---|---|
 | **D-1** | 静默丢失 | `HashSet<T>` 家族作**成员**：MsgPack/TOML/YAML/INI 无任何诊断且成员消失（JSON 正常） |
 | **D-2** | 静默丢失 | 同上作**元素**（`List<HashSet<int>>`）：四格式静默（JSON 有诊断） |
-| **D-6** | **静默的根因** | `PICOSERDE001` 被收集后**从不发射**：`GenInfrastructure.cs:1133`（公开字段）、`:1188`（属性）只 `diagnostics?.Add` + `continue`，而 5 个生成器从不传该列表；仅 `:1537`（递归）另有 `skippedRecursive` 故产出 `003`。任何解析不出的类型都会静默消失 |
+| **D-6** | **静默的根因** | `PICOSERDE001` 被收集后**从不发射**：`GenInfrastructure.cs:1133`（公开字段）、`:1188`（属性）只 `diagnostics?.Add` + `continue`，而 5 个生成器从不传该列表；仅 `:1537`（递归）另有 `skippedRecursive` 故产出 `003`。任何解析不出的类型都会静默消失 | | **R1 T5 已修**（`07c276e`+`00db45b`）：三站点改上报，`PICOSERDE001` 带 `Location` |
 | **D-5** | 数据损坏 | TOML 互递归往返**覆盖根成员**（写 `K="root"` + `[Child] K="c1"`，读回 `K="c1"`） |
 | **D-7a** | 值级丢失 | TOML：`List<string?>` 的 null 元素被静默跳过（成员在、值丢）。TOML 无 null ⇒ 应改为**类型级不支持 + 诊断** |
 | **D-7b** | 值级丢失 | YAML：同上。YAML 有 null ⇒ 应**支持** |
@@ -183,7 +183,7 @@ currently gets wrong about them, and what the library must do about it
 | **D-9b** | 静默 | TOML **写侧**：`TomlWriter.NeedsKeyQuoting` 只判 `空格 \t = [ ] . # "`，**不含** `\n`/`\r`/其他控制字符`/`\` ⇒ 含换行的键写出后**读不回来**（与 D-9 的挂死无关，是独立缺陷） | `TomlWriter.cs`；W0 实测（`toml\|S9` 从 TIMEOUT 变 MISMATCH 后露出）。**归属**：R2 Task 6 **已修**——黑名单换成 TOML 1.0 的 bare-key 文法（`[A-Za-z0-9_-]+`，其余一律加引号并转义），`toml\|S9` 由 MISMATCH 转 OK；回往测试 `TomlDictKeyQuotingTests`。同一修法顺带修正了推导键 `$type`的 wire（`$` 不在 bare-key 文法里 ⇒ 写成 `"$type"`）。**范围**：本条只覆盖 **KEY**；表头名（`WriteTable`/`WriteNestedTable`/`WriteArrayTable`）仍裸写，属 pre-existing，不在本条修复面内 |
 | **D-9c** | **挂死族** | 表头名**不在模型里**时发射层零 `Read()` ⇒ token 恒 `ObjectStart` ⇒ 自旋。触发面比 D-9 更广（`[tool.*]`/`[build-system]` 等真实文件必然命中）。实测需 **6 个派发分支 + 3 个内层循环**的推进守卫（`BytesConsumed` 未变则 `Read()`） | W0 fix round 1（`f34d5be`）+ 两份复核。**归属**：R2 T0 已修 |
 | **D-9d** | 静默 | `[[Unknown]]`（外来数组表头）会开出**第二个空元素**，不重查表名。今天测试把它钉成"2 个元素"的契约 ⇒ 将来修它必须同步改断言 | W0 fix round 1 实测。**归属**：R2 Task 6 **已修**——元素循环在接下一个 `[[…]]` 表头前重查表名（三个发射点：缓冲/流式/多态）。**正确元素数是 1**（`[[Items]]` + `Name = "a"` 就是一个元素；`Unknown` 不是 `Items`，贡献 0；0 也错，那个真元素必须活下来）；断言已同步改为 1（`TomlUnknownTableHangTests`）。**T6 fix round 1 修正比较口径**：重查与 arm 匹配都改成**同层比较**（`TextHelpers.EqLastSegment`，表头的**最后一段** vs 成员名）—— 拿**整条 `TablePath`** 与裸名比较时，手写的标准嵌套表头 `[[Parent.Items]]` 匹配不到任何 arm，元素**全部静默丢失**（实测 0 个，不是 1 个）；现由 `TomlUnknownTableHangTests.DottedArrayOfTablesHeader_NamesTheMemberByItsLastSegment` 钉住（`[[Parent.Items]]`×2 ⇒ **2 个元素**），流式与多态两个入口各有同一条用例。`[table]` 头**不**改：嵌套表由各自的 helper 按前缀派发，放松会把真实文件里的 `[tool.ruff]` 喂给名为 `ruff` 的成员 |
-| **D-10** | 误导 | `PICOSERDE005`（匿名类型）是**第四个 drop 通道**：无 ⛔/⏸/⚠ 标记、消息把「我们生成不了名字」写成 "cannot be serialized by {format}"、`location: null` 不可导航。它使 I-5 的「每条 drop 消息都带标记」**名义上有、实际没被强制**（现有测试的样本永远命不中它） | `GenInfrastructure.cs:798-820`；W5 第三轮 code review N-1。**归属**：R2（与 D-8 并入共用管线一起做） |
+| **D-10** | 误导 | `PICOSERDE005`（匿名类型）曾是**第四个 drop 通道**（R2 T8 前：无标记、消息写成格式事实、`location: null`）。它使 I-5 的「每条 drop 消息都带标记」**名义上有、实际没被强制**（现有测试的样本永远命不中它） | `GenInfrastructure.cs:798-820`；W5 第三轮 code review N-1。**归属**：R2（与 D-8 并入共用管线一起做） | | **R2 T8 已修**（`53dfb69`+`d330b59`）：⏸ + `reopen:` + 真实成员位置 |
 
 **归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）；**D-9 → R2**（R1 禁止改行为）。
 
