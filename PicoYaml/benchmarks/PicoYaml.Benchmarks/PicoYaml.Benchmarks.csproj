@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\..\shared\BenchModels.cs" Link="BenchModels.cs" />
+    <Compile Include="..\..\..\shared\BenchRoleGuard.cs" Link="BenchRoleGuard.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\PicoYaml\PicoYaml.csproj" />

@@ -55,80 +55,80 @@ Console.WriteLine();
 // --- 1. Serialize Simple POCO ---
 var serSimple = Benchmark.Compare(
     "Simple POCO — Serialize",
-    "PicoJetson",
-    () => JsonSerializer.SerializeToUtf8Bytes(simple),
     "System.Text.Json",
-    () => StjJson.SerializeToUtf8Bytes(simple, ctx.SimplePoco)
+    () => StjJson.SerializeToUtf8Bytes(simple, ctx.SimplePoco),
+    "PicoJetson",
+    () => JsonSerializer.SerializeToUtf8Bytes(simple)
 );
 PrintComparison(serSimple);
 
 // --- 2. Deserialize Simple POCO ---
 var deserSimple = Benchmark.Compare(
     "Simple POCO — Deserialize",
-    "PicoJetson",
-    () => JsonSerializer.Deserialize<SimplePoco>(simpleBytesPico),
     "System.Text.Json",
-    () => StjJson.Deserialize(simpleBytesStj, ctx.SimplePoco)
+    () => StjJson.Deserialize(simpleBytesStj, ctx.SimplePoco),
+    "PicoJetson",
+    () => JsonSerializer.Deserialize<SimplePoco>(simpleBytesPico)
 );
 PrintComparison(deserSimple);
 
 // --- 3. Serialize Complex POCO ---
 var serComplex = Benchmark.Compare(
     "Complex POCO — Serialize",
-    "PicoJetson",
-    () => JsonSerializer.SerializeToUtf8Bytes(complex),
     "System.Text.Json",
-    () => StjJson.SerializeToUtf8Bytes(complex, ctx.ComplexPoco)
+    () => StjJson.SerializeToUtf8Bytes(complex, ctx.ComplexPoco),
+    "PicoJetson",
+    () => JsonSerializer.SerializeToUtf8Bytes(complex)
 );
 PrintComparison(serComplex);
 
 // --- 4. Deserialize Complex POCO ---
 var deserComplex = Benchmark.Compare(
     "Complex POCO — Deserialize",
-    "PicoJetson",
-    () => JsonSerializer.Deserialize<ComplexPoco>(complexBytesPico),
     "System.Text.Json",
-    () => StjJson.Deserialize(complexBytesStj, ctx.ComplexPoco)
+    () => StjJson.Deserialize(complexBytesStj, ctx.ComplexPoco),
+    "PicoJetson",
+    () => JsonSerializer.Deserialize<ComplexPoco>(complexBytesPico)
 );
 PrintComparison(deserComplex);
 
 // --- 5. Serialize Nested POCO ---
 var serNested = Benchmark.Compare(
     "Nested POCO — Serialize",
-    "PicoJetson",
-    () => JsonSerializer.SerializeToUtf8Bytes(nested),
     "System.Text.Json",
-    () => StjJson.SerializeToUtf8Bytes(nested, ctx.NestedPoco)
+    () => StjJson.SerializeToUtf8Bytes(nested, ctx.NestedPoco),
+    "PicoJetson",
+    () => JsonSerializer.SerializeToUtf8Bytes(nested)
 );
 PrintComparison(serNested);
 
 // --- 6. Deserialize Nested POCO ---
 var deserNested = Benchmark.Compare(
     "Nested POCO — Deserialize",
-    "PicoJetson",
-    () => JsonSerializer.Deserialize<NestedPoco>(nestedBytesPico),
     "System.Text.Json",
-    () => StjJson.Deserialize(nestedBytesStj, ctx.NestedPoco)
+    () => StjJson.Deserialize(nestedBytesStj, ctx.NestedPoco),
+    "PicoJetson",
+    () => JsonSerializer.Deserialize<NestedPoco>(nestedBytesPico)
 );
 PrintComparison(deserNested);
 
 // --- 7. Serialize Collection POCO ---
 var serCol = Benchmark.Compare(
     "Collection POCO — Serialize",
-    "PicoJetson",
-    () => JsonSerializer.SerializeToUtf8Bytes(collection),
     "System.Text.Json",
-    () => StjJson.SerializeToUtf8Bytes(collection, ctx.CollectionPoco)
+    () => StjJson.SerializeToUtf8Bytes(collection, ctx.CollectionPoco),
+    "PicoJetson",
+    () => JsonSerializer.SerializeToUtf8Bytes(collection)
 );
 PrintComparison(serCol);
 
 // --- 8. Deserialize Collection POCO ---
 var deserCol = Benchmark.Compare(
     "Collection POCO — Deserialize",
-    "PicoJetson",
-    () => JsonSerializer.Deserialize<CollectionPoco>(collectionBytesPico),
     "System.Text.Json",
-    () => StjJson.Deserialize(collectionBytesStj, ctx.CollectionPoco)
+    () => StjJson.Deserialize(collectionBytesStj, ctx.CollectionPoco),
+    "PicoJetson",
+    () => JsonSerializer.Deserialize<CollectionPoco>(collectionBytesPico)
 );
 PrintComparison(deserCol);
 
@@ -171,19 +171,19 @@ var largeFlatBytesStj = StjJson.SerializeToUtf8Bytes(largeFlat, ctx.LargeFlatPoc
 
 var serLargeFlat = Benchmark.Compare(
     "LargeFlat 50-fields — Serialize",
-    "PicoJetson",
-    () => JsonSerializer.SerializeToUtf8Bytes(largeFlat),
     "System.Text.Json",
-    () => StjJson.SerializeToUtf8Bytes(largeFlat, ctx.LargeFlatPoco)
+    () => StjJson.SerializeToUtf8Bytes(largeFlat, ctx.LargeFlatPoco),
+    "PicoJetson",
+    () => JsonSerializer.SerializeToUtf8Bytes(largeFlat)
 );
 PrintComparison(serLargeFlat);
 
 var deserLargeFlat = Benchmark.Compare(
     "LargeFlat 50-fields — Deserialize",
-    "PicoJetson",
-    () => JsonSerializer.Deserialize<LargeFlatPoco>(largeFlatBytesPico),
     "System.Text.Json",
-    () => StjJson.Deserialize(largeFlatBytesStj, ctx.LargeFlatPoco)
+    () => StjJson.Deserialize(largeFlatBytesStj, ctx.LargeFlatPoco),
+    "PicoJetson",
+    () => JsonSerializer.Deserialize<LargeFlatPoco>(largeFlatBytesPico)
 );
 PrintComparison(deserLargeFlat);
 
@@ -194,19 +194,19 @@ var largeStringBytesStj = StjJson.SerializeToUtf8Bytes(largeString, ctx.LargeStr
 
 var serLargeStr = Benchmark.Compare(
     "LargeString 1KB — Serialize",
-    "PicoJetson",
-    () => JsonSerializer.SerializeToUtf8Bytes(largeString),
     "System.Text.Json",
-    () => StjJson.SerializeToUtf8Bytes(largeString, ctx.LargeStringPoco)
+    () => StjJson.SerializeToUtf8Bytes(largeString, ctx.LargeStringPoco),
+    "PicoJetson",
+    () => JsonSerializer.SerializeToUtf8Bytes(largeString)
 );
 PrintComparison(serLargeStr);
 
 var deserLargeStr = Benchmark.Compare(
     "LargeString 1KB — Deserialize",
-    "PicoJetson",
-    () => JsonSerializer.Deserialize<LargeStringPoco>(largeStringBytesPico),
     "System.Text.Json",
-    () => StjJson.Deserialize(largeStringBytesStj, ctx.LargeStringPoco)
+    () => StjJson.Deserialize(largeStringBytesStj, ctx.LargeStringPoco),
+    "PicoJetson",
+    () => JsonSerializer.Deserialize<LargeStringPoco>(largeStringBytesPico)
 );
 PrintComparison(deserLargeStr);
 
@@ -236,6 +236,11 @@ Console.WriteLine(
 
 static void PrintComparison(ComparisonResult c)
 {
+    // Roles: candidate = PicoJetson (ours), baseline = System.Text.Json. The
+    // PicoJetson= column therefore reads Candidate and the STJ= column reads
+    // Baseline; Speedup = Baseline.Avg / Candidate.Avg, so >1 means PicoJetson is
+    // faster. Guard() throws instead of printing a silently inverted table.
+    BenchmarkRoles.Guard(c);
     var icon = c.IsFaster ? "✓" : "✗";
     Console.WriteLine(
         $"{icon} {c.Name, -38} PicoJetson={c.Candidate.Statistics.Avg / 1000:F1}μs  "

@@ -95,13 +95,21 @@ accepts options for API uniformity.
 
 ## Performance
 
-JIT, .NET 10, 100K iterations:
+**No performance numbers are published right now** — see the
+[root README](../README.md#performance). The harness had a defect that inverted every
+comparison (PicoSerDe's action passed in PicoBench's *baseline* slot, at all 26 call sites),
+so the previous speedup table described the opposite of what it claimed and has been withdrawn.
 
-| Benchmark | PicoMsgPack | MessagePack-CSharp | Speedup |
-|-----------|:----------:|:------------------:|:-------:|
-| Complex Serialize | 0.4μs | 0.7μs | **1.81x** |
-| Collection Deserialize | 0.8μs | 1.7μs | **2.18x** |
-| Simple Deserialize | 0.3μs | 0.5μs | **1.79x** |
+What *is* verified, and is a capability fact rather than a ratio: **MessagePack-CSharp only
+partly works under NativeAOT.** It builds formatters for enums and generic collections at run
+time with `MakeGenericType` + `Activator.CreateInstance`, which NativeAOT cannot do, so any
+`[MessagePackObject]` containing an enum or a generic collection (`List<int>`,
+`Dictionary<string,string>`) throws
+`MissingMethodException: No parameterless constructor defined for type ...` on first use.
+Types restricted to `string`/`int`/`bool`/`double`/`DateTime` are statically resolvable and do
+run ahead of time — that is the model set `PicoMsgPack.Benchmarks.Aot` uses, deliberately. The
+unified benchmark's models carry `DayOfWeek`, `Dictionary<string,string>` and `List<int>`, so
+that benchmark is JIT-only and says so in its csproj.
 
 ## Low-Level API
 

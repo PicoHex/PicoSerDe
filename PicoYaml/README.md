@@ -126,13 +126,18 @@ your build — `dotnet build 2>&1 | grep PICOSERDE`. The full five-format matrix
 
 ## Performance
 
-AOT self-contained, .NET 10, 100K iterations:
+**This file reports no ratio and claims no speedup — it has no competitor to measure.**
+YamlDotNet parses a DOM under NativeAOT, but its reflection-based typed POCO mapping fails
+there (see the [competitor/AOT matrix](../README.md#nativeaot-support-by-competitor-verified-not-a-performance-claim)),
+so no like-for-like AOT pair exists.
 
-| Benchmark | Serialize | Deserialize | Ratio |
-|-----------|:---------:|:-----------:|:-----:|
-| Simple | 0.1μs | 0.3μs | 0.48 |
-| Nested | 0.5μs | 0.5μs | 0.88 |
-| Collection | 3.5μs | 3.7μs | 0.95 |
+`PicoYaml.Benchmarks` is therefore a **self-benchmark**: one `Benchmark.Run` per operation,
+printed as absolute cost with no comparison and no speedup figure. It used to print a
+"Serialize vs Deserialize" ratio built from two of our own operations — with the "Deserialize"
+row in fact calling `SerializeToUtf8Bytes` — which measured nothing meaningful and is gone.
+
+Run `dotnet run -c Release --project PicoYaml/benchmarks/PicoYaml.Benchmarks` for current
+local timings.
 
 ## Why PicoYaml
 

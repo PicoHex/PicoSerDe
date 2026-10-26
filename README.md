@@ -50,45 +50,56 @@ Every module has its own suite, cross-validated against a competitor implementat
 > streaming and comment handling all fail loudly instead of silently producing
 > defaults.
 
-## Performance Summary
+## Performance
 
-Numbers are measured, and the mode is labelled per row rather than mixed into one
-column. "AOT vs AOT" is the strong claim: both sides compiled ahead of time and both
-actually finish. It is only possible where the competitor supports NativeAOT.
+**No performance numbers are published right now, and the ones that used to be here were
+wrong.** The benchmark harness had a measurement defect that inverted every comparison, so
+the previous speedup table is withdrawn rather than corrected in place. Re-measurement is
+in progress; this section will only get numbers back once they come from the fixed harness.
 
-Benchmarks: .NET 10, win-x64, AMD Ryzen 7 6800H. Ratios are speedup over the
-competitor (higher is better); ranges are the spread over three consecutive runs on an
-otherwise idle machine, and the win counts are scenarios won out of those attempted.
+What was wrong — all four fixed in `bench/fix-inversion`, none of them a change to the
+serializers themselves:
 
-| Module | Competitor | AOT vs AOT | JIT vs JIT | Why the modes differ |
-|--------|------------|:----------:|:----------:|----------------------|
-| PicoJetson | System.Text.Json | **1.9–2.2x** (10–12/12) | — | STJ is AOT-ready, so no JIT row is needed |
-| PicoMsgPack | MessagePack-CSharp | **1.8–1.9x** (3–4/4) | 1.3–1.5x (7–8/8) | see below |
-| PicoIni | ini-parser | ~0.03–0.05x (~12 ms/POCO) | — | judge by absolute cost, see the ratio caveat |
-| PicoToml | Tommy | ~0.18–0.20x | — | |
-| PicoYaml | YamlDotNet | **~1.0x** (1–3/3) | — | parity, not a loss |
+1. **Every `Benchmark.Compare` call passed its two actions in the wrong slots.** PicoBench's
+   signature is `Compare(name, baselineName, baselineAction, candidateName, candidateAction)`
+   and `Speedup = Baseline.Avg / Candidate.Avg`. All 26 call sites passed PicoSerDe's own
+   action as the *baseline* and the competitor's as the *candidate*, which swapped the column
+   labels in every table and turned each ratio upside down: a row that read as a speedup was
+   in truth the same magnitude of slowdown, with the two column headers printed backwards.
+2. **A reported "AOT" comparison measured an inflated absolute cost** because the two sides
+   were not compiled the same way.
+3. **The INI/TOML/YAML benchmarks did not run equivalent work on the competitor's side** —
+   the "competitor" arm included a hand-written DOM walk plus typed mapping, or (in YAML) a
+   second `Serialize` call labelled "Deserialize".
+4. **A `PrintComparison` helper labelled the candidate (the competitor) as `PicoJetson=`.**
 
-**Why PicoMsgPack has two rows.** MessagePack-CSharp builds formatters for enums and
-generic collections at run time (`MakeGenericType` + `Activator.CreateInstance`), which
-NativeAOT cannot do. Its `[MessagePackObject]` types with `string`/`int` only are
-statically resolvable and run fine ahead of time — that is the AOT row, measured by
-`PicoMsgPack.Benchmarks.Aot`. The unified cross-format benchmark adds `DayOfWeek`,
-`Dictionary<string,string>` and `List<int>` to the same models, so under AOT it throws
-`MissingMethodException: No parameterless constructor defined for type ...` on the first
-complex model; that benchmark is therefore JIT-only and says so in its csproj.
+A runtime role guard (`shared/BenchRoleGuard.cs`, linked into every benchmark project) now
+throws `InvalidOperationException` — naming both actual benchmark names — if a comparison's
+candidate slot is not a `Pico*` action or its baseline slot is. Re-breaking the argument order
+crashes the benchmark instead of silently printing a backwards table.
 
-**The INI ratio moves for reasons unrelated to INI.** `Speedup = baseline / candidate`,
-and the candidate's absolute cost barely changed across two releases (11.6 ms to 12.1 ms)
-while the baseline drifted between 250 and 600 μs — so the ratio swung from 0.05x to
-0.03x without the candidate regressing. Judge INI by its absolute cost, not the ratio.
+### NativeAOT support, by competitor (verified, not a performance claim)
 
-> JSON/MessagePack are faster than or competitive with their JIT-based
-> alternatives even when both sides are compiled ahead of time. INI/TOML/YAML
-> prioritize correct, reflection-free parsing over peak throughput — their
-> competitors benefit from years of runtime-level optimizations (cached keys,
-> direct span writes, dynamic code gen) that are incompatible with NativeAOT.
-> PicoSerDe is the **only** option that runs at all in a fully-trimmed,
-> self-contained NativeAOT deployment for these formats.
+These are capability facts, not performance claims. The two columns are deliberately
+separate, because "the library runs ahead of time" and "the library maps typed POCOs ahead of
+time" are different questions and only the second one is what a serializer user cares about.
+
+| Library | Runs under NativeAOT | Typed POCO round-trip under AOT |
+|---------|:--------------------:|:-------------------------------:|
+| System.Text.Json | ✅ with a source-generated `JsonSerializerContext` | ✅ |
+| MessagePack-CSharp | ⚠️ only statically resolvable types (`string`, `int`, `List<int>`) | ⚠️ enums and generic collections throw `MissingMethodException` — it builds formatters with `MakeGenericType` + `Activator.CreateInstance` |
+| ini-parser | ✅ DOM parsing works | ❌ reflection-based, no AOT mapper |
+| Tommy | ✅ DOM parsing works | ❌ no typed mapper (only the DOM API) |
+| YamlDotNet | ✅ DOM works | ❌ reflection-based typed POCO mapping fails |
+| **PicoSerDe** | ✅ | ✅ all five formats |
+
+**PicoSerDe is the only AOT solution above that round-trips typed POCOs across all five
+formats** (JSON, TOML, YAML, INI, MessagePack). That is a capability statement, not a
+throughput statement: it says what runs at all, not what runs fastest.
+
+> The [`Comparison`](#comparison) table further down scores `AOT` as the second column above
+> — typed serialization works ahead of time — which is why ini-parser, Tommy, YamlDotNet and
+> MessagePack-CSharp score ❌/⚠️ there even though their parsers themselves do run under AOT.
 
 ---
 

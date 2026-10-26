@@ -1,7 +1,9 @@
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoIni vs ini-parser — Performance Comparison");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
-Console.WriteLine("NOTE: ini-parser uses runtime reflection — incompatible with NativeAOT.");
+Console.WriteLine(
+    "NOTE: ini-parser parses a DOM under NativeAOT; its reflection-based typed mapping does not."
+);
 Console.WriteLine(new string('=', 60));
 Console.WriteLine();
 
@@ -123,14 +125,18 @@ foreach (var c in results)
         $"{(c.IsFaster ? "✓" : "✗")} {c.Name, -38} Pico={c.Candidate.Statistics.Avg / 1000:F1}μs  IFP={c.Baseline.Statistics.Avg / 1000:F1}μs  x{c.Speedup:F2}"
     );
 Console.WriteLine();
-Console.WriteLine("¹ ini-parser uses runtime reflection — incompatible with NativeAOT/trimming.");
+Console.WriteLine(
+    "¹ ini-parser: DOM parsing is AOT-safe, POCO mapping needs reflection and is not."
+);
 Console.WriteLine(new string('=', 60));
 Console.WriteLine(SummaryFormatter.Format(results));
 
 return;
 
+// Candidate = PicoIni (ours), baseline = ini-parser (competitor), so Speedup > 1
+// means PicoIni is faster. BenchmarkRoles.Guard throws if that is ever inverted.
 static ComparisonResult B(string name, Action candidate, Action baseline) =>
-    Benchmark.Compare(name, "PicoIni", candidate, "ini-parser¹", baseline);
+    BenchmarkRoles.Guard(Benchmark.Compare(name, "ini-parser¹", baseline, "PicoIni", candidate));
 
 // ── Helpers ──
 

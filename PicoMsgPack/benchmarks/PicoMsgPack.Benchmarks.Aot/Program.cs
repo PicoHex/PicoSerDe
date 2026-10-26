@@ -79,8 +79,13 @@ Console.WriteLine(SummaryFormatter.Format(results));
 
 return;
 
+// Candidate = PicoMsgPack (ours), baseline = MessagePack-CSharp (competitor), so
+// Speedup > 1 means PicoMsgPack is faster. BenchmarkRoles.Guard throws if that is
+// ever inverted.
 static ComparisonResult B(string name, Action candidate, Action baseline) =>
-    Benchmark.Compare(name, "PicoMsgPack", candidate, "MessagePack-CSharp", baseline);
+    BenchmarkRoles.Guard(
+        Benchmark.Compare(name, "MessagePack-CSharp", baseline, "PicoMsgPack", candidate)
+    );
 
 // Statically resolvable only: MessagePack's builtin resolver covers these without
 // run-time generic construction, which is what NativeAOT cannot do.
