@@ -1097,6 +1097,164 @@ internal static class GenInfrastructure
     public static bool IsComplexMember(PropertyInfo p) => p.TypeKind is "object" or "dict";
 
     /// <summary>
+    /// The EXTENDED collection kinds (D-2): collections every format writes as a plain
+    /// sequence, exactly like <c>list</c>/<c>array</c>, but that need their own construction
+    /// on the read side (<c>new HashSet&lt;int&gt;(tmpList)</c>).
+    /// <para>
+    /// One list, one place: <see cref="TypeKindResolver"/> names these kinds,
+    /// <see cref="IsSequenceKind"/> treats them as sequences, and
+    /// <see cref="EmitCollectionFromList"/> turns the temp list back into the declared type.
+    /// A generator that asks <c>kind is "hashset"</c> instead of these helpers is how the
+    /// family drifted apart in the first place.
+    /// </para>
+    /// </summary>
+    public static bool IsExtendedCollectionKind(string? kind) =>
+        kind
+            is "hashset"
+                or "queue"
+                or "stack"
+                or "linkedlist"
+                or "immutablearray"
+                or "memory"
+                or "readonlymemory";
+
+    /// <summary>
+    /// True for every TypeKind whose wire form is a SEQUENCE (<c>list</c>, <c>array</c> and
+    /// the seven extended collection kinds). This is the predicate the emitters should ask
+    /// before treating a member or an element as a sequence; asking <c>is "list" or "array"</c>
+    /// is what silently sent <c>HashSet&lt;int&gt;</c> to the scalar fallback.
+    /// </summary>
+    public static bool IsSequenceKind(string? kind) =>
+        kind is "list" or "array" || IsExtendedCollectionKind(kind);
+
+    /// <summary>
+    /// True when a sequence kind's VALUE can be null. <c>ImmutableArray&lt;T&gt;</c>,
+    /// <c>Memory&lt;T&gt;</c> and <c>ReadOnlyMemory&lt;T&gt;</c> are structs, so a generated
+    /// <c>x ?? []</c> or <c>x is null</c> on them does not compile — the yaml emitter asks
+    /// this before writing either.
+    /// </summary>
+    public static bool IsNullableSequenceKind(string? kind) =>
+        kind is "list" or "array" or "hashset" or "queue" or "stack" or "linkedlist";
+
+    /// <summary>
+    /// The expression that enumerates a sequence value on the WRITE side.
+    /// <c>Memory&lt;T&gt;</c>/<c>ReadOnlyMemory&lt;T&gt;</c> are not enumerable, so they are
+    /// written through <c>.Span</c>; everything else (List, array, HashSet, Queue, Stack,
+    /// LinkedList, ImmutableArray) is enumerated directly.
+    /// </summary>
+    public static string SequenceItemsExpression(string? kind, string accessor) =>
+        kind is "memory" or "readonlymemory" ? accessor + ".Span" : accessor;
+
+    /// <summary>
+    /// The <c>Count</c>/<c>Length</c> expression for a sequence value, for the writers that
+    /// announce the element count up front (msgpack) or test for an empty sequence (yaml's
+    /// <c>- []</c> item).
+    /// </summary>
+    public static string SequenceCountExpression(string? kind, string accessor) =>
+        kind is "array" or "immutablearray" or "memory" or "readonlymemory"
+            ? accessor + ".Length"
+            : accessor + ".Count";
+
+    /// <summary>
+    /// Emits the step that turns the temp <c>List&lt;T&gt;</c> a reader filled back into the
+    /// DECLARED collection type. <paramref name="assignTarget"/> receives the assignment, so
+    /// the caller decides whether that is <c>obj.Member</c>, a ctor parameter or a list
+    /// element.
+    /// <para>
+    /// The seven extended kinds are why this is shared: json had the only copy, which is how
+    /// the other four generators ended up with no conversion at all (and therefore no case
+    /// for the kind). One copy here means a new kind is added once.
+    /// </para>
+    /// </summary>
+    public static void EmitCollectionFromList(
+        StringBuilder sb,
+        string kind,
+        string listVar,
+        string assignTarget,
+        string elemType,
+        string indent
+    )
+    {
+        switch (kind)
+        {
+            case "array":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = ");
+                sb.Append(listVar);
+                sb.AppendLine(".ToArray();");
+                return;
+            case "immutablearray":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = System.Collections.Immutable.ImmutableArray.CreateRange(");
+                sb.Append(listVar);
+                sb.AppendLine(");");
+                return;
+            case "memory":
+            case "readonlymemory":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = new System.");
+                sb.Append(kind == "memory" ? "Memory" : "ReadOnlyMemory");
+                sb.Append("<");
+                sb.Append(elemType);
+                sb.Append(">(");
+                sb.Append(listVar);
+                sb.AppendLine(".ToArray());");
+                return;
+            case "stack":
+                // A Stack<T> enumerates top-of-stack first and its ctor pushes in the given
+                // order, so the temp list has to be replayed backwards or the round trip
+                // silently reverses the stack.
+                sb.Append(indent);
+                sb.Append("var __stk = new System.Collections.Generic.Stack<");
+                sb.Append(elemType);
+                sb.AppendLine(">();");
+                sb.Append(indent);
+                sb.Append("for (int __i = ");
+                sb.Append(listVar);
+                sb.AppendLine(".Count - 1; __i >= 0; __i--)");
+                sb.Append(indent);
+                sb.Append("    __stk.Push(");
+                sb.Append(listVar);
+                sb.AppendLine("[__i]);");
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.AppendLine(" = __stk;");
+                return;
+            case "hashset":
+            case "queue":
+            case "linkedlist":
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = new System.Collections.Generic.");
+                sb.Append(
+                    kind switch
+                    {
+                        "hashset" => "HashSet",
+                        "queue" => "Queue",
+                        _ => "LinkedList",
+                    }
+                );
+                sb.Append("<");
+                sb.Append(elemType);
+                sb.Append(">(");
+                sb.Append(listVar);
+                sb.AppendLine(");");
+                return;
+            default:
+                // "list": the temp list IS the declared type.
+                sb.Append(indent);
+                sb.Append(assignTarget);
+                sb.Append(" = ");
+                sb.Append(listVar);
+                sb.AppendLine(";");
+                return;
+        }
+    }
+
+    /// <summary>
     /// Discriminator used when a *concrete* polymorphic base instance is
     /// serialized (there is no matching derived case otherwise, which produced
     /// malformed output such as <c>{"$type":}</c>). Collision-safe against the
@@ -1948,19 +2106,17 @@ internal static class GenInfrastructure
                     skippedUnsupported?.Add(SkippedBy(type, prop, formatTag, elementDropPoint));
                     continue;
                 }
-                // Extended collection kinds are not supported as nested elements yet —
-                // drop (instead of emitting element code that does not compile) and
-                // report it: this used to be a bare `continue`, which lost the member in
-                // every format (JSON included) with no diagnostic at all.
+                // Extended collection in ELEMENT position (S8). The decision comes from the
+                // table, NOT from a kind list: this site used to be an unconditional
+                // `ek is "hashset" or ...` test, so the cell could say Supported while the
+                // member was still dropped — a table flip changed nothing at all (the
+                // "false green" the R2 review called out). Asking the table makes the
+                // model the single answer: a format whose cell is Supported reaches its
+                // element emitter below, and one whose cell is not still reports a drop.
                 if (
-                    ek
-                    is "hashset"
-                        or "queue"
-                        or "stack"
-                        or "linkedlist"
-                        or "immutablearray"
-                        or "memory"
-                        or "readonlymemory"
+                    IsExtendedCollectionKind(ek)
+                    && FormatCapabilities.Decide(formatTag, Decision.ExtendedKindAsElement)
+                        != Effect.Supported
                 )
                 {
                     skippedUnsupported?.Add(
@@ -2000,9 +2156,13 @@ internal static class GenInfrastructure
                         {
                             OriginalDefinition.SpecialType: SpecialType.System_Nullable_T
                         };
-                // Recursively describe nested List<List<...<T>>> — any depth
+                // Recursively describe nested List<List<...<T>>> — any depth. The extended
+                // collection kinds are sequences too, so `List<HashSet<int>>` gets the same
+                // one-descriptor-per-level chain `List<List<int>>` gets: without it the
+                // element emitter has no way to name the INNER element kind (int) and falls
+                // back to writing the whole set with ToString().
                 if (
-                    (ek is "list" or "array")
+                    IsSequenceKind(ek)
                     && elementType
                         is INamedTypeSymbol { TypeArguments.Length: 1 }
                             or IArrayTypeSymbol
@@ -2396,7 +2556,7 @@ internal static class GenInfrastructure
         // needs its members extracted so the generated inner helper is not
         // empty (and so a recursion back into the current type is detected).
         if (
-            innerKind is "list" or "array"
+            IsSequenceKind(innerKind)
             && innerType is INamedTypeSymbol { TypeArguments.Length: 1 } or IArrayTypeSymbol
         )
         {

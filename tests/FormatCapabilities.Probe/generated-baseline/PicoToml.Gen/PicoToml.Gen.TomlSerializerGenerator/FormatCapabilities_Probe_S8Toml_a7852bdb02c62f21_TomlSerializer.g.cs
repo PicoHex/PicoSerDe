@@ -11,6 +11,17 @@ S8Toml> {
     public void Serialize(IBufferWriter<byte> w, S8Toml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoToml.TomlOptions?)options;
         var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);
+        tw.WriteStartArray("V"u8);
+        foreach (var __item in v.V)
+        {
+            tw.WriteStartArray(""u8);
+            foreach (var __item1 in __item)
+            {
+                tw.WriteArrayValue(__item1);
+            }
+            tw.WriteEndArray();
+        }
+        tw.WriteEndArray();
     } }
 file readonly struct S8Toml_TomlDes : IDeserializer<S8Toml> {
     public S8Toml Deserialize(ReadOnlySpan<byte> d) {
@@ -20,6 +31,28 @@ file readonly struct S8Toml_TomlDes : IDeserializer<S8Toml> {
         while (true) {
             if (r.TokenType == TokenType.PropertyName) {
                 var k = r.KeySpan;
+                if (TextHelpers.Eq(k, "V"u8)) {
+                    var __tmpList = new System.Collections.Generic.List<global::System.Collections.Generic.HashSet<int>>(16);
+                    if (r.Read() && r.TokenType == TokenType.ArrayStart)
+                    {
+                        while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                        {
+                            if (r.TokenType == TokenType.ArrayStart)
+                            {
+                                var __tmpList1 = new System.Collections.Generic.List<int>(16);
+                                while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                                {
+                                    r.TryGetInt32(out var __ev);
+                                    __tmpList1.Add(__ev);
+                                }
+                                global::System.Collections.Generic.HashSet<int> __cnv1 = default!;
+                                __cnv1 = new System.Collections.Generic.HashSet<int>(__tmpList1);
+                                __tmpList.Add(__cnv1);
+                            }
+                        }
+                    }
+                    o.V = __tmpList;
+                }
                 if (!r.Read()) break;
                 continue;
             }
@@ -39,6 +72,28 @@ S8Toml? result) {
         while (true) {
             if (r.TokenType == TokenType.PropertyName) {
                 var k = r.KeySpan;
+                if (TextHelpers.Eq(k, "V"u8)) {
+                    var __tmpList = new System.Collections.Generic.List<global::System.Collections.Generic.HashSet<int>>(16);
+                    if (r.Read() && r.TokenType == TokenType.ArrayStart)
+                    {
+                        while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                        {
+                            if (r.TokenType == TokenType.ArrayStart)
+                            {
+                                var __tmpList1 = new System.Collections.Generic.List<int>(16);
+                                while (r.Read() && r.TokenType != TokenType.ArrayEnd)
+                                {
+                                    r.TryGetInt32(out var __ev);
+                                    __tmpList1.Add(__ev);
+                                }
+                                global::System.Collections.Generic.HashSet<int> __cnv1 = default!;
+                                __cnv1 = new System.Collections.Generic.HashSet<int>(__tmpList1);
+                                __tmpList.Add(__cnv1);
+                            }
+                        }
+                    }
+                    o.V = __tmpList;
+                }
                 if (r.NeedsMoreData) { r.RewindToMark(); return ReadStatus.NeedMoreData; }
                 r.Mark(); if (!r.Read()) { if (r.NeedsMoreData) { r.RewindToMark(); result = o; return ReadStatus.NeedMoreData; } result = o; return ReadStatus.Success; }
                 continue;

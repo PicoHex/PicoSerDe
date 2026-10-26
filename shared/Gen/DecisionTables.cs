@@ -58,12 +58,14 @@ internal static class DecisionTables
     /// </summary>
     internal static readonly Dictionary<(string Fmt, Decision D), Effect> Rules = new()
     {
-        // Extended collections as a plain member: only json resolves the kind
-        // (TypeKindResolver.Resolve → "Extended collections (JSON only for now)"). D-1.
+        // Extended collections as a plain member (S7). json always resolved the kind;
+        // R2 Task 2 opened it for msgpack/toml/yaml as well (TypeKindResolver asks THIS
+        // cell), so the four formats that can express it now do. ini keeps DropMember —
+        // its member position is R2 Task 6, and its cell is the last debt in this row.
         [("json", Decision.ExtendedKindResolves)] = Effect.Supported,
-        [("msgpack", Decision.ExtendedKindResolves)] = Effect.DropMember,
-        [("toml", Decision.ExtendedKindResolves)] = Effect.DropMember,
-        [("yaml", Decision.ExtendedKindResolves)] = Effect.DropMember,
+        [("msgpack", Decision.ExtendedKindResolves)] = Effect.Supported,
+        [("toml", Decision.ExtendedKindResolves)] = Effect.Supported,
+        [("yaml", Decision.ExtendedKindResolves)] = Effect.Supported,
         [("ini", Decision.ExtendedKindResolves)] = Effect.DropMember,
         // Nested containers — MUST be split scalar/object: S3 and S4 disagree in TOML
         // (TOML holds an array of scalar arrays, but not an array of inline-table arrays
@@ -93,12 +95,15 @@ internal static class DecisionTables
         [("toml", Decision.NullableRefLeaf)] = Effect.DropElement,
         [("yaml", Decision.NullableRefLeaf)] = Effect.DropElement,
         [("ini", Decision.NullableRefLeaf)] = Effect.DropMember,
-        // Extended collection as an ELEMENT: json resolves the kind but the element
-        // position still drops the member (D-2); the other four drop it earlier.
-        [("json", Decision.ExtendedKindAsElement)] = Effect.DropMember,
-        [("msgpack", Decision.ExtendedKindAsElement)] = Effect.DropMember,
-        [("toml", Decision.ExtendedKindAsElement)] = Effect.DropMember,
-        [("yaml", Decision.ExtendedKindAsElement)] = Effect.DropMember,
+        // Extended collection as an ELEMENT (S8). This row is the one that used to be
+        // decided by a LITERAL kind list in the extractor, so the cell could say Supported
+        // while the member stayed dropped — R2 Task 2 wired the site to this cell and
+        // implemented the element position in the four formats. ini keeps DropMember
+        // because S8 x ini is a format FACT (no nesting), not a gap.
+        [("json", Decision.ExtendedKindAsElement)] = Effect.Supported,
+        [("msgpack", Decision.ExtendedKindAsElement)] = Effect.Supported,
+        [("toml", Decision.ExtendedKindAsElement)] = Effect.Supported,
+        [("yaml", Decision.ExtendedKindAsElement)] = Effect.Supported,
         [("ini", Decision.ExtendedKindAsElement)] = Effect.DropMember,
         // Object list as a member: ini's convention carries no nesting inside a member.
         [("json", Decision.ObjectListInMember)] = Effect.Supported,

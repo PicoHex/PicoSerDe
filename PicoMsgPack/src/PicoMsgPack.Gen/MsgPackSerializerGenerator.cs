@@ -1705,13 +1705,23 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
+                // Extended collection kinds (S7) are sequences on the wire — the count and
+                // the enumeration come from the shared helpers so Memory<T> (.Span) and
+                // array (.Length) do not need a case of their own here.
                 s.Append(ind);
                 s.Append("mw.WriteStartArray(");
-                s.Append(p.TypeKind == "array" ? $"{a}.Length" : $"{a}.Count");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.SequenceCountExpression(p.TypeKind, a));
                 s.AppendLine(");");
                 s.Append(ind);
                 s.Append("foreach (var __i in ");
-                s.Append(a);
+                s.Append(PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(p.TypeKind, a));
                 s.AppendLine(") {");
                 WriteSerElem(s, p, "__i", ind + "    ", ref c);
                 s.Append(ind);
@@ -1995,7 +2005,17 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             case "list":
             case "array":
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
             {
+                // S8: the element is itself a sequence. The descriptor chain the extractor
+                // builds (NestedProperties[0]) names the INNER item kind, so this level
+                // writes one array and hands each item to the next level down.
                 if (p.NestedProperties.Length == 0)
                 {
                     s.Append(ind);
@@ -2007,13 +2027,17 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 var vn = $"__nl{lv}";
                 s.Append(ind);
                 s.Append("mw.WriteStartArray(");
-                s.Append(a);
-                s.AppendLine(p.ElementTypeKind == "array" ? ".Length);" : ".Count);");
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.SequenceCountExpression(p.ElementTypeKind, a)
+                );
+                s.AppendLine(");");
                 s.Append(ind);
                 s.Append("foreach (var ");
                 s.Append(vn);
                 s.Append(" in ");
-                s.Append(a);
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(p.ElementTypeKind, a)
+                );
                 s.AppendLine(") {");
                 WriteSerElem(s, innerElem, vn, ind + "    ", ref c);
                 s.Append(ind);
@@ -2858,6 +2882,61 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             case "extension":
                 EmitScalarRead(s, "extension", p.TypeFullName, t, ind, ref c);
                 break;
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
+            {
+                // S7 on the read side: the wire is an array, the declared member is an
+                // extended collection — read into a temp List and convert through the shared
+                // helper (one copy of the seven conversions, used by all five generators).
+                if (p.IsNullableReference || p.IsNullable)
+                {
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                    s.Append(ind);
+                    s.Append(t);
+                    s.AppendLine(" = null;");
+                    s.Append(ind);
+                    s.AppendLine("else {");
+                    ind += "    ";
+                }
+                var extElemType = p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object";
+                var extList = $"__ext{c++}";
+                s.Append(ind);
+                s.Append("var ");
+                s.Append(extList);
+                s.Append(" = new List<");
+                s.Append(extElemType);
+                s.AppendLine(">(16);");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
+                s.Append(ind);
+                s.AppendLine(
+                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
+                );
+                ReadDeserElem(s, p, extList, ".Add", ind + "        ", ref c);
+                s.Append(ind);
+                s.AppendLine("    } }");
+                PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                    s,
+                    p.TypeKind!,
+                    extList,
+                    t,
+                    extElemType,
+                    ind
+                );
+                if (p.IsNullableReference || p.IsNullable)
+                {
+                    ind = ind.Substring(4);
+                    s.Append(ind);
+                    s.AppendLine("}");
+                }
+                break;
+            }
             case "list":
                 // nil means "no collection" for a nullable member: stay null
                 // rather than materialising an empty list.
@@ -3341,6 +3420,58 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append("(");
                 s.Append(sn);
                 s.AppendLine(".Deserialize(ref reader));");
+                break;
+            }
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
+            {
+                // S8 on the read side: one array level, then the shared conversion turns
+                // the temp list into the declared collection before it is added.
+                var extInner = p.NestedProperties.Length > 0 ? p.NestedProperties[0] : p;
+                var extElem =
+                    extInner.ElementTypeNameAnnotated ?? extInner.ElementTypeName ?? "object";
+                var lv = c++;
+                var vn = $"__nl{lv}";
+                var conv = $"__nc{lv}";
+                s.Append(ind);
+                s.Append("var ");
+                s.Append(vn);
+                s.Append(" = new List<");
+                s.Append(extElem);
+                s.AppendLine(">(16);");
+                s.Append(ind);
+                s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
+                s.Append(ind);
+                s.AppendLine(
+                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
+                );
+                ReadDeserElem(s, extInner, vn, ".Add", ind + "        ", ref c);
+                s.Append(ind);
+                s.AppendLine("    } }");
+                s.Append(ind);
+                s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
+                s.Append(' ');
+                s.Append(conv);
+                s.AppendLine(" = default!;");
+                PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                    s,
+                    p.ElementTypeKind!,
+                    vn,
+                    conv,
+                    extElem,
+                    ind
+                );
+                s.Append(ind);
+                s.Append(target);
+                s.Append(op);
+                s.Append("(");
+                s.Append(conv);
+                s.AppendLine(");");
                 break;
             }
             case "list":

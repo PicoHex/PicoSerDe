@@ -313,17 +313,30 @@ public class TypeCoverageExtraTests
     }
 
     [Test]
-    public async Task Audit_NestedExtendedCollection_DropsWithoutCompileBreak()
+    public async Task Audit_NestedExtendedCollection_RoundTrips()
     {
-        // List<HashSet<int>> elements are not supported yet — dropped, no cascade.
+        // R2 Task 2 paid this debt: List<HashSet<int>> (spec §3 S8) is an array of arrays
+        // on the wire in json, and the member used to be dropped altogether.
         var dto = new NestedCollectionDto
         {
-            L = new List<HashSet<int>> { new HashSet<int> { 1 } },
+            L = new List<HashSet<int>>
+            {
+                new HashSet<int> { 1 },
+                new HashSet<int>(),
+            },
             Plain = 7,
         };
         var json = JsonSerializer.Serialize(dto);
         await Assert.That(json).Contains("\"Plain\":7");
-        await Assert.That(json.Contains("\"L\"")).IsFalse();
+        await Assert.That(json).Contains("\"L\":[[1],[]]");
+
+        var back = JsonSerializer.Deserialize<NestedCollectionDto>(
+            JsonSerializer.SerializeToUtf8Bytes(dto)
+        );
+        await Assert.That(back!.Plain).IsEqualTo(7);
+        await Assert.That(back.L.Count).IsEqualTo(2);
+        await Assert.That(back.L[0]).IsEquivalentTo(new HashSet<int> { 1 });
+        await Assert.That(back.L[1].Count).IsEqualTo(0);
     }
 
     [Test]
