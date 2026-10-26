@@ -163,6 +163,31 @@ internal static class FormatCapabilities
     internal static bool CanRepresent(string formatTag, Decision d) =>
         ShapesUsing(d).All(shapeId => CanRepresent(formatTag, shapeId));
 
+    // ── diagnostics (I-5 / D-4) ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The TERMINAL marker: the FORMAT cannot express the shape. No generator change can
+    /// help — the reader's only ways out are a different format or a different type.
+    /// </summary>
+    internal const string ImpossibleMarker = "\u26D4";
+
+    /// <summary>
+    /// The DEBT marker: the format CAN express the shape, this generator has not
+    /// implemented it yet. Reopenable (spec R4), so the message must not blame the format
+    /// and must not send the reader off to change a type that is perfectly expressible
+    /// (spec C4 / D-4 ②).
+    /// </summary>
+    internal const string DeferredMarker = "\u23F8";
+
+    /// <summary>
+    /// The marker a drop of decision point <paramref name="d"/> carries in
+    /// <paramref name="formatTag"/>: ⛔ when the FORMAT cannot express it, ⏸ when it can
+    /// and the drop is our gap. The FACTS answer — never a format literal and never the
+    /// implementation status (spec C1: progress must not be written as a format fact).
+    /// </summary>
+    internal static string MarkerFor(string formatTag, Decision d) =>
+        CanRepresent(formatTag, d) ? DeferredMarker : ImpossibleMarker;
+
     // ── reverse index ──────────────────────────────────────────────────────────────
 
     /// <summary>

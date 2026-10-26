@@ -421,8 +421,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         // Recursive references: seed the cycle targets' helpers from their real
         // (merged) property sets, and surface per-format skips as PICOSERDE003.
         PicoSerDe.Gen.GenInfrastructure.SeedRecursiveTargets(validTypes, nestedTypes);
-        PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, validTypes);
-        PicoSerDe.Gen.GenInfrastructure.ReportUnsupportedMembers(spc, validTypes);
+        PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(
+            spc,
+            validTypes,
+            Config.FormatTag
+        );
+        PicoSerDe.Gen.GenInfrastructure.ReportUnsupportedMembers(spc, validTypes, Config.FormatTag);
         // PICOSERDE001: a member whose type is unresolvable for this format is
         // recorded during extraction (it cannot be reported there — a transform must
         // stay pure), so the drop becomes visible here, once per member (D-6).
