@@ -176,6 +176,8 @@ currently gets wrong about them, and what the library must do about it
 | **D-4** | 诊断措辞 | ①递归诊断指向**内层类型**的成员而非用户声明的成员；②欠账格与不可表示格**共用同一条消息**「cannot be represented by this format」，对可表示的格构成误导 |
 | **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与消息，口径可能与具名类型不一致 |
 | **D-9** | **挂死** | TOML：字典成员被写成**空表**时反序列化**永不返回**（纯 CPU 自旋）。判据不是「空表」本身，而是「回到外层循环时 token 仍是**未被消费的 `ObjectStart`**」—— 所以 `[V]`+EOF、`[V]`+后续 `[W]` 表头都会挂，而 `[V]` 后跟 `a = 7` 不挂。根因：生成代码的 `ObjectStart` 分支 `continue` 前不推进 reader（`TomlSerializerGenerator.cs:913-935`），而 `TomlReader.ReadSpan()` 在 EOF 只 `return false`、不换 token（`TomlReader.cs:777-785`） | 探针 W2 实测（`S9×toml` 空字典 → wire `[V]`）；三条独立证据见 `.superpowers/sdd/r1-w2/review-spec.md` |
+| **D-9b** | 静默 | TOML **写侧**：`TomlWriter.NeedsKeyQuoting` 只判 `空格 	 = [ ] . # "`，**不含** `
+`/``/控制字符/`\` ⇒ 含换行的键写出后**读不回来**（与 D-9 的挂死无关，是独立缺陷） | `TomlWriter.cs`；W0 实测（`toml\|S9` 从 TIMEOUT 变 MISMATCH 后露出）。**归属**：R2 Task 6 |
 | **D-10** | 误导 | `PICOSERDE005`（匿名类型）是**第四个 drop 通道**：无 ⛔/⏸/⚠ 标记、消息把「我们生成不了名字」写成 "cannot be serialized by {format}"、`location: null` 不可导航。它使 I-5 的「每条 drop 消息都带标记」**名义上有、实际没被强制**（现有测试的样本永远命不中它） | `GenInfrastructure.cs:798-820`；W5 第三轮 code review N-1。**归属**：R2（与 D-8 并入共用管线一起做） |
 
 **归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）；**D-9 → R2**（R1 禁止改行为）。
