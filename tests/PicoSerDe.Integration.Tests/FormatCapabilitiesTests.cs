@@ -546,6 +546,114 @@ public class FormatCapabilitiesTests
             .Because("ini cannot express S2, so the target must stay blocked");
     }
 
+    // ── README matrix (R1 exit criterion: the README is generated from the table) ────────
+
+    /// <summary>
+    /// The README's limits matrix has <b>five</b> rows and <b>no S-id column</b>, and every
+    /// cell carries an annotation (<c>✅ [[Table]]</c>, <c>✅ block sequence of mappings</c>,
+    /// <c>❌ see ¹</c>). So a row cannot be compared whole and cannot be compared by suffix;
+    /// this fixture is the missing link — the description prefix of each README row to the
+    /// shapeId it documents. Order matters: it is the README's own order, so a reordered
+    /// matrix shows up as a mismatch instead of passing by accident.
+    /// <para>
+    /// The README documents <b>TODAY's</b> limits, so the expected tokens come from the
+    /// current-state table via <see cref="FormatCapabilities.MatrixCells"/>; deriving them
+    /// from <c>DecideShapeTarget</c> would write R2's capabilities into an R1 document
+    /// (spec C2).
+    /// </para>
+    /// </summary>
+    private static readonly (string Prefix, string ShapeId)[] ReadmeRows =
+    [
+        ("| `List<Dto>`", "S2"),
+        ("| `List<List<int>>`", "S3"),
+        ("| `List<List<Dto>>`", "S4"),
+        ("| `List<List<int?>>`", "S6"),
+        ("| Recursive member", "S11a"),
+    ];
+
+    /// <summary>
+    /// The exit criterion "README's limits matrix is generated from the table", made
+    /// executable without regenerating the README: per row, compare the <b>verdict glyph</b>
+    /// that starts each of the five format cells with the five tokens of
+    /// <see cref="FormatCapabilities.MatrixCells"/>. The annotations stay untouched — they
+    /// are the part of a cell a reader actually needs (which diagnostic, which syntax).
+    /// </summary>
+    [Test]
+    public async Task Readme_matrix_cells_match_the_tables()
+    {
+        var matrix = ReadmeMatrix();
+        var header = Cells(matrix[0]);
+        var dataRows = matrix.Skip(2).ToArray();
+
+        // Row set: the README may not gain a limits row that this fixture does not cover —
+        // an uncovered row is an unchecked claim, not a smaller test.
+        await Assert
+            .That(dataRows.Length)
+            .IsEqualTo(ReadmeRows.Length)
+            .Because(
+                "the README matrix gained or lost a row: extend ReadmeRows (prefix → shapeId) "
+                    + "so the new row is checked too"
+            );
+
+        // Column order: MatrixCells emits its tokens in AllFormatTags order, so a reordered
+        // README column would compare a cell against the wrong format and still pass.
+        await Assert
+            .That(string.Join("|", header.Skip(1).Select(c => c.ToLowerInvariant())))
+            .IsEqualTo(string.Join("|", FormatCapabilities.AllFormatTags))
+            .Because(
+                "the matrix columns must be in AllFormatTags order: "
+                    + string.Join(", ", FormatCapabilities.AllFormatTags)
+            );
+
+        foreach (var (prefix, shapeId) in ReadmeRows)
+        {
+            var row = dataRows.FirstOrDefault(l => l.StartsWith(prefix, StringComparison.Ordinal));
+            await Assert
+                .That(row)
+                .IsNotNull()
+                .Because($"README has no row for {shapeId}; expected one starting with '{prefix}'");
+
+            // Cells 1..5 are the formats, cell 0 is the shape description. Only the first
+            // character of a cell is a verdict — the rest is the annotation.
+            var verdicts = string.Concat(
+                Cells(row!).Skip(1).Take(5).Select(c => c.Length == 0 ? '?' : c[0])
+            );
+            var expected = FormatCapabilities.MatrixCells(shapeId);
+
+            await Assert
+                .That(verdicts)
+                .IsEqualTo(expected)
+                .Because(
+                    $"README's {shapeId} row and the current-state tables disagree: cells "
+                        + $"'{verdicts}' vs tables '{expected}' (column order "
+                        + string.Join(", ", FormatCapabilities.AllFormatTags)
+                        + ")"
+                );
+        }
+    }
+
+    /// <summary>
+    /// The limits matrix as markdown rows: the header line plus everything up to the first
+    /// non-<c>|</c> line, so the check cannot accidentally match a different table.
+    /// </summary>
+    private static string[] ReadmeMatrix()
+    {
+        var lines = File.ReadAllLines(Path.Combine(TestRepo.Root(), "README.md"));
+        var headerAt = Array.FindIndex(
+            lines,
+            l => l.StartsWith("| Shape (C#)", StringComparison.Ordinal)
+        );
+
+        if (headerAt < 0)
+            throw new InvalidOperationException("README.md has no '| Shape (C#)' limits matrix");
+
+        return lines.Skip(headerAt).TakeWhile(l => l.StartsWith('|')).ToArray();
+    }
+
+    /// <summary>The trimmed cells of one markdown table row (the outer pipes drop out).</summary>
+    private static string[] Cells(string row) =>
+        row.Split('|').Skip(1).SkipLast(1).Select(c => c.Trim()).ToArray();
+
     private static string Joined(IReadOnlyList<string> shapes) =>
         shapes.Count == 0 ? "<none>" : string.Join(", ", shapes);
 }
