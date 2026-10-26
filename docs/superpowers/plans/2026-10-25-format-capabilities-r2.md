@@ -84,8 +84,9 @@
 **为什么独立**：Task 5（递归 4 格）依赖它；R1 的 W3 在这里红过 4 个 error。
 
 **Files:**
+- Create: `shared/Gen/RecursionClassifier.cs`（**T1 实测后新增**：分类逻辑独立成文件，比塞进 `GenInfrastructure` 干净；需在 5 个 `*.Gen.csproj` 各加一行 Link）
 - Modify: `shared/Gen/GenInfrastructure.cs`（`ExtractNestedPropertiesGuarded` 的 `out bool` → 携带 `RecursionKind`；`root` 参数透传）
-- Modify: `tests/PicoSerDe.Integration.Tests/Models/`（`RvPolyBase` / `RvPolyLeaf` / `PolyRecAbstract` 视需要调整）
+- Modify: `tests/PicoSerDe.Integration.Tests/Models/`（`RvPolyBase` / `RvPolyLeaf` / `PolyRecAbstract`）—— **T1 实测：本任务不需要动它们**（`RecursionKind` 只被 `!= None` 消费 ⇒ 零 wire 变化 ⇒ 3 个模型照旧编译）。**真正要动它们的是 Task 5**（区分开始驱动发射时），故该义务已改挂 Task 5
 - Modify: 5 个生成器里实例化 `new T(...)` 的位置（抽象类型不可实例化时的降级路径）
 
 **Interfaces:**
@@ -97,6 +98,7 @@
 - [ ] **Step 3: 引入 `root` 参数**（最外层类型，6 个调用点全部传对，含 `GI:1706`/`GI:1788` 的透传）。
 - [ ] **Step 4: 抽象类型的实例化路径**：生成代码在 `RecursiveMutual × toml = Supported` 生效后**不得** `new` 抽象类型；测试用一个抽象 `Base` + 派生 `Leaf` 覆盖。
 - [ ] **Step 5: 跑三种环的测试 + 全量**，要求 0 failed（3 个受影响模型必须仍编译）。
+  > **I-2 的缺口仍在**：本任务只补了机制级代理（"程序集能编译"），**形状级**的 I-2 测试（某形状不支持时，为其生成的代码必须编译不了才算红）仍缺 —— W6 的 spec 审已点名，**Task 5 必须补**。
 - [ ] **Step 6: 提交**
 
 ## Task 2: 扩展集合 kind 家族（8 格：S7×4 + S8×4）
