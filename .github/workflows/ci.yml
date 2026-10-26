@@ -74,6 +74,7 @@ jobs:
       - run: dotnet build PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoYaml/benchmarks/PicoYaml.Benchmarks/PicoYaml.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks/PicoMsgPack.Benchmarks.csproj -c Release --no-restore
+      - run: dotnet build PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks.Aot/PicoMsgPack.Benchmarks.Aot.csproj -c Release --no-restore
       - name: Run PicoJetson benchmarks (smoke)
         run: dotnet run --project PicoJetson/benchmarks/PicoJetson.Benchmarks -c Release --no-build
       - name: Run PicoIni benchmarks (smoke)
@@ -82,6 +83,7 @@ jobs:
         run: dotnet run --project PicoToml/benchmarks/PicoToml.Benchmarks -c Release --no-build
       - name: Run PicoYaml benchmarks (smoke)
         run: dotnet run --project PicoYaml/benchmarks/PicoYaml.Benchmarks -c Release --no-build
+      # JIT only: the unified MsgPack benchmark cannot run under NativeAOT (see its csproj).
       - name: Run PicoMsgPack benchmarks (smoke)
         run: dotnet run --project PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks -c Release --no-build
 
@@ -128,3 +130,30 @@ jobs:
       - run: dotnet publish PicoToml/samples/PicoToml.Sample/PicoToml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoYaml/samples/PicoYaml.Sample/PicoYaml.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
       - run: dotnet publish PicoMsgPack/samples/PicoMsgPack.Sample/PicoMsgPack.Sample.csproj -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
+
+  # The AOT benchmark claim has to be executed, not asserted: the unified MsgPack
+  # benchmark silently stopped being able to AOT when its models gained an enum, and
+  # nothing noticed because CI only ever ran benchmarks under JIT.
+  benchmark-aot:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Install Linux AOT prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev
+      - name: Create local feed dir (NuGet.config local source)
+        shell: bash
+        run: mkdir -p ./artifacts/nupkg
+      - name: Publish the AOT MsgPack benchmark
+        shell: bash
+        run: dotnet publish PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks.Aot/PicoMsgPack.Benchmarks.Aot.csproj -c Release -r linux-x64 -o ./bench-aot
+      - name: Run it — both sides must actually be AOT
+        shell: bash
+        run: ./bench-aot/PicoMsgPack.Benchmarks.Aot
