@@ -14,8 +14,9 @@ S11bToml> {
         tw.WriteKeyValue("Name"u8, v.Name);
         if (v.B != null)
         {
-            tw.WriteTable("B"u8);
+            tw.WriteNestedTable("B"u8);
             global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bTomlPartner_0c7cd577fdc408d9TomlInner.Serialize(tw, v.B);
+            tw.EndTable();
         }
     } }
 file readonly struct S11bToml_TomlDes : IDeserializer<S11bToml> {

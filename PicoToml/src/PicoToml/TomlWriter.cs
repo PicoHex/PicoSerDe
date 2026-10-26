@@ -12,6 +12,11 @@ public ref struct TomlWriter
     private bool _inTable;
     private readonly bool _indented;
 
+    // Ancestor table names of the table being written, innermost last. Only a NESTED table
+    // (WriteNestedTable) pushes, and only it pops (EndTable): a top-level `WriteTable` keeps
+    // writing the bare header it always has, so no existing document changes a byte.
+    private List<byte[]>? _tablePath;
+
     public TomlWriter(IBufferWriter<byte> buffer, int maxDepth = 256, bool indented = false)
     {
         _buffer = buffer;
@@ -49,6 +54,44 @@ public ref struct TomlWriter
     }
 
     /// <summary>Writes a TOML array-of-tables header like [[key]].</summary>
+    /// <summary>
+    /// Writes a table header NESTED under every table currently open: the name is qualified
+    /// with the ancestor path, so two levels of nesting produce <c>[A]</c> then <c>[A.B]</c>
+    /// (a bare <c>[B]</c> would be a TOP-LEVEL table, which is not what the caller means and
+    /// is how a recursive member lost its root — D-5).
+    /// <para>
+    /// Pair every call with <see cref="EndTable"/>: the pair is what keeps sibling tables at
+    /// the same level (<c>[A.X]</c>, <c>[A.Y]</c>) instead of nesting them into each other.
+    /// </para>
+    /// </summary>
+    public void WriteNestedTable(ReadOnlySpan<byte> utf8Name)
+    {
+        _tablePath ??= [];
+        _tablePath.Add(utf8Name.ToArray());
+
+        _inTable = true;
+        WriteByte((byte)'[');
+        for (var i = 0; i < _tablePath.Count; i++)
+        {
+            if (i > 0)
+                WriteByte((byte)'.');
+            WriteRaw(_tablePath[i]);
+        }
+        WriteByte((byte)']');
+        WriteNewLine();
+    }
+
+    /// <summary>
+    /// Closes the table most recently opened by <see cref="WriteNestedTable"/>, so the next
+    /// header is written one level up. A no-op when no nested table is open (a writer that
+    /// never nests is unaffected).
+    /// </summary>
+    public void EndTable()
+    {
+        if (_tablePath is { Count: > 0 })
+            _tablePath.RemoveAt(_tablePath.Count - 1);
+    }
+
     public void WriteArrayTable(ReadOnlySpan<byte> utf8Name)
     {
         _inTable = true;

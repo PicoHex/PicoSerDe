@@ -429,16 +429,20 @@ public class SilentDropDiagnosticTests
     [Test]
     public async Task Recursive_diagnostic_names_the_member_the_user_declared()
     {
+        // The fixture moved to the one cycle still dropped in yaml after R2 Task 5: a cycle
+        // whose target cannot be instantiated (yaml has no polymorphic dispatch, so emitting
+        // it would mean `new Doc()` — CS0144, invariant I-2). The D-4 ① property under test is
+        // unchanged: the message must name a member of a type the USER declared, not the
+        // inner type the descent happened to be looking at.
         const string mutual = """
             using PicoYaml;
-            [PicoYamlSerializable] public partial class Doc { public string K { get; set; } = ""; public Doc2? Child { get; set; } }
-            [PicoYamlSerializable] public partial class Doc2 { public string K { get; set; } = ""; public Doc? Child { get; set; } }
+            [PicoYamlSerializable] public abstract partial class Doc { public string K { get; set; } = ""; public Doc? Child { get; set; } }
             """;
 
         var messages = RunYaml(mutual).Messages;
 
         await Assert
-            .That(messages.Any(m => m.Contains("Doc.Child") || m.Contains("Doc2.Child")))
+            .That(messages.Any(m => m.Contains("Doc.Child")))
             .IsTrue()
             .Because(
                 $"the drop must name a member of a type the user declared: {string.Join(" | ", messages)}"
@@ -446,7 +450,7 @@ public class SilentDropDiagnosticTests
         await Assert
             .That(messages.Any(m => m.Contains("?.Child")))
             .IsFalse()
-            .Because("`Doc2?.Child` is not a member the user declared (D-4 ①)");
+            .Because("`Doc?.Child` is not a member the user declared (D-4 ①)");
     }
 
     /// <summary>§3 S10: a dict whose VALUE is a collection (D-3).</summary>
@@ -699,35 +703,38 @@ public class SilentDropDiagnosticTests
     }
 
     /// <summary>
-    /// PICOSERDE003 gets the same treatment, and now carries the format and a way out:
-    /// TOML and YAML can hold a cycle (spec §3 S11a — nested tables / nested mappings),
-    /// INI cannot (it is flat). The old single sentence — "cannot be represented by this
-    /// format", with no format named — told the TOML user to remove a cycle the format
-    /// supports.
+    /// The debt R1 recorded here is PAID (R2 Task 5): TOML can hold a cycle (spec §3 S11a —
+    /// nested tables) and now does, so the member is emitted and no PICOSERDE003 is left. What
+    /// stays is the OTHER half of the old pair: INI is flat, so its drop is a format fact and
+    /// the message must still name the format and say WHAT is recursive (the R1 sentences said
+    /// neither).
     /// </summary>
     [Test]
-    public async Task Recursion_is_a_debt_in_toml_and_a_fact_in_ini()
+    public async Task Recursion_is_emitted_in_toml_and_a_fact_in_ini()
     {
-        var toml = DropMessage(
-            RunToml(SelfRecursive("PicoToml", "PicoTomlSerializable")),
-            "Node.Child"
-        );
+        var run = RunToml(SelfRecursive("PicoToml", "PicoTomlSerializable"));
+
+        await Assert
+            .That(run.DiagnosticIds)
+            .DoesNotContain("PICOSERDE003")
+            .Because("S11a x toml is Supported now, so nothing is dropped");
+        await Assert
+            .That(run.Generated)
+            .Contains(".Child")
+            .Because("the member has to reach the generated code, not just the table");
+
         var ini = DropMessage(
             RunIni(SelfRecursive("PicoIni", "PicoIniSerializable")),
             "Node.Child"
         );
 
-        await Assert
-            .That(toml.StartsWith(Deferred, StringComparison.Ordinal))
-            .IsTrue()
-            .Because($"TOML can hold a recursive member (S11a): {toml}");
         await Assert.That(ini.StartsWith(Impossible, StringComparison.Ordinal)).IsTrue();
         await Assert
-            .That(toml)
-            .Contains("toml")
+            .That(ini)
+            .Contains("ini")
             .Because("W4 review item 2: PICOSERDE003 never named the format it was talking about");
         await Assert
-            .That(toml)
+            .That(ini)
             .Contains("cycle")
             .Because("the message has to say WHAT is recursive, not just that it is");
     }
@@ -1051,8 +1058,16 @@ public class SilentDropDiagnosticTests
     private static Diagnostic[] RunDiagnostics(IIncrementalGenerator generator, string source) =>
         RunGenerator(generator, source).Diagnostics.ToArray();
 
-    /// <summary>The one place that builds a compilation and drives a generator.</summary>
-    private static GeneratorDriverRunResult RunGenerator(
+    /// <summary>
+    /// The one place that builds a compilation and drives a generator.
+    /// <para>
+    /// <c>internal</c> since R2 Task 5: <see cref="ShapeCompilationTests"/> needs the same
+    /// wiring (and the same reference set) to COMPILE what a generator emits, and a second
+    /// copy of this plumbing would be a second place for the reference list to drift —
+    /// which is exactly how a compile check turns into a false green.
+    /// </para>
+    /// </summary>
+    internal static GeneratorDriverRunResult RunGenerator(
         IIncrementalGenerator generator,
         string source
     )
@@ -1071,7 +1086,7 @@ public class SilentDropDiagnosticTests
     private static string AssemblyPath(System.Reflection.Assembly assembly) =>
         Path.Combine(AppContext.BaseDirectory, assembly.GetName().Name + ".dll");
 
-    private static IEnumerable<MetadataReference> PlatformReferences()
+    internal static IEnumerable<MetadataReference> PlatformReferences()
     {
         var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
         foreach (var path in tpa.Split(Path.PathSeparator))

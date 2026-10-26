@@ -55,6 +55,7 @@ M:PicoToml.TomlSerializer.SerializeToUtf8Bytes``1(T value, PicoToml.TomlOptions 
 M:PicoToml.TomlSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoToml.TomlOptions options = null) : void static
 M:PicoToml.TomlSerializer.Serialize``1(T value, PicoToml.TomlOptions options = null) : string static
 M:PicoToml.TomlWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, int maxDepth = 256, bool indented = false) : void
+M:PicoToml.TomlWriter.EndTable() : void
 M:PicoToml.TomlWriter.WriteArrayTable(System.ReadOnlySpan`1<byte> utf8Name) : void
 M:PicoToml.TomlWriter.WriteArrayValue(bool value) : void
 M:PicoToml.TomlWriter.WriteArrayValue(byte value) : void
@@ -95,6 +96,7 @@ M:PicoToml.TomlWriter.WriteKeyValue(string key, string value) : void
 M:PicoToml.TomlWriter.WriteKeyValue(string key, uint value) : void
 M:PicoToml.TomlWriter.WriteKeyValue(string key, ulong value) : void
 M:PicoToml.TomlWriter.WriteKeyValue(string key, ushort value) : void
+M:PicoToml.TomlWriter.WriteNestedTable(System.ReadOnlySpan`1<byte> utf8Name) : void
 M:PicoToml.TomlWriter.WriteStartArray(System.ReadOnlySpan`1<byte> key) : void
 M:PicoToml.TomlWriter.WriteStartInlineTable(string key) : void
 M:PicoToml.TomlWriter.WriteTable(System.ReadOnlySpan`1<byte> utf8Name) : void

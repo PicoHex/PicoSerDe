@@ -79,6 +79,23 @@ internal enum Decision
 }
 
 /// <summary>
+/// Where in a member the guarded descent ran into a cycle. The emit path is not the same in
+/// all three, and neither is what each format can close (see
+/// <see cref="FormatCapabilities.CanCloseCycle"/>).
+/// </summary>
+internal enum CyclePosition
+{
+    /// <summary>A plain object member: <c>Node.Child</c>, <c>A.B : B</c> (S11a / S11b).</summary>
+    Member,
+
+    /// <summary>A collection element: <c>List&lt;Node&gt;</c>, <c>List&lt;A&gt;</c>.</summary>
+    Element,
+
+    /// <summary>A dictionary value: <c>Dictionary&lt;string, Node&gt;</c>.</summary>
+    DictValue,
+}
+
+/// <summary>
 /// What happens to the shape when a decision point blocks it. The granularity IS the
 /// effect — there is no separate "granularity" field.
 /// </summary>
@@ -199,6 +216,54 @@ internal static class FormatCapabilities
             : Array.Empty<string>();
 
     // ── limits (NOT three-valued effects) ──────────────────────────────────────────
+
+    /// <summary>
+    /// Can this format's generated code close a cycle that was reached in
+    /// <paramref name="position"/>?
+    /// <para>
+    /// Two independent limits, both of the generated code rather than of the format
+    /// (spec §3 says nothing about either): the position must have an emit branch
+    /// (<see cref="DecisionTables.CyclePositionsByFormat"/>), and a target that cannot be
+    /// instantiated needs the format's polymorphic dispatch
+    /// (<see cref="DecisionTables.PolymorphicCycleFormats"/>). The recursion CELL is asked
+    /// separately by the caller — this method never decides whether the row is Supported,
+    /// only whether the code can carry what the row allows.
+    /// </para>
+    /// </summary>
+    internal static bool CanCloseCycle(
+        string formatTag,
+        CyclePosition position,
+        bool targetIsInstantiable
+    ) =>
+        DecisionTables.CyclePositionsByFormat.TryGetValue(formatTag, out var positions)
+        && Array.IndexOf(positions, position) >= 0
+        && (targetIsInstantiable || DecisionTables.PolymorphicCycleFormats.Contains(formatTag));
+
+    /// <summary>
+    /// Can this format's generated code close a recursion cycle through a target that
+    /// cannot be instantiated (an abstract class or an interface)?
+    /// <para>
+    /// A cycle is closed by calling the TARGET's generated helper, and that helper ends in
+    /// <c>new T(...)</c> unless the format has a polymorphic dispatch to route the value
+    /// through (json and msgpack do; toml/yaml/ini have no discriminator path at all). The
+    /// answer therefore has two halves: the target must be constructible, OR the format must
+    /// be able to dispatch it — <see cref="DecisionTables.PolymorphicCycleFormats"/>.
+    /// </para>
+    /// <para>
+    /// This is the extraction sites' question, not a <see cref="Decision"/>: it is a limit of
+    /// the generated code (like <see cref="AllowedDictKeyKinds"/>), and it does not have an
+    /// element-level answer — a blocked cycle always drops the whole member. Invariant I-2 is
+    /// what it protects: R1 W3's build died on <c>new &lt;abstract&gt;(...)</c> (CS0144) the
+    /// moment the recursion cells were read without asking this.
+    /// </para>
+    /// </summary>
+    /// <param name="formatTag">The format being generated.</param>
+    /// <param name="targetIsInstantiable">
+    /// Whether the cycle target is a class/struct that is not abstract
+    /// (<c>RecursionClassifier.IsInstantiable</c>).
+    /// </param>
+    internal static bool CanConstructCycleTarget(string formatTag, bool targetIsInstantiable) =>
+        targetIsInstantiable || DecisionTables.PolymorphicCycleFormats.Contains(formatTag);
 
     /// <summary>
     /// The key kinds this format accepts for a dictionary — the ONE definition of that

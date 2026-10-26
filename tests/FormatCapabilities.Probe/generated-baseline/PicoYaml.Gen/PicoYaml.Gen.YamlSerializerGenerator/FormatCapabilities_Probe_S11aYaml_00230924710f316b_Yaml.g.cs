@@ -14,6 +14,11 @@ S11aYaml> {
         var yw = new YamlWriter(w, indented: __opts?.Indented ?? false);
         yw.WritePropertyName("Value"u8);
         yw.WriteNumber(v.Value);
+        if (v.Child != null)
+        {
+            yw.WritePropertyName("Child"u8);
+            global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11aYaml_00230924710f316bYamlInner.Serialize(yw, v.Child);
+        }
     } }
 file readonly struct S11aYaml_YD : IDeserializer<S11aYaml> {
     public S11aYaml Deserialize(ReadOnlySpan<byte> d) {
@@ -37,6 +42,10 @@ file readonly struct S11aYaml_YD : IDeserializer<S11aYaml> {
                 o.Value = __v;
                 }
                 if (!r.Read()) break;
+            }
+            else if (TextHelpers.Eq(k, "Child"u8)) {
+                o.Child = global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11aYaml_00230924710f316bYamlInner.Deserialize(ref r);
+                if (r.TokenType == TokenType.None) break; // document ended here
             }
             else {
                 // Unknown property — skip its value to avoid infinite loop
@@ -73,6 +82,14 @@ S11aYaml? result) {
                 o.Value = __v;
                 }
                 if (!r.Read()) break;
+                if (r.NeedsMoreData) {
+                    r.RewindToMark();
+                    return ReadStatus.NeedMoreData;
+                }
+            }
+            else if (TextHelpers.Eq(k, "Child"u8)) {
+                o.Child = global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11aYaml_00230924710f316bYamlInner.Deserialize(ref r);
+                if (r.TokenType == TokenType.None) break; // document ended here
                 if (r.NeedsMoreData) {
                     r.RewindToMark();
                     return ReadStatus.NeedMoreData;

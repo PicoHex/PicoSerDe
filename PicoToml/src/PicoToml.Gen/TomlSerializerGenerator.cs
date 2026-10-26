@@ -539,22 +539,62 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("        var o = new ");
         s.Append(clean);
         s.AppendLine("();");
-        // TOML is section-based and never emits ObjectEnd. Dotted-key lines
-        // re-emit ObjectStart with the *same* TablePath, so an inner helper
-        // continues across PropertyName and same-section ObjectStart tokens, and
-        // stops at the first token of another section (or EOF) — otherwise it
-        // swallows every following [section]. The name is copied out of the
-        // reader: a ReadOnlySpan<byte> must not outlive the Read() calls in the
-        // loop below (the reader re-points TablePath on every token).
+        // TOML is section-based and never emits ObjectEnd. Dotted-key lines re-emit
+        // ObjectStart with the *same* TablePath, so an inner helper continues across
+        // PropertyName and same-section ObjectStart tokens, and stops at the first token of
+        // another section (or EOF) - otherwise it swallows every following [section]. The
+        // name is copied out of the reader: a ReadOnlySpan<byte> must not outlive the
+        // Read() calls in the loop below (the reader re-points TablePath on every token).
         s.AppendLine("        var __section = r.TablePath.ToArray();");
-        s.AppendLine(
-            "        while (r.Read() && (r.TokenType == TokenType.PropertyName || (r.TokenType == TokenType.ObjectStart && TextHelpers.Eq(r.TablePath, __section)))) {"
-        );
+        s.AppendLine("        r.Read();");
+        s.AppendLine("        while (true) {");
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
         var sorted = props.OrderBy(x => x.JsonName).ToImmutableArray();
         EmitPropertyDispatch(s, sorted, "k", "o", "                ", "                    ", null);
+        s.AppendLine("                if (!r.Read()) break;");
+        s.AppendLine("                continue;");
         s.AppendLine("            }");
+        // A CHILD section of this one (`[Parent.Key]`) is how a nested table - and therefore
+        // every recursion - is written. Dispatch it by the ONE segment below this section and
+        // let that member's helper consume its own subtree; the loop must NOT advance
+        // afterwards, because the helper already left the reader on the next header.
+        s.AppendLine("            if (r.TokenType == TokenType.ObjectStart) {");
+        s.AppendLine("                if (TextHelpers.Eq(r.TablePath, __section)) {");
+        s.AppendLine(
+            "                    if (!r.Read()) break; // dotted key re-opening this table"
+        );
+        s.AppendLine("                    continue;");
+        s.AppendLine("                }");
+        s.AppendLine("                var __childPos = r.BytesConsumed;");
+        s.AppendLine("                if (r.TablePath.Length > __section.Length + 1");
+        s.AppendLine("                    && r.TablePath[__section.Length] == (byte)'.'");
+        s.AppendLine(
+            "                    && MemoryExtensions.SequenceEqual(r.TablePath.Slice(0, __section.Length), __section)) {"
+        );
+        s.AppendLine("                    var __child = r.TablePath.Slice(__section.Length + 1);");
+        var childTables = props
+            .Where(IsNestedTableMember)
+            .OrderBy(x => x.JsonName)
+            .ToImmutableArray();
+        EmitPropertyDispatch(
+            s,
+            childTables,
+            "__child",
+            "o",
+            "                    ",
+            "                        ",
+            null
+        );
+        // Progress guard (the D-9 lesson): a child header that matches no member must leave
+        // this helper, never spin on the same token. The caller advances it.
+        s.AppendLine(
+            "                    if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __childPos) break;"
+        );
+        s.AppendLine("                    continue;");
+        s.AppendLine("                }");
+        s.AppendLine("            }");
+        s.AppendLine("            break;");
         s.AppendLine("        }");
         s.AppendLine("        return o;");
         s.AppendLine("    }");
@@ -1631,7 +1671,10 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     private static int EmitOrderKey(PropertyInfo p) =>
         p.TypeKind switch
         {
-            "object" => p.NestedProperties.Length > 0 ? 1 : 0,
+            // A recursive member opens a section like any other nested table: EmitOrderKey
+            // has to agree with the emit branch (IsNestedTableMember), or the header is
+            // written before the sibling values and those land INSIDE the sub-table.
+            "object" => IsNestedTableMember(p) ? 1 : 0,
             "dict" => 1,
             "list" or "array" => p.ElementTypeKind == "object" && p.NestedProperties.Length > 0
                 ? 1
@@ -1868,40 +1911,42 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("}");
             }
         }
-        else if (p.TypeKind is "object")
+        else if (IsNestedTableMember(p))
         {
-            if (p.NestedProperties.Length > 0)
+            // A member carried as a nested table: an object with its own members, or a
+            // cycle-truncated one (IsRecursiveRef) whose members live in the TARGET type's
+            // helper. R2 Task 5 opened the second case with S11a/S11b x toml.
+            //
+            // The header is written through WriteNestedTable, NOT WriteTable: a cycle closes
+            // by nesting a table in a table, so the header must carry its ancestor path
+            // (`[Child]` then `[Child.Child]`, `[B]` then `[B.A]`). Every pair is closed with
+            // EndTable so the next sibling stays at this level — an unbalanced pair turns
+            // `[W]` into `[V.W]` and loses the document.
+            bool nullGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
+                s,
+                p,
+                $"{target}.{p.Name}",
+                indent
+            );
+            var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", p.TypeFullName!);
+            var innerPad = nullGuard ? indent + "    " : indent;
+            s.Append(innerPad);
+            s.Append("tw.WriteNestedTable(\"");
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+            s.AppendLine("\"u8);");
+            s.Append(innerPad);
+            s.Append(sn);
+            s.Append(".Serialize(tw, ");
+            s.Append(target);
+            s.Append('.');
+            s.Append(p.Name);
+            s.AppendLine(");");
+            s.Append(innerPad);
+            s.AppendLine("tw.EndTable();");
+            if (nullGuard)
             {
-                bool nullGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
-                    s,
-                    p,
-                    $"{target}.{p.Name}",
-                    indent
-                );
-                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
-                    "TomlInner",
-                    p.TypeFullName!
-                );
                 s.Append(indent);
-                if (nullGuard)
-                    s.Append("    ");
-                s.Append("tw.WriteTable(\"");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-                s.AppendLine("\"u8);");
-                s.Append(indent);
-                if (nullGuard)
-                    s.Append("    ");
-                s.Append(sn);
-                s.Append(".Serialize(tw, ");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(");");
-                if (nullGuard)
-                {
-                    s.Append(indent);
-                    s.AppendLine("}");
-                }
+                s.AppendLine("}");
             }
         }
         else if (p.IsNullable && !p.IsNullableReference)
@@ -1949,11 +1994,32 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         string pad
     )
     {
-        if (PicoSerDe.Gen.GenInfrastructure.HasDeepObjectProperty(op))
+        if (op.IsRecursiveRef && op.NestedProperties.IsEmpty)
+        {
+            // A cycle-truncated member has no member list of its own — the target type's
+            // helper owns them. Reading it is what closes the cycle, and it is why the
+            // helper's own loop has to accept CHILD table headers (see GenInner).
+            var rsn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", op.TypeFullName!);
+            s.Append(pad);
+            s.Append(tgt);
+            s.Append('.');
+            s.Append(op.Name);
+            s.Append(" = ");
+            s.Append(rsn);
+            s.AppendLine(".Deserialize(ref r);");
+            return;
+        }
+        // NOTE (R2 Task 5): the old "nested tables deeper than one level" guard is GONE — it
+        // refused a chain that now reads correctly, because each helper dispatches its OWN
+        // child tables (see GenInner) and every header carries its ancestors. What still has
+        // no read path is an object COLLECTION inside a table (an array of tables is written
+        // unqualified), and that one keeps throwing: a refused read is a report, an empty
+        // collection would be silent loss (R2).
+        if (PicoSerDe.Gen.GenInfrastructure.HasNestedObjectCollection(op))
         {
             s.Append(pad);
             s.AppendLine(
-                "throw new System.NotSupportedException(\"TOML nested tables deeper than one level are not supported yet.\");"
+                "throw new System.NotSupportedException(\"TOML cannot read an object collection from inside a nested table yet.\");"
             );
             return;
         }
@@ -2489,6 +2555,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     /// array of inline arrays (F6); object/dict leaves never get here because the
     /// shared extractor drops them with PICOSERDE004.
     /// </summary>
+    /// <summary>
+    /// True when this member is written as a nested TOML table: an object with its own
+    /// members, or a cycle-truncated member (<see cref="PropertyInfo.IsRecursiveRef"/>,
+    /// whose members live in the target type's helper). R2 Task 5 opened the second case —
+    /// before it, a recursive member reached no emit branch at all and TOML wrote nothing
+    /// for it while the table said the format can hold a cycle.
+    /// </summary>
+    private static bool IsNestedTableMember(PropertyInfo p) =>
+        p.TypeKind == "object" && (p.NestedProperties.Length > 0 || p.IsRecursiveRef);
+
     private static bool IsNestedCollectionMember(PropertyInfo p) =>
         PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind)
         && PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind)
@@ -3070,11 +3146,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     break;
                 case "object":
                 {
-                    if (PicoSerDe.Gen.GenInfrastructure.HasDeepObjectProperty(p))
+                    if (PicoSerDe.Gen.GenInfrastructure.HasNestedObjectCollection(p))
                     {
                         s.Append(pad);
                         s.AppendLine(
-                            "throw new System.NotSupportedException(\"TOML nested tables deeper than one level are not supported yet.\");"
+                            "throw new System.NotSupportedException(\"TOML cannot read an object collection from inside a nested table yet.\");"
                         );
                         break;
                     }

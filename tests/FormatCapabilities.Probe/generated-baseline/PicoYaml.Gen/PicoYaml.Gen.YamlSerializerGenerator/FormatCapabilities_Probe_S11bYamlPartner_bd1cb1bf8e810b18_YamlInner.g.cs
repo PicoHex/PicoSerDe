@@ -12,6 +12,11 @@ internal static class FormatCapabilities_Probe_S11bYamlPartner_bd1cb1bf8e810b18Y
         yw.WriteStartMapping();
         yw.WritePropertyName("N"u8);
         yw.WriteNumber(value.N);
+        if (value.A != null)
+        {
+        yw.WritePropertyName("A"u8);
+        global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bYaml_a17ed51634e851beYamlInner.Serialize(yw, value.A);
+        }
         yw.WriteEndMapping();
     }
 
@@ -19,6 +24,11 @@ internal static class FormatCapabilities_Probe_S11bYamlPartner_bd1cb1bf8e810b18Y
     {
         yw.WritePropertyName("N"u8);
         yw.WriteNumber(value.N);
+        if (value.A != null)
+        {
+        yw.WritePropertyName("A"u8);
+        global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bYaml_a17ed51634e851beYamlInner.Serialize(yw, value.A);
+        }
     }
 
     internal static FormatCapabilities.Probe.S11bYamlPartner Deserialize(ref YamlReader r)
@@ -44,6 +54,11 @@ internal static class FormatCapabilities_Probe_S11bYamlPartner_bd1cb1bf8e810b18Y
                     obj.N = __v;
                     }
                     if (!r.Read()) break;
+                }
+                else if (TextHelpers.Eq(k, "A"u8))
+                {
+                    obj.A = global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bYaml_a17ed51634e851beYamlInner.Deserialize(ref r);
+                    if (r.TokenType == TokenType.None) break; // document ended here
                 }
                 else
                 { if (!r.Read()) break; } // unknown member: skip its value

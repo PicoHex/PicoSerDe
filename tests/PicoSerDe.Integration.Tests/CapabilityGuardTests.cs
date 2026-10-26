@@ -82,16 +82,13 @@ public class CapabilityGuardTests
     /// </summary>
     private static readonly (Decision D, string Reason)[] UnwiredByDesign =
     [
-        (
-            Decision.RecursiveMutual,
-            "R2 Task 1 landed the distinction (RecursionKind + RecursionClassifier), and both "
-                + "recursion sites still ask Decision.RecursiveSelf for BOTH kinds: "
-                + "RecursiveMutual x toml is Supported, so consuming it before the emitters can "
-                + "close a mutual cycle turns today's dropped member into a table the TOML "
-                + "Emitter writes as NotSupportedException (measured in R2 W1). The row is "
-                + "live: it is walked by Paths[\"S11b\"], so DecideShape(\"S11b\") and the "
-                + "README matrix read it. Flipping the sites is R2 Task 5."
-        ),
+        // RecursiveMutual used to be exempt here: R2 Task 1 landed the taxonomy but left
+        // both recursion sites asking RecursiveSelf for BOTH kinds, and RecursiveMutual x toml
+        // was Supported - so consuming it before the emitters could close a mutual cycle would
+        // have produced a table that throws at read time. R2 Task 5 wired both sites to the
+        // KIND's own row and taught toml/yaml the shape, so the exemption is gone and the row
+        // is proven live: flipping RecursiveMutual back to DropMember drops the member again
+        // (RecursionRoundTripTests pins the round trip that would break).
         // ExtendedKindAsElement used to be exempt here with the reason "the extractor drops
         // it by an unconditional kind list, so there is no cell to ask". R2 Task 2 wired
         // that site to Decide(..., ExtendedKindAsElement) — which is what made S8 flip for
@@ -321,12 +318,11 @@ public class CapabilityGuardTests
     public async Task Every_decision_point_is_consulted_by_a_generator_site_unless_documented()
     {
         // Pinned on purpose: a new exemption must be a visible edit in this file, argued
-        // for in prose - not a quiet acceptance of a new unwired decision point. Two
-        // today: R2 Task 1 wired RecursionMutual's classifier but not its sites, and
-        // NullableRefLeaf is still an element-level answer no member site can ask. R2 Task 2
-        // removed ExtendedKindAsElement and R2 Task 3 removed DictValueCollection from this
-        // list, because both rows have a real site now.
-        await Assert.That(UnwiredByDesign.Length).IsEqualTo(2);
+        // for in prose - not a quiet acceptance of a new unwired decision point. ONE today:
+        // NullableRefLeaf is an element-level answer no member site can ask. R2 Task 2 removed
+        // ExtendedKindAsElement, Task 3 removed DictValueCollection and Task 5 removed
+        // RecursiveMutual from this list, because all three rows have a real site now.
+        await Assert.That(UnwiredByDesign.Length).IsEqualTo(1);
 
         // Evidence is CODE, never prose (review I-2): the guard used to grep the whole
         // file text, so `// TODO ask Decision.X here` — a comment, i.e. no site at all —

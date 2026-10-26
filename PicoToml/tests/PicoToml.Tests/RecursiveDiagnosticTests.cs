@@ -6,9 +6,11 @@ using PicoToml.Gen;
 namespace PicoToml.Tests;
 
 /// <summary>
-/// Recursive/self-referencing DTOs cannot be represented by TOML (section-based,
-/// one nesting level). The generator must skip the recursive member with the
-/// shared PICOSERDE003 diagnostic instead of dropping it silently.
+/// Recursive/self-referencing DTOs ARE representable in TOML (nested tables addressed by
+/// their dotted path, spec §3 S11a) and R2 Task 5 implemented them. What is still dropped —
+/// and must therefore still be reported with PICOSERDE003 rather than lost silently — is the
+/// cycle TOML cannot close: one whose target cannot be instantiated (an abstract base), where
+/// the only emission would be `new &lt;abstract&gt;()` (CS0144, invariant I-2).
 /// </summary>
 public class RecursiveDiagnosticTests
 {
@@ -59,7 +61,7 @@ public class RecursiveDiagnosticTests
         const string source = """
             using PicoToml;
 
-            public class TreeNode
+            public abstract class TreeNode
             {
                 public int Value { get; set; }
                 public TreeNode? Child { get; set; }
@@ -67,7 +69,7 @@ public class RecursiveDiagnosticTests
 
             public static class Probe
             {
-                public static byte[] A() => TomlSerializer.Serialize(new TreeNode { Value = 1 });
+                public static string A(TreeNode n) => TomlSerializer.Serialize(n);
                 public static TreeNode? B(byte[] d) => TomlSerializer.Deserialize<TreeNode>(d);
             }
             """;
@@ -125,8 +127,12 @@ public class RecursiveDiagnosticTests
         await Assert.That(ids).Contains("PICOSERDE004");
     }
 
+    /// <summary>
+    /// The other half of the same row: a CONCRETE self cycle is emitted now, so the debt
+    /// diagnostic has to be GONE. Keeping the old assertion would demand the bug back.
+    /// </summary>
     [Test]
-    public async Task RecursiveMember_IsReported()
+    public async Task ConcreteRecursiveMember_IsEmittedAndNotReported()
     {
         const string source = """
             using PicoToml;
@@ -140,6 +146,33 @@ public class RecursiveDiagnosticTests
             public static class Probe
             {
                 public static string Run() => TomlSerializer.Serialize(new TreeNode { Value = 1 });
+            }
+            """;
+
+        var ids = RunGenerator(source);
+        await Assert.That(ids).DoesNotContain("PICOSERDE003");
+    }
+
+    /// <summary>
+    /// The drop that REMAINS: an abstract cycle target. TOML has no polymorphic dispatch, so
+    /// the only way to close it would be `new &lt;abstract&gt;()`, and the member is reported
+    /// instead (⏸ debt — the format itself can hold the shape).
+    /// </summary>
+    [Test]
+    public async Task AbstractRecursiveMember_IsReported()
+    {
+        const string source = """
+            using PicoToml;
+
+            public abstract class TreeNode
+            {
+                public int Value { get; set; }
+                public TreeNode? Child { get; set; }
+            }
+
+            public static class Probe
+            {
+                public static string Run(TreeNode n) => TomlSerializer.Serialize(n);
             }
             """;
 

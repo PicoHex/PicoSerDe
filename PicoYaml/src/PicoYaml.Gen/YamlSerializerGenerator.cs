@@ -1019,7 +1019,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".ToString()));");
                 break;
             case "object":
-                if (p.NestedProperties.Length > 0)
+                if (IsYamlNestedMapping(p))
                 {
                     var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                         "YamlInner",
@@ -1429,7 +1429,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 );
                 break;
             case "object":
-                if (p.NestedProperties.Length > 0)
+                if (IsYamlNestedMapping(p))
                 {
                     var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                         "YamlInner",
@@ -1443,7 +1443,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(sn);
                     s.AppendLine(".Deserialize(ref reader);");
                 }
-                if (p.NestedProperties.Length == 0)
+                if (p.NestedProperties.Length == 0 && !p.IsRecursiveRef)
                 {
                     s.Append(pad);
                     s.Append(tgt);
@@ -2364,7 +2364,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
-            if (p.NestedProperties.Length > 0)
+            if (IsYamlNestedMapping(p))
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                     "YamlInner",
@@ -3235,7 +3235,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(pad);
             s.AppendLine("if (!__more) break;");
         }
-        else if (p.TypeKind is "object" && p.NestedProperties.Length > 0)
+        else if (IsYamlNestedMapping(p))
         {
             var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.TypeFullName!);
             s.Append(pad);
@@ -4029,6 +4029,19 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     /// <c>ElementTypeKind</c> is that level's item kind and its <c>ElementTypeName</c>
     /// the item type, so one descriptor walks the whole chain.
     /// </summary>
+    /// <summary>
+    /// True when this member is carried as a nested MAPPING on the wire rather than as a
+    /// scalar: an object with its own members, OR a cycle-truncated member
+    /// (<see cref="PropertyInfo.IsRecursiveRef"/>, whose members live in the TARGET type's own
+    /// helper). R2 Task 5 opened the second case: S11a/S11b are Supported in yaml now, so a
+    /// recursive member has to be written as a nested mapping and read back through the
+    /// inner helper instead of the "object with no members" fallbacks (an empty mapping on
+    /// write, <c>= default!</c> on read — which is what made the generated code assign a
+    /// string to a DTO-typed member, CS0029).
+    /// </summary>
+    private static bool IsYamlNestedMapping(PropertyInfo p) =>
+        p.TypeKind == "object" && (p.NestedProperties.Length > 0 || p.IsRecursiveRef);
+
     private static bool IsYamlNestedList(PropertyInfo p) =>
         PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind)
         && p.NestedProperties.Length > 0;

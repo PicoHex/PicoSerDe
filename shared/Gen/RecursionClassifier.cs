@@ -84,7 +84,14 @@ internal static class RecursionClassifier
     /// True when the generated helper for <paramref name="type"/> can end in
     /// <c>new T(...)</c>: a class or a struct that is not abstract. Interfaces and abstract
     /// classes are polymorphic entry points, not values.
+    /// <para>
+    /// <c>internal</c> since R2 Task 5: the emit sites ask the SAME question when they
+    /// decide whether a format can close a cycle at all (see
+    /// <c>FormatCapabilities.CanConstructCycleTarget</c>). A second copy of "instantiable"
+    /// would be a second place for the two answers to disagree, which is how a shape ends up
+    /// emitted with no way to construct it (I-2).
+    /// </para>
     /// </summary>
-    private static bool IsInstantiable(INamedTypeSymbol type) =>
+    internal static bool IsInstantiable(ITypeSymbol type) =>
         type.TypeKind != TypeKind.Interface && !type.IsAbstract;
 }
