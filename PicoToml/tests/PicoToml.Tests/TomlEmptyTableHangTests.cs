@@ -169,55 +169,12 @@ public class TomlEmptyTableHangTests
     /// <summary>
     /// Runs <paramref name="operation"/> on a dedicated background thread and fails with an
     /// explicit <see cref="TimeoutException"/> if it has not returned within
-    /// <see cref="Budget"/>. The abandoned thread is a background thread, so it cannot keep
-    /// the test process alive; the event is deliberately not disposed on that path (the
-    /// worker may still call <c>Set()</c>, and an exception on a foreign thread would kill
-    /// the run instead of failing one test).
+    /// <see cref="Budget"/> (see <see cref="BoundedWait"/>).
     /// </summary>
     private static Task<EmptyTableDictionaries> RunWithinBudget(
         Func<EmptyTableDictionaries> operation,
         string label
-    )
-    {
-        EmptyTableDictionaries? result = null;
-        Exception? error = null;
-        var done = new ManualResetEventSlim(false);
-
-        var worker = new Thread(() =>
-        {
-            try
-            {
-                result = operation();
-            }
-            catch (Exception ex)
-            {
-                error = ex;
-            }
-            finally
-            {
-                done.Set();
-            }
-        })
-        {
-            IsBackground = true,
-            Name = "toml-empty-table",
-        };
-        worker.Start();
-
-        var finished = done.Wait(Budget);
-        if (finished)
-            done.Dispose();
-
-        if (!finished)
-            throw new TimeoutException(
-                $"Deserialize did not return within {Budget.TotalSeconds}s for {label} "
-                    + "— the reader is spinning (D-9)."
-            );
-        if (error is not null)
-            throw new InvalidOperationException($"Deserialize threw for {label}", error);
-
-        return Task.FromResult(result!);
-    }
+    ) => BoundedWait.Run(operation, label, Budget);
 
     /// <summary>Keeps control characters visible in failure messages.</summary>
     private static string Escape(string text) =>
