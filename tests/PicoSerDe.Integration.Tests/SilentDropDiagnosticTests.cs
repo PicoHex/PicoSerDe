@@ -355,18 +355,24 @@ public class SilentDropDiagnosticTests
             .Because("the location must start at the member name");
     }
 
-    // ── I-5 (D-4): ONE drop id, two verdicts — ⛔ "the format cannot" vs ⏸ "we have not" ──
+    // ── I-5 (D-4): ONE drop id, THREE verdicts — ⛔ "the format cannot", ⏸ "we have
+    // not", ⚠ "this member cannot be read at all" ──
     // W4 left I-5 unenforced: every drop used one sentence ("cannot be represented by this
     // format"), so the reader of a REPORTABLE cell was told to change a type that is
     // perfectly expressible (D-4 ②). These tests pin the two verdicts against the facts
     // table, one cell at a time, in BOTH directions: a format fact must not claim a debt,
     // and a debt must not claim the format cannot hold the shape.
     //
-    // The markers come from the capability model itself (FormatCapabilities.ImpossibleMarker
-    // / DeferredMarker) so the tests and the generators cannot drift apart.
+    // The glyphs are repeated here ON PURPOSE (fix round 1): the templates take them from
+    // `GenInfrastructure.{Impossible,Deferred,MemberError}Marker` — that is the single
+    // source — and this file spells them out as a GOLDEN value. The shared infrastructure
+    // is an analyzer-only compile item (not linked into this project), so the test cannot
+    // reference the constant; keeping the literal means changing the constant turns these
+    // tests red instead of letting the generator and the tests drift apart silently.
 
-    private const string Impossible = FormatCapabilities.ImpossibleMarker;
-    private const string Deferred = FormatCapabilities.DeferredMarker;
+    private const string Impossible = "\u26D4";
+    private const string Deferred = "\u23F8";
+    private const string MemberError = "\u26A0";
 
     /// <summary>§3 S5: <c>List&lt;int?&gt;</c> — TOML has no null literal, YAML has one.</summary>
     private static string NullableIntList(string ns, string attr) =>
@@ -543,6 +549,17 @@ public class SilentDropDiagnosticTests
             .That(yaml.StartsWith(Deferred, StringComparison.Ordinal))
             .IsTrue()
             .Because($"yaml x S5 is our debt: {yaml}");
+
+        // Spec C4 (spec review D2): a debt message must CARRY the reopen pointer, not
+        // only say "recorded gap" — otherwise the reader cannot find the condition.
+        await Assert
+            .That(yaml)
+            .Contains("reopen:")
+            .Because($"C4: the debt message has to point at its reopen condition: {yaml}");
+        await Assert
+            .That(toml.Contains("reopen:", StringComparison.Ordinal))
+            .IsFalse()
+            .Because("a format fact is terminal, so it must not promise a reopen");
     }
 
     /// <summary>
@@ -624,6 +641,130 @@ public class SilentDropDiagnosticTests
     }
 
     /// <summary>
+    /// The cell session W5 left behind (review I-1): <c>List&lt;HashSet&lt;int&gt;&gt;</c> (spec §3 S8)
+    /// is <b>❌ in INI</b> — the format has no nesting at all — but the "type cannot be
+    /// resolved" channel had no decision point and hard-coded the ⏸ wording, so the message
+    /// claimed "the ini format can express this shape". That is D-4 ② in the other
+    /// direction: a format fact shipped as reopenable debt.
+    /// <para>
+    /// The verdict now asks the ELEMENT-position cell when (and only when) the declared
+    /// type is a collection whose element is itself a collection, which is precisely S8.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Unresolvable_collection_of_collections_is_a_fact_in_ini()
+    {
+        const string source = """
+            using PicoIni;
+
+            [PicoIniSerializable]
+            public partial class Doc
+            {
+                public System.Collections.Generic.List<System.Collections.Generic.HashSet<int>> V { get; set; } = new();
+            }
+            """;
+
+        var drop = DropMessage(RunIni(source), "Doc.V");
+
+        await Assert
+            .That(drop.StartsWith(Impossible, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"S8 x ini is ❌ in spec §3, so the message must be a format fact: {drop}");
+        await Assert
+            .That(drop.Contains(Deferred, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("⏸ would tell the reader the format could hold it — the mirror of D-4 ②");
+        await Assert.That(drop).Contains("ini").Because("I-5: the message names the format");
+    }
+
+    /// <summary>
+    /// The NEGATIVE control for the test above, and the reason the fix is safe: S7
+    /// (<c>HashSet&lt;int&gt;</c>) is ✅ in INI (spec §3 — a comma-separated scalar list), so its
+    /// element-position cell must NOT be consulted. A heuristic keyed on "the declared type
+    /// is a collection" would have flipped this cell to ⛔ and swapped one wrong message for
+    /// another; keying on "the ELEMENT is itself a collection" leaves it alone.
+    /// </summary>
+    [Test]
+    public async Task Unresolvable_collection_with_a_scalar_element_stays_a_debt_in_ini()
+    {
+        const string source = """
+            using PicoIni;
+
+            [PicoIniSerializable]
+            public partial class Doc
+            {
+                public System.Collections.Generic.HashSet<int> V { get; set; } = new();
+            }
+            """;
+
+        var drop = DropMessage(RunIni(source), "Doc.V");
+
+        await Assert
+            .That(drop.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"S7 x ini is ✅ in spec §3, so this is our debt, not the format's: {drop}");
+        await Assert
+            .That(drop.Contains(Impossible, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("marking a ✅ cell ⛔ is the mislead this fix must not introduce");
+    }
+
+    /// <summary>
+    /// The dict-key limit, proven from both sides (review I-3). A key kind this generator
+    /// cannot emit is only a FORMAT fact where the format itself narrows its key set: INI
+    /// reads a key as raw line text, so only <c>string</c> can be a key there ⇒ ⛔. Where the
+    /// format's key set is the model's widest one, the missing kind is a case our emitters
+    /// never wrote ⇒ ⏸ — the old code called both "cannot be represented", which is C1's
+    /// exact prohibition (implementation progress written as a format fact).
+    /// </summary>
+    [Test]
+    public async Task Dict_key_kind_is_a_fact_in_ini_and_a_debt_where_the_format_narrows_nothing()
+    {
+        const string nsIni = "PicoIni";
+        const string nsYaml = "PicoYaml";
+
+        static string KeyedBy(string ns, string attr) =>
+            $$"""
+                using {{ns}};
+
+                public class Row
+                {
+                    public string Name { get; set; } = "";
+                }
+
+                [{{attr}}]
+                public partial class Doc
+                {
+                    public System.Collections.Generic.Dictionary<Row, int> KeyedItems { get; set; } = new();
+                }
+                """;
+
+        var ini = DropMessage(RunIni(KeyedBy(nsIni, "PicoIniSerializable")), "Doc.KeyedItems");
+        var yaml = DropMessage(RunYaml(KeyedBy(nsYaml, "PicoYamlSerializable")), "Doc.KeyedItems");
+
+        // The table itself must answer the way the messages do (no second copy of the fact).
+        await Assert
+            .That(FormatCapabilities.AllowedDictKeyKinds("ini").Count)
+            .IsLessThan(FormatCapabilities.AllowedDictKeyKinds("yaml").Count)
+            .Because("ini is the only format that narrows the key set — that is the fact");
+
+        await Assert
+            .That(ini.StartsWith(Impossible, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"INI narrowed its key set, so the drop is a format fact: {ini}");
+        await Assert
+            .That(yaml.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because(
+                $"yaml narrowed nothing: the missing key case is OUR emitter, not the format: {yaml}"
+            );
+        await Assert
+            .That(yaml.Contains("cannot be represented", StringComparison.Ordinal))
+            .IsFalse()
+            .Because("C1: implementation progress must not be written as a format fact");
+    }
+
+    /// <summary>
     /// PICOSERDE001's side of the same question: a <c>HashSet&lt;int&gt;</c> member is dropped by
     /// four formats as a DEBT (spec §3 S7 is ✅ everywhere — D-1 is an implementation gap),
     /// so the old "cannot be resolved by this format" wording sent those users off to change
@@ -651,8 +792,11 @@ public class SilentDropDiagnosticTests
     /// <summary>
     /// R2's literal reading (W4 review, counter-example 1): a set-only property is a member
     /// that never reaches the generated code and used to leave with a bare <c>continue</c>.
-    /// It is ⛔ — no format can serialize a value it cannot read — and it is navigable like
-    /// every other 001.
+    /// It is the THIRD class (fix round 1, review I-2): no format can serialize a value it
+    /// cannot read, so it is neither "the format cannot" (the declared type here is
+    /// <c>int</c>, which every format holds) nor our debt (no generator change helps). The
+    /// old assertion nailed the misleading sentence — "The json format cannot represent it …
+    /// use a format that can" — which sends the reader to four dead ends.
     /// </summary>
     [Test]
     public async Task Write_only_property_reports_a_diagnostic()
@@ -670,23 +814,41 @@ public class SilentDropDiagnosticTests
 
         var warning = RunDiagnostics(new JsonSerializerGenerator(), source)
             .Single(d => d.GetMessage().Contains("Doc.WriteOnly", StringComparison.Ordinal));
+        var message = warning.GetMessage();
 
         await Assert.That(warning.Id).IsEqualTo(UnresolvableTypeId);
         await Assert
-            .That(warning.GetMessage().StartsWith(Impossible, StringComparison.Ordinal))
+            .That(message.StartsWith(MemberError, StringComparison.Ordinal))
             .IsTrue()
-            .Because("no format can write a member that has no getter");
+            .Because(
+                $"I-2: a member nobody can read is its own class, not a format fact: {message}"
+            );
         await Assert
-            .That(warning.GetMessage())
+            .That(message.Contains(Impossible, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("⛔ is reserved for 'the format cannot express the shape'");
+        await Assert
+            .That(message.Contains(Deferred, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("this is not our debt either: no generator change can serialize it");
+        await Assert
+            .That(message)
             .Contains("no getter")
             .Because("the message has to name the actual cause");
+        await Assert
+            .That(message.Contains("use a format that can", StringComparison.Ordinal))
+            .IsFalse()
+            .Because("I-2: no other format can help, so that advice is a dead end");
+        await Assert
+            .That(message.Contains("cannot represent", StringComparison.Ordinal))
+            .IsFalse()
+            .Because("claiming json cannot represent an int is simply false");
         await Assert
             .That(warning.Location.IsInSource)
             .IsTrue()
             .Because("I-1: every drop is navigable and pragma-suppressible");
     }
 
-    /// <summary>
     /// The invariant behind the tests above, applied to every diagnostic the five generators
     /// produce for three dropped shapes: each drop message is greppable (starts with ⛔ or
     /// ⏸) and names the format. A new drop site that forgets this fails here rather than
