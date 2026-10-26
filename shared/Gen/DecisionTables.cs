@@ -364,6 +364,28 @@ internal static class DecisionTables
         };
 
     /// <summary>
+    /// format → does that format's ANONYMOUS-TYPE emitter have a form for a COLLECTION
+    /// member? Only json has, and the reason is structural rather than a capability fact:
+    /// the anonymous interceptor writes one scalar per member through a
+    /// <c>Write*(obj, offset)</c> reader, so msgpack's counted headers
+    /// (<c>WriteStartArray(int count)</c>) have no element count to announce, TOML/INI embed
+    /// the key inside every scalar write, and YAML writes per-item sequence entries. Every
+    /// one of the five formats can HOLD such a collection (spec §3 S1 is ✅ in all five), so
+    /// this is a LIMIT of our emitter, in the same family as
+    /// <see cref="DictKeyKindsByFormat"/> — NOT an <see cref="Effect"/> and not a fact.
+    /// <para>
+    /// It replaced a <c>fmtTag is "json"</c> literal in <c>AnonTypeHandler</c> (the sixth
+    /// emit surface, spec D-8): the drop decision now comes from the one table every other
+    /// drop comes from, which is what I-3 asks of any format comparison. Read it through
+    /// <see cref="FormatCapabilities.AnonCollectionSupported"/>; never compare a tag.
+    /// </para>
+    /// </summary>
+    internal static readonly HashSet<string> AnonCollectionFormats = new(StringComparer.Ordinal)
+    {
+        "json",
+    };
+
+    /// <summary>
     /// format → the key kinds that format accepts: ini takes "string" only (it reads a key
     /// as raw line text), the other four take all 11. This is the ONE definition of the
     /// limit — <c>GenInfrastructure</c> keeps no copy of it.

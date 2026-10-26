@@ -1831,7 +1831,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     EmitInvalidValueThrow(
                         s,
                         pad,
-                        "System.Buffers.Text.Utf8Parser.TryParse(reader.GetStringRaw(), out DateTime __v, out _, 'O')",
+                        IniDateTimeCondition("reader.GetStringRaw()"),
                         "DateTime",
                         EscapeInterpolation(p.JsonName),
                         "reader.GetStringRaw()"
@@ -2624,7 +2624,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     EmitInvalidValueThrow(
                         s,
                         pad,
-                        "System.Buffers.Text.Utf8Parser.TryParse(__rv, out DateTime __v, out _, 'O')",
+                        IniDateTimeCondition("__rv"),
                         "DateTime",
                         lbl,
                         "__rv"
@@ -2790,6 +2790,32 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
         }
     }
+
+    /// <summary>
+    /// The condition an INI DateTime read has to satisfy, for <paramref name="raw"/> being the
+    /// raw value bytes.
+    /// <para>
+    /// <c>Utf8Parser.TryParse(..., 'O')</c> alone is not enough: it answers <c>false</c> for a
+    /// value whose round-trip text IS the canonical form we write — measured on
+    /// <c>0001-01-01T00:00:00.0000000</c> (<c>default(DateTime)</c>, i.e. the default of every
+    /// DateTime member nobody assigned) while <c>2020-12-31T23:59:59.0000000</c> parses. So
+    /// the writer produced a text the reader refused, and every INI document with a
+    /// default-valued DateTime member was unreadable (spec §3 footnote ⁴ records the symptom;
+    /// its guess "the missing Kind suffix" is wrong — a suffix does not appear in either
+    /// string).
+    /// </para>
+    /// <para>
+    /// The fallback is <c>DateTime.Parse(..., RoundtripKind)</c>: same Kind semantics as the
+    /// 'O' parser (<c>Z</c> → Utc, an offset → Local, nothing → Unspecified), and it accepts
+    /// the minimum value. The 'O' attempt stays first because it is allocation-free on the
+    /// hot path.
+    /// </para>
+    /// </summary>
+    private static string IniDateTimeCondition(string raw) =>
+        $"System.Buffers.Text.Utf8Parser.TryParse({raw}, out DateTime __v, out _, 'O')"
+        + " || System.DateTime.TryParse(Encoding.UTF8.GetString("
+        + raw
+        + "), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __v)";
 
     private static string IniNumericCastExpr(string kind) =>
         kind switch

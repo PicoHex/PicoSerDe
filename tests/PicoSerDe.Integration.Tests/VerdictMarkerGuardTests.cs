@@ -54,14 +54,20 @@ public class VerdictMarkerGuardTests
 
     /// <summary>
     /// How many <c>messageFormat</c> templates carry each capability glyph today:
-    /// PICOSERDE001 (⛔/⏸/⚠), PICOSERDE003 (⛔/⏸) and PICOSERDE004 (⛔/⏸) — three verdicts
-    /// of each capability kind, one ⚠. Pinned on purpose: a NEW template has to be a
-    /// visible edit here, and a template that silently loses its marker (the drift this
-    /// file exists for) has to fail.
+    /// PICOSERDE001 (⛔/⏸/⚠), PICOSERDE003 (⛔/⏸), PICOSERDE004 (⛔/⏸) and, since R2 Task 8,
+    /// PICOSERDE005 (⛔/⏸) — four verdicts of each capability kind, one ⚠. Pinned on
+    /// purpose: a NEW template has to be a visible edit here, and a template that silently
+    /// loses its marker (the drift this file exists for) has to fail.
+    /// <para>
+    /// PICOSERDE005 is why D-10 existed: the anonymous-type drop was the fourth surface and
+    /// the only one with NO marker, so the counts here (3) were the reason it slipped — this
+    /// guard could only see templates that already carried a glyph. 3 → 4 is the D-10 fix
+    /// becoming visible to the guard.
+    /// </para>
     /// </summary>
-    private const int ImpossibleTemplateCount = 3;
+    private const int ImpossibleTemplateCount = 4;
 
-    private const int DeferredTemplateCount = 3;
+    private const int DeferredTemplateCount = 4;
 
     private const int MemberErrorTemplateCount = 1;
 
@@ -184,14 +190,14 @@ public class VerdictMarkerGuardTests
             .That(references.GetValueOrDefault(ImpossibleName))
             .IsEqualTo(ImpossibleTemplateCount)
             .Because(
-                "the three ⛔ templates (PICOSERDE001/003/004) must each reference "
+                "the four ⛔ templates (PICOSERDE001/003/004/005) must each reference "
                     + "FormatCapabilities.ImpossibleMarker; a template that builds its glyph "
                     + "another way is the drift this guard exists for"
             );
         await Assert
             .That(references.GetValueOrDefault(DeferredName))
             .IsEqualTo(DeferredTemplateCount)
-            .Because("the three ⏸ templates must each reference FormatCapabilities.DeferredMarker");
+            .Because("the four ⏸ templates must each reference FormatCapabilities.DeferredMarker");
         await Assert
             .That(references.GetValueOrDefault(MemberErrorName))
             .IsEqualTo(MemberErrorTemplateCount)

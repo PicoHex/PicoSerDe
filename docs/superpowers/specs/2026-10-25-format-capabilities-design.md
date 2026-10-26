@@ -128,7 +128,13 @@ currently gets wrong about them, and what the library must do about it
 > 二者不一致处按 **R4** 是**欠账**，不是格式事实。
 
 **测量方式**：`tests/FormatCapabilities.Probe` 为两个形状各加 5 个模型，打印 `CELL-OBS|<format>|<shape>|<verdict>|<wire>|<expected>|<actual>`
-（**不**进入 70 格统计：`grep -c '^CELL|'` 仍是 70）。S15 一个模型带六个成员（`f`/`d`/`when`/`span`/`id`/`day`），
+（**不**进入 70 格统计：`grep -c '^CELL|'` 仍是 70）。**R2 T8 起这 10 行的记录入库并受测试门禁**：
+`tests/FormatCapabilities.Probe/baseline-observations.txt` 是探针输出；`ProbeObservationGateTests`
+**直接解析本表**（即本实测表里 `| Sxx × format | `VERDICT` | …` 行的「实测 verdict」列，不是测试里的
+一份手抄副本）并与记录逐格比对 —— **改本表**或**改记录**任一侧都会先红，而不是只留在文档里；
+若表格被改到解析不出来，`The_gate_parses_the_observation_table_out_of_the_spec_document` 会红，
+而不是让其余断言对着空集合变绿。**仍不在门禁内的**：探针本身不跑（探针工程不在 `PicoSerDe.slnx` 里），
+所以「行为变了但没人重跑探针」时记录与代码可以一起静止 —— 这条限制写在测试类注释里。S15 一个模型带六个成员（`f`/`d`/`when`/`span`/`id`/`day`），
 因为这一行的问题是**逐标量**的：一个格式可以保住 `decimal` 而丢掉 `TimeSpan`。每格三个值
 （`empty` = 全默认 · `single` = 常规值 · `boundary` = `NaN`、`decimal.MaxValue`、`DateTimeKind.Local`、
 `TimeSpan.MinValue`、全 `f` 的 `Guid`、`null` enum）。`reason=…;diff=` 列逐值列出**没活下来**的成员。
@@ -138,13 +144,13 @@ currently gets wrong about them, and what the library must do about it
 | S14 × json | `OK` | `null` 元素逐元素往返（`{"V":[{…},null,{…}]}`），`null` 与缺失/空集合仍互不等价 |
 | S14 × msgpack | `OK` | 同上（`C0` = nil 元素） |
 | S14 × toml | `MISMATCH` | 三个值 wire 全空：**整个成员被丢**（`PICOSERDE004`），与「无 null」一致 |
-| S14 × yaml | `MISMATCH` | 同上：**整个成员被丢**（`PICOSERDE004`）⇒ 欠账 ¹ |
+| S14 × yaml | `OK` | **R2 T8 复测**：序列里的 `- null` 逐元素往返（`null` 与缺失/空集合互不等价）。R1 记录的 `MISMATCH`（整成员被丢）已被 **R2 Task 4** 的 `- null` 写侧闭合 —— 这一行的旧值在 R1 之后就腐化了，正是 §7 I-6 白区 8 要的「`CELL-OBS` 无门禁」 |
 | S14 × ini | `MISMATCH` | 同上（与 S2 × ini 同因：成员内不承载对象列表） |
 | S15 × json | `MISMATCH` | `empty`/`single` 六成员**全等价**（`D` 保精度、`When` 保 `Kind`、`Span`/`Id` 走字符串）；`boundary` 序列化抛 `ArgumentException: NaN cannot be written as JSON` ⇒ 注 ² |
 | S15 × msgpack | `OK` | 三个值全等价，**含 `NaN`**（`CB FFF8000000000000`）、`TimeSpan.MinValue`、`Local` 偏移、全 `f` Guid、`null` enum |
 | S15 × toml | `MISMATCH` | `empty`/`single` 六成员全等价；`boundary` 序列化抛 `ArgumentException: NaN and Infinity cannot be written as TOML` ⇒ 欠账 ³ |
 | S15 × yaml | `MISMATCH` | 同 toml（`ArgumentException: NaN and Infinity cannot be written as YAML`）⇒ 欠账 ³ |
-| S15 × ini | `MISMATCH` | `single`/`boundary` 六成员全等价（`NaN` 写成文本、`Local` 带 `+08:00`）；`empty` 的 `when` 读侧抛 `FormatException: Invalid DateTime for 'When' … '0001-01-01T00:00:00.0000000'` ⇒ 欠账 ⁴ |
+| S15 × ini | `OK` | **R2 T8 复测**：三个值六成员全等价（`NaN` 写成文本、`Local` 带 `+08:00`、`TimeSpan.MinValue` 带负号与冒号）。`empty` 的 `when` 从「读侧抛 `FormatException`」变绿：根因**不是**脚注 ⁴ 猜的「缺 `Kind` 后缀」，而是 `Utf8Parser.TryParse(…, 'O')` 对 `DateTime.MinValue` 的往返文本返回 `false`（`2020-12-31T23:59:59.0000000` 同形却通过）；读侧补了 `DateTime.Parse(…, RoundtripKind)` 兜底 |
 
 **canonical write 的观察（不是能力问题）**：TOML/YAML 里 `decimal`/`DateTime`/`TimeSpan`/`Guid` 都被写成**带引号的字符串**
 （`D = "0"`、`When = "…"`），读侧照收，故往返保真；但对外部消费者它们是字符串而不是原生数值/时间类型 —— 归 R1″/R2 的写法议题，
@@ -152,19 +158,23 @@ currently gets wrong about them, and what the library must do about it
 
 **脚注**
 
-¹ YAML **可以**表示对象序列里的 null（PyYAML：`- null` 项 → `[{'Name': 'a'}, None]`），今天却把整个成员丢掉
-   ⇒ **欠账**，与 S12/S13 × yaml（D-7b）同源。
+¹ YAML **可以**表示对象序列里的 null（PyYAML：`- null` 项 → `[{'Name': 'a'}, None]`），R1 时却把整个成员丢掉
+   ⇒ 欠账，与 S12/S13 × yaml（D-7b）同源。**R2 Task 4 已闭合**（写侧 `- null`，读侧照收）：`S14 × yaml` 复测为 `OK`，
+   见 §3 的实测表。
 ² JSON 无 `NaN`/`±Inf` 字面量（R1′「特殊浮点仅在格式有字面量时可表示」）⇒ 这是**事实**，不是欠账。
    今天写侧抛异常，属正确拒绝（但只抛、不诊断 ⇒ D-4 的措辞问题）。
 ³ TOML 1.0 与 YAML 1.1 **有** `nan`/`inf`/`-inf` 字面量（`tomllib.loads("V = nan")`、PyYAML `V: .nan` 均通过）
    ⇒ 可表示，今天写侧抛异常 ⇒ **欠账**（R4 的 reopen 条件：写侧改用原生 `nan`/`inf`、读侧接受）。
-⁴ INI 的约定本身能承载（实测 `single`/`boundary` 全通，含 `NaN` 文本），失败点是**写读不对称**：默认值
-   `When = 0001-01-01T00:00:00.0000000` 没有 `Kind` 后缀，读侧拒绝 ⇒ **欠账**（写读同一 canonical 形态即可闭合）。
+⁴ INI 的约定本身能承载（实测 `single`/`boundary` 全通，含 `NaN` 文本），失败点原本是 `empty` 的默认值
+   `When = 0001-01-01T00:00:00.0000000` 读侧被拒。**R2 T8 实测改了诊断**：不是「缺 `Kind` 后缀」——那个字符串和
+   `2020-12-31T23:59:59.0000000` 同形，后者一直能读；**根因是 `Utf8Parser.TryParse(…, 'O')` 对
+   `DateTime.MinValue` 的往返文本返回 `false`**（同形不同值）。读侧补 `DateTime.Parse(…, RoundtripKind)` 兜底后
+   `S15 × ini` 复测为 `OK`（见 §3 实测表）。
 
 ⁵ **`S9 × INI` 的 ✅ 附条件（R2 T6 修正）**：只在键**不含 `\n`、`\r`、`=`** 时成立。INI 的字典形式是本规格自己的约定（"成员级 `[V]` section + 键 = 行内原文"），而 `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 没有键转义 — 所以含换行/等号的键**写出去读不回**（探针的 boundary 键 `n\nline` 就是这一例）。这是**值级**约束，不是能力欠账：R2 **不**为 INI 造一套键转义约定（改公共 wire 约定属值级议题），该 boundary 值按 R2/R5 分工记入 **R5 的清单**（见 §2 R5 下的移交说明）。**同一形状在 YAML/TOML 不受此限** — 两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）并据此把这两格从 MISMATCH 转 OK。
 
 **结论补充**：S14 的 `❌` 仍只有「TOML 无 null」与「INI 结构性限制」；S15 的 `❌` 只有「JSON 无 NaN/±Inf 字面量」。
-其余「今天不支持」全部是欠账（S14 × yaml；S15 × toml/yaml 的 NaN；S15 × ini 的默认时间）。
+其余「今天不支持」全部是欠账（S15 × toml/yaml 的 NaN —— `S14 × yaml` 与 `S15 × ini` 的默认时间已在 R2 闭合，见上表）。
 
 ## 4. 缺陷（现状与 R1/R2/R5 的偏离）
 
@@ -178,14 +188,14 @@ currently gets wrong about them, and what the library must do about it
 | **D-7b** | 值级丢失 | YAML：同上。YAML 有 null ⇒ 应**支持** |
 | **D-3** | 实现缺口 | 两种「容器套容器」可表达却丢弃：①`Dictionary<string, List<T>>`（S10）在 JSON/MsgPack/TOML/YAML；②嵌套对象数组（S4）× TOML —— 两条均在 R2 修完（① T3、② T6） |
 | **D-4** | 诊断措辞 | ①递归诊断指向**内层类型**的成员而非用户声明的成员；②欠账格与不可表示格**共用同一条消息**「cannot be represented by this format」，对可表示的格构成误导 |
-| **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与消息，口径可能与具名类型不一致 |
+| **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与消息，口径可能与具名类型不一致。**R2 T8 已修 4/5 轴**（`53dfb69`）：①丢弃决策 → `DecisionTables.AnonCollectionFormats`（`AnonTypeHandler` 里已无任何格式字面量**参与判定**，只剩 `"json" => "JsonWriter"` 那种名字表）；②判定口径 → `FormatCapabilities.AnonCollectionIsFormatFact` 由 `CanRepresent(tag,"S1")` **推导**，不写死；③消息 → 与 001/003/004 完全同形的 ⛔/⏸ 兄弟对（头部标记 + `reopen:` 尾句）；④位置/声明类型 → `GenInfrastructure.SourceLocationOf`/`DeclaredTypeOf` 提权共用（是同一个拼法，不是抄一份）。**第 5 轴（id）未并，且这是有意的**：按 §5 **D4**（id 年内稳定、消息可变），把 `005` 并进 `004` 等于让一个已发布 id 消失 —— 比 renumber 更硬的契约破坏；id 归并须跨任务一次性收口（实现 + README 三处 + `NoWarn`），**不能**在 R2 T8 单方面制造 T9 不知道的文档债。⇒ **在该裁定落地前，D-8 不算全修**（`53dfb69` 的 D-8 部分因此标 PARTIAL）。测试：`AnonCollectionDiagnosticTests`（决策 ≡ 能力模型 / verdict 由事实表推导两侧夹住） |
 | **D-9** | **挂死** | TOML：字典成员被写成**空表**时反序列化**永不返回**（纯 CPU 自旋）。判据不是「空表」本身，而是「回到外层循环时 token 仍是**未被消费的 `ObjectStart`**」—— 所以 `[V]`+EOF、`[V]`+后续 `[W]` 表头都会挂，而 `[V]` 后跟 `a = 7` 不挂。根因：生成代码的 `ObjectStart` 分支 `continue` 前不推进 reader（`TomlSerializerGenerator.cs:913-935`），而 `TomlReader.ReadSpan()` 在 EOF 只 `return false`、不换 token（`TomlReader.cs:777-785`） | 探针 W2 实测（`S9×toml` 空字典 → wire `[V]`）；三条独立证据见 `.superpowers/sdd/r1-w2/review-spec.md`。**R2 T0 已修**（`f34d5be`）：reader 在 final block 失败出口清 token + 发射层推进守卫，两层各承其重 |
 | **D-9b** | 静默 | TOML **写侧**：`TomlWriter.NeedsKeyQuoting` 只判 `空格 \t = [ ] . # "`，**不含** `\n`/`\r`/其他控制字符`/`\` ⇒ 含换行的键写出后**读不回来**（与 D-9 的挂死无关，是独立缺陷） | `TomlWriter.cs`；W0 实测（`toml\|S9` 从 TIMEOUT 变 MISMATCH 后露出）。**归属**：R2 Task 6 **已修**——黑名单换成 TOML 1.0 的 bare-key 文法（`[A-Za-z0-9_-]+`，其余一律加引号并转义），`toml\|S9` 由 MISMATCH 转 OK；回往测试 `TomlDictKeyQuotingTests`。同一修法顺带修正了推导键 `$type`的 wire（`$` 不在 bare-key 文法里 ⇒ 写成 `"$type"`）。**范围**：本条只覆盖 **KEY**；表头名（`WriteTable`/`WriteNestedTable`/`WriteArrayTable`）仍裸写，属 pre-existing，不在本条修复面内 |
 | **D-9c** | **挂死族** | 表头名**不在模型里**时发射层零 `Read()` ⇒ token 恒 `ObjectStart` ⇒ 自旋。触发面比 D-9 更广（`[tool.*]`/`[build-system]` 等真实文件必然命中）。实测需 **6 个派发分支 + 3 个内层循环**的推进守卫（`BytesConsumed` 未变则 `Read()`） | W0 fix round 1（`f34d5be`）+ 两份复核。**归属**：R2 T0 已修 |
 | **D-9d** | 静默 | `[[Unknown]]`（外来数组表头）会开出**第二个空元素**，不重查表名。今天测试把它钉成"2 个元素"的契约 ⇒ 将来修它必须同步改断言 | W0 fix round 1 实测。**归属**：R2 Task 6 **已修**——元素循环在接下一个 `[[…]]` 表头前重查表名（三个发射点：缓冲/流式/多态）。**正确元素数是 1**（`[[Items]]` + `Name = "a"` 就是一个元素；`Unknown` 不是 `Items`，贡献 0；0 也错，那个真元素必须活下来）；断言已同步改为 1（`TomlUnknownTableHangTests`）。**T6 fix round 1 修正比较口径**：重查与 arm 匹配都改成**同层比较**（`TextHelpers.EqLastSegment`，表头的**最后一段** vs 成员名）—— 拿**整条 `TablePath`** 与裸名比较时，手写的标准嵌套表头 `[[Parent.Items]]` 匹配不到任何 arm，元素**全部静默丢失**（实测 0 个，不是 1 个）；现由 `TomlUnknownTableHangTests.DottedArrayOfTablesHeader_NamesTheMemberByItsLastSegment` 钉住（`[[Parent.Items]]`×2 ⇒ **2 个元素**），流式与多态两个入口各有同一条用例。`[table]` 头**不**改：嵌套表由各自的 helper 按前缀派发，放松会把真实文件里的 `[tool.ruff]` 喂给名为 `ruff` 的成员 |
-| **D-10** | 误导 | `PICOSERDE005`（匿名类型）曾是**第四个 drop 通道**（R2 T8 前：无标记、消息写成格式事实、`location: null`）。它使 I-5 的「每条 drop 消息都带标记」**名义上有、实际没被强制**（现有测试的样本永远命不中它） | `GenInfrastructure.cs:798-820`；W5 第三轮 code review N-1。**归属**：R2（与 D-8 并入共用管线一起做） | | **R2 T8 已修**（`53dfb69`+`d330b59`）：⏸ + `reopen:` + 真实成员位置 |
+| **D-10** | 误导 | `PICOSERDE005`（匿名类型）曾是**第四个 drop 通道**（R2 T8 前：无标记、消息写成格式事实、`location: null`）。它使 I-5 的「每条 drop 消息都带标记」**名义上有、实际没被强制**（现有测试的样本永远命不中它） | `GenInfrastructure.cs:798-820`；W5 第三轮 code review N-1。**归属**：R2（与 D-8 并入共用管线一起做）。**R2 T8 已修**（`53dfb69`）：①⏸/⛔ 由**事实表推导** —— 前缀取 `FormatCapabilities.DeferredMarker` 常量、模板由 `FormatCapabilities.AnonCollectionIsFormatFact(tag)`（= `!CanRepresent(tag,"S1")`）选，不按实现进度硬写；②消息**删掉**「cannot be serialized by {format}」（对可表达的格式是假话），改为「{format} can hold a collection, but this generator has no collection form yet」+ `reopen:` 尾句（C4）；③`location` 不再是 `null`：由 `GenInfrastructure.SourceLocationOf(成员符号)` 填**成员自己的声明位置**（匿名初始化器里的 `Xs` token，实测 `line=10 col=17 textAtSpan='Xs'`、`Location.IsInSource == true`），并补上声明类型 `DeclaredTypeOf`（与具名类型共用同一套拼法，helper 由 `private` 提为 `internal`）；④「每条 drop 消息都带标记」的样本数 **4 → 5**（新增匿名集合样本 —— 正是「样本永远命不中它」的那个洞口），`VerdictMarkerGuardTests` 的模板计数 **3 → 4**（⏸ 兄弟由 4 条参数化用例钉住）。**残留（不影响本条「已修」）**：⑤⛔ 兄弟模板今天不可达（五格式对 S1 全 ✅），它是「由事实表选模板」的产物、不是死代码，但无测试能发现其占位符写反；⑥「可按站点 `#pragma` 抑制」只被结构性推导覆盖（Warning 级 + 真实 span），没有专门编译级用例。测试：`AnonCollectionDiagnosticTests` / `SilentDropDiagnosticTests` / `VerdictMarkerGuardTests` |
 
-**归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）；**D-9 → R2**（R1 禁止改行为）。
+**归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）—— **R2 T8 已并 4/5 轴（`53dfb69`），id 轴待裁定**；**D-9 → R2**（R1 禁止改行为）；D-10 → **R2 T8 已修（`53dfb69`）**。
 
 ## 5. 裁定（维护者已定）
 
