@@ -40,5 +40,6 @@
     <Compile Include="..\..\..\shared\Gen\AnonFormatConfig.cs" Link="Gen\AnonFormatConfig.cs" />
     <Compile Include="..\..\..\shared\Gen\FormatCapabilities.cs" Link="Gen\FormatCapabilities.cs" />
     <Compile Include="..\..\..\shared\Gen\DecisionTables.cs" Link="Gen\DecisionTables.cs" />
+    <Compile Include="..\..\..\shared\Gen\RecursionClassifier.cs" Link="Gen\RecursionClassifier.cs" />
   </ItemGroup>
 </Project>

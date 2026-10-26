@@ -84,13 +84,13 @@ public class CapabilityGuardTests
     [
         (
             Decision.RecursiveMutual,
-            "W3 route B: both recursion sites query Decision.RecursiveSelf only, because "
-                + "RecursiveMutual x toml is Supported and the cycle detector upstream reports "
-                + "a plain bool. Consuming the Mutual row would emit the cycles that are "
-                + "dropped today, i.e. change TOML bytes (new RvPolyBase(...)). The row is "
-                + "still live: it is walked by Paths[\"S11b\"], so DecideShape(\"S11b\") and "
-                + "the README matrix read it. R2 inherits the distinction together with the "
-                + "three obligations in spec 5.6."
+            "R2 Task 1 landed the distinction (RecursionKind + RecursionClassifier), and both "
+                + "recursion sites still ask Decision.RecursiveSelf for BOTH kinds: "
+                + "RecursiveMutual x toml is Supported, so consuming it before the emitters can "
+                + "close a mutual cycle turns today's dropped member into a table the TOML "
+                + "Emitter writes as NotSupportedException (measured in R2 W1). The row is "
+                + "live: it is walked by Paths[\"S11b\"], so DecideShape(\"S11b\") and the "
+                + "README matrix read it. Flipping the sites is R2 Task 5."
         ),
         (
             Decision.ExtendedKindAsElement,

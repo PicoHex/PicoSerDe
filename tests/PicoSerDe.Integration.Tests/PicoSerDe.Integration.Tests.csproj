@@ -79,5 +79,15 @@
          the file is linked into five assemblies, so "internal" would be five copies). -->
     <Compile Include="..\..\shared\Gen\FormatCapabilities.cs" Link="Gen\FormatCapabilities.cs" />
     <Compile Include="..\..\shared\Gen\DecisionTables.cs" Link="Gen\DecisionTables.cs" />
+    <!-- The recursion taxonomy (RecursionKind + RecursionClassifier) is linked for the
+         same reason: RecursionKindTests must drive the REAL classifier over real Roslyn
+         symbols, and a re-statement of "self vs mutual" in a test comment would pass even
+         if the generator disagreed with it. The file depends on Roslyn only, so this
+         project (which already loads Microsoft.CodeAnalysis for the in-proc generator
+         tests) needs nothing else. -->
+    <Compile
+      Include="..\..\shared\Gen\RecursionClassifier.cs"
+      Link="Gen\RecursionClassifier.cs"
+    />
   </ItemGroup>
 </Project>

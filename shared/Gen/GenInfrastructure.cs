@@ -1383,25 +1383,40 @@ internal static class GenInfrastructure
 
     /// <summary>
     /// Cycle-safe nested extraction: when <paramref name="type"/> is already on
-    /// the extraction stack, returns an empty property set and sets
-    /// <paramref name="isRecursiveRef"/>. The emitter then references the target
+    /// the extraction stack, returns an empty property set and reports WHICH cycle it
+    /// closed (<paramref name="recursion"/>). The emitter then references the target
     /// type's own generated helper (built from its real top-level properties).
     /// </summary>
+    /// <param name="type">The member / element type to expand.</param>
+    /// <param name="root">
+    /// The type that OWNS the member set this descent belongs to: the extraction root of
+    /// this unit, which is not necessarily the outermost type of the whole request. The
+    /// four sites that walk a type's own declared members pass that type (for a derived
+    /// type's INHERITED members that is the base-chain level, which is the whole point of
+    /// obligation ① in spec §5.6); the two nested-container helpers (nested list chain,
+    /// nested dict value) receive it from their caller instead of re-deriving it from the
+    /// inner type they happen to be looking at. Only
+    /// <see cref="RecursionClassifier.Classify"/> reads it.
+    /// </param>
+    /// <param name="recursion">
+    /// Which cycle was hit; <see cref="RecursionKind.None"/> when the descent completed.
+    /// </param>
     private static ImmutableArray<PropertyInfo> ExtractNestedPropertiesGuarded(
         INamedTypeSymbol type,
+        INamedTypeSymbol root,
         AttributeHelpers attrs,
         string formatTag,
         HashSet<INamedTypeSymbol>? visiting,
-        out bool isRecursiveRef,
+        out RecursionKind recursion,
         List<SkippedMember>? skippedRecursive = null,
         List<SkippedMember>? skippedUnsupported = null,
         UnsupportedTypeMemberCollector? droppedMembers = null
     )
     {
-        isRecursiveRef = false;
+        recursion = RecursionKind.None;
         if (visiting is not null && !visiting.Add(type))
         {
-            isRecursiveRef = true;
+            recursion = RecursionClassifier.Classify(type, root);
             return ImmutableArray<PropertyInfo>.Empty;
         }
         try
@@ -1644,15 +1659,16 @@ internal static class GenInfrastructure
                 }
 
                 ImmutableArray<PropertyInfo> fieldNested = ImmutableArray<PropertyInfo>.Empty;
-                bool fieldRecursive = false;
+                RecursionKind fieldRecursion = RecursionKind.None;
                 if (fk is "object" && field.Type is INamedTypeSymbol fieldObjNts)
                 {
                     fieldNested = ExtractNestedPropertiesGuarded(
                         fieldObjNts,
+                        type,
                         attrs,
                         formatTag,
                         visiting,
-                        out fieldRecursive,
+                        out fieldRecursion,
                         skippedRecursive,
                         skippedUnsupported,
                         droppedMembers
@@ -1660,15 +1676,17 @@ internal static class GenInfrastructure
                 }
 
                 // "Any cycle in this format" (see the RecursiveSelf row of
-                // DecisionTables.Rules). The guard reports a plain bool, so the site cannot
-                // tell self from mutual — and must not guess: RecursiveMutual x toml is
-                // Supported (TOML CAN hold a one-level mutual cycle, S11b), so consulting it
-                // here would flip every two-node and every base-chain cycle from dropped to
-                // emitted, on types whose helper is generated from a DERIVED root
-                // (RvPolyBase.Next, PolyRecAbstract.Next). RecursiveMutual is therefore
-                // consumed by DecideShape (S11b / the README matrix), not by a guard.
+                // DecisionTables.Rules). R2 Task 1 gives the guard a RecursionKind, so a
+                // later task CAN route a Mutual cycle to its own row (TOML holds a
+                // one-level mutual cycle, S11b) — but this site still asks
+                // RecursiveSelf for BOTH kinds on purpose: RecursiveMutual x toml is
+                // Supported, and consuming it before the emitters close a cycle through
+                // another type's helper emits the members that are dropped today
+                // (RvPolyBase.Next, PolyRecAbstract.Next -> `new` on a type that must not
+                // be instantiated). Flipping this site is Task 5's job, together with the
+                // emit path; RecursiveMutual stays visible through DecideShape("S11b").
                 if (
-                    fieldRecursive
+                    fieldRecursion != RecursionKind.None
                     && FormatCapabilities.Decide(formatTag, Decision.RecursiveSelf)
                         != Effect.Supported
                 )
@@ -1706,7 +1724,7 @@ internal static class GenInfrastructure
                         null,
                         IsNullableReference: fnNrt,
                         TypeFullNameAnnotated: TypeKindResolver.DisplayType(field.Type),
-                        IsRecursiveRef: fieldRecursive
+                        IsRecursiveRef: fieldRecursion != RecursionKind.None
                     )
                 );
                 continue;
@@ -1787,7 +1805,7 @@ internal static class GenInfrastructure
             string? keyTypeKind = null;
             string? keyTypeName = null;
             ImmutableArray<PropertyInfo> nestedProperties = ImmutableArray<PropertyInfo>.Empty;
-            bool recursiveRef = false;
+            RecursionKind recursion = RecursionKind.None;
             bool elementIsNrt = false;
 
             if (
@@ -1992,6 +2010,7 @@ internal static class GenInfrastructure
                 {
                     nestedProperties = BuildNestedListElement(
                         elementType,
+                        type,
                         formatTag,
                         attrs,
                         visiting,
@@ -2004,10 +2023,11 @@ internal static class GenInfrastructure
                 {
                     nestedProperties = ExtractNestedPropertiesGuarded(
                         eNtsObj,
+                        type,
                         attrs,
                         formatTag,
                         visiting,
-                        out recursiveRef,
+                        out recursion,
                         skippedRecursive,
                         skippedUnsupported,
                         droppedMembers
@@ -2146,10 +2166,11 @@ internal static class GenInfrastructure
                     {
                         nestedProperties = ExtractNestedPropertiesGuarded(
                             vNtsObj,
+                            type,
                             attrs,
                             formatTag,
                             visiting,
-                            out recursiveRef,
+                            out recursion,
                             skippedRecursive,
                             skippedUnsupported,
                             droppedMembers
@@ -2164,6 +2185,7 @@ internal static class GenInfrastructure
                         // Nested Dictionary<K2,V2> — resolve inner dict's K/V and wrap as synthetic PropertyInfo
                         nestedProperties = BuildNestedDictElement(
                             vNtsDict,
+                            type,
                             formatTag,
                             attrs,
                             visiting,
@@ -2196,10 +2218,11 @@ internal static class GenInfrastructure
             {
                 nestedProperties = ExtractNestedPropertiesGuarded(
                     objNts,
+                    type,
                     attrs,
                     formatTag,
                     visiting,
-                    out recursiveRef,
+                    out recursion,
                     skippedRecursive,
                     skippedUnsupported,
                     droppedMembers
@@ -2208,9 +2231,11 @@ internal static class GenInfrastructure
 
             // Same decision point as the field path above, for the same reason:
             // RecursiveSelf is the cell that answers "may this format hold a cycle at
-            // all"; RecursiveMutual stays in the shape matrix (S11b) alone.
+            // all". The kind is carried (Self vs Mutual) but not yet acted on here —
+            // consuming RecursiveMutual x toml before the emit side closes a cycle through
+            // another type's helper is exactly the change Task 5 makes, not this one.
             if (
-                recursiveRef
+                recursion != RecursionKind.None
                 && FormatCapabilities.Decide(formatTag, Decision.RecursiveSelf) != Effect.Supported
             )
             {
@@ -2251,7 +2276,7 @@ internal static class GenInfrastructure
                     IgnoreCondition: ignoreCondition,
                     TypeFullNameAnnotated: TypeKindResolver.DisplayType(prop.Type),
                     ElementTypeNameAnnotated: elementTypeNameAnnotated,
-                    IsRecursiveRef: recursiveRef,
+                    IsRecursiveRef: recursion != RecursionKind.None,
                     ElementTypeFullName: elementTypeFullName,
                     ElementIsNullableValue: elementIsNullableValue
                 )
@@ -2340,6 +2365,7 @@ internal static class GenInfrastructure
     /// </summary>
     private static ImmutableArray<PropertyInfo> BuildNestedListElement(
         ITypeSymbol listType,
+        INamedTypeSymbol root,
         string formatTag,
         AttributeHelpers attrs,
         HashSet<INamedTypeSymbol>? visiting = null,
@@ -2364,7 +2390,7 @@ internal static class GenInfrastructure
         var innerTypeName = TypeKindResolver.MapTypeName(innerKind, innerType);
         var innerFullName = innerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         ImmutableArray<PropertyInfo> innerNested = ImmutableArray<PropertyInfo>.Empty;
-        bool innerRecursive = false;
+        RecursionKind innerRecursion = RecursionKind.None;
 
         // If the inner type is also a list, recurse; an object element still
         // needs its members extracted so the generated inner helper is not
@@ -2376,6 +2402,7 @@ internal static class GenInfrastructure
         {
             innerNested = BuildNestedListElement(
                 innerType,
+                root,
                 formatTag,
                 attrs,
                 visiting,
@@ -2388,10 +2415,11 @@ internal static class GenInfrastructure
         {
             innerNested = ExtractNestedPropertiesGuarded(
                 ntsObjElem,
+                root,
                 attrs,
                 formatTag,
                 visiting,
-                out innerRecursive,
+                out innerRecursion,
                 skippedRecursive,
                 skippedUnsupported,
                 droppedMembers
@@ -2414,7 +2442,7 @@ internal static class GenInfrastructure
             KeyTypeName: null,
             NestedProperties: innerNested,
             ConverterTypeFullName: null,
-            IsRecursiveRef: innerRecursive,
+            IsRecursiveRef: innerRecursion != RecursionKind.None,
             ElementTypeFullName: innerFullName,
             // The innermost element's nullability must survive the chain so
             // nullable elements (List<List<int?>>) get their null handling.
@@ -2441,6 +2469,7 @@ internal static class GenInfrastructure
     /// </summary>
     private static ImmutableArray<PropertyInfo> BuildNestedDictElement(
         INamedTypeSymbol dictType,
+        INamedTypeSymbol root,
         string formatTag,
         AttributeHelpers attrs,
         HashSet<INamedTypeSymbol>? visiting = null,
@@ -2467,15 +2496,16 @@ internal static class GenInfrastructure
         ImmutableArray<PropertyInfo> innerNested = ImmutableArray<PropertyInfo>.Empty;
         var dictFullName = dictType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-        bool isRecursiveDictValue = false;
+        RecursionKind dictValueRecursion = RecursionKind.None;
         if (iv is "object" && innerValType is INamedTypeSymbol ivNtsObj)
         {
             innerNested = ExtractNestedPropertiesGuarded(
                 ivNtsObj,
+                root,
                 attrs,
                 formatTag,
                 visiting,
-                out isRecursiveDictValue,
+                out dictValueRecursion,
                 skippedRecursive,
                 skippedUnsupported,
                 droppedMembers
@@ -2489,6 +2519,7 @@ internal static class GenInfrastructure
         {
             innerNested = BuildNestedDictElement(
                 ivNtsDict,
+                root,
                 formatTag,
                 attrs,
                 visiting,
@@ -2510,7 +2541,7 @@ internal static class GenInfrastructure
             KeyTypeName: innerKeyTypeName,
             NestedProperties: innerNested,
             ConverterTypeFullName: null,
-            IsRecursiveRef: isRecursiveDictValue,
+            IsRecursiveRef: dictValueRecursion != RecursionKind.None,
             ElementTypeFullName: innerValType.ToDisplayString(
                 SymbolDisplayFormat.FullyQualifiedFormat
             ),
