@@ -101,8 +101,13 @@ public class SilentDropDiagnosticTests
             .Because("S8 x json is Supported in the table, so the member must reach the code");
     }
 
+    /// <summary>
+    /// R2 Task 3 paid the debt this fixture used to pin: an extended collection as a dict
+    /// VALUE (S10) is emitted in the four formats that can express it, so the drop
+    /// diagnostic has to be gone. Keeping the old assertion would demand the bug back.
+    /// </summary>
     [Test]
-    public async Task MsgPack_ExtendedCollectionElement_ReportsDiagnostic()
+    public async Task MsgPack_ExtendedCollectionAsDictValue_Is_Now_Emitted()
     {
         var source = """
             using PicoMsgPack;
@@ -118,9 +123,12 @@ public class SilentDropDiagnosticTests
         var (ids, generated, _) = Run(new MsgPackSerializerGenerator(), source);
         await Assert
             .That(ids)
-            .Contains(Id)
-            .Because("MsgPack collected the same skip list but never surfaced it");
-        await Assert.That(generated).DoesNotContain("Tags");
+            .DoesNotContain(Id)
+            .Because("the value position is implemented now, so nothing is dropped");
+        await Assert
+            .That(generated)
+            .Contains("Tags")
+            .Because("S10 x msgpack is Supported in the table, so the member must reach the code");
     }
 
     /// <summary>
@@ -453,6 +461,25 @@ public class SilentDropDiagnosticTests
             }
             """;
 
+    /// <summary>S10 with an OBJECT leaf: a dict whose value is a list of objects.</summary>
+    private static string DictOfObjectList(string ns, string attr) =>
+        $$"""
+            using {{ns}};
+
+            [{{attr}}]
+            public partial class Doc
+            {
+                public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<Row>> V { get; set; } = new();
+                public int Plain { get; set; }
+            }
+
+            [{{attr}}]
+            public partial class Row
+            {
+                public string Name { get; set; } = "";
+            }
+            """;
+
     /// <summary>§3 S11a: self recursion.</summary>
     private static string SelfRecursive(string ns, string attr) =>
         $$"""
@@ -595,24 +622,42 @@ public class SilentDropDiagnosticTests
 
     /// <summary>
     /// The other cell D-4 ② names: a dict whose value is a collection (S10 / D-3) is
-    /// reportable in four formats and structurally impossible in INI (its sections hold no
-    /// nesting). Same shape, two verdicts — the message comes from the facts, not from the
-    /// fact that the emitter happens to lack a case.
+    /// structurally impossible in INI (its sections hold no nesting). R2 Task 3 paid the
+    /// debt in the other four formats, so the ⏸ half of this pair is gone by value — the ini
+    /// half stays, and it must still say ⛔ with the format named (the message comes from the
+    /// facts, not from "our emitter lacks a case").
     /// </summary>
     [Test]
-    public async Task Dict_of_list_is_a_debt_in_toml_and_a_fact_in_ini()
+    public async Task Dict_of_list_is_a_fact_in_ini()
     {
-        var toml = DropMessage(RunToml(DictOfList("PicoToml", "PicoTomlSerializable")), "Doc.V");
         var ini = DropMessage(RunIni(DictOfList("PicoIni", "PicoIniSerializable")), "Doc.V");
 
-        await Assert
-            .That(toml.StartsWith(Deferred, StringComparison.Ordinal))
-            .IsTrue()
-            .Because($"TOML can hold a dict of collections (S10), so this is a debt: {toml}");
         await Assert
             .That(ini.StartsWith(Impossible, StringComparison.Ordinal))
             .IsTrue()
             .Because($"INI cannot nest inside a member (S10), so this is a fact: {ini}");
+        await Assert.That(ini).Contains("ini").Because("I-5: the message names the format");
+    }
+
+    /// <summary>
+    /// The value-position debt that is still open after Task 3: a dict value whose sequence
+    /// ends in an OBJECT. The FACTS say TOML can express a nested object list (S4), so this
+    /// drop is our gap (⏸, "not implemented yet"), not a format limit — and the message has
+    /// to say that much, otherwise the reader is told a lie about their format.
+    /// </summary>
+    [Test]
+    public async Task Dict_of_object_list_is_a_deferred_gap_in_toml()
+    {
+        var toml = DropMessage(
+            RunToml(DictOfObjectList("PicoToml", "PicoTomlSerializable")),
+            "Doc.V"
+        );
+
+        await Assert
+            .That(toml.StartsWith(Deferred, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"the facts say TOML can hold it, so this is our gap: {toml}");
+        await Assert.That(toml).Contains("toml").Because("I-5: the message names the format");
     }
 
     /// <summary>
@@ -890,15 +935,20 @@ public class SilentDropDiagnosticTests
 
         foreach (var (tag, ns, attr, run) in formats)
         {
+            // Four shapes, because the set of DROPPED shapes differs per format: json drops
+            // only the object-leaf dict value (its remaining S10 gap) and ini drops all four.
+            // The union keeps the test non-vacuous for every format without pretending that
+            // each one drops the same thing.
             var messages = run(NullableIntList(ns, attr))
                 .Messages.Concat(run(DictOfList(ns, attr)).Messages)
+                .Concat(run(DictOfObjectList(ns, attr)).Messages)
                 .Concat(run(SelfRecursive(ns, attr)).Messages)
                 .ToArray();
 
             await Assert
                 .That(messages)
                 .IsNotEmpty()
-                .Because($"{tag} drops all three shapes, so it must report them");
+                .Because($"{tag} drops at least one of the four shapes, so it must report it");
 
             foreach (var message in messages)
             {

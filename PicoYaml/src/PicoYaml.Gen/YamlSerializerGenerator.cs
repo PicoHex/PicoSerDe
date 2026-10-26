@@ -1094,6 +1094,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
                 switch (p.ElementTypeKind)
                 {
+                    case "list":
+                    case "array":
+                    case "hashset":
+                    case "queue":
+                    case "stack":
+                    case "linkedlist":
+                    case "immutablearray":
+                    case "memory":
+                    case "readonlymemory":
+                        // Same S10 value position as the member arm: the inline inner helper
+                        // writes an object's members, so a dict-of-collections member of a
+                        // NESTED object goes through here.
+                        EmitYamlDictValueSequenceWrite(s, p, ind);
+                        break;
                     case "string":
                         s.Append(ind);
                         s.AppendLine("    yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value));");
@@ -2324,6 +2338,19 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("    yw.WritePropertyName(__kvp.Key);");
             switch (p.ElementTypeKind)
             {
+                case "list":
+                case "array":
+                case "hashset":
+                case "queue":
+                case "stack":
+                case "linkedlist":
+                case "immutablearray":
+                case "memory":
+                case "readonlymemory":
+                    // S10: the dict VALUE is a collection, written as one block sequence
+                    // under the entry's own key (see EmitYamlDictValueSequenceWrite).
+                    EmitYamlDictValueSequenceWrite(s, p, ind);
+                    break;
                 case "string":
                     s.Append(ind);
                     s.AppendLine("    yw.WriteString(Encoding.UTF8.GetBytes(__kvp.Value));");
@@ -2826,7 +2853,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     p,
                     pad,
                     ctorAssign ? tgt : tgt + "." + p.Name,
-                    p.TypeKind == "array"
+                    p.TypeKind!
                 );
                 return;
             }
@@ -3003,9 +3030,29 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(pad);
             s.AppendLine("if (!r.Read()) break; // document ended here");
             s.Append(pad);
+            var sequenceValue = PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind);
             s.AppendLine("if (r.TokenType == TokenType.ObjectStart) {");
             s.Append(pad);
-            s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName) {");
+            if (sequenceValue)
+            {
+                // A SEQUENCE value arm ends on the wrapper's ObjectEnd, one Read away from
+                // the next key, while every scalar arm never reads and leaves the reader ON
+                // the current "key: value" token. `__dkHaveNext` lets the entry loop accept
+                // both alignments; without it the loop either eats a key after every
+                // sequence entry or re-processes a scalar one forever. Emitted only for the
+                // sequence case, so a flat dict's generated code is unchanged.
+                s.AppendLine("    bool __dkHaveNext = false;");
+                s.Append(pad);
+                s.AppendLine("    while (true) {");
+                s.Append(pad);
+                s.AppendLine("        if (!__dkHaveNext && !r.Read()) break;");
+                s.Append(pad);
+                s.AppendLine("        __dkHaveNext = false;");
+                s.Append(pad);
+                s.AppendLine("        if (r.TokenType != TokenType.PropertyName) break;");
+            }
+            else
+                s.AppendLine("    while (r.Read() && r.TokenType == TokenType.PropertyName) {");
             s.Append(pad);
             s.AppendLine("        var __dk = Encoding.UTF8.GetString(r.KeySpan);");
             switch (p.ElementTypeKind)
@@ -3090,6 +3137,36 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     EmitTgt();
                     s.AppendLine("[__dk] = __dv;");
                     break;
+                case "list":
+                case "array":
+                case "hashset":
+                case "queue":
+                case "stack":
+                case "linkedlist":
+                case "immutablearray":
+                case "memory":
+                case "readonlymemory":
+                {
+                    // S10: the dict VALUE is a collection. Read the block/flow sequence into
+                    // a temp list of the value's ITEM type and convert it to the declared
+                    // kind - the same pair the member arm uses, one level down.
+                    var __tgtSb = new StringBuilder();
+                    __tgtSb.Append(pad);
+                    __tgtSb.Append("        ");
+                    __tgtSb.Append(tgt);
+                    if (!ctorAssign)
+                    {
+                        __tgtSb.Append('.');
+                        __tgtSb.Append(p.Name);
+                    }
+                    __tgtSb.Append("[__dk]");
+                    EmitYamlDictValueSequenceRead(s, p, __tgtSb.ToString(), pad + "        ");
+                    s.Append(pad);
+                    // The sequence arm ends on the wrapper's ObjectEnd, one Read away from
+                    // the next key: tell the entry loop so it does not eat that token.
+                    s.AppendLine("        __dkHaveNext = true;");
+                    break;
+                }
                 case "dict":
                 {
                     var dsn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -3564,6 +3641,102 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind)
         && p.NestedProperties.Length > 0;
 
+    /// <summary>
+    /// Emits the write of ONE dictionary value that is itself a collection (S10): a block
+    /// sequence under the entry's own key. The level descriptor is the extractor's chain for
+    /// the VALUE (<c>NestedProperties[0]</c>, one level below the value), so a nested chain
+    /// keeps the same per-level writer a list member uses instead of a second implementation.
+    /// <para>
+    /// Callers emit <c>yw.WritePropertyName(__kvp.Key)</c> first; this writes only the value,
+    /// so both dict arms (top-level member and inline inner helper) share one body.
+    /// </para>
+    /// </summary>
+    private static void EmitYamlDictValueSequenceWrite(StringBuilder s, PropertyInfo p, string ind)
+    {
+        EmitYamlSequenceWrite(
+            s,
+            p.NestedProperties[0],
+            "__kvp.Value",
+            ind + "    ",
+            0,
+            p.ElementTypeKind ?? "list"
+        );
+    }
+
+    /// <summary>
+    /// Emits the read of ONE dictionary value that is itself a collection (S10) into
+    /// <paramref name="assignTarget"/> (already spelled <c>obj.Map[__dk]</c>).
+    /// <para>
+    /// Same four-way token probe as <see cref="EmitYamlNestedListDeserialize"/> — wrapper
+    /// <c>ObjectStart</c>, bare first item, empty, or end of document — because YAML's
+    /// sequence encoding does not depend on WHERE the sequence sits. The one difference is
+    /// the trailing behavior: a member may <c>break</c> out of its dispatch loop, a dict
+    /// entry must not, so the reader is simply left on the next token.
+    /// </para>
+    /// </summary>
+    private static void EmitYamlDictValueSequenceRead(
+        StringBuilder s,
+        PropertyInfo dp,
+        string assignTarget,
+        string pad
+    )
+    {
+        var level = dp.NestedProperties[0];
+        var elemType = level.ElementTypeNameAnnotated ?? level.ElementTypeName ?? "object";
+        s.Append(pad);
+        s.Append("var __dvl = new System.Collections.Generic.List<");
+        s.Append(elemType);
+        s.AppendLine(">(16);");
+        s.Append(pad);
+        s.AppendLine("bool __more;");
+        s.Append(pad);
+        s.AppendLine("__more = r.Read();");
+        s.Append(pad);
+        s.AppendLine("if (!__more)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    // The document ended at this key: there is no sequence to read.");
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else if (r.TokenType == TokenType.ObjectStart)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    // Indented block sequence: the wrapper ObjectStart was consumed.");
+        EmitYamlSequenceReadLoop(s, level, "__dvl", pad + "    ", 1, readFirst: true);
+        s.Append(pad);
+        s.AppendLine("    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();");
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else if (r.TokenType == TokenType.String)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    // No wrapper: the probe token is the first item of a flat sequence.");
+        EmitYamlSequenceReadLoop(s, level, "__dvl", pad + "    ", 1, readFirst: false);
+        s.Append(pad);
+        s.AppendLine("}");
+        s.Append(pad);
+        s.AppendLine("else");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    // No wrapper and no sequence item: the value is an empty sequence.");
+        s.Append(pad);
+        s.AppendLine("}");
+        PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+            s,
+            dp.ElementTypeKind!,
+            "__dvl",
+            assignTarget,
+            elemType,
+            pad
+        );
+    }
+
     /// <summary>Emits the write of <paramref name="accessor"/> as a YAML block sequence.</summary>
     private static void EmitYamlSequenceWrite(
         StringBuilder s,
@@ -3675,7 +3848,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         PropertyInfo p,
         string pad,
         string assignTarget,
-        bool isArray
+        string kind
     )
     {
         s.Append(pad);
@@ -3726,9 +3899,15 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    // is already the sibling property this member must not eat (C-21).");
         s.Append(pad);
         s.AppendLine("}");
+        // T2 review I-1: the last step used to spell `isArray ? "array" : "list"`, which is
+        // the member KIND only for lean List/array members. A member whose declared kind is
+        // an extended collection (HashSet<List<int>>, Queue<int[]>) reaches this path too —
+        // IsYamlNestedList is true for any sequence of sequences — and the hardcoded kind
+        // assigned a List<List<int>> to a HashSet<List<int>> (CS0029). The kind is the
+        // caller's now, so the conversion this path emits is the one the DECLARATION asks for.
         PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
             s,
-            isArray ? "array" : "list",
+            kind,
             "__tmpList",
             assignTarget,
             p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object",

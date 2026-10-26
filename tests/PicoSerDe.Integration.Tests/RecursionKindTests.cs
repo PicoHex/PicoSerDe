@@ -218,7 +218,11 @@ public class RecursionKindTests
         var source = Source();
 
         // Both helpers take `root` right after the container type and hand it on unchanged
-        // (their two call sites pass `type` from the member level and `root` when recursing).
+        // (their THREE member-level call sites pass `type` and both recursive sites pass the
+        // `root` they were handed). R2 Task 3 added the third member-level site: the dict
+        // VALUE chain, which is the member arm's builder one level down and must therefore
+        // thread the same `type` — passing the value's own type there would answer Self for
+        // every cycle through a dictionary value.
         await Assert
             .That(
                 Regex
@@ -240,7 +244,7 @@ public class RecursionKindTests
             .Select(m => m.Groups["root"].Value)
             .ToArray();
 
-        await Assert.That(string.Join(", ", threaded)).IsEqualTo("type, type, root, root");
+        await Assert.That(string.Join(", ", threaded)).IsEqualTo("type, type, type, root, root");
     }
 
     [Test]

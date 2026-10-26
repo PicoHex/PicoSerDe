@@ -1796,6 +1796,47 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(indent);
                 s.AppendLine("    tw.WriteEndInlineTable();");
             }
+            else if (
+                PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind)
+                && p.NestedProperties.Length > 0
+            )
+            {
+                // S10: the dict VALUE is a collection. TOML writes it as an inline array
+                // under the entry's own key (`k = [1, 2]`), and a nested chain reuses the
+                // same per-level emitter the member arm uses - one level per call - so
+                // `Dictionary<string, List<List<int>>>` needs no second implementation.
+                // Before this branch the value fell through to the scalar accessor and was
+                // written as the collection's ToString().
+                var valAcc = PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(
+                    p.ElementTypeKind
+                )
+                    ? "__kvp.Value!"
+                    : "__kvp.Value";
+                s.Append(indent);
+                s.AppendLine("    tw.WriteStartArray(Encoding.UTF8.GetBytes(__kvp.Key));");
+                s.Append(indent);
+                s.Append("    foreach (var __item in ");
+                s.Append(
+                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                        p.ElementTypeKind,
+                        valAcc
+                    )
+                );
+                s.AppendLine(")");
+                s.Append(indent);
+                s.AppendLine("    {");
+                EmitSerializeNestedArrayLevel(
+                    s,
+                    p.NestedProperties[0],
+                    "__item",
+                    indent + "    ",
+                    1
+                );
+                s.Append(indent);
+                s.AppendLine("    }");
+                s.Append(indent);
+                s.AppendLine("    tw.WriteEndArray();");
+            }
             else
             {
                 s.Append(indent);
@@ -1927,6 +1968,65 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(sn);
             s.AppendLine(".Deserialize(ref r);");
         }
+    }
+
+    /// <summary>
+    /// Emits the read of ONE dictionary value that is itself a collection (S10): the bracket
+    /// pair written by the dict arm of <see cref="EmitSerializeProp"/> is read into a temp
+    /// list of the value's ELEMENT type - the extractor's descriptor chain
+    /// (<c>NestedProperties[0]</c>) describes that element - and the shared
+    /// <see cref="PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList"/> turns it into the
+    /// declared kind, exactly like the member arm does.
+    /// <para>
+    /// One copy, two callers: the section-based read (<see cref="EmitDictRead"/>, what our own
+    /// writer produces: <c>[Map]</c> + <c>k = [...]</c>) and the inline-table read
+    /// (<c>Map = { k = [...] }</c>, what an external TOML file may contain). TOML used to have
+    /// two hand-written dict value switches that disagreed; a third copy of the seven kinds
+    /// is not how this family should grow.
+    /// </para>
+    /// <para>
+    /// Both callers hand over a reader standing on the entry's PROPERTY NAME (the scalar arms
+    /// read the pre-parsed <c>ValueSpan</c> from there), so this level takes the one
+    /// <c>Read()</c> that enters the bracket pair — same shape as the member-level list arm.
+    /// </para>
+    /// </summary>
+    private static void EmitDictValueCollectionRead(
+        StringBuilder s,
+        PropertyInfo dp,
+        string valueTarget,
+        string pad
+    )
+    {
+        var elemNode = dp.NestedProperties[0];
+        var elemType = elemNode.ElementTypeNameAnnotated ?? elemNode.ElementTypeName ?? "object";
+        s.Append(pad);
+        s.Append("var __dl = new System.Collections.Generic.List<");
+        s.Append(elemType);
+        s.AppendLine(">(16);");
+        s.Append(pad);
+        s.AppendLine("if (r.Read() && r.TokenType == TokenType.ArrayStart)");
+        s.Append(pad);
+        s.AppendLine("{");
+        s.Append(pad);
+        s.AppendLine("    while (r.Read() && r.TokenType != TokenType.ArrayEnd)");
+        s.Append(pad);
+        s.AppendLine("    {");
+        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(elemNode.ElementTypeKind))
+            EmitDeserializeNestedArrayLevel(s, dp, "__dl", pad + "        ", 1);
+        else
+            EmitDeserializeListElementTemp(s, elemNode, pad + "        ", "__dl");
+        s.Append(pad);
+        s.AppendLine("    }");
+        s.Append(pad);
+        s.AppendLine("}");
+        PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+            s,
+            dp.ElementTypeKind!,
+            "__dl",
+            valueTarget,
+            elemType,
+            pad
+        );
     }
 
     private static void EmitDictRead(StringBuilder s, PropertyInfo dp, string tgt, string pad)
@@ -2205,6 +2305,18 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".Deserialize(ref r);");
                 break;
             }
+            case "list":
+            case "array":
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
+                s.AppendLine();
+                EmitDictValueCollectionRead(s, dp, tgt + "." + dp.Name + "[__dk]", pad + "    ");
+                break;
             case "object":
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -2778,6 +2890,27 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append("    var __dk = Encoding.UTF8.GetString(r.KeySpan);");
                     switch (p.ElementTypeKind)
                     {
+                        case "list":
+                        case "array":
+                        case "hashset":
+                        case "queue":
+                        case "stack":
+                        case "linkedlist":
+                        case "immutablearray":
+                        case "memory":
+                        case "readonlymemory":
+                            // Same S10 value position as the section arm below: an inline
+                            // table can hold the same `k = [1, 2]` entries, so it goes
+                            // through the same emitter instead of storing the collection's
+                            // text.
+                            s.AppendLine();
+                            EmitDictValueCollectionRead(
+                                s,
+                                p,
+                                tgt + "." + p.Name + "[__dk]",
+                                pad + "    "
+                            );
+                            break;
                         case "int32":
                             s.AppendLine();
                             s.Append(pad);

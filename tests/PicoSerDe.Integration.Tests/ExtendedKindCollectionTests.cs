@@ -32,6 +32,20 @@ public class RvSetElementModel
     public List<HashSet<int>> SetElement { get; set; } = [];
 }
 
+/// <summary>
+/// S7 where the extended collection's own ELEMENT is a collection
+/// (<c>HashSet&lt;List&lt;int&gt;&gt;</c>). T2 review I-1: the yaml nested-sequence reader ended with
+/// <c>EmitCollectionFromList(isArray ? "array" : "list", …)</c> — the member kind only for
+/// lean List/array members — so this shape emitted <c>obj.M = __tmpList</c> with a
+/// <c>List&lt;List&lt;int&gt;&gt;</c> on the right of a <c>HashSet&lt;List&lt;int&gt;&gt;</c> (CS0029) while
+/// the table said Supported. The guard for it is this round trip.
+/// </summary>
+public class RvSetOfListModel
+{
+    public string Name { get; set; } = "";
+    public HashSet<List<int>> SetOfList { get; set; } = [];
+}
+
 public class ExtendedKindCollectionTests
 {
     /// <summary>The four formats whose element-position cell is a gap (S8 x ini is a fact).</summary>
@@ -65,6 +79,23 @@ public class ExtendedKindCollectionTests
         await AssertSetElementRoundTrip(
             format,
             [new HashSet<int> { 2147483647 }, new HashSet<int>(), new HashSet<int> { -1, 0 }]
+        );
+    }
+
+    // ── S7 with a collection element: HashSet<List<int>> (T2 review I-1) ─────────────
+
+    [Test]
+    [Arguments("json")]
+    [Arguments("msgpack")]
+    [Arguments("toml")]
+    [Arguments("yaml")]
+    public async Task Extended_kind_member_with_sequence_element_round_trips(string format)
+    {
+        await AssertSetOfListRoundTrip(format, []);
+        await AssertSetOfListRoundTrip(format, [new List<int> { 7 }]);
+        await AssertSetOfListRoundTrip(
+            format,
+            [new List<int> { 2147483647 }, new List<int>(), new List<int> { -1, 0 }]
         );
     }
 
@@ -103,6 +134,17 @@ public class ExtendedKindCollectionTests
                 Decision.ExtendedKindAsElement,
                 "SetElement",
                 "public System.Collections.Generic.List<System.Collections.Generic.HashSet<int>> SetElement { get; set; } = new();"
+            ),
+            (
+                // R2 Task 3: the dict VALUE position. Same anti-false-green rule — the cell
+                // must be read by a site, so flipping it without the emitters turns this red.
+                // The member name must not be a substring of anything else the generator
+                // emits: `Map` was, because msgpack's reader declares a local `__isMap`,
+                // which made the guard blind for that one format.
+                "S10",
+                Decision.DictValueCollection,
+                "DictVal",
+                "public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> DictVal { get; set; } = new();"
             ),
         ];
 
@@ -176,6 +218,26 @@ public class ExtendedKindCollectionTests
                 .Because($"{format}: S8 element #{i} of {Describe(value)}");
     }
 
+    private static async Task AssertSetOfListRoundTrip(string format, List<int>[] value)
+    {
+        var model = new RvSetOfListModel { Name = "n", SetOfList = [.. value] };
+        var back = RoundTripSetOfList(format, model);
+
+        await Assert.That(back.Name).IsEqualTo("n").Because(format);
+        await Assert
+            .That(back.SetOfList.Count)
+            .IsEqualTo(value.Length)
+            .Because($"{format}: HashSet<List<int>> element count");
+        // A HashSet has no order, so both sides are canonically sorted before comparing —
+        // the ELEMENTS however are lists, so their order has to survive.
+        var expected = value.Select(l => string.Join(",", l)).OrderBy(x => x).ToArray();
+        var actual = back.SetOfList.Select(l => string.Join(",", l)).OrderBy(x => x).ToArray();
+        await Assert
+            .That(string.Join(" | ", actual))
+            .IsEqualTo(string.Join(" | ", expected))
+            .Because($"{format}: HashSet<List<int>> contents");
+    }
+
     private static string Describe(IEnumerable<HashSet<int>> value) =>
         "[" + string.Join(", ", value.Select(s => "{" + string.Join(",", s) + "}")) + "]";
 
@@ -199,6 +261,24 @@ public class ExtendedKindCollectionTests
                 TomlSerializer.SerializeToUtf8Bytes(model)
             )!,
             _ => YamlSerializer.Deserialize<RvSetMemberModel>(
+                YamlSerializer.SerializeToUtf8Bytes(model)
+            )!,
+        };
+
+    /// <summary>Round-trips the HashSet&lt;List&lt;int&gt;&gt; model through one format.</summary>
+    private static RvSetOfListModel RoundTripSetOfList(string format, RvSetOfListModel model) =>
+        format switch
+        {
+            "json" => JsonSerializer.Deserialize<RvSetOfListModel>(
+                JsonSerializer.SerializeToUtf8Bytes(model)
+            )!,
+            "msgpack" => MsgPackSerializer.Deserialize<RvSetOfListModel>(
+                MsgPackSerializer.SerializeToUtf8Bytes(model)
+            )!,
+            "toml" => TomlSerializer.Deserialize<RvSetOfListModel>(
+                TomlSerializer.SerializeToUtf8Bytes(model)
+            )!,
+            _ => YamlSerializer.Deserialize<RvSetOfListModel>(
                 YamlSerializer.SerializeToUtf8Bytes(model)
             )!,
         };

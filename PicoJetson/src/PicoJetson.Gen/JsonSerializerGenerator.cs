@@ -2211,7 +2211,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         StringBuilder sb,
         PropertyInfo prop,
         string itemVar,
-        string indent
+        string indent,
+        int depth = 0
     )
     {
         if (prop.ElementIsNullableValue)
@@ -2224,7 +2225,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("    jw.WriteNull();");
             sb.Append(indent);
             sb.AppendLine("else {");
-            EmitSerializeElementCore(sb, prop, itemVar + ".Value", indent + "    ");
+            EmitSerializeElementCore(sb, prop, itemVar + ".Value", indent + "    ", depth);
             sb.Append(indent);
             sb.AppendLine("}");
             return;
@@ -2242,19 +2243,20 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("    jw.WriteNull();");
             sb.Append(indent);
             sb.AppendLine("else {");
-            EmitSerializeElementCore(sb, prop, itemVar, indent + "    ");
+            EmitSerializeElementCore(sb, prop, itemVar, indent + "    ", depth);
             sb.Append(indent);
             sb.AppendLine("}");
             return;
         }
-        EmitSerializeElementCore(sb, prop, itemVar, indent);
+        EmitSerializeElementCore(sb, prop, itemVar, indent, depth);
     }
 
     private static void EmitSerializeElementCore(
         StringBuilder sb,
         PropertyInfo prop,
         string itemVar,
-        string indent
+        string indent,
+        int depth = 0
     )
     {
         switch (prop.ElementTypeKind!)
@@ -2346,6 +2348,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(itemVar);
                 sb.AppendLine(");");
                 break;
+            case "list":
+            case "array":
             case "hashset":
             case "queue":
             case "stack":
@@ -2354,11 +2358,18 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "memory":
             case "readonlymemory":
             {
-                // S8: the ELEMENT is an extended collection. Its wire form is the same
-                // nested array `List<List<int>>` writes; the extractor's descriptor chain
-                // (NestedProperties[0]) says what that inner array's items are, which is
-                // the part a kind-only test could never recover.
-                var setItem = "__setItem";
+                // A SEQUENCE value in a non-member position: S8's element (a collection as
+                // the element of another collection) and S10's dict VALUE (a collection as
+                // the value of a dictionary) are the same shape here — the wire form is the
+                // nested array `List<List<int>>` writes, and the extractor's descriptor chain
+                // (NestedProperties[0]) says what that inner array's items are, which is the
+                // part a kind-only test could never recover. Asking IsSequenceKind's family
+                // (not one kind) is why `list`/`array` belong in this group: a dict value of
+                // type List<int> used to fall through to the `default:` arm and be written as
+                // the item's ToString().
+                // The loop variable is per-depth: two nesting levels of this arm sit in the
+                // same scope chain, so reusing one name is CS0136.
+                var setItem = depth == 0 ? "__setItem" : "__setItem" + depth.ToString();
                 sb.Append(indent);
                 sb.AppendLine("jw.WriteStartArray();");
                 sb.Append(indent);
@@ -2375,7 +2386,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("{");
                 if (prop.NestedProperties.Length > 0)
-                    EmitSerializeElement(sb, prop.NestedProperties[0], setItem, indent + "    ");
+                    EmitSerializeElement(
+                        sb,
+                        prop.NestedProperties[0],
+                        setItem,
+                        indent + "    ",
+                        depth + 1
+                    );
                 sb.Append(indent);
                 sb.AppendLine("}");
                 sb.Append(indent);
@@ -4768,6 +4785,73 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "any":
                 EmitAnyValueDeserialize(sb, $"{dictVar}[{keyVar}]", indent);
                 break;
+            case "list":
+            case "array":
+            case "hashset":
+            case "queue":
+            case "stack":
+            case "linkedlist":
+            case "immutablearray":
+            case "memory":
+            case "readonlymemory":
+            {
+                // S10: the dict VALUE is a collection. Read it into a temp list of the
+                // value's ELEMENT type (NestedProperties[0] describes that element, one level
+                // below the value) and let the shared EmitCollectionFromList turn it back
+                // into the declared kind — the same pair the member arm above uses, so a
+                // HashSet value and a List value cannot drift apart.
+                var elemDesc = prop.NestedProperties[0];
+                var elemType =
+                    elemDesc.ElementTypeNameAnnotated ?? elemDesc.ElementTypeName ?? "object";
+                var tmpVar = "__dictList_" + prop.Name;
+                sb.Append(indent);
+                sb.Append("var ");
+                sb.Append(tmpVar);
+                sb.Append(" = new System.Collections.Generic.List<");
+                sb.Append(elemType);
+                sb.AppendLine(">();");
+                sb.Append(indent);
+                sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(elemDesc.ElementTypeKind))
+                {
+                    // The value's element is itself a collection: reuse the nested-list reader
+                    // (it declares one List per item and adds it to the accumulator).
+                    EmitNestedListDeserialize(
+                        sb,
+                        elemDesc.NestedProperties[0],
+                        tmpVar,
+                        prop.Name,
+                        indent + "    ",
+                        nestLevel,
+                        elemDesc.ElementTypeKind == "array"
+                    );
+                }
+                else
+                {
+                    sb.Append(indent);
+                    sb.AppendLine(
+                        "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+                    );
+                    sb.Append(indent);
+                    sb.AppendLine("    {");
+                    EmitDeserializeElementAdd(sb, elemDesc, tmpVar, indent + "        ", nestLevel);
+                    sb.Append(indent);
+                    sb.AppendLine("    }");
+                }
+                sb.Append(indent);
+                sb.AppendLine("}");
+                PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                    sb,
+                    prop.ElementTypeKind!,
+                    tmpVar,
+                    dictVar + "[" + keyVar + "]",
+                    elemType,
+                    indent
+                );
+                break;
+            }
             case "object":
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(

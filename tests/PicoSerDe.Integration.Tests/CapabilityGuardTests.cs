@@ -96,14 +96,11 @@ public class CapabilityGuardTests
         // it by an unconditional kind list, so there is no cell to ask". R2 Task 2 wired
         // that site to Decide(..., ExtendedKindAsElement) — which is what made S8 flip for
         // four formats — so the exemption is gone: the guard now proves the row is live.
-        (
-            Decision.DictValueCollection,
-            "Same category, dict side: a dict value that is itself a collection is dropped for "
-                + "all five formats by a kind test (GenInfrastructure, the 'Dict values that "
-                + "are collections' block with `vk is \"list\" or \"array\"`). The whole row is "
-                + "DropMember, so a site lookup would discard the answer. Consumed by "
-                + "DecideShape(\"S10\")."
-        ),
+        // DictValueCollection used to be exempt here with the reason "the whole row is
+        // DropMember, so a site lookup would discard the answer". R2 Task 3 wired the
+        // extractor's dict-value site to it (and the four formats learned the value
+        // position), so the exemption is gone and the row is proven live: flipping a cell
+        // back to DropMember now drops the member again.
         (
             Decision.NullableRefLeaf,
             "W3 R-5: the sites ask Decision.NullableValueLeaf on purpose. NullableRefLeaf is "
@@ -322,11 +319,12 @@ public class CapabilityGuardTests
     public async Task Every_decision_point_is_consulted_by_a_generator_site_unless_documented()
     {
         // Pinned on purpose: a new exemption must be a visible edit in this file, argued
-        // for in prose - not a quiet acceptance of a new unwired decision point. Three
-        // today: R2 Task 1 wired RecursionMutual's classifier but not its sites, R2 Task 2
-        // wired ExtendedKindAsElement (removed from this list), and DictValueCollection /
-        // NullableRefLeaf are still element-level answers no member site can ask.
-        await Assert.That(UnwiredByDesign.Length).IsEqualTo(3);
+        // for in prose - not a quiet acceptance of a new unwired decision point. Two
+        // today: R2 Task 1 wired RecursionMutual's classifier but not its sites, and
+        // NullableRefLeaf is still an element-level answer no member site can ask. R2 Task 2
+        // removed ExtendedKindAsElement and R2 Task 3 removed DictValueCollection from this
+        // list, because both rows have a real site now.
+        await Assert.That(UnwiredByDesign.Length).IsEqualTo(2);
 
         // Evidence is CODE, never prose (review I-2): the guard used to grep the whole
         // file text, so `// TODO ask Decision.X here` — a comment, i.e. no site at all —
