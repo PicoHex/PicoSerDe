@@ -7,13 +7,13 @@
 
   <ItemGroup>
     <!-- Build infrastructure -->
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.401" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.403" />
 
     <!-- Testing -->
-    <PackageVersion Include="TUnit" Version="1.67.0" />
+    <PackageVersion Include="TUnit" Version="1.76.28" />
 
     <!-- Benchmarking -->
-    <PackageVersion Include="PicoBench" Version="2026.2.6" />
+    <PackageVersion Include="PicoBench" Version="2026.3.0" />
 
     <!-- Source generators (Roslyn) -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
