@@ -320,13 +320,31 @@ internal static class FormatCapabilities
 
     /// <summary>
     /// The five cells of a shape's row as a token string ("✅✅✅✅❌"), in
-    /// <see cref="AllFormatTags"/> order, using TODAY's effects. Two tokens exist:
-    /// ✅ for <see cref="Effect.Supported"/> and ❌ for any drop.
+    /// <see cref="AllFormatTags"/> order, using the <b>TERMINAL</b> effects
+    /// (<see cref="DecideShapeTarget"/>) — spec §6's口径. Two tokens exist: ✅ for
+    /// <see cref="Effect.Supported"/> and ❌ for any drop.
+    /// <para>
+    /// Why the target table and not today's (<see cref="DecideShape"/>): the README matrix
+    /// answers "what can this format express", which is the promise, not a changelog. A shape
+    /// the format can hold but this generator still drops is a ⏸ DEBT (spec §5's diagnostic
+    /// buckets: the message says "not implemented yet", with a <c>reopen:</c> pointer), and
+    /// printing ❌ there would turn a temporary gap into a false statement about the FORMAT —
+    /// the same class of lie as the R1 <c>toml × S11b</c> cell, which said ✅ while the guard
+    /// still dropped the member. The two口径 differ in exactly one direction: a debt is ✅
+    /// here and dropped by <see cref="DecideShape"/>.
+    /// </para>
+    /// <para>
+    /// The other direction cannot happen by construction: <c>DecisionTables.BuildTargetRules</c>
+    /// never marks a pair Supported unless every shape using it is representable, so this
+    /// matrix can never claim a cell the format facts deny. After R2 Tasks 2–6 the two tables
+    /// agree on every pair, which is why this口径 change moves no token today — the cells it
+    /// moves are the README's, which still documented the R1 release (R2 Task 7).
+    /// </para>
     /// </summary>
     internal static string MatrixCells(string shapeId) =>
         string.Concat(
             AllFormatTags.Select(f =>
-                DecideShape(f, shapeId) == Effect.Supported ? "\u2705" : "\u274C"
+                DecideShapeTarget(f, shapeId) == Effect.Supported ? "\u2705" : "\u274C"
             )
         );
 
