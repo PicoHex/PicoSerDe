@@ -95,6 +95,14 @@ if (BenchProtocol.Mode == ProtocolMode.Jit)
             + " the same two calls do not work at all (see YamlDotNetTypedArms.cs and the AOT"
             + " table's own note)."
     );
+    Console.WriteLine(
+        "   Input shape is NOT identical on the deserialize rows, and the difference is in the"
+            + " competitor's favour: our Deserialize<T>(byte[]) is handed UTF-8 bytes that were"
+            + " encoded outside the delegate, so it pays the UTF-8 decode inside the timed region,"
+            + " while YamlDotNet's Deserialize<T>(string) is handed a string that was built outside"
+            + " it. Both sides do one library call on the same text, but our deserialize columns"
+            + " carry one extra decode that theirs does not, which can only understate us."
+    );
 }
 else
 {

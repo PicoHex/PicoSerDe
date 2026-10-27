@@ -145,9 +145,13 @@ table.Compare(
 table.Print();
 Console.WriteLine();
 Console.WriteLine(
-    "¹ ini-parser: DOM parsing is AOT-safe, POCO mapping needs reflection and is not."
-        + " It exposes no typed API for the POCO at all — the column above is this file's"
-        + " IniData walk plus conversion, which is why no ratio is printed."
+    "¹ ini-parser 2.5.3 has no typed POCO API in any execution mode: 0 public generic"
+        + " methods and 0 parameters of type System.Type — the only entry point is"
+        + " Parse(string) → IniData, a DOM. Any POCO mapping is therefore caller-written by"
+        + " definition, so the column above is this file's IniData walk plus conversion and"
+        + " there is no equivalent operation to divide by. Its DOM parsing is AOT-safe; the"
+        + " question \"does reflection-based mapping survive AOT\" never arises for it, because"
+        + " it has no reflective mapping to begin with. That is why no ratio is printed."
 );
 Console.WriteLine(new string('=', 60));
 

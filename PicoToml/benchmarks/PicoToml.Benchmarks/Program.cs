@@ -258,6 +258,14 @@ Console.WriteLine(
         + " compile-time configuration cost, not a per-operation cost, so they are not timed."
 );
 Console.WriteLine(
+    "   Input shape is NOT identical on the deserialize rows, and the difference is in the"
+        + " competitor's favour: our Deserialize<T>(byte[]) is handed UTF-8 bytes that were"
+        + " encoded outside the delegate, so it pays the UTF-8 decode inside the timed region,"
+        + " while Tomlyn's Deserialize<T>(string) is handed a string that was built outside it."
+        + " Both sides do one library call on the same document, but our deserialize columns"
+        + " carry one extra decode that theirs does not, which can only understate us."
+);
+Console.WriteLine(
     "¹ Tommy 3.1.2 (theirs, table 2): DOM-only (TOML.Parse / TomlTable); no typed POCO mapping."
         + " Kept for continuity; table 2 publishes no ratio because the two columns are not the"
         + " same job."

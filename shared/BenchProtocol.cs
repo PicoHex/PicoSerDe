@@ -56,9 +56,14 @@
 //                               once above the table, plus the caller's own evidence when it
 //                               passes `nonEquivalentReason`) and computes no ratio (the INI
 //                               competitor arm, and the Tommy reference arm, are hand-written
-//                               DOM walks, not single library calls). A program that needs
-//                               both kinds of table prints two of them; the banner appears
-//                               once per process and the counters in Print() are per table.
+//                               DOM walks, not single library calls). The positive case is
+//                               labelled just as loudly: equivalent: true prints "EQUIVALENT"
+//                               plus the ratio's direction (Verdict = theirs ÷ ours), so a
+//                               table's divisibility is never asserted by silence. A program
+//                               that needs both kinds of table prints two of them; the banner
+//                               appears once per process and the counters in Print() are per
+//                               table — the summary line names both scopes (`published=`,
+//                               `process_published=`) so the two can never be conflated.
 //
 // Role semantics: `ours` is always PicoSerDe's own action and `theirs` the
 // competitor's, in that argument order. BenchRoleGuard.cs (unchanged) still owns
@@ -75,8 +80,11 @@
 // refused because the criterion is unavailable, so the environment failed, not the run),
 // and when PICOBENCH_ALLOW_ZERO_PUBLISH=1 says so. PICOBENCH_STRICT=1 keeps its meaning:
 // any refusal exits 1. Every table also ends with a fixed-format
-// `PICOBENCH_SUMMARY scenarios=… published=… refused=… mode=… equivalent=…` line so a CI
-// gate can see a run that published nothing without parsing prose.
+// `PICOBENCH_SUMMARY scenarios=… published=… refused=… mode=… equivalent=… exit=…
+// process_published=… process_refused=…` line so a CI gate can see a run that published
+// nothing without parsing prose — `published=`/`refused=` are that table's, `process_*`
+// are the whole process's, and `exit_scope=process-so-far` says that `exit=` is measured
+// when the line is printed (a two-table program prints the line twice).
 
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -1208,6 +1216,25 @@ public sealed class ProtocolTable
             if (!string.IsNullOrWhiteSpace(nonEquivalentReason))
                 Console.WriteLine(nonEquivalentReason);
         }
+        else
+        {
+            // The positive label. Without it "these columns are divisible" was visible only by
+            // the *absence* of the banner above, so silence carried the strongest claim in the
+            // table. It also fixes the ratio's direction in the output itself: the Verdict column
+            // is theirs/ours (see Ratio), the reciprocal of the README's Pico ÷ competitor tables
+            // — reading one as the other is what inverted the old table, so the direction is
+            // stated where the numbers are, not only in prose elsewhere.
+            Console.WriteLine(
+                $"EQUIVALENT: both arms do one library call for the same job on the same document"
+                    + $" (same POCO in and out), so {theirsLabel} ÷ {oursLabel} is a ratio, not"
+                    + " two unrelated costs."
+            );
+            Console.WriteLine(
+                $"  Verdict column = {theirsLabel} ÷ {oursLabel}: above 1.00 means {oursLabel} is"
+                    + " faster. The README's tables print the reciprocal (Pico ÷ competitor),"
+                    + " where above 1.00 means we are slower."
+            );
+        }
 
         Console.WriteLine(new string('-', _dividerWidth));
         Console.WriteLine(
@@ -1298,8 +1325,19 @@ public sealed class ProtocolTable
             );
 
         // Fixed format, one line, always printed: a CI gate can grep this instead of
-        // parsing prose, and `published=0 refused>0` is the "this run produced no data"
-        // signal that used to be indistinguishable from success.
+        // parsing prose. The counter fields say which scope they describe, because a program
+        // may print two tables and confusing the two scopes produced a string that looked
+        // exactly like the fail-open signature this line exists to expose:
+        //   scenarios= / published= / refused=   -> THIS table only (snapshotted at construction)
+        //   exit=                                 -> the whole process, as of the moment this
+        //                                            line is printed (hence `exit_scope`)
+        //   process_published= / process_refused= -> the whole process, same moment
+        // So `published=0 refused=20 process_published=20 ... exit=0` reads as "this table
+        // published nothing, the run published data", while a run that produced no data at all
+        // now says `published=0 ... process_published=0 process_refused=20 ... exit=1`. The
+        // unqualified names stay per table so `grep -qE 'PICOBENCH_SUMMARY .*published=[1-9]'`
+        // (ci.yml) keeps working; the process_* fields are additive. Only the LAST summary line
+        // a process prints is its final word — `exit=` on an earlier line is a live snapshot.
         Console.WriteLine(
             $"PICOBENCH_SUMMARY scenarios={scenarios}"
                 + $" published={published}"
@@ -1308,6 +1346,9 @@ public sealed class ProtocolTable
                 + $" equivalent={(_equivalent ? "true" : "false")}"
                 + $" cpu={(BenchProtocol.LoadNotMeasurable ? "unknown" : "known")}"
                 + $" exit={BenchProtocol.ExitCode}"
+                + " exit_scope=process-so-far"
+                + $" process_published={BenchProtocol.PublishedCount}"
+                + $" process_refused={BenchProtocol.RejectedCount}"
         );
     }
 
