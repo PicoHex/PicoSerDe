@@ -25,9 +25,13 @@ file readonly struct McInnerCustomSer : ISerializer<McInner>
     {
         var mw = new MsgPackWriter(writer);
         mw.WriteString(Encoding.UTF8.GetBytes($"custom-{value.V}"));
-        // A custom serializer owns its writer: it must commit the tail itself, or the
-        // bytes stay in the writer's span and the caller's buffer never sees them.
-        mw.FlushToBuffer();
+        // A custom serializer owns its writer: after writing a bare value (no enclosing
+        // map/array to close) it must commit the tail itself, or the bytes stay in the
+        // writer's span and the caller's buffer never sees them. Reading `Buffer` is the
+        // public way to do it -- exactly what generated serializers emit, and the only
+        // exit available to an external assembly (this sample deliberately uses the public
+        // surface, not the friend-only FlushToBuffer()).
+        _ = mw.Buffer;
     }
 }
 

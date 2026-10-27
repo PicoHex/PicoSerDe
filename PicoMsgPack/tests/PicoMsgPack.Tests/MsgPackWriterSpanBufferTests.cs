@@ -333,11 +333,12 @@ public class MsgPackWriterSpanBufferTests
         int pending = buf.WrittenCount;
         var pendingBytes = buf.WrittenSpan.ToArray();
 
-        // Another writer over the same buffer — the shape a custom serializer has.
+        // Another writer over the same buffer — the shape a custom serializer has. It
+        // commits its tail the way generated serializers do, through the public surface.
         var nested = new MsgPackWriter(raw);
         nested.WriteInt32(1);
         nested.WriteInt32(2);
-        nested.FlushToBuffer();
+        _ = nested.Buffer;
 
         mw.WriteEndObject();
         return (same, pending, pendingBytes, buf.WrittenSpan.ToArray());

@@ -13,6 +13,20 @@ namespace PicoMsgPack;
 /// serializers hand off with <c>_ = mw.Buffer;</c> (they compile into the consumer
 /// assembly, so they can only touch the public surface).
 /// </para>
+/// <para>
+/// <b>Bare values (no enclosing container).</b> Writing a scalar or a string without
+/// opening or closing a map/array leaves no implicit flush: nothing will ever close the
+/// outermost container, so the bytes stay uncommitted. Before reading the underlying
+/// buffer you <em>must</em> commit them yourself — <c>_ = mw.Buffer;</c>. This is the one
+/// rule a custom <see cref="ISerializer{T}"/> author has to know:
+/// <code>
+/// var mw = new MsgPackWriter(writer);
+/// mw.WriteString("abc"u8);
+/// _ = mw.Buffer; // commits the tail; without it the caller sees 0 bytes
+/// </code>
+/// Reading <see cref="Buffer"/> has that side effect on purpose: it is the hand-off point,
+/// both for generated code and for nested writers sharing the same buffer.
+/// </para>
 /// </summary>
 public ref struct MsgPackWriter
 {

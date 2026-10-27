@@ -29,11 +29,21 @@ public class MsgPackStrictTests
         }
     }
 
+    // MsgPackWriter is a ref struct whose span cursor (_spanPos) is a *value* field:
+    // handing it to a delegate by value writes the token into the copy's cursor, and those
+    // bytes are never committed -- BuildMap then returns a truncated `81 00` instead of
+    // `81 00 A3 61 62 63`. Hence the by-ref delegate below.
+    private delegate void WriterAction(ref MsgPackWriter w);
+
     [Test]
     public async Task Deserialize_StringIntoInt_Throws()
     {
         // int-keyed map { 0: "abc" } → Count (int) must throw
-        var bytes = BuildMap((0, (Action<MsgPackWriter>)((w) => w.WriteString("abc"u8))));
+        var bytes = BuildMap(0, (ref MsgPackWriter w) => w.WriteString("abc"u8));
+        // Payload first: fixmap(1) { 0: fixstr(3) "abc" }, byte for byte. Without this
+        // layer the test could go green for the wrong reason -- a truncated payload also
+        // throws FormatException ("ran out of input"), not "wrong type".
+        await Assert.That(bytes).IsEquivalentTo(new byte[] { 0x81, 0x00, 0xA3, 0x61, 0x62, 0x63 });
         await Assert
             .That(ThrowsFormat(() => MsgPackSerializer.Deserialize<StrictMpModel>(bytes)))
             .IsTrue();
@@ -43,19 +53,21 @@ public class MsgPackStrictTests
     public async Task Deserialize_IntIntoBool_Throws()
     {
         // int-keyed map { 2: 1 } → Flag (bool) must throw
-        var bytes = BuildMap((2, (Action<MsgPackWriter>)((w) => w.WriteInt32(1))));
+        var bytes = BuildMap(2, (ref MsgPackWriter w) => w.WriteInt32(1));
+        // Payload first: fixmap(1) { 2: 1 }; see the note above for why.
+        await Assert.That(bytes).IsEquivalentTo(new byte[] { 0x81, 0x02, 0x01 });
         await Assert
             .That(ThrowsFormat(() => MsgPackSerializer.Deserialize<StrictMpModel>(bytes)))
             .IsTrue();
     }
 
-    private static byte[] BuildMap((int Key, Action<MsgPackWriter> Write) entry)
+    private static byte[] BuildMap(int key, WriterAction write)
     {
         var buffer = new ArrayBufferWriter<byte>();
         var mw = new MsgPackWriter(buffer);
         mw.WriteStartObject(1);
-        mw.WriteInt32(entry.Key);
-        entry.Write(mw);
+        mw.WriteInt32(key);
+        write(ref mw); // by ref: the caller's writer keeps the span cursor
         mw.WriteEndObject();
         return buffer.WrittenSpan.ToArray();
     }
