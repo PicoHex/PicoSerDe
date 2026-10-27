@@ -60,8 +60,9 @@ in progress; this section will only get numbers back once they come from the fix
 
 What was wrong — none of it a change to the serializers themselves. **Two of the four are
 fixed in `bench/fix-inversion`** (the inverted call sites, and the `PrintComparison` labels);
-**the other two are measurement-*design* defects, documented here and still open** — which
-is exactly why no number is published until they are redesigned:
+**the other two are still open, and both are defects of the measurement *protocol*, not of any
+serializer and not of ahead-of-time compilation** — which is exactly why no number is
+published until they are redesigned:
 
 1. **Every `Benchmark.Compare` call passed its two actions in the wrong slots** (fixed here).
    PicoBench's signature is
@@ -70,8 +71,14 @@ is exactly why no number is published until they are redesigned:
    action as the *baseline* and the competitor's as the *candidate*, which swapped the column
    labels in every table and turned each ratio upside down: a row that read as a speedup was
    in truth the same magnitude of slowdown, with the two column headers printed backwards.
-2. **A reported "AOT" comparison's absolute cost is inflated** — **still open**, a
-   measurement-design defect: the two sides are still not compiled the same way.
+2. **Published numbers were measured without a protocol** — **still open**, a
+   measurement-design defect, and *not* an AOT defect. Nothing pinned machine load, iteration
+   count, run count or run-to-run dispersion, and AOT and JIT were not kept in separate
+   columns, so the *same* binary could be reported with values orders of magnitude apart
+   depending on what else the machine was doing. That spread used to be read here as an "AOT"
+   absolute-cost blow-up; **that reading is retracted** — on an idle machine the AOT binary and
+   a direct `Stopwatch` loop agree to within a few percent, and AOT and JIT land in the same
+   range. What was missing is the protocol, not the compile mode.
 3. **The INI/TOML competitor arms still do non-equivalent work** — **still open**, a
    measurement-design defect: the "competitor" arm does a hand-written DOM walk plus typed
    mapping while ours is a single library call, so the two arms are not the same job. The
@@ -85,6 +92,18 @@ A runtime role guard (`shared/BenchRoleGuard.cs`, linked into every benchmark pr
 throws `InvalidOperationException` — naming both actual benchmark names — if a comparison's
 candidate slot is not a `Pico*` action or its baseline slot is. Re-breaking the argument order
 crashes the benchmark instead of silently printing a backwards table.
+
+### Measurement protocol
+
+Item 2 above, written down as a rule. A run that misses **any** of these is not published,
+however good its numbers look:
+
+- **Idle machine** — nothing else compiling, publishing or debugging, no antivirus first scan.
+- **≥100k iterations per operation and ≥5 independent runs** — every run kept, none discarded.
+- **Median + dispersion** (min/max, standard deviation) — never a bare average on its own.
+- **AOT and JIT in separate columns** — never merged into one figure, and never into one ratio.
+- **Equivalent competitor arms** — same input, same typed mapping, same output type; a
+  hand-written DOM walk is not the same job as a library call.
 
 ### NativeAOT support, by competitor (verified, not a performance claim)
 

@@ -203,9 +203,14 @@ every comparison: `Benchmark.Compare(name, baselineName, baselineAction, candida
 candidateAction)` was called with PicoSerDe's own action in the *baseline* slot at all 26 call
 sites, so every ratio and every column header came out backwards. What is fixed here: the
 argument order, a runtime role guard that throws on inversion, and honest labels. What is
-**not** fixed yet: the AOT absolute-cost measurement, and the INI/TOML competitor arms (they
-still do non-equivalent work) — so nothing from those runs is quoted until the
-re-measurement lands.
+**not** fixed yet: the [measurement protocol](../README.md#measurement-protocol) itself —
+nothing pinned machine load, iteration count, run count or run-to-run dispersion, so the same
+binary could be reported with values orders of magnitude apart depending on what else the
+machine was doing. That is a protocol defect, **not** an AOT one: on an idle machine the AOT
+binary and a direct `Stopwatch` loop agree to within a few percent, and AOT and JIT land in
+the same range — the earlier "AOT absolute cost" reading is retracted. Also not fixed: the
+INI/TOML competitor arms, which still do non-equivalent work. Nothing from those runs is
+quoted until the re-measurement lands.
 
 Run `dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks` for current
 local timings — but do not quote them until this section publishes them again.
