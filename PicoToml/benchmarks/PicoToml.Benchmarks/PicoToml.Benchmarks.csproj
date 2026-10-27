@@ -4,11 +4,15 @@
     <TargetFramework>net10.0</TargetFramework>
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
-<IsPackable>false</IsPackable>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="PicoBench" />
     <PackageReference Include="Tommy" />
+    <!-- The equivalent competitor arm: Tomlyn 2.10's typed API with its own source
+         generator (analyzers/dotnet/cs/Tomlyn.SourceGeneration.dll ships in the package).
+         Tommy above stays as the historical DOM-walk reference arm. -->
+    <PackageReference Include="Tomlyn" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\..\shared\BenchModels.cs" Link="BenchModels.cs" />

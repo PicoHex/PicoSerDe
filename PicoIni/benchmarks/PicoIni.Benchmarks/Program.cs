@@ -2,7 +2,8 @@ Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoIni vs ini-parser — Performance Comparison");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
 Console.WriteLine(
-    "NOTE: ini-parser parses a DOM under NativeAOT; its reflection-based typed mapping does not."
+    "NOTE: ini-parser 2.5.3 is a DOM parser (Parse(string) → IniData) with no typed POCO API"
+        + " in any execution mode; the mapping in its column is this file's own code."
 );
 Console.WriteLine(new string('=', 60));
 Console.WriteLine();
@@ -79,12 +80,21 @@ var complexStrBytes = Encoding.UTF8.GetBytes(complexStr);
 // through BenchRoleGuard (candidate must be a Pico* name), so the two columns cannot
 // be swapped without an exception.
 //
-// NON-EQUIVALENT — not comparable: the ini-parser arm is a hand-written DOM walk
-// (IniDataParser + IniData.WriteTo / Global[...] reads) plus a typed mapping performed
-// by this file, not a single library call. The timings are listed for reference and
-// the table computes and prints no ratio: a ratio between two different jobs measures
-// neither library.
-var table = new ProtocolTable("PicoIni", "ini-parser¹", equivalent: false);
+// NON-EQUIVALENT — and not because the competitor's mapping is slower: because the
+// competitor has no mapping at all. ini-parser 2.5.3's whole public surface is DOM
+// parsing (IniDataParser.Parse(string) → IniData, IniData.WriteTo(TextWriter)), so the
+// ini-parser column is a DOM walk plus a typed conversion written by this file. A ratio
+// between "one library call" and "one library call + our own mapping code" measures
+// neither library, so the table computes and prints none. The evidence sentence is
+// passed to the table below, where the generic explanation is printed.
+var table = new ProtocolTable(
+    "PicoIni",
+    "ini-parser¹",
+    equivalent: false,
+    nonEquivalentReason: "ini-parser 2.5.3 exposes 0 public generic methods and 0 methods"
+        + " accepting System.Type — it can only Parse(string) → IniData; any POCO mapping is"
+        + " caller-written, so no equivalent operation exists."
+);
 
 table.Compare(
     "Simple — Serialize (bytes)",
@@ -136,6 +146,8 @@ table.Print();
 Console.WriteLine();
 Console.WriteLine(
     "¹ ini-parser: DOM parsing is AOT-safe, POCO mapping needs reflection and is not."
+        + " It exposes no typed API for the POCO at all — the column above is this file's"
+        + " IniData walk plus conversion, which is why no ratio is printed."
 );
 Console.WriteLine(new string('=', 60));
 
