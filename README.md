@@ -62,11 +62,11 @@ where it was bad and changed where it was unfair:
   MessagePack: slower in **3 of 4**, **0.93×–3.34×** (median **1.40×**). JIT JSON: slower in
   **12 of 12**, **1.07×–5.60×** (median **1.91×**). JIT MessagePack: slower in **5 of 8**,
   **0.76×–2.26×** (median **1.44×**).
-- **TOML — PicoSerDe is faster, and it now has an opponent that does the same job.** Tomlyn's
-  typed, source-generated API replaces the DOM-walk stand-in as TOML's competitor: we land at
-  **0.08×–0.41× of Tomlyn's cost (median 0.20×), faster in 10 of 10 scenarios** — i.e. between
-  **2.4× and 12.5× faster**. The old Tommy DOM walk is kept as a labelled reference table with no
-  ratio, because it is still not the same job.
+- **TOML — PicoSerDe is faster (CoreCLR, versus Tomlyn 2.10.1), and it now has an opponent that
+  does the same job.** Tomlyn's typed, source-generated API replaces the DOM-walk stand-in as
+  TOML's competitor: we land at **0.08×–0.41× of Tomlyn's cost (median 0.20×), faster in 10 of 10
+  scenarios** — i.e. between **2.4× and 12.5× faster**. The old Tommy DOM walk is kept as a
+  labelled reference table with no ratio, because it is still not the same job.
 - **YAML — faster on CoreCLR, and only there.** Against YamlDotNet's typed API: **0.02×–0.06×
   (17×–50× faster), 6 of 6 scenarios**. **There is no AOT opponent**, and that absence is a fact
   about YamlDotNet, not a choice of ours — see
@@ -197,9 +197,11 @@ states rather than hides. Nothing here is a leftover from the broken harness.
 
 **The numbers do not flatter the project in the places that matter most:** on these micro-benchmarks
 PicoSerDe is slower than System.Text.Json on the AOT JSON table (11 of 12 scenarios) and slower than
-MessagePack-CSharp on the AOT MessagePack table (3 of 4). It is faster than Tomlyn on TOML (10 of
-10) and faster than YamlDotNet on the CoreCLR YAML table (6 of 6) — two formats where the opponent
-maps typed POCOs by reflection or through a builder, and ours is source-generated.
+MessagePack-CSharp on the AOT MessagePack table (3 of 4). It is faster than Tomlyn on the CoreCLR TOML
+table (10 of 10) and faster than YamlDotNet on the CoreCLR YAML table (6 of 6) — two formats where
+the opponent's typed path costs a builder plus reflection (YamlDotNet) or its own source generator
+(Tomlyn 2.10.1). Source generation is therefore not the explanation for the TOML gap; the gap is
+measured, not attributed.
 
 - **AOT vs AOT, JSON** (PicoJetson vs System.Text.Json, 12 scenarios): slower in **11 of 12**, by
   **0.92×–3.58×**, median **1.95×**. The single row on our side of 1.00 is
@@ -595,8 +597,10 @@ so that no reader is invited to divide one by the other.
 They are not a claim about production throughput, latency under load, memory or cold start, and they
 do not compare INI or the Tommy reference against anything. What they do say, however the table is
 sliced: **on this machine and these micro-benchmarks, System.Text.Json and MessagePack-CSharp are
-faster than PicoSerDe, while PicoSerDe is faster than Tomlyn and than YamlDotNet's typed mapper** —
-in JIT, and in AOT for the two formats where an AOT opponent exists.
+faster than PicoSerDe, while PicoSerDe is faster than Tomlyn and than YamlDotNet's typed mapper — in
+JIT only**, and on CoreCLR only. In AOT, System.Text.Json and MessagePack-CSharp are faster than
+PicoSerDe, in the two formats where an AOT opponent exists at all (JSON, MessagePack); TOML's AOT run
+was refused and YAML has no AOT opponent, so neither has an AOT ratio here.
 
 So that "indistinguishable" is not left to the eye, it has one concrete meaning here: **the two arms'
 min–max ranges overlap, or the ratio sits within the ±10% cross-session band.** Of the 36 ratio cells
@@ -633,7 +637,7 @@ time" are different questions and only the second one is what a serializer user 
 | MessagePack-CSharp | ⚠️ only statically resolvable types — e.g. `string`, `int`, `bool`, `double`, `DateTime`; **no enum, no generic collection** | ⚠️ enums and generic collections throw `MissingMethodException` — it builds formatters with `MakeGenericType` + `Activator.CreateInstance` |
 | ini-parser | ✅ DOM parsing works | ❌ reflection-based, no AOT mapper |
 | Tommy | ✅ DOM parsing works | ❌ no typed mapper (only the DOM API) |
-| YamlDotNet | ✅ DOM works | ❌ reflection-based typed POCO mapping fails |
+| YamlDotNet | ✅ DOM works | ❌ typed `Deserialize<T>` throws `MissingMethodException`; typed `Serialize` **silently emits `{}`** |
 | **PicoSerDe** | ✅ | ✅ all five formats |
 
 **PicoSerDe is the only AOT solution above that round-trips typed POCOs across all five

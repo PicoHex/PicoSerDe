@@ -102,9 +102,10 @@ MessagePack-specific summary. Every ratio is **ours ÷ theirs**: above 1.00 we a
 
 - **AOT vs AOT, 4 scenarios — slower in 3 of 4.** Range 0.93×–3.34×, median 1.40×:
   `Person — Deserialize` 0.162 vs 0.131 µs (1.24×), `Metrics — Serialize` 0.187 vs 0.120 µs
-  (1.55×), `Metrics — Deserialize` 0.478 vs 0.143 µs (**3.34×**, the widest gap in the whole
-  measurement). `Person — Serialize` is the one row on our side, 0.096 vs 0.104 µs (0.93×), and it
-  is 7 points from 1.00 — inside the ±10% cross-session band, so it is reported and not claimed.
+  (1.55×), `Metrics — Deserialize` 0.478 vs 0.143 µs (**3.34×**, the widest gap in either
+  MessagePack table). `Person — Serialize` is the one row on our side, 0.096 vs 0.104 µs (0.93×),
+  and it is 7 points from 1.00 — inside the ±10% cross-session band, so it is reported and not
+  claimed.
   Wire size, same run: `Person` 16 B vs 14 B, `Metrics` 53 B vs 26 B.
 - **JIT vs JIT, 8 scenarios — slower in 5 of 8.** `Complex` and `Collection` are 1.84×–2.26× behind.
   Three rows are ahead — 0.76×, 0.89× and 0.98× — and two of them are inside the noise: `Simple —

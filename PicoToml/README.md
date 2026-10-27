@@ -98,11 +98,11 @@ lives in the [root README](../README.md#format-limits-what-each-wire-format-cann
 
 ## Performance
 
-**TOML now has a competitor that does the same job, and on it PicoSerDe is faster: 0.08×–0.41× of
-Tomlyn's cost, faster in 10 of 10 scenarios (median 0.20×, i.e. 2.4×–12.5×).** The root README's
-[Measured results](../README.md#measured-results-2026-10-27) section carries the per-scenario table
-— median µs/op with min–max ±stddev, ratio printed as **ours ÷ theirs** — beside that run's own
-summary line. Two highlights: `Simple — Deserialize` 0.141 vs 1.688 µs (0.08×) and
+**TOML now has a competitor that does the same job, and on it PicoSerDe is faster on CoreCLR:
+0.08×–0.41× of Tomlyn's cost, faster in 10 of 10 scenarios (median 0.20×, i.e. 2.4×–12.5×).**
+The root README's [Measured results](../README.md#measured-results-2026-10-27) section carries the
+per-scenario table — median µs/op with min–max ±stddev, ratio printed as **ours ÷ theirs** — beside
+that run's own summary line. Two highlights: `Simple — Deserialize` 0.141 vs 1.688 µs (0.08×) and
 `Nested — Deserialize` 0.592 vs 5.094 µs (0.12×).
 
 Tomlyn 2.10.1 is the equivalent opponent the earlier sessions did not have: a typed API with its own
