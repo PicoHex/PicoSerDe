@@ -144,3 +144,16 @@ dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks --no
 
 **Files:** `MsgPackReader.cs:144-165`（5 个 helper 的 `_isSequence` 分支）、`:353` 的 `Read()`。
 **收益**：tokenize 目前占 `MTenInts` 反序列化的 **57%**，裸 span 只需 **7%**。
+
+## 裁决 R-1（Task 4c）：接受 `MsgPackWriter.WriteString(ReadOnlySpan<char>)` 这一个公共 API 新增
+
+**背景**：4c 要把"每个字符串属性分配一个 `byte[]`"消掉（`MThirty` 600 → 0 B/op，CPU −31%）。
+唯一可行做法是给 writer 一个 `ReadOnlySpan<char>` 重载；报告列出的两条替代路（栈编码 / 走 `Buffer`）实测**收益为 0 或更慢**。
+实现者**没有**改 `api/PicoMsgPack.public.txt`，而是停下来交裁决 —— 这是对的做法（基线 = 上次发布的面，手改基线才是伪造）。
+
+**裁决：接受。**
+1. **对称性**：JSON 侧的 `JsonWriter.WriteString(ReadOnlySpan<char>)` **已经存在且已在基线里**
+   （`api/PicoJetson.public.txt:124`）。给 MsgPack 同形重载是**消除格式间不对称**，不是新造概念。
+2. **纯新增**：无签名变更、无行为变更 ⇒ 下次发版 `scripts/release.ps1` 会记 `+1 / -0`，走 x bump，机制本身正确。
+3. **基线不动**：`api/` 继续保持"上次发布的面"，等下次真正发版时由脚本写入。
+4. 例外登记：本任务对其它 Task 的"`api/` 零 diff"要求**仍然有效**，仅此一处获准例外。
