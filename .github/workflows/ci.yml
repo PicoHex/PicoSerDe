@@ -69,6 +69,8 @@ jobs:
         run: dotnet run --project PicoYaml/tests/PicoYaml.Tests/PicoYaml.Tests.csproj -c Release --no-build -p:PublishAot=false
       - name: Run cross-format integration tests
         run: dotnet run --project tests/PicoSerDe.Integration.Tests/PicoSerDe.Integration.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run benchmark protocol tests
+        run: dotnet run --project tests/PicoBench.Protocol.Tests/PicoBench.Protocol.Tests.csproj -c Release --no-build -p:PublishAot=false
       - run: dotnet build PicoJetson/benchmarks/PicoJetson.Benchmarks/PicoJetson.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoIni/benchmarks/PicoIni.Benchmarks/PicoIni.Benchmarks.csproj -c Release --no-restore
       - run: dotnet build PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj -c Release --no-restore

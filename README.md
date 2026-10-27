@@ -99,11 +99,37 @@ Item 2 above, written down as a rule. A run that misses **any** of these is not 
 however good its numbers look:
 
 - **Idle machine** — nothing else compiling, publishing or debugging, no antivirus first scan.
-- **≥100k iterations per operation and ≥5 independent runs** — every run kept, none discarded.
+- **≥100k iterations per operation and ≥5 independent runs** — every run kept, none discarded;
+  the product is asserted in code and the iterations actually executed are printed in the table
+  footer, so the floor is auditable rather than claimed.
 - **Median + dispersion** (min/max, standard deviation) — never a bare average on its own.
 - **AOT and JIT in separate columns** — never merged into one figure, and never into one ratio.
 - **Equivalent competitor arms** — same input, same typed mapping, same output type; a
   hand-written DOM walk is not the same job as a library call.
+
+The rules say what the benchmarks must do; the harness also says *how* it decides, because
+"we think the machine was idle" is not checkable:
+
+- **System-wide CPU is the absolute criterion.** Windows (`GetSystemTimes`) and Linux
+  (`/proc/stat`) are asked how much of the machine processes *other than the benchmark* used
+  (own CPU is subtracted). Above **35%** — override: `PICOBENCH_MAX_OTHER_CPU` — the arm is not
+  published. When the host cannot answer at all (macOS, or a container with no readable
+  `/proc/stat`) the answer is *unknown*, and unknown **refuses** the arm instead of passing it:
+  a criterion that cannot be evaluated is not a criterion that was met.
+  `PICOBENCH_ALLOW_UNKNOWN_CPU=1` is the only way to publish there, and it brands the banner,
+  the table footer and the summary line with "load unknown — numbers not trustworthy".
+- **A garbage collection runs before every measured run.** Otherwise the first run measures a
+  small heap and the later ones pay for the garbage the earlier ones produced.
+- **Warm-up runs to convergence, and a timeout is visible.** Each burst is the median of three
+  timings, and an arm counts as warm only after three consecutive bursts agree within 5% (and
+  after a minimum budget, deliberately generous under tiered JIT). If the budget runs out first
+  the arm is marked in the table (`w⚠…`); `PICOBENCH_STRICT=1` refuses it outright.
+- **Every table ends with a machine-readable summary line**, for example
+  `PICOBENCH_SUMMARY scenarios=6 published=0 refused=6 mode=Jit equivalent=false cpu=known exit=1`.
+  A run that publishes *nothing at all* is a broken run rather than a finding, so `published=0`
+  with `refused>0` exits `1` — except on a host that cannot measure load at all (where every row
+  is refused by construction) and unless `PICOBENCH_ALLOW_ZERO_PUBLISH=1`. A single refused arm
+  still exits `0`; `PICOBENCH_STRICT=1` makes any refusal exit `1`.
 
 ### NativeAOT support, by competitor (verified, not a performance claim)
 

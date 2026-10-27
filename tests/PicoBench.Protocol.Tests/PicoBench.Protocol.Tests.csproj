@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests for the measurement core itself (shared/BenchProtocol.cs).
+       The file is LINKED, not referenced — the same mechanism the six benchmark projects
+       use — so these tests run against the exact source that produces the published
+       numbers. The measurement helpers (Median / StdDev / SamplesPerRunFor /
+       ResolveIterationsPerSample / MachineCpu.OtherCpuFraction) are `internal` for this
+       reason: linked source is the same assembly, so no InternalsVisibleTo is needed here
+       and none has to be repeated in six benchmark assemblies.
+       PublishAot=false and PublishAotOnRun=false: this is a test host, never published. The
+       repo opts into "publish on run" when CI=true, which for a test project would mean
+       spending minutes on an AOT publish of the measurement code before the tests start. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <PublishAot>false</PublishAot>
+    <IsAotCompatible>false</IsAotCompatible>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <PublishAotOnRun>false</PublishAotOnRun>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <!-- The role guard inside BenchProtocol is built on PicoBench's ComparisonResult /
+         BenchmarkResult / Statistics, so the shared source needs the package. -->
+    <PackageReference Include="PicoBench" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\shared\BenchProtocol.cs" Link="BenchProtocol.cs" />
+    <Compile Include="..\..\shared\BenchRoleGuard.cs" Link="BenchRoleGuard.cs" />
+  </ItemGroup>
+</Project>

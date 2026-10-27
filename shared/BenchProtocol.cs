@@ -9,7 +9,8 @@
 // repository prints are the ones the README claims to require:
 //
 //   1. Idle machine          -> CheckLoad() runs before every measurement and times
-//                               one fixed, deterministic busy loop twice; if the two
+//                               one fixed, deterministic busy loop twice over a window of
+//                               at least ProbeMinimumMilliseconds each; if the two
 //                               medians differ by more than MaxMedianDrift (20%), or
 //                               one probe's run-to-run max/min exceeds
 //                               MaxSpreadRatio (3x), or the probe disperses by more
@@ -22,24 +23,39 @@
 //                               are inflated — measured 3x on a saturated box), so
 //                               CheckLoad() and Measure() also take system-wide CPU
 //                               accounting and refuse when other processes used more
-//                               than MaxOtherCpuFraction of the machine.
+//                               than MaxOtherCpuFraction (35%, or whatever
+//                               PICOBENCH_MAX_OTHER_CPU says) of the machine.
+//                               When the host cannot report system-wide CPU at all
+//                               (macOS, a container without a readable /proc/stat) the
+//                               fraction is NaN — and NaN must never mean "fine": the
+//                               measurement is refused (fail-closed). PICOBENCH_ALLOW_
+//                               UNKNOWN_CPU=1 is the only way to publish there, and it
+//                               brands the table header and footer with a "load unknown,
+//                               numbers not trustworthy" warning.
 //   2. >=100k iterations per operation, >=5 independent runs
 //                            -> RunsPerAction = 5 runs, each >=20'000 iterations
 //                               (>=100'000 per operation per arm); every run is
-//                               kept, none discarded.
+//                               kept, none discarded. MeasureCore() asserts the
+//                               product instead of trusting the constants, and the
+//                               table footer prints the iterations actually executed,
+//                               so the 100k floor is auditable rather than claimed.
 //   3. Median + dispersion   -> ProtocolSample reports median + min + max + stddev
 //                               (over the 5 run medians). There is no bare average
 //                               anywhere in the printed output.
 //   4. AOT and JIT never mixed
-//                            -> Mode is decided once (IL on disk + dynamic-code
-//                               support), printed in every table header, stamped onto
-//                               every sample, and ProtocolTable throws if a table
-//                               would mix modes.
+//                            -> The real guarantee is process isolation: a JIT run and an
+//                               AOT run are different processes. On top of that, Mode is
+//                               decided once (IL on disk + dynamic-code support), printed
+//                               in every table header, stamped onto every sample, and
+//                               ProtocolTable's mode check is a defensive assertion — in
+//                               normal operation it cannot fire (every sample is stamped by
+//                               the same process-wide Mode).
 //   5. Equivalent competitor arms
-//                            -> ProtocolTable(equivalent: false) prints
-//                               "NON-EQUIVALENT — not comparable" and computes no
-//                               ratio (the INI/TOML competitor arms are hand-written
-//                               DOM walks, not single library calls).
+//                            -> ProtocolTable(equivalent: false) prints "NON-EQUIVALENT" in
+//                               every row's verdict column (the full explanation is printed
+//                               once above the table) and computes no ratio (the INI/TOML
+//                               competitor arms are hand-written DOM walks, not single
+//                               library calls).
 //
 // Role semantics: `ours` is always PicoSerDe's own action and `theirs` the
 // competitor's, in that argument order. BenchRoleGuard.cs (unchanged) still owns
@@ -48,12 +64,20 @@
 // labels cannot be swapped without an exception. The static constructor additionally
 // proves, once per process, that the guard really rejects an inverted pair.
 //
-// Exit code: refusing to publish is a finding, not a crash, so the default exit code
-// stays 0 and CI's `dotnet run --no-build` smoke cannot go red because a runner was
-// busy. Set PICOBENCH_STRICT=1 to make a refused row fail the process.
+// Exit code: a *single* refusal is a finding, not a crash, so it does not fail the
+// process — CI's `dotnet run --no-build` smoke cannot go red because a runner was busy.
+// Publishing *nothing at all* is a different thing: `published == 0 && refused > 0` means
+// the run produced no data at all, which is a failure of the run itself, and exits 1.
+// Two exceptions, both explicit: on a host that cannot measure load at all (every row was
+// refused because the criterion is unavailable, so the environment failed, not the run),
+// and when PICOBENCH_ALLOW_ZERO_PUBLISH=1 says so. PICOBENCH_STRICT=1 keeps its meaning:
+// any refusal exits 1. Every table also ends with a fixed-format
+// `PICOBENCH_SUMMARY scenarios=… published=… refused=… mode=… equivalent=…` line so a CI
+// gate can see a run that published nothing without parsing prose.
 
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 
 namespace PicoBench;
 
@@ -68,8 +92,7 @@ public enum ProtocolMode
 }
 
 /// <summary>
-/// One measurement of one action, reported as the protocol requires: median with
-/// dispersion, never a bare average.
+/// One measurement of one action, reported as the protocol requires.
 /// </summary>
 /// <param name="MedianUs">Median of the per-run medians, microseconds per operation.</param>
 /// <param name="MinUs">Smallest per-run median.</param>
@@ -96,6 +119,26 @@ public readonly record struct ProtocolSample(
     /// <summary>False when the protocol refused to publish a figure.</summary>
     public bool Stable { get; init; }
 
+    /// <summary>
+    /// Share of the machine's CPU other processes used while this arm was measured, or NaN
+    /// when the host offers no system-wide accounting. Printed per arm, so a reader can see
+    /// how close the run came to <see cref="BenchProtocol.MaxOtherCpuFraction"/>.
+    /// </summary>
+    public double OtherCpuFraction { get; init; }
+
+    /// <summary>How long the warm-up ran before this arm was measured.</summary>
+    public int WarmupMilliseconds { get; init; }
+
+    /// <summary>How many timed bursts the warm-up spent (each burst = 3 samples, median).</summary>
+    public int WarmupBursts { get; init; }
+
+    /// <summary>
+    /// True when the warm-up reached its convergence criterion. False means the budget ran
+    /// out first: the arm was measured before the code stopped heating up, so the figure is
+    /// marked in the table (and refused outright under <c>PICOBENCH_STRICT=1</c>).
+    /// </summary>
+    public bool WarmupSettled { get; init; }
+
     /// <summary>Run-to-run spread (<see cref="MaxUs"/> / <see cref="MinUs"/>).</summary>
     public double Spread => MinUs > 0 ? MaxUs / MinUs : double.PositiveInfinity;
 
@@ -107,6 +150,7 @@ public readonly record struct ProtocolSample(
             Label = label,
             Mode = BenchProtocol.Mode,
             Stable = false,
+            WarmupSettled = false,
         };
 }
 
@@ -119,6 +163,10 @@ public readonly record struct ProtocolSample(
 /// Share of the machine's CPU other processes used during the window, or NaN when this OS
 /// offers no cheap system-wide accounting.
 /// </param>
+/// <param name="LoadUnknown">
+/// True when <paramref name="OtherCpuFraction"/> is NaN — the machine's load could not be
+/// verified at all (see <see cref="BenchProtocol.LoadNotMeasurable"/>).
+/// </param>
 /// <param name="Failure">Empty when stable, otherwise the criterion that failed.</param>
 public readonly record struct LoadCheck(
     bool Stable,
@@ -126,6 +174,7 @@ public readonly record struct LoadCheck(
     double Spread,
     double ProbeRelativeStdDev,
     double OtherCpuFraction,
+    bool LoadUnknown,
     string Failure
 );
 
@@ -151,39 +200,85 @@ public static class BenchProtocol
     public const double MaxProbeRelativeStdDev = 25.0;
 
     /// <summary>
-    /// Share of the machine's CPU other processes may use before a figure is refused.
-    /// The two relative criteria above cannot see a machine that is *uniformly* loaded —
-    /// every probe is slowed by the same factor, so drift stays at zero while the
+    /// Default share of the machine's CPU other processes may use before a figure is
+    /// refused. The two relative criteria above cannot see a machine that is *uniformly*
+    /// loaded — every probe is slowed by the same factor, so drift stays at zero while the
     /// published numbers are inflated (measured: 3x on a saturated 16-thread box). Only
     /// system-wide accounting tells "nothing else is running" apart from "nothing else
-    /// started while we measured". The limit is deliberately coarse: a desktop with a
-    /// chat client and a music player sits around 10-20%, a saturated box at 95%.
+    /// started while we measured".
+    /// <para>
+    /// 35% is the midpoint between the observed idle floor of a loaded desktop (9-26%) and
+    /// a saturated box (95%); the old 50% left no room above the floor and could not see a
+    /// 30-49% uniform load at all. Override it with <c>PICOBENCH_MAX_OTHER_CPU</c> when a
+    /// host's baseline is known to be different — the printed banner always shows the value
+    /// actually in force.
+    /// </para>
     /// </summary>
-    public const double MaxOtherCpuFraction = 0.50;
+    public static double MaxOtherCpuFraction { get; } = ResolveOtherCpuLimit();
 
-    private const int MinimumIterationsPerSample = 1_000;
-    private const int MaximumIterationsPerSample = 20_000;
-    private const double TargetSampleMilliseconds = 3.0;
-    private const int MinimumSamplesPerRun = 3;
+    /// <summary>What <see cref="MaxOtherCpuFraction"/> is when nothing overrides it.</summary>
+    public const double DefaultMaxOtherCpuFraction = 0.35;
 
-    // Fixed, deterministic, allocation-free work used by the load self-check.
+    internal const int MinimumIterationsPerSample = 1_000;
+    internal const int MaximumIterationsPerSample = 20_000;
+    internal const double TargetSampleMilliseconds = 3.0;
+    internal const int MinimumSamplesPerRun = 3;
+
+    // Fixed, deterministic, allocation-free work used by the load self-check. The probe
+    // keeps running until ProbeMinimumMilliseconds has elapsed, so the system-wide CPU
+    // window behind the load judgement is a real window (2 probes x >=200 ms) instead of
+    // the ~3 ms it covered when the sample count was fixed.
     private const int BaselineWorkIterations = 100_000;
     private const int ProbeRuns = 5;
     private const int ProbeSamplesPerRun = 7;
     private const int ProbeIterationsPerSample = 3;
+    private const int ProbeMinimumMilliseconds = 200;
     private const int BaselineWarmupInvocations = 1_000;
+
+    // Warm-up convergence: a burst is the median of WarmupSamplesPerBurst timings (a single
+    // timing of a ~1.3 ms burst is noise, not a measurement), and the arm counts as converged
+    // after WarmupConsecutiveSettled bursts in a row agree within WarmupTolerance.
+    private const int WarmupSamplesPerBurst = 3;
+    private const int WarmupConsecutiveSettled = 3;
+    private const double WarmupTolerance = 0.05;
 
     private static readonly IReadOnlyDictionary<string, string> EmptyTags = new ReadOnlyDictionary<
         string,
         string
     >(new Dictionary<string, string>());
 
-    private static readonly bool TraceProbe =
-        Environment.GetEnvironmentVariable("PICOBENCH_PROBE_TRACE") == "1";
+    private static readonly bool TraceProbe = Flag("PICOBENCH_PROBE_TRACE");
 
+    /// <summary>
+    /// <c>PICOBENCH_ALLOW_UNKNOWN_CPU=1</c>: publish even when the host cannot report
+    /// system-wide CPU load. Off by default, because "I cannot tell whether the machine is
+    /// idle" must not read as "the machine is idle" — that is exactly the fail-open path
+    /// that let a saturated box publish numbers inflated by 3x. When it is on, the banner
+    /// and every table footer say so in plain words.
+    /// </summary>
+    public static bool AllowUnknownCpu { get; } = Flag("PICOBENCH_ALLOW_UNKNOWN_CPU");
+
+    /// <summary>
+    /// <c>PICOBENCH_ALLOW_ZERO_PUBLISH=1</c>: keep the exit code 0 even when the run
+    /// published nothing at all (see <see cref="ExitCode"/>).
+    /// </summary>
+    public static bool AllowZeroPublish { get; } = Flag("PICOBENCH_ALLOW_ZERO_PUBLISH");
+
+    /// <summary><c>PICOBENCH_STRICT=1</c>: any refusal fails the process.</summary>
+    public static bool Strict { get; } = Flag("PICOBENCH_STRICT");
+
+    /// <summary>
+    /// <c>PICOBENCH_SIMULATE_UNKNOWN_CPU=1</c>: a test hook, never a production setting. It
+    /// makes <see cref="MachineCpu.Take"/> answer "no system-wide accounting" on a host that
+    /// does have it, so the fail-closed path can be exercised (and unit-tested) on Windows.
+    /// </summary>
+    internal static bool SimulateUnknownCpu { get; } = Flag("PICOBENCH_SIMULATE_UNKNOWN_CPU");
+
+    private static bool _loadNotMeasurable;
     private static int _sink;
     private static bool _baselineWarmed;
     private static bool _selfCheckReported;
+    private static bool _unknownCpuReported;
 
     static BenchProtocol()
     {
@@ -226,11 +321,33 @@ public static class BenchProtocol
     public static int MinimumIterationsPerRun => MinimumIterationsPerAction / RunsPerAction;
 
     /// <summary>
-    /// 1 when <c>PICOBENCH_STRICT=1</c> and anything was refused, else 0. A refusal
-    /// is a finding, not a crash, so the default stays 0 and CI smoke stays green.
+    /// True once this process met a host that cannot report system-wide CPU load (NaN), i.e.
+    /// the load criterion was unavailable rather than failing.
     /// </summary>
-    public static int ExitCode =>
-        RejectedCount > 0 && Environment.GetEnvironmentVariable("PICOBENCH_STRICT") == "1" ? 1 : 0;
+    public static bool LoadNotMeasurable => _loadNotMeasurable;
+
+    /// <summary>
+    /// 1 when <see cref="Strict"/> is on and anything was refused; also 1 when the run
+    /// published <b>nothing at all</b> — that is a broken run, not a finding. The single
+    /// grey area is a host that cannot measure load at all: there every row is refused by
+    /// construction, so failing the process would report the environment, not the code —
+    /// <see cref="LoadNotMeasurable"/> keeps that case at 0 (the summary line still says
+    /// <c>published=0 refused=N cpu=unknown</c>) unless <c>PICOBENCH_ALLOW_ZERO_PUBLISH</c>
+    /// or <c>PICOBENCH_STRICT</c> says otherwise.
+    /// </summary>
+    public static int ExitCode
+    {
+        get
+        {
+            if (RejectedCount == 0)
+                return 0;
+            if (Strict)
+                return 1;
+            if (PublishedCount > 0 || LoadNotMeasurable || AllowZeroPublish)
+                return 0;
+            return 1;
+        }
+    }
 
     /// <summary>
     /// The protocol header every benchmark prints once: execution mode, timer
@@ -252,14 +369,29 @@ public static class BenchProtocol
         );
         Console.WriteLine(
             $"{RunsPerAction} independent runs × ≥{MinimumIterationsPerRun:N0} iterations/run"
-                + $" (≥{MinimumIterationsPerAction:N0} per operation) | values are median µs/op"
-                + " (min–max ±stddev over the runs)"
+                + $" (≥{MinimumIterationsPerAction:N0} per operation, asserted in code) | values"
+                + " are median µs/op (min–max ±stddev over the runs)"
         );
         Console.WriteLine(
             "A run that is not idle — fixed-workload drift above"
                 + $" {MaxMedianDrift:P0}, spread above {MaxSpreadRatio:F1}x, or other processes"
-                + $" using more than {MaxOtherCpuFraction:P0} of the CPU — is not published."
+                + $" using more than {FormatLimit(MaxOtherCpuFraction)} of the CPU — is not"
+                + " published."
         );
+        Console.WriteLine(
+            "The system-wide CPU criterion is absolute; when the host cannot report it, the"
+                + " measurement is refused (fail-closed) unless PICOBENCH_ALLOW_UNKNOWN_CPU=1."
+                + " Knobs: PICOBENCH_MAX_OTHER_CPU (default"
+                + $" {DefaultMaxOtherCpuFraction:P0}), PICOBENCH_STRICT=1 (a refusal exits 1),"
+                + " PICOBENCH_ALLOW_ZERO_PUBLISH=1 (publishing nothing does not exit 1)."
+        );
+
+        if (AllowUnknownCpu)
+            Console.WriteLine(
+                "⚠ WARNING: PICOBENCH_ALLOW_UNKNOWN_CPU=1 — this run publishes although the"
+                    + " machine's load cannot be verified. Every number below is NOT trustworthy"
+                    + " and must not be quoted."
+            );
     }
 
     /// <summary>
@@ -284,6 +416,11 @@ public static class BenchProtocol
         var second = Probe();
         var after = MachineCpu.Take();
         var otherCpu = MachineCpu.OtherCpuFraction(before, after);
+        // NaN is not "no load", it is "unknown load", and unknown must never pass a
+        // `>` comparison — that is the fail-open path this protocol exists to kill.
+        var loadUnknown = !double.IsFinite(otherCpu);
+        if (loadUnknown)
+            _loadNotMeasurable = true;
 
         var drift =
             Math.Abs(second.MedianUs - first.MedianUs) / Math.Min(first.MedianUs, second.MedianUs);
@@ -303,10 +440,12 @@ public static class BenchProtocol
             failure =
                 $"run-to-run dispersion of the fixed workload is {relativeStdDev:F1}% (limit"
                 + $" {MaxProbeRelativeStdDev:F0}%) — the machine is not idle";
-        else if (otherCpu > MaxOtherCpuFraction)
+        else if (loadUnknown && !AllowUnknownCpu)
+            failure = UnknownCpuFailure("during the check");
+        else if (!loadUnknown && otherCpu > MaxOtherCpuFraction)
             failure =
-                $"other processes used {otherCpu:P0} of the machine's CPU during the check"
-                + $" (limit {MaxOtherCpuFraction:P0}) — the machine is not idle";
+                $"other processes used {otherCpu:P1} of the machine's CPU during the check"
+                + $" (limit {FormatLimit(MaxOtherCpuFraction)}) — the machine is not idle";
 
         if (TraceProbe)
             Console.WriteLine(
@@ -321,6 +460,7 @@ public static class BenchProtocol
             spread,
             relativeStdDev,
             otherCpu,
+            loadUnknown,
             failure
         );
 
@@ -329,6 +469,9 @@ public static class BenchProtocol
             Console.WriteLine($"  ⚠ load self-check failed: {failure}");
             return check;
         }
+
+        if (loadUnknown)
+            ReportUnknownCpu();
 
         if (!_selfCheckReported)
         {
@@ -414,10 +557,18 @@ public static class BenchProtocol
 
     /// <summary>Formats a sample the way the protocol reports it.</summary>
     /// <param name="sample">The sample.</param>
-    /// <returns><c>0.198 (0.190–0.240 ±0.021)</c>, or <c>UNSTABLE — not published</c>.</returns>
+    /// <returns>
+    /// <c>0.198 (0.190–0.240 ±0.021) 12% w1.2s/17b</c> — median µs/op (min–max ±stddev over
+    /// the runs), the other-CPU measured while that arm ran, and its warm-up audit (elapsed /
+    /// bursts, prefixed with ⚠ when the warm-up never converged) — or
+    /// <c>UNSTABLE — not published</c>.
+    /// </returns>
     public static string FormatCell(ProtocolSample sample) =>
         sample.Stable
             ? $"{sample.MedianUs:F3} ({sample.MinUs:F3}–{sample.MaxUs:F3} ±{sample.StdDevUs:F3})"
+                + $" {FormatCellCpu(sample.OtherCpuFraction)}"
+                + $" w{(sample.WarmupSettled ? "" : "⚠")}"
+                + $"{sample.WarmupMilliseconds / 1000.0:F1}s/{sample.WarmupBursts}b"
             : "UNSTABLE — not published";
 
     /// <summary>
@@ -434,17 +585,23 @@ public static class BenchProtocol
     /// <summary>
     /// Cheap, dependency-free system-wide CPU accounting: how much of the machine
     /// processes other than this one used between two samples. Windows reads
-    /// GetSystemTimes, Linux reads /proc/stat, and any other OS answers NaN — the
-    /// drift/spread criteria still apply there, they just cannot see a machine that is
-    /// uniformly loaded.
+    /// GetSystemTimes, Linux reads /proc/stat, and any other OS answers NaN — which
+    /// <see cref="CheckLoad"/> and <see cref="MeasureCore"/> treat as "load unknown" and
+    /// refuse to publish from (fail-closed), not as "load fine".
     /// </summary>
-    private static class MachineCpu
+    internal static class MachineCpu
     {
         private static readonly Process Self = Process.GetCurrentProcess();
 
         public static Sample Take()
         {
             var own = OwnCpu();
+
+            // Test hook only (see SimulateUnknownCpu): pretend this host cannot report
+            // system-wide load, so the fail-closed path is exercisable on Windows.
+            if (SimulateUnknownCpu)
+                return new Sample(double.NaN, double.NaN, own);
+
             try
             {
                 if (
@@ -457,8 +614,8 @@ public static class BenchProtocol
             }
             catch (Exception)
             {
-                // No system-wide accounting on this host after all — the relative
-                // criteria still apply, they just cannot see uniform load.
+                // No system-wide accounting on this host after all — that is a NaN answer,
+                // and NaN is refused rather than passed (see OtherCpuFraction's callers).
             }
 
             return new Sample(double.NaN, double.NaN, own);
@@ -472,7 +629,6 @@ public static class BenchProtocol
             var totalDelta = to.TotalSeconds - from.TotalSeconds;
             if (totalDelta <= 0)
                 return double.NaN;
-
             var busyDelta = to.BusySeconds - from.BusySeconds;
             var ownDelta = (to.OwnCpu - from.OwnCpu).TotalSeconds;
             return Math.Clamp((busyDelta - ownDelta) / totalDelta, 0.0, 1.0);
@@ -567,6 +723,56 @@ public static class BenchProtocol
     private static string FormatOtherCpu(double fraction) =>
         double.IsNaN(fraction) ? "n/a on this OS" : fraction.ToString("P0");
 
+    // P0 is right for the default (35%) but would round an override like 0.5% to "1%".
+    private static string FormatLimit(double fraction) =>
+        fraction == Math.Round(fraction, 2) ? fraction.ToString("P0") : fraction.ToString("P2");
+
+    // The same value, short enough for a table cell.
+    private static string FormatCellCpu(double fraction) =>
+        double.IsNaN(fraction) ? "n/a" : fraction.ToString("P0");
+
+    private static string UnknownCpuFailure(string window) =>
+        $"system-wide CPU load cannot be read on this host {window}, so \"the machine is"
+        + " idle\" cannot be verified — refusing to publish (fail-closed). Set"
+        + " PICOBENCH_ALLOW_UNKNOWN_CPU=1 to publish anyway; those numbers are not"
+        + " trustworthy.";
+
+    private static void ReportUnknownCpu()
+    {
+        if (_unknownCpuReported)
+            return;
+        _unknownCpuReported = true;
+        Console.WriteLine(
+            "  ⚠ load unknown: this host exposes no system-wide CPU accounting (no"
+                + " GetSystemTimes, no readable /proc/stat), so \"the machine is idle\" cannot be"
+                + " verified. PICOBENCH_ALLOW_UNKNOWN_CPU=1 publishes anyway — these numbers are"
+                + " NOT trustworthy and must not be quoted."
+        );
+    }
+
+    private static bool Flag(string name) => Environment.GetEnvironmentVariable(name) == "1";
+
+    // PICOBENCH_MAX_OTHER_CPU accepts "0.35", "35" and "35%" alike; anything unparsable
+    // falls back to the default rather than silently disabling the criterion.
+    private static double ResolveOtherCpuLimit()
+    {
+        var raw = Environment.GetEnvironmentVariable("PICOBENCH_MAX_OTHER_CPU");
+        if (string.IsNullOrWhiteSpace(raw))
+            return DefaultMaxOtherCpuFraction;
+
+        var text = raw.Trim();
+        var percent = text.EndsWith('%');
+        text = text.TrimEnd('%');
+        if (
+            !double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+            || !double.IsFinite(value)
+            || value < 0
+        )
+            return DefaultMaxOtherCpuFraction;
+
+        return percent || value > 1.0 ? value / 100.0 : value;
+    }
+
     private static ProtocolMode DetectMode() =>
         !HasIlOnDisk && !DynamicCodeSupported ? ProtocolMode.Aot : ProtocolMode.Jit;
 
@@ -575,13 +781,30 @@ public static class BenchProtocol
     private static ProtocolSample MeasureCore(string label, Action action)
     {
         var iterationsPerSample = ResolveIterationsPerSample(action);
-        var samplesPerRun = Math.Max(
-            MinimumSamplesPerRun,
-            (MinimumIterationsPerRun + iterationsPerSample - 1) / iterationsPerSample
-        );
+        var samplesPerRun = SamplesPerRunFor(iterationsPerSample);
+
+        // The 100k floor is the README's rule 2. Assert it here instead of trusting the
+        // arithmetic above: the banner used to *claim* >=100,000 per operation while nothing
+        // read the number actually executed, so a broken product would have kept the claim
+        // and dropped the fact.
+        var plannedIterations = (long)iterationsPerSample * samplesPerRun * RunsPerAction;
+        if (plannedIterations < MinimumIterationsPerAction)
+            throw new InvalidOperationException(
+                $"Protocol violation: this measurement would execute {plannedIterations:N0}"
+                    + $" iterations ({iterationsPerSample} per sample x {samplesPerRun} samples x"
+                    + $" {RunsPerAction} runs), below the {MinimumIterationsPerAction:N0} floor."
+                    + " Fix the iteration arithmetic; do not publish a figure measured this way."
+            );
 
         var before = MachineCpu.Take();
-        Warmup(action, iterationsPerSample);
+        var warmup = Warmup(action, iterationsPerSample);
+        if (!warmup.Settled && Strict)
+            return Reject(
+                label,
+                $"warm-up did not converge within {warmup.ElapsedMilliseconds:N0} ms"
+                    + $" ({warmup.Bursts} bursts) and PICOBENCH_STRICT=1 is set — the code was"
+                    + " still heating up when the runs started, so there is no trustworthy figure"
+            );
 
         var perRun = new double[RunsPerAction];
         var samples = new double[samplesPerRun];
@@ -606,18 +829,27 @@ public static class BenchProtocol
         }
 
         var otherCpu = MachineCpu.OtherCpuFraction(before, MachineCpu.Take());
+        var loadUnknown = !double.IsFinite(otherCpu);
+        if (loadUnknown)
+            _loadNotMeasurable = true;
+
         if (TraceProbe)
             Console.WriteLine(
                 $"  runs {label}: {string.Join(" | ", perRun.Select(v => v.ToString("F3")))}"
                     + $" (iters/sample {iterationsPerSample}, samples/run {samplesPerRun},"
-                    + $" other-CPU {FormatOtherCpu(otherCpu)})"
+                    + $" other-CPU {FormatOtherCpu(otherCpu)}, warm-up"
+                    + $" {(warmup.Settled ? "settled" : "TIMED OUT")} {warmup.ElapsedMilliseconds}ms/"
+                    + $"{warmup.Bursts}b)"
             );
 
-        if (otherCpu > MaxOtherCpuFraction)
+        if (loadUnknown && !AllowUnknownCpu)
+            return Reject(label, UnknownCpuFailure("while this action was measured"));
+
+        if (!loadUnknown && otherCpu > MaxOtherCpuFraction)
             return Reject(
                 label,
-                $"other processes used {otherCpu:P0} of the machine's CPU while this action was"
-                    + $" measured (limit {MaxOtherCpuFraction:P0}) — every run is slowed by an"
+                $"other processes used {otherCpu:P1} of the machine's CPU while this action was"
+                    + $" measured (limit {FormatLimit(MaxOtherCpuFraction)}) — every run is slowed"
                     + " unknown factor, so the figure is not trustworthy"
             );
 
@@ -630,45 +862,82 @@ public static class BenchProtocol
         )
         {
             Label = label,
-            Iterations = iterationsPerSample * samplesPerRun * RunsPerAction,
+            Iterations = (int)plannedIterations,
             Mode = Mode,
             Stable = true,
+            OtherCpuFraction = otherCpu,
+            WarmupMilliseconds = (int)warmup.ElapsedMilliseconds,
+            WarmupBursts = warmup.Bursts,
+            WarmupSettled = warmup.Settled,
         };
     }
+
+    /// <summary>
+    /// How many samples a run needs so that one run covers at least
+    /// <see cref="MinimumIterationsPerRun"/> iterations.
+    /// </summary>
+    /// <param name="iterationsPerSample">Iterations inside one timed sample.</param>
+    /// <returns>The samples per run, never below <see cref="MinimumSamplesPerRun"/>.</returns>
+    internal static int SamplesPerRunFor(int iterationsPerSample) =>
+        Math.Max(
+            MinimumSamplesPerRun,
+            (MinimumIterationsPerRun + iterationsPerSample - 1) / iterationsPerSample
+        );
 
     /// <summary>
     /// Calls the action until its own timing stops falling. A single fixed warmup is
     /// not enough under tiered JIT: the first measured runs then carry tier-0 code
     /// cost and the run-to-run spread reaches 3-4x on code that is perfectly stable,
     /// which is a property of the harness, not of the library being measured.
+    /// <para>
+    /// "Settled" has to be provable, not lucky: each burst is the <b>median of 3</b>
+    /// timings (a single timing of a ~1 ms burst is noise), and the arm only counts as
+    /// converged after <b>3 consecutive</b> bursts agree within 5%. Running out of budget
+    /// is reported, not hidden — the sample carries <c>WarmupSettled = false</c> and the
+    /// table marks the arm.
+    /// </para>
     /// </summary>
-    private static void Warmup(Action action, int iterationsPerSample)
+    /// <param name="action">The work to warm up.</param>
+    /// <param name="iterationsPerSample">Iterations per burst sample.</param>
+    /// <returns>Whether it converged, how long it took and how many bursts it used.</returns>
+    internal static WarmupResult Warmup(Action action, int iterationsPerSample)
     {
-        const double settledTolerance = 0.05;
         // Tiered JIT keeps promoting code for a while after a process starts — the
         // background compiler is busy with the whole program — so the JIT budget is
         // deliberately generous. NativeAOT has no tiers, so it needs far less.
         var minimumMilliseconds = BenchProtocol.Mode == ProtocolMode.Aot ? 150 : 1_000;
         var maximumMilliseconds = BenchProtocol.Mode == ProtocolMode.Aot ? 1_000 : 2_500;
 
+        var samples = new double[WarmupSamplesPerBurst];
         var total = Stopwatch.StartNew();
         var previous = double.NaN;
+        var settledInARow = 0;
+        var bursts = 0;
         while (true)
         {
-            var burst = Stopwatch.StartNew();
-            for (var i = 0; i < iterationsPerSample; i++)
-                action();
-            burst.Stop();
+            for (var sample = 0; sample < samples.Length; sample++)
+            {
+                var burst = Stopwatch.StartNew();
+                for (var i = 0; i < iterationsPerSample; i++)
+                    action();
+                burst.Stop();
+                samples[sample] = burst.Elapsed.TotalMilliseconds * 1000.0 / iterationsPerSample;
+            }
 
-            var perOp = burst.Elapsed.TotalMilliseconds * 1000.0 / iterationsPerSample;
+            bursts++;
+            var perOp = Median(samples);
             var settled =
                 double.IsFinite(previous)
-                && Math.Abs(perOp - previous) / Math.Min(perOp, previous) <= settledTolerance;
+                && Math.Abs(perOp - previous) / Math.Min(perOp, previous) <= WarmupTolerance;
+            settledInARow = settled ? settledInARow + 1 : 0;
 
-            if (settled && total.ElapsedMilliseconds >= minimumMilliseconds)
-                return;
+            if (
+                settledInARow >= WarmupConsecutiveSettled
+                && total.ElapsedMilliseconds >= minimumMilliseconds
+            )
+                return new WarmupResult(true, total.ElapsedMilliseconds, bursts);
             if (total.ElapsedMilliseconds >= maximumMilliseconds)
-                return;
+                return new WarmupResult(false, total.ElapsedMilliseconds, bursts);
 
             previous = perOp;
         }
@@ -680,7 +949,7 @@ public static class BenchProtocol
         GC.WaitForPendingFinalizers();
     }
 
-    private static int ResolveIterationsPerSample(Action action)
+    internal static int ResolveIterationsPerSample(Action action)
     {
         const int calibrationCalls = 500;
         var watch = Stopwatch.StartNew();
@@ -705,31 +974,35 @@ public static class BenchProtocol
         return ProtocolSample.Unstable(label);
     }
 
+    // One probe covers a *window*, not a fixed sample count: the system-wide CPU judgement
+    // reads the fraction of the machine used by other processes, and a 3 ms window is not a
+    // window at all (it reported 57% on an idle box, then 9%, from one arm to the next).
     private static ProbeResult Probe()
     {
-        var perRun = new double[ProbeRuns];
+        var perRun = new List<double>(ProbeRuns * 8);
         var samples = new double[ProbeSamplesPerRun];
-        for (var run = 0; run < ProbeRuns; run++)
+        var window = Stopwatch.StartNew();
+        do
         {
-            for (var sample = 0; sample < ProbeSamplesPerRun; sample++)
+            for (var run = 0; run < ProbeRuns; run++)
             {
-                var watch = Stopwatch.StartNew();
-                for (var i = 0; i < ProbeIterationsPerSample; i++)
-                    BaselineWork();
-                watch.Stop();
-                samples[sample] =
-                    watch.Elapsed.TotalMilliseconds * 1000.0 / ProbeIterationsPerSample;
+                for (var sample = 0; sample < ProbeSamplesPerRun; sample++)
+                {
+                    var watch = Stopwatch.StartNew();
+                    for (var i = 0; i < ProbeIterationsPerSample; i++)
+                        BaselineWork();
+                    watch.Stop();
+                    samples[sample] =
+                        watch.Elapsed.TotalMilliseconds * 1000.0 / ProbeIterationsPerSample;
+                }
+
+                perRun.Add(Median(samples));
             }
+        } while (window.ElapsedMilliseconds < ProbeMinimumMilliseconds);
 
-            perRun[run] = Median(samples);
-        }
-
-        var median = Median(perRun);
-        return new ProbeResult(
-            median,
-            perRun.Max() / perRun.Min(),
-            StdDev(perRun) / median * 100.0
-        );
+        var runs = perRun.ToArray();
+        var median = Median(runs);
+        return new ProbeResult(median, runs.Max() / runs.Min(), StdDev(runs) / median * 100.0);
     }
 
     // Fixed amount of allocation-free work; the load self-check times this twice.
@@ -792,7 +1065,7 @@ public static class BenchProtocol
             );
     }
 
-    private static double Median(double[] values)
+    internal static double Median(double[] values)
     {
         var sorted = (double[])values.Clone();
         Array.Sort(sorted);
@@ -802,7 +1075,7 @@ public static class BenchProtocol
             : (sorted[middle - 1] + sorted[middle]) / 2.0;
     }
 
-    private static double StdDev(double[] values)
+    internal static double StdDev(double[] values)
     {
         if (values.Length < 2)
             return 0.0;
@@ -818,6 +1091,12 @@ public static class BenchProtocol
         double Spread,
         double RelativeStdDevPercent
     );
+
+    internal readonly record struct WarmupResult(
+        bool Settled,
+        long ElapsedMilliseconds,
+        int Bursts
+    );
 }
 
 /// <summary>
@@ -827,11 +1106,19 @@ public static class BenchProtocol
 /// </summary>
 public sealed class ProtocolTable
 {
-    private const int DividerWidth = 116;
+    private const int ScenarioWidth = 32;
+    private const int ArmWidth = 46;
+    private const int VerdictWidth = 17;
+
+    // marker (1) + space + scenario + space + arm + space + arm + space + verdict
+    private const int ComparisonDividerWidth =
+        1 + 1 + ScenarioWidth + 1 + ArmWidth + 1 + ArmWidth + 1 + VerdictWidth;
+    private const int SingleArmDividerWidth = ScenarioWidth + 1 + ArmWidth;
 
     private readonly string _oursLabel;
     private readonly string? _theirsLabel;
     private readonly bool _equivalent;
+    private readonly int _dividerWidth;
     private readonly List<ProtocolSample> _samples = new();
 
     /// <summary>Creates a table.</summary>
@@ -839,7 +1126,7 @@ public sealed class ProtocolTable
     /// <param name="theirsLabel">Competitor label, or null for a self-benchmark.</param>
     /// <param name="equivalent">
     /// False when the two arms are not the same job — every row then prints
-    /// "NON-EQUIVALENT — not comparable" and no ratio is computed.
+    /// "NON-EQUIVALENT" and no ratio is computed.
     /// </param>
     public ProtocolTable(string oursLabel, string? theirsLabel, bool equivalent = true)
     {
@@ -848,24 +1135,30 @@ public sealed class ProtocolTable
         _oursLabel = oursLabel;
         _theirsLabel = theirsLabel;
         _equivalent = equivalent;
+        _dividerWidth = theirsLabel is null ? SingleArmDividerWidth : ComparisonDividerWidth;
 
         BenchProtocol.PrintBanner();
         if (theirsLabel is null)
             Console.WriteLine($"Table: {oursLabel} — absolute timings, no competitor, no ratio.");
         else if (!equivalent)
             Console.WriteLine(
-                "NON-EQUIVALENT — not comparable: the competitor arm is a hand-written DOM"
-                    + " walk plus typed mapping, not a single library call. Timings are listed"
-                    + " for reference; no ratio is computed or printed."
+                "NON-EQUIVALENT: the competitor arm is a hand-written DOM walk plus typed"
+                    + " mapping, not a single library call. Timings are listed for reference;"
+                    + " no ratio is computed or printed."
             );
 
-        Console.WriteLine(new string('-', DividerWidth));
+        Console.WriteLine(new string('-', _dividerWidth));
         Console.WriteLine(
             theirsLabel is null
-                ? $"{"Scenario", -40} {oursLabel, -40}"
-                : $"{"Scenario", -40} {oursLabel + " (ours)", -36} {theirsLabel + " (theirs)", -36}"
+                ? $"{Pad("Scenario", ScenarioWidth)} {Pad(oursLabel, ArmWidth)}"
+                : $"{Pad("Scenario", ScenarioWidth)} {Pad(oursLabel + " (ours)", ArmWidth)}"
+                    + $" {Pad(theirsLabel + " (theirs)", ArmWidth)} {Pad("Verdict", VerdictWidth)}"
         );
-        Console.WriteLine(new string('-', DividerWidth));
+        Console.WriteLine(
+            "each cell: median µs/op (min–max ±stddev over the runs) | other-CPU measured while"
+                + " that arm ran | warm-up w<elapsed>/<bursts>b (⚠ = did not converge)"
+        );
+        Console.WriteLine(new string('-', _dividerWidth));
     }
 
     /// <summary>Measures and prints one comparison row.</summary>
@@ -897,13 +1190,15 @@ public sealed class ProtocolTable
             : ratio >= 1 ? "✓"
             : "✗";
         var verdict =
-            !_equivalent ? "NON-EQUIVALENT — not comparable"
+            !_equivalent ? "NON-EQUIVALENT"
             : double.IsFinite(ratio) ? $"{ratio:F2}x"
             : "—";
 
         Console.WriteLine(
-            $"{marker} {scenario, -38} {BenchProtocol.FormatCell(oursSample), -36} "
-                + $"{BenchProtocol.FormatCell(theirsSample), -36} {verdict}"
+            $"{marker} {Pad(scenario, ScenarioWidth)}"
+                + $" {Pad(BenchProtocol.FormatCell(oursSample), ArmWidth)}"
+                + $" {Pad(BenchProtocol.FormatCell(theirsSample), ArmWidth)}"
+                + $" {Pad(verdict, VerdictWidth)}"
         );
     }
 
@@ -914,27 +1209,52 @@ public sealed class ProtocolTable
     {
         var sample = BenchProtocol.Measure(_oursLabel, action);
         Record(sample);
-        Console.WriteLine($"{scenario, -40} {BenchProtocol.FormatCell(sample), -40}");
+        Console.WriteLine(
+            $"{Pad(scenario, ScenarioWidth)} {Pad(BenchProtocol.FormatCell(sample), ArmWidth)}"
+        );
     }
 
-    /// <summary>Prints the footer and enforces the single-mode rule.</summary>
+    /// <summary>Prints the audit footer, the machine-parseable summary line and the mode check.</summary>
     public void Print()
     {
         AssertSingleMode();
-        Console.WriteLine(new string('-', DividerWidth));
+        Console.WriteLine(new string('-', _dividerWidth));
         var scenarios = _theirsLabel is null ? _samples.Count : _samples.Count / 2;
         Console.WriteLine(
             $"scenarios {scenarios} | arms published {BenchProtocol.PublishedCount} | arms refused"
                 + $" {BenchProtocol.RejectedCount}"
                 + (BenchProtocol.RejectedCount > 0 ? " (UNSTABLE — not published)" : "")
         );
+        PrintAudit();
         if (!_equivalent)
             Console.WriteLine("No ratio is reported for a NON-EQUIVALENT comparison.");
+        if (BenchProtocol.LoadNotMeasurable)
+            Console.WriteLine(
+                "⚠ load unknown: this host cannot report system-wide CPU load, so \"the machine"
+                    + " is idle\" was never verified (see PICOBENCH_ALLOW_UNKNOWN_CPU)."
+            );
+
+        // Fixed format, one line, always printed: a CI gate can grep this instead of
+        // parsing prose, and `published=0 refused>0` is the "this run produced no data"
+        // signal that used to be indistinguishable from success.
+        Console.WriteLine(
+            $"PICOBENCH_SUMMARY scenarios={scenarios}"
+                + $" published={BenchProtocol.PublishedCount}"
+                + $" refused={BenchProtocol.RejectedCount}"
+                + $" mode={BenchProtocol.ModeName}"
+                + $" equivalent={(_equivalent ? "true" : "false")}"
+                + $" cpu={(BenchProtocol.LoadNotMeasurable ? "unknown" : "known")}"
+                + $" exit={BenchProtocol.ExitCode}"
+        );
     }
 
     /// <summary>
-    /// Throws if this table would show more than one execution mode — the README
-    /// forbids merging AOT and JIT into one figure or one ratio.
+    /// Defensive assertion, normally unreachable: every sample is stamped by
+    /// <see cref="BenchProtocol.MeasureCore"/> with the one process-wide
+    /// <see cref="BenchProtocol.Mode"/>, so this can only fire if a sample is constructed by
+    /// hand. The real guarantee that AOT and JIT are never mixed is process isolation — a JIT
+    /// run and an AOT run are two different processes, and each prints its own
+    /// <c>Mode:</c> banner.
     /// </summary>
     public void AssertSingleMode()
     {
@@ -944,6 +1264,35 @@ public sealed class ProtocolTable
                     $"Table would mix execution modes: '{sample.Label}' was measured under"
                         + $" {sample.Mode} but this process runs {BenchProtocol.Mode}."
                 );
+    }
+
+    private static string Pad(string value, int width) =>
+        value.Length >= width ? value : value.PadRight(width);
+
+    private void PrintAudit()
+    {
+        var published = _samples.Where(sample => sample.Stable).ToArray();
+        if (published.Length == 0)
+        {
+            Console.WriteLine("iterations executed: none — nothing was published");
+            return;
+        }
+
+        Console.WriteLine(
+            $"iterations executed per arm: {published.Min(s => s.Iterations):N0}"
+                + $"–{published.Max(s => s.Iterations):N0} (README floor"
+                + $" {BenchProtocol.MinimumIterationsPerAction:N0}, asserted in MeasureCore)"
+        );
+
+        var timedOut = published.Count(sample => !sample.WarmupSettled);
+        Console.WriteLine(
+            $"warm-up: {published.Length - timedOut}/{published.Length} arms converged after"
+                + $" {published.Min(s => s.WarmupMilliseconds) / 1000.0:F1}"
+                + $"–{published.Max(s => s.WarmupMilliseconds) / 1000.0:F1} s"
+                + $" ({published.Min(s => s.WarmupBursts)}–{published.Max(s => s.WarmupBursts)}"
+                + " bursts)"
+                + (timedOut > 0 ? $"; ⚠ {timedOut} arm(s) ran out of warm-up budget" : "")
+        );
     }
 
     private void Record(ProtocolSample sample)

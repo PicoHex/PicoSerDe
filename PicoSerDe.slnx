@@ -93,4 +93,7 @@
   <Folder Name="/tests/integration/">
     <Project Path="tests/PicoSerDe.Integration.Tests/PicoSerDe.Integration.Tests.csproj" />
   </Folder>
+  <Folder Name="/tests/protocol/">
+    <Project Path="tests/PicoBench.Protocol.Tests/PicoBench.Protocol.Tests.csproj" />
+  </Folder>
 </Solution>
