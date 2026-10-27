@@ -98,20 +98,47 @@ lives in the [root README](../README.md#format-limits-what-each-wire-format-cann
 
 ## Performance
 
-**No ratio is published for this format; the absolute cost now is.** The root README's
-[Measured results](../README.md#measured-results-2026-10-27) section carries PicoToml's own
-per-scenario cost — ten scenarios, median µs/op with min–max ±stddev — under a table labelled
-`NON-EQUIVALENT`, with the competitor column deliberately left out so that no reader is invited
-to divide one arm by the other. There is no ratio because the two arms are not the same job:
-Tommy is a DOM-only parser (`TOML.Parse` / `TomlTable`) with no typed mapping, while our arm
-serializes and maps typed POCOs. The ratio that used to be here compared our serialization
-against a hand-written `TomlTable` build plus typed mapping on the Tommy side, and both actions
-also went through `Benchmark.Compare` in the wrong slots; it has been withdrawn rather than
-corrected in place.
+**TOML now has a competitor that does the same job, and on it PicoSerDe is faster on CoreCLR:
+0.08×–0.41× of Tomlyn's cost, faster in 10 of 10 scenarios (median 0.20×, i.e. 2.4×–12.5×).**
+The root README's [Measured results](../README.md#measured-results-2026-10-27) section carries the
+per-scenario table — median µs/op with min–max ±stddev, ratio printed as **ours ÷ theirs** — beside
+that run's own summary line. Two highlights: `Simple — Deserialize` 0.141 vs 1.688 µs (0.08×) and
+`Nested — Deserialize` 0.592 vs 5.094 µs (0.12×).
 
-Capability fact that does not depend on measurement: **Tommy's DOM API (`TOML.Parse`,
-`TomlTable`) works under NativeAOT** — it has no typed POCO mapper to run there. PicoToml does
-both. Run `dotnet run -c Release --project PicoToml/benchmarks/PicoToml.Benchmarks` for current
+Tomlyn 2.10.1 is the equivalent opponent the earlier sessions did not have: a typed API with its own
+source generator, one library call per row, the same POCO in and out, round-tripping under
+NativeAOT. Three things are stated rather than tucked away:
+
+- **The same document is produced, with one exception.** The harness prints `[equiv] simple`,
+  `medium` and `large text identical = True` plus a round-trip check; `[equiv] nested text identical
+  = False` because the key order inside `[Address]` differs (ours `City` then `Street`, Tomlyn
+  `Street` then `City`). The two `Nested` rows carry that known, unquantifiable shape difference —
+  disclosed, and far too small to account for a 0.36×.
+- **Our deserialize rows pay an extra decode:** `Deserialize<T>(byte[])` decodes UTF-8 inside the
+  timed region, while Tomlyn's `Deserialize<T>(string)` is handed a string built outside it. That
+  can only understate us.
+- **Tomlyn's serialize arm is not handicapped:** it uses the Stream overload into one reused
+  `MemoryStream`, and the `[equiv]` lines are the evidence that its bytes are identical to ours.
+
+The **Tommy** reference table is kept and is still labelled `NON-EQUIVALENT`, with **no ratio**:
+Tommy 3.1.2 is DOM-only (`TOML.Parse` / `TomlTable`) with no typed POCO mapping, so the `TomlTable`
+walk and the typed conversion are caller-written. Its numbers may not be divided by ours. The ratio
+that used to be here compared our serialization against a hand-written `TomlTable` build plus typed
+mapping on the Tommy side, and both actions also went through `Benchmark.Compare` in the wrong
+slots; it has been withdrawn rather than corrected in place.
+
+Scope, honestly: this is a **CoreCLR (JIT)** table. A TOML AOT run was attempted in the same session
+and **20 of its 40 arms were refused** — 18 on system-wide CPU (39.4%–80.6% against the 35% limit)
+and 2 on drift — after external load on the machine rose mid-window, so **no TOML AOT table is
+published**; that needs a re-measure on an idle machine.
+Ratios are read to the session's precision: a single session's ±stddev comes from five runs in one
+process, and the honest band between sessions is about ±10% (see
+[the root README's note](../README.md#one-sessions-stddev-is-not-a-cross-session-error-bar)) — the
+widest row at 0.41× is still an order of magnitude clear of that band.
+
+Capability fact that does not depend on measurement: **Tommy's DOM API (`TOML.Parse`, `TomlTable`)
+works under NativeAOT** — it has no typed POCO mapper to run there. PicoToml does both, and so does
+Tomlyn. Run `dotnet run -c Release --project PicoToml/benchmarks/PicoToml.Benchmarks` for current
 local timings.
 
 ## Low-Level API

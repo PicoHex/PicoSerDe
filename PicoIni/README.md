@@ -101,19 +101,29 @@ var ini = IniSerializer.Serialize(config);
 
 ## Performance
 
-**No ratio is published for this format; the absolute cost now is.** The root README's
+**No ratio is published for this format; the absolute cost is.** The reason is not modesty but that
+**no equivalent operation exists to divide by**: ini-parser 2.5.3 exposes **0 public generic methods
+and 0 parameters of type `System.Type`**, and its only entry point is `Parse(string) → IniData` — a
+DOM. Any POCO mapping on its side is therefore the caller's own code, by definition, so it is never
+"one library call" against ours, in any execution mode. The root README's
 [Measured results](../README.md#measured-results-2026-10-27) section carries PicoIni's own
 per-scenario cost — nine scenarios, median µs/op with min–max ±stddev — under a table labelled
-`NON-EQUIVALENT`, with the competitor column deliberately left out so that no reader is invited
-to divide one arm by the other. There is no ratio because the two arms are not the same job: our
-arm is a single library call, while the ini-parser arm parses a DOM and then maps it with
-hand-written code. The ratio that used to be here was therefore not a measurement of the two
-libraries, and both actions also went through `Benchmark.Compare` in the wrong slots; it has been
-withdrawn rather than corrected in place.
+`NON-EQUIVALENT`, with the competitor column deliberately left out so that no reader is invited to
+divide one arm by the other. `equivalent=false` in that run's summary line.
+
+Two rows are weaker than the rest and are flagged rather than published as equals: the small
+`Simple — Deserialize` case is quoted only as "both sessions landed in the 0.13–0.17 µs band" — its
+median moved −49.2% between the two sessions, the only row in the whole set to move more than 20%,
+and the earlier value carried an outlier run — and `Simple — Serialize` has a max of 0.161 against a
+median of 0.106.
+
+The ratio that used to be here was therefore not a measurement of the two libraries, and both actions
+also went through `Benchmark.Compare` in the wrong slots; it has been withdrawn rather than corrected
+in place.
 
 Capability fact that does not depend on measurement: **ini-parser's DOM parsing works under
-NativeAOT** — it has no reflection-free *typed* mapping, so it can parse a document ahead of
-time but cannot produce a POCO. PicoIni does both. Run
+NativeAOT** — it has no reflection-free *typed* mapping, so it can parse a document ahead of time
+but cannot produce a POCO. PicoIni does both. Run
 `dotnet run -c Release --project PicoIni/benchmarks/PicoIni.Benchmarks` for current local
 timings.
 

@@ -197,30 +197,39 @@ await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
 
 ## Performance
 
-**PicoJetson is slower than System.Text.Json on these micro-benchmarks, and the figures are now
-published.** The full tables, the machine they were taken on and the log behind every number live
-in the root README's [Measured results](../README.md#measured-results-2026-10-27); this page keeps
-only what is specific to JSON:
+**PicoJetson is slower than System.Text.Json on these micro-benchmarks.** The full tables, the
+machine they were taken on and the log behind every number live in the root README's
+[Measured results](../README.md#measured-results-2026-10-27); this page keeps only what is specific
+to JSON. Every ratio is **ours ÷ theirs**, the direction the harness prints: above 1.00 we are
+slower.
 
-- **AOT vs AOT, 12 scenarios — slower in 12 of 12.** Range 1.07×–3.33×, median 1.94×:
-  `Simple POCO — Serialize` 0.274 vs 0.163 µs (1.68×), `Complex POCO — Serialize` 1.258 vs
-  0.654 µs (1.92×), `Collection POCO — Deserialize` 6.955 vs 5.502 µs (1.26×), `LargeString 1KB —
-  Serialize` 1.493 vs 0.449 µs (3.33×, the widest gap).
-- **JIT vs JIT, 12 scenarios — slower in 11 of 12.** Range 0.88×–5.33×, median 1.76×. The single
-  row ahead is `Nested POCO — Deserialize`, 0.877 vs 1.002 µs.
+- **AOT vs AOT, 12 scenarios — slower in 11 of 12.** Range 0.92×–3.58×, median 1.95×:
+  `Simple POCO — Serialize` 0.282 vs 0.168 µs (1.68×), `Complex POCO — Serialize` 1.248 vs
+  0.596 µs (2.10×), `Collection POCO — Deserialize` 6.985 vs 5.531 µs (1.26×), `LargeString 1KB —
+  Serialize` 1.543 vs 0.431 µs (3.58×, the widest gap). The single row on our side of 1.00 is
+  `Nested POCO — Deserialize` at 0.92× (1.211 vs 1.313 µs).
+- **JIT vs JIT, 12 scenarios — slower in 12 of 12.** Range 1.07×–5.60×, median 1.91×: the closest
+  rows are `Nested POCO — Deserialize` 1.07× and `Simple POCO — Serialize` 1.11×, the widest
+  `LargeString 1KB — Deserialize` 1.522 vs 0.272 µs (5.60×).
 
 Both tables come from 5 independent runs × ≥100,000 iterations per arm on 2026-10-27, on an AMD
-Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (3%–24% other-CPU on these
-two tables, against the protocol's 35% limit; session-wide, one arm elsewhere in the run was
-refused at 37% — see the [root README](../README.md#measured-results-2026-10-27)).
+Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (5%–22% other-CPU on the AOT
+table, 7%–29% on the JIT one, against the protocol's 35% limit; no arm was refused). One qualifier
+applies to all of it: **a single session's ±stddev is not a cross-session error bar** — five runs in
+one process cannot see tiered-JIT landing points or thermal history, so the honest cross-session
+band is about ±10%, and a ratio inside that band is not a direction claim (the root README spells
+this out under
+[One session's stddev is not a cross-session error bar](../README.md#one-sessions-stddev-is-not-a-cross-session-error-bar)).
+`Nested POCO — Deserialize` at 0.92× is inside it and is not claimed as a win.
+
 `dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks` reproduces the JIT
 table; the AOT table is that project published with `-p:PublishAot=true` and run as a native
 binary. AOT and JIT are separate processes and are never merged into one figure.
 
 The withdrawn table is still worth knowing about, because it is why every ratio in this repository
 is printed as `<ours> ÷ <theirs>`: `Benchmark.Compare(name, baselineName, baselineAction,
-candidateName, candidateAction)` had PicoSerDe's own action in the *baseline* slot at all 26 call
-sites, so each ratio and each column header came out backwards. A runtime role guard now throws on
+candidateName, candidateAction)` had PicoSerDe's own action in the *baseline* slot at every call
+site, so each ratio and each column header came out backwards. A runtime role guard now throws on
 that inversion.
 
 One capability fact does not depend on any of that: **System.Text.Json is fully usable under

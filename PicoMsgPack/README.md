@@ -95,35 +95,49 @@ accepts options for API uniformity.
 
 ## Performance
 
-**PicoMsgPack is slower than MessagePack-CSharp on these micro-benchmarks, and the figures are
-now published.** The full tables, the machine and the log behind every number live in the root
-README's [Measured results](../README.md#measured-results-2026-10-27); the MessagePack-specific
-summary:
+**PicoMsgPack is slower than MessagePack-CSharp on these micro-benchmarks.** The full tables, the
+machine and the log behind every number live in the root README's
+[Measured results](../README.md#measured-results-2026-10-27); this page keeps the
+MessagePack-specific summary. Every ratio is **ours ÷ theirs**: above 1.00 we are slower.
 
-- **AOT vs AOT, 4 scenarios — slower in 4 of 4.** Range 1.15×–3.53×, median 1.36×:
-  `Person — Serialize` 0.116 vs 0.101 µs (1.15×), `Metrics — Deserialize` 0.519 vs 0.147 µs
-  (**3.53×**, the widest gap in the whole measurement). Wire size, same run:
-  `Person` 16 B vs 14 B, `Metrics` 53 B vs 26 B.
-- **JIT vs JIT, 8 scenarios — slower in 4 of 8.** `Simple` and `Nested` (serialize and
-  deserialize) land at 0.94×–0.98×, i.e. inside each other's dispersion and not a win;
-  `Complex` and `Collection` are 1.71×–2.16× behind.
+- **AOT vs AOT, 4 scenarios — slower in 3 of 4.** Range 0.93×–3.34×, median 1.40×:
+  `Person — Deserialize` 0.162 vs 0.131 µs (1.24×), `Metrics — Serialize` 0.187 vs 0.120 µs
+  (1.55×), `Metrics — Deserialize` 0.478 vs 0.143 µs (**3.34×**, the widest gap in either
+  MessagePack table). `Person — Serialize` is the one row on our side, 0.096 vs 0.104 µs (0.93×),
+  and it is 7 points from 1.00 — inside the ±10% cross-session band, so it is reported and not
+  claimed.
+  Wire size, same run: `Person` 16 B vs 14 B, `Metrics` 53 B vs 26 B.
+- **JIT vs JIT, 8 scenarios — slower in 5 of 8.** `Complex` and `Collection` are 1.84×–2.26× behind.
+  Three rows are ahead — 0.76×, 0.89× and 0.98× — and two of them are inside the noise: `Simple —
+  Serialize`'s 0.76× comes from the least stable arm on the page (0.058 with a max of 0.101 and a
+  stddev of 0.019 — 33% of the median — against a counterpart at 0.077 ±0.000, so the ranges
+  overlap), and `Nested — Deserialize`'s 0.98× overlaps the same way. `Nested — Serialize`'s
+  **0.89×** is the one measurable MessagePack win here: the ranges do not overlap (0.215–0.219 vs
+  0.243–0.246) and 11 points sits just outside the ±10% band. The other small row,
+  `Simple — Deserialize` (1.03×), is a loss inside the band.
 
 Both tables come from 5 independent runs × ≥100,000 iterations per arm on 2026-10-27, on an AMD
-Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (4%–23% other-CPU on these
-two tables, against the protocol's 35% limit; session-wide, one arm elsewhere in the run was
-refused at 37% — see the [root README](../README.md#measured-results-2026-10-27)). The AOT table
-uses a different model set from the JIT one on purpose — only statically resolvable types run under
-MessagePack-CSharp's AOT path — so the two must not be aligned by scenario name, and AOT and JIT
-are never merged into one figure.
+Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (5%–25% other-CPU on the AOT
+table, 8%–21% on the JIT one, against the protocol's 35% limit; no arm was refused). A single
+session's ±stddev is not a cross-session error bar: five runs in one process share a JIT and a
+thermal state, so the honest band between sessions is about ±10% — the root README explains this
+under
+[One session's stddev is not a cross-session error bar](../README.md#one-sessions-stddev-is-not-a-cross-session-error-bar),
+with this format's AOT `Person — Serialize` as the worked example (±1% within the session, 17%
+between sessions).
+
+The AOT table uses a different model set from the JIT one on purpose — only statically resolvable
+types run under MessagePack-CSharp's AOT path — so the two must not be aligned by scenario name, and
+AOT and JIT are never merged into one figure.
 
 The withdrawn table is still worth knowing about, because it is why every ratio in this repository
-is printed as `<ours> ÷ <theirs>`: the harness had PicoSerDe's action in PicoBench's *baseline*
-slot at all 26 call sites, so each ratio and each column header came out backwards. A runtime role
-guard now throws on that inversion.
+is printed as `<ours> ÷ <theirs>`: the harness had PicoSerDe's action in PicoBench's *baseline* slot
+at every call site, so each ratio and each column header came out backwards. A runtime role guard
+now throws on that inversion.
 
-What *is* verified, and is a capability fact rather than a ratio: **MessagePack-CSharp only
-partly works under NativeAOT.** It builds formatters for enums and generic collections at run
-time with `MakeGenericType` + `Activator.CreateInstance`, which NativeAOT cannot do, so any
+What *is* verified, and is a capability fact rather than a ratio: **MessagePack-CSharp only partly
+works under NativeAOT.** It builds formatters for enums and generic collections at run time with
+`MakeGenericType` + `Activator.CreateInstance`, which NativeAOT cannot do, so any
 `[MessagePackObject]` containing an enum or a generic collection (`List<int>`,
 `Dictionary<string,string>`) throws
 `MissingMethodException: No parameterless constructor defined for type ...` on first use.
