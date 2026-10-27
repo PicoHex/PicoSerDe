@@ -13,7 +13,7 @@ file static class S12MsgpackMsgPackSerializer {
         foreach (var __i in value.V) {
             if (__i == null) mw.WriteNull();
             else {
-                mw.WriteString(Encoding.UTF8.GetBytes(__i));
+                mw.WriteString(__i);
             }
         }
         mw.WriteEndArray();

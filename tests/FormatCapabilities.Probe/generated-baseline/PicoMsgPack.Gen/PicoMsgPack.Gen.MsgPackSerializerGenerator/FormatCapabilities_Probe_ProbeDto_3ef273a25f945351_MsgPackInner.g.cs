@@ -11,16 +11,16 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351MsgPackI
         mw.WriteStartObject(5);
         mw.WriteInt32(0);
         if (v.Name != null) {
-            mw.WriteString(Encoding.UTF8.GetBytes(v.Name));
+            mw.WriteString(v.Name);
         } else mw.WriteNull();
         mw.WriteInt32(1);
         mw.WriteInt32(v.N);
         mw.WriteInt32(2);
         mw.WriteFloat64(v.F);
         mw.WriteInt32(3);
-        mw.WriteString(Encoding.UTF8.GetBytes(v.D.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        mw.WriteString(v.D.ToString(System.Globalization.CultureInfo.InvariantCulture));
         mw.WriteInt32(4);
-        mw.WriteString(Encoding.UTF8.GetBytes(v.When.ToString("O")));
+        mw.WriteString(v.When.ToString("O"));
         mw.WriteEndObject();
     }
 
