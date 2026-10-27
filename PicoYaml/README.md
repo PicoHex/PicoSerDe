@@ -1,7 +1,7 @@
 # PicoYaml
 
-The **only AOT-compatible YAML library** for .NET — reflection-free source
-generation with `ref struct` readers/writers. Supports indentation-based
+The only YAML library in this comparison that maps **typed POCOs** under NativeAOT —
+reflection-free source generation with `ref struct` readers/writers. Supports indentation-based
 block mappings/sequences, anchors & aliases, and multi-document streams.
 
 **Coverage:** Core YAML 1.2 subset. Complex block scalar combinations,
@@ -46,7 +46,8 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 - **`ref struct`** reader/writer — stack-allocated on the hot path
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
 - **Ref struct serialization** — serialize `ref struct` types directly
-- **Only AOT YAML library** — YamlDotNet and VYaml cannot run under NativeAOT
+- **Only YAML library with typed POCO mapping under NativeAOT** — YamlDotNet parses a DOM
+  there but its reflection-based typed mapping fails; VYaml was not verified either way
 - **Anchors & aliases** — `&name` / `*name` with self-referencing support
 - **Multi-document** — `---` separator support
 - **Complex keys** — `? key\n: value` syntax
@@ -126,24 +127,34 @@ your build — `dotnet build 2>&1 | grep PICOSERDE`. The full five-format matrix
 
 ## Performance
 
-AOT self-contained, .NET 10, 100K iterations:
+**This file reports no ratio and claims no speedup — it has no competitor to measure.**
+YamlDotNet parses a DOM under NativeAOT, but its reflection-based typed POCO mapping fails
+there (see the [competitor/AOT matrix](../README.md#nativeaot-support-by-competitor-verified-not-a-performance-claim)),
+so no like-for-like AOT pair exists.
 
-| Benchmark | Serialize | Deserialize | Ratio |
-|-----------|:---------:|:-----------:|:-----:|
-| Simple | 0.1μs | 0.3μs | 0.48 |
-| Nested | 0.5μs | 0.5μs | 0.88 |
-| Collection | 3.5μs | 3.7μs | 0.95 |
+`PicoYaml.Benchmarks` is therefore a **self-benchmark**: one `Benchmark.Run` per operation,
+printed as absolute cost with no comparison and no speedup figure. It used to print a
+"Serialize vs Deserialize" ratio built from two of our own operations — with the "Deserialize"
+row in fact calling `SerializeToUtf8Bytes` — which measured nothing meaningful and is gone.
+
+Run `dotnet run -c Release --project PicoYaml/benchmarks/PicoYaml.Benchmarks` for current
+local timings.
 
 ## Why PicoYaml
 
 | | PicoYaml | YamlDotNet | VYaml |
 |--|:---:|:---:|:---:|
-| AOT-compatible | ✅ | ❌ | ⚠️¹ |
+| Typed POCO mapping under AOT | ✅ | ❌ | ⚠️¹ |
 | Zero attributes | ✅ | ✅ | ❌ |
 | Zero reflection | ✅ | ❌ | ❌ |
 | ref struct readers | ✅ | ❌ | ❌ |
 
-> ¹ VYaml has source generator support but requires `[YamlObject]` on every type.
+> The AOT row means *typed POCO mapping ahead of time*, which is what a serializer user
+> needs: YamlDotNet's parser does run under NativeAOT, its reflection-based typed mapping does
+> not.
+>
+> ¹ VYaml has source generator support but requires `[YamlObject]` on every type; this
+> repo did not verify VYaml under NativeAOT either way.
 
 ## Packages
 

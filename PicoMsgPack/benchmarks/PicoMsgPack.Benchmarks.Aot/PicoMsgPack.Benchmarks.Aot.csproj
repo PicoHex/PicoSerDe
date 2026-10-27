@@ -13,6 +13,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\..\shared\BenchRoleGuard.cs" Link="BenchRoleGuard.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\PicoMsgPack\PicoMsgPack.csproj" />
     <ProjectReference
       Include="..\..\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"

@@ -1,10 +1,17 @@
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoYaml — Self Benchmark (AOT)");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
+Console.WriteLine(
+    "No competitor here: YamlDotNet parses a DOM under NativeAOT but its reflection-based"
+        + " typed POCO mapping fails there, so no like-for-like AOT pair exists to measure."
+);
+Console.WriteLine("Absolute timings only — this file reports no ratio and claims no speedup.");
 Console.WriteLine(new string('=', 60));
 Console.WriteLine();
 
 var simple = new SimplePoco { Name = "Hello World", Age = 42 };
+var simpleBytes = YamlSerializer.SerializeToUtf8Bytes(simple);
+
 var nested = new NestedPoco
 {
     Id = 1,
@@ -17,44 +24,42 @@ var nested = new NestedPoco
     },
     Tags = new List<string> { "dev", "bench" },
 };
+var nestedBytes = YamlSerializer.SerializeToUtf8Bytes(nested);
+
 var collection = new CollectionPoco
 {
     Scores = Enumerable.Range(0, 100).ToList(),
     Metadata = new() { ["source"] = "benchmark" },
 };
+var collectionBytes = YamlSerializer.SerializeToUtf8Bytes(collection);
 
-var results = new List<ComparisonResult>
+// Self-baseline: one Benchmark.Run per operation. Deliberately no
+// Benchmark.Compare — a comparison needs a competitor, and constructing one from
+// our own two operations is what produced the meaningless "Ser vs Deser ratio"
+// this file used to print (on top of measuring Serialize twice for the
+// "Deserialize" row).
+var results = new List<BenchmarkResult>
 {
-    Benchmark.Compare(
-        "Simple — Ser vs Deser",
-        "Serialize",
-        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(simple),
-        "Deserialize",
-        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(simple)
+    Benchmark.Run("Simple — Serialize", () => YamlSerializer.SerializeToUtf8Bytes(simple)),
+    Benchmark.Run(
+        "Simple — Deserialize",
+        () => YamlSerializer.Deserialize<SimplePoco>(simpleBytes)
     ),
-    Benchmark.Compare(
-        "Nested — Ser vs Deser",
-        "Serialize",
-        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(nested),
-        "Deserialize",
-        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(nested)
+    Benchmark.Run("Nested — Serialize", () => YamlSerializer.SerializeToUtf8Bytes(nested)),
+    Benchmark.Run(
+        "Nested — Deserialize",
+        () => YamlSerializer.Deserialize<NestedPoco>(nestedBytes)
     ),
-    Benchmark.Compare(
-        "Collection — Ser vs Deser",
-        "Serialize",
-        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(collection),
-        "Deserialize",
-        () => PicoYaml.YamlSerializer.SerializeToUtf8Bytes(collection)
+    Benchmark.Run("Collection — Serialize", () => YamlSerializer.SerializeToUtf8Bytes(collection)),
+    Benchmark.Run(
+        "Collection — Deserialize",
+        () => YamlSerializer.Deserialize<CollectionPoco>(collectionBytes)
     ),
 };
 
-foreach (var c in results)
-{
-    Console.WriteLine(
-        $"   {c.Name, -30} Ser={c.Candidate.Statistics.Avg / 1000:F1}μs  Deser={c.Baseline.Statistics.Avg / 1000:F1}μs  Ratio={c.Candidate.Statistics.Avg / c.Baseline.Statistics.Avg:F2}"
-    );
-}
+foreach (var r in results)
+    Console.WriteLine($"{r.Name, -32} {r.Statistics.Avg / 1000, 8:F1}μs");
 
 Console.WriteLine();
 Console.WriteLine(new string('=', 60));
-Console.WriteLine(SummaryFormatter.Format(results));
+Console.WriteLine(new ConsoleFormatter().Format(results));

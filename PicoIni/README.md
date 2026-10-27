@@ -101,16 +101,17 @@ var ini = IniSerializer.Serialize(config);
 
 ## Performance
 
-AOT self-contained, .NET 10, 100K iterations:
+**No performance numbers are published right now** — see the
+[root README](../README.md#performance). The ratio that used to be here was not a measurement
+of the two libraries: our serialization was compared against a hand-written DOM parse plus
+typed mapping on the ini-parser side, and both actions went through `Benchmark.Compare` in the
+wrong slots. It has been withdrawn rather than corrected in place.
 
-| Benchmark | PicoIni | ini-parser¹ | Ratio |
-|-----------|:------:|:----------:|:-----:|
-| Simple Serialize | 1.4μs | 0.2μs | 0.16x |
-| Simple Deserialize | 11.3μs | 0.6μs | 0.05x |
-| Complex Serialize | 2.3μs | 0.5μs | 0.23x |
-
-> ¹ ini-parser uses runtime reflection — incompatible with NativeAOT/trimming.
-> PicoIni prioritizes AOT deployability over JIT peak throughput.
+Capability fact that does not depend on measurement: **ini-parser's DOM parsing works under
+NativeAOT** — it has no reflection-free *typed* mapping, so it can parse a document ahead of
+time but cannot produce a POCO. PicoIni does both. Run
+`dotnet run -c Release --project PicoIni/benchmarks/PicoIni.Benchmarks` for current local
+timings.
 
 ## Low-Level API
 

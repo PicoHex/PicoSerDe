@@ -98,17 +98,16 @@ lives in the [root README](../README.md#format-limits-what-each-wire-format-cann
 
 ## Performance
 
-AOT self-contained, .NET 10, 100K iterations:
+**No performance numbers are published right now** — see the
+[root README](../README.md#performance). The ratio that used to be here compared our
+serialization against a hand-written `TomlTable` build plus typed mapping on the Tommy side,
+and both actions went through `Benchmark.Compare` in the wrong slots. It has been withdrawn
+rather than corrected in place.
 
-| Benchmark | PicoToml | Tommy¹ | Ratio |
-|-----------|:-------:|:-----:|:-----:|
-| Simple Serialize | 0.9μs | 0.3μs | 0.31x |
-| Simple Deserialize | 1.2μs | 0.5μs | 0.48x |
-| Nested Serialize | 2.7μs | 0.6μs | 0.21x |
-| Nested Deserialize | 2.7μs | 0.6μs | 0.23x |
-
-> ¹ Tommy uses runtime reflection — incompatible with NativeAOT/trimming.
-> PicoToml prioritizes AOT deployability over JIT peak throughput.
+Capability fact that does not depend on measurement: **Tommy's DOM API (`TOML.Parse`,
+`TomlTable`) works under NativeAOT** — it has no typed POCO mapper to run there. PicoToml does
+both. Run `dotnet run -c Release --project PicoToml/benchmarks/PicoToml.Benchmarks` for current
+local timings.
 
 ## Low-Level API
 

@@ -1,7 +1,9 @@
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoToml vs Tommy — Performance Comparison");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
-Console.WriteLine("NOTE: Tommy uses runtime reflection — incompatible with NativeAOT.");
+Console.WriteLine(
+    "NOTE: Tommy is DOM-only under NativeAOT — it has no typed POCO mapper to run there."
+);
 Console.WriteLine(new string('=', 60));
 Console.WriteLine();
 
@@ -132,14 +134,16 @@ foreach (var c in results)
         $"{(c.IsFaster ? "✓" : "✗")} {c.Name, -38} Pico={c.Candidate.Statistics.Avg / 1000:F1}μs  Tommy={c.Baseline.Statistics.Avg / 1000:F1}μs  x{c.Speedup:F2}"
     );
 Console.WriteLine();
-Console.WriteLine("¹ Tommy uses runtime reflection — incompatible with NativeAOT/trimming.");
+Console.WriteLine("¹ Tommy: DOM-only (TOML.Parse / TomlTable); no typed POCO mapping.");
 Console.WriteLine(new string('=', 60));
 Console.WriteLine(SummaryFormatter.Format(results));
 
 return;
 
+// Candidate = PicoToml (ours), baseline = Tommy (competitor), so Speedup > 1
+// means PicoToml is faster. BenchmarkRoles.Guard throws if that is ever inverted.
 static ComparisonResult B(string name, Action candidate, Action baseline) =>
-    Benchmark.Compare(name, "PicoToml", candidate, "Tommy¹", baseline);
+    BenchmarkRoles.Guard(Benchmark.Compare(name, "Tommy¹", baseline, "PicoToml", candidate));
 
 // ── Helpers ──
 

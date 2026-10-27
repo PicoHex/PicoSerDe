@@ -50,64 +50,66 @@ var results = new List<ComparisonResult>
 {
     Benchmark.Compare(
         "Simple — Serialize",
-        "PicoMsgPack",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(simple),
         "MessagePack-CSharp",
-        () => MpLib.Serialize(simple)
+        () => MpLib.Serialize(simple),
+        "PicoMsgPack",
+        () => MsgPackSerializer.SerializeToUtf8Bytes(simple)
     ),
     Benchmark.Compare(
         "Simple — Deserialize",
-        "PicoMsgPack",
-        () => MsgPackSerializer.Deserialize<MsgSimple>(simplePico),
         "MessagePack-CSharp",
-        () => MpLib.Deserialize<MsgSimple>(simpleMp)
+        () => MpLib.Deserialize<MsgSimple>(simpleMp),
+        "PicoMsgPack",
+        () => MsgPackSerializer.Deserialize<MsgSimple>(simplePico)
     ),
     Benchmark.Compare(
         "Complex — Serialize",
-        "PicoMsgPack",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(complex),
         "MessagePack-CSharp",
-        () => MpLib.Serialize(complex)
+        () => MpLib.Serialize(complex),
+        "PicoMsgPack",
+        () => MsgPackSerializer.SerializeToUtf8Bytes(complex)
     ),
     Benchmark.Compare(
         "Complex — Deserialize",
-        "PicoMsgPack",
-        () => MsgPackSerializer.Deserialize<MsgComplex>(complexPico),
         "MessagePack-CSharp",
-        () => MpLib.Deserialize<MsgComplex>(complexMp)
+        () => MpLib.Deserialize<MsgComplex>(complexMp),
+        "PicoMsgPack",
+        () => MsgPackSerializer.Deserialize<MsgComplex>(complexPico)
     ),
     Benchmark.Compare(
         "Nested — Serialize",
-        "PicoMsgPack",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(nested),
         "MessagePack-CSharp",
-        () => MpLib.Serialize(nested)
+        () => MpLib.Serialize(nested),
+        "PicoMsgPack",
+        () => MsgPackSerializer.SerializeToUtf8Bytes(nested)
     ),
     Benchmark.Compare(
         "Nested — Deserialize",
-        "PicoMsgPack",
-        () => MsgPackSerializer.Deserialize<MsgNested>(nestedPico),
         "MessagePack-CSharp",
-        () => MpLib.Deserialize<MsgNested>(nestedMp)
+        () => MpLib.Deserialize<MsgNested>(nestedMp),
+        "PicoMsgPack",
+        () => MsgPackSerializer.Deserialize<MsgNested>(nestedPico)
     ),
     Benchmark.Compare(
         "Collection — Serialize",
-        "PicoMsgPack",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(collection),
         "MessagePack-CSharp",
-        () => MpLib.Serialize(collection)
+        () => MpLib.Serialize(collection),
+        "PicoMsgPack",
+        () => MsgPackSerializer.SerializeToUtf8Bytes(collection)
     ),
     Benchmark.Compare(
         "Collection — Deserialize",
-        "PicoMsgPack",
-        () => MsgPackSerializer.Deserialize<MsgCollection>(colPico),
         "MessagePack-CSharp",
-        () => MpLib.Deserialize<MsgCollection>(colMp)
+        () => MpLib.Deserialize<MsgCollection>(colMp),
+        "PicoMsgPack",
+        () => MsgPackSerializer.Deserialize<MsgCollection>(colPico)
     ),
 };
 
 foreach (var c in results)
 {
+    // candidate = PicoMsgPack (ours), baseline = MessagePack-CSharp.
+    BenchmarkRoles.Guard(c);
     var icon = c.IsFaster ? "✓" : "✗";
     Console.WriteLine(
         $"{icon} {c.Name, -36} Pico={c.Candidate.Statistics.Avg / 1000:F1}μs  MPC={c.Baseline.Statistics.Avg / 1000:F1}μs  Speedup={c.Speedup:F2}x"

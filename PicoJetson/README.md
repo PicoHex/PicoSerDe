@@ -197,13 +197,24 @@ await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
 
 ## Performance
 
-AOT self-contained, .NET 10, 100K iterations:
+**No performance numbers are published right now** — see the
+[root README](../README.md#performance). The benchmark harness had a defect that inverted
+every comparison: `Benchmark.Compare(name, baselineName, baselineAction, candidateName,
+candidateAction)` was called with PicoSerDe's own action in the *baseline* slot at all 26 call
+sites, so every ratio and every column header came out backwards. What is fixed here: the
+argument order, a runtime role guard that throws on inversion, and honest labels. What is
+**not** fixed yet: the AOT absolute-cost measurement, and the INI/TOML competitor arms (they
+still do non-equivalent work) — so nothing from those runs is quoted until the
+re-measurement lands.
 
-| Benchmark | PicoJetson | System.Text.Json | Speedup |
-|-----------|:----------:|:----------------:|:-------:|
-| Complex Serialize | 0.7μs | 1.2μs | **1.77x** |
-| Nested Serialize | 0.5μs | 0.9μs | **1.98x** |
-| Collection Serialize | 1.7μs | 3.7μs | **2.20x** |
+Run `dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks` for current
+local timings — but do not quote them until this section publishes them again.
+
+One capability fact does not depend on any of that: **System.Text.Json is fully usable under
+NativeAOT** (with a source-generated `JsonSerializerContext`), so JSON is the one format where
+PicoJetson is a design choice rather than an AOT necessity. See the
+[competitor/AOT matrix](../README.md#nativeaot-support-by-competitor-verified-not-a-performance-claim)
+for the rest.
 
 ## Low-Level API
 
