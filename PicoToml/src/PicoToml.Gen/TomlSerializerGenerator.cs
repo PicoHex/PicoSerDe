@@ -1473,6 +1473,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         var ek = t.ArrayElementKind!;
         var et = t.ArrayElementName!;
 
+        // The ONE array a root `List<T>` owns, shared by the writer and the reader (I-1):
+        // the read side accepts a header whose LAST dotted segment is this name and skips
+        // every other header, so both sides name the same array by construction.
+        const string rootTableName = "data";
+
         // Synthetic PropertyInfo — drives EmitSerializeListElement / EmitDeserializeListElementTemp
         var elemP = new PropertyInfo(
             Name: "__elem",
@@ -1517,7 +1522,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             // Array of tables: [[data]] per element
             s.AppendLine("        foreach (var __item in v) {");
-            s.AppendLine("            tw.WriteArrayTable(\"data\"u8);");
+            s.AppendLine("            tw.WriteArrayTable(\"" + rootTableName + "\"u8);");
             EmitSerializeListElement(s, elemP, "            ");
             s.AppendLine("        }");
         }
@@ -1549,56 +1554,72 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine(">(16);");
         if (ek == "object" && elemP.NestedProperties.Length > 0)
         {
-            // Array of tables: [[data]] → ArrayStart per item
-            // After r.Read(), r is at ArrayStart (first [[data]])
-            s.AppendLine("        var __arrPath = r.TablePath.ToArray();");
-            // D-9d at the ROOT: this is the fourth `[[…]]` element loop (the member-level
-            // buffered/streaming/polymorphic emitters were the first three). TOML v1.0.0
-            // "Array of Tables" says a `[[name]]` header "will start a new element of the array
-            // of tables named `name`" — an element belongs to the array its header NAMES, not to
-            // the array that happened to be read first. So the root list owns the ONE array whose
-            // header it started with: remember that path (COPIED — `TablePath` is a span into the
-            // reader's buffer, and a dotted header builds its path in a scratch buffer) and stop
-            // when a later header names a different array. Without this, `[[Unknown]]` appended an
-            // EMPTY element: a value the document never had (measured: count=2, names="a,").
-            s.AppendLine("        // Read first object");
-            s.Append("        var __item = new ");
-            s.Append(et);
-            s.AppendLine("();");
-            s.AppendLine("        while (r.Read() && r.TokenType == TokenType.PropertyName)");
+            // Array of tables: one `[[data]]` per element (the write side writes exactly that name).
+            //
+            // D-9d at the ROOT — the `[[…]]` element loop of the outermost container. The
+            // member-level emitters (buffered / streaming / list-temporary / polymorphic) express
+            // D-9d with a `break`, and that is correct THERE because an object-level dispatch loop
+            // re-enters the element loop for the next header. This one IS the outermost loop:
+            // `Deserialize` returns right after it, so a `break` does not "let the owner handle
+            // it", it ends the document. Measured (fix round 1, C-1):
+            //   [[data]] Name="a" / [[Unknown]] / [[data]] Name="b"
+            //     break-on-foreign  -> [a]      (b silently gone: no element, no exception, no
+            //                                    diagnostic — the shape I-1/I-7 forbid)
+            //     skip-and-continue -> [a, b]   (what TOML's own reader says:)
+            //   tomllib.loads('[[data]]\na = 1\n[[Unknown]]\n[[data]]\nb = 2\n')
+            //     -> {'data': [{'a': 1}, {'b': 2}], 'Unknown': [{}]}
+            // So a header this list does not own is SKIPPED — header AND body — and the scan
+            // continues. The body matters: leaving its `key = value` rows current would let the
+            // next element's `__k` loop swallow them.
+            //
+            // WHICH array does the root list own (I-1)? The name the WRITER emits, `data`,
+            // compared at the same level as every member-level arm (the header's LAST dotted
+            // segment, so a hand-written `[[Parent.data]]` still reads). "Whichever header came
+            // first" is not good enough: `[[Unknown]] a [[data]] b` would then make `Unknown` the
+            // list's own name and drop `b` — the same silent loss in another shape — and a lone
+            // `[[Unknown]]` would open one element where the member-level equivalent reads 0.
+            // Price, recorded in spec §4 D-9d: a document whose array is named anything else reads
+            // as 0 elements.
+            s.AppendLine("        while (r.TokenType != TokenType.None)");
             s.AppendLine("        {");
-            s.AppendLine("            var __k = r.KeySpan;");
-            EmitPropertyDispatch(
-                s,
-                elemP.NestedProperties,
-                "__k",
-                "__item",
-                "            ",
-                "                "
-            );
-            s.AppendLine("        }");
-            s.AppendLine("        __tmpList.Add(__item);");
-            s.AppendLine("        // Read subsequent objects (delimited by ArrayStart)");
             s.AppendLine(
-                "        while (r.TokenType == TokenType.ArrayStart && r.TablePath.SequenceEqual(__arrPath))"
+                "            if (r.TokenType == TokenType.ArrayStart && TextHelpers.EqLastSegment(r.TablePath, \""
+                    + rootTableName
+                    + "\"u8))"
             );
-            s.AppendLine("        {");
-            s.Append("            __item = new ");
+            s.AppendLine("            {");
+            // I-3 no-progress guard: the root loop has no outer loop to escape to, so a reader
+            // that stopped advancing would append empty elements for ever (an OOM, not a hang).
+            s.AppendLine("                var __itPos = r.BytesConsumed;");
+            s.Append("                var __item = new ");
             s.Append(et);
             s.AppendLine("();");
-            s.AppendLine("            while (r.Read() && r.TokenType == TokenType.PropertyName)");
-            s.AppendLine("            {");
-            s.AppendLine("                var __k = r.KeySpan;");
+            s.AppendLine("                while (r.Read() && r.TokenType == TokenType.PropertyName)");
+            s.AppendLine("                {");
+            s.AppendLine("                    var __k = r.KeySpan;");
             EmitPropertyDispatch(
                 s,
                 elemP.NestedProperties,
                 "__k",
                 "__item",
-                "                ",
-                "                    "
+                "                    ",
+                "                        "
             );
+            s.AppendLine("                }");
+            s.AppendLine("                __tmpList.Add(__item);");
+            s.AppendLine("                if (r.BytesConsumed == __itPos) break;");
+            s.AppendLine("                continue;");
             s.AppendLine("            }");
-            s.AppendLine("            __tmpList.Add(__item);");
+            s.AppendLine("            // Foreign header (or a stray token before the first header):");
+            s.AppendLine("            // skip it and its body, then keep looking for this list's array.");
+            s.AppendLine("            var __skipPos = r.BytesConsumed;");
+            s.AppendLine(
+                "            while (r.Read() && !(r.TokenType == TokenType.ArrayStart && TextHelpers.EqLastSegment(r.TablePath, \""
+                    + rootTableName
+                    + "\"u8))) { }"
+            );
+            s.AppendLine("            if (r.TokenType == TokenType.None) break;");
+            s.AppendLine("            if (r.BytesConsumed == __skipPos) break;");
             s.AppendLine("        }");
         }
         else
