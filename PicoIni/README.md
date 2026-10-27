@@ -101,11 +101,15 @@ var ini = IniSerializer.Serialize(config);
 
 ## Performance
 
-**No performance numbers are published right now** — see the
-[root README](../README.md#performance). The ratio that used to be here was not a measurement
-of the two libraries: our serialization was compared against a hand-written DOM parse plus
-typed mapping on the ini-parser side, and both actions went through `Benchmark.Compare` in the
-wrong slots. It has been withdrawn rather than corrected in place.
+**No ratio is published for this format; the absolute cost now is.** The root README's
+[Measured results](../README.md#measured-results-2026-10-27) section carries PicoIni's own
+per-scenario cost — nine scenarios, median µs/op with min–max ±stddev — under a table labelled
+`NON-EQUIVALENT`, with the competitor column deliberately left out so that no reader is invited
+to divide one arm by the other. There is no ratio because the two arms are not the same job: our
+arm is a single library call, while the ini-parser arm parses a DOM and then maps it with
+hand-written code. The ratio that used to be here was therefore not a measurement of the two
+libraries, and both actions also went through `Benchmark.Compare` in the wrong slots; it has been
+withdrawn rather than corrected in place.
 
 Capability fact that does not depend on measurement: **ini-parser's DOM parsing works under
 NativeAOT** — it has no reflection-free *typed* mapping, so it can parse a document ahead of

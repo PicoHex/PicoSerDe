@@ -210,10 +210,12 @@ only what is specific to JSON:
   row ahead is `Nested POCO — Deserialize`, 0.877 vs 1.002 µs.
 
 Both tables come from 5 independent runs × ≥100,000 iterations per arm on 2026-10-27, on an AMD
-Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (6%–32% other-CPU; the
-protocol's limit is 35%). `dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks`
-reproduces the JIT table; the AOT table is that project published with `-p:PublishAot=true` and run
-as a native binary. AOT and JIT are separate processes and are never merged into one figure.
+Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (3%–24% other-CPU on these
+two tables, against the protocol's 35% limit; session-wide, one arm elsewhere in the run was
+refused at 37% — see the [root README](../README.md#measured-results-2026-10-27)).
+`dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks` reproduces the JIT
+table; the AOT table is that project published with `-p:PublishAot=true` and run as a native
+binary. AOT and JIT are separate processes and are never merged into one figure.
 
 The withdrawn table is still worth knowing about, because it is why every ratio in this repository
 is printed as `<ours> ÷ <theirs>`: `Benchmark.Compare(name, baselineName, baselineAction,

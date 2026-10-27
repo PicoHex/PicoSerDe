@@ -109,10 +109,12 @@ summary:
   `Complex` and `Collection` are 1.71×–2.16× behind.
 
 Both tables come from 5 independent runs × ≥100,000 iterations per arm on 2026-10-27, on an AMD
-Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (6%–23% other-CPU on these
-tables). The AOT table uses a different model set from the JIT one on purpose — only statically
-resolvable types run under MessagePack-CSharp's AOT path — so the two must not be aligned by
-scenario name, and AOT and JIT are never merged into one figure.
+Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (4%–23% other-CPU on these
+two tables, against the protocol's 35% limit; session-wide, one arm elsewhere in the run was
+refused at 37% — see the [root README](../README.md#measured-results-2026-10-27)). The AOT table
+uses a different model set from the JIT one on purpose — only statically resolvable types run under
+MessagePack-CSharp's AOT path — so the two must not be aligned by scenario name, and AOT and JIT
+are never merged into one figure.
 
 The withdrawn table is still worth knowing about, because it is why every ratio in this repository
 is printed as `<ours> ÷ <theirs>`: the harness had PicoSerDe's action in PicoBench's *baseline*

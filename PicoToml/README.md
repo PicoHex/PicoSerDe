@@ -98,11 +98,16 @@ lives in the [root README](../README.md#format-limits-what-each-wire-format-cann
 
 ## Performance
 
-**No performance numbers are published right now** — see the
-[root README](../README.md#performance). The ratio that used to be here compared our
-serialization against a hand-written `TomlTable` build plus typed mapping on the Tommy side,
-and both actions went through `Benchmark.Compare` in the wrong slots. It has been withdrawn
-rather than corrected in place.
+**No ratio is published for this format; the absolute cost now is.** The root README's
+[Measured results](../README.md#measured-results-2026-10-27) section carries PicoToml's own
+per-scenario cost — ten scenarios, median µs/op with min–max ±stddev — under a table labelled
+`NON-EQUIVALENT`, with the competitor column deliberately left out so that no reader is invited
+to divide one arm by the other. There is no ratio because the two arms are not the same job:
+Tommy is a DOM-only parser (`TOML.Parse` / `TomlTable`) with no typed mapping, while our arm
+serializes and maps typed POCOs. The ratio that used to be here compared our serialization
+against a hand-written `TomlTable` build plus typed mapping on the Tommy side, and both actions
+also went through `Benchmark.Compare` in the wrong slots; it has been withdrawn rather than
+corrected in place.
 
 Capability fact that does not depend on measurement: **Tommy's DOM API (`TOML.Parse`,
 `TomlTable`) works under NativeAOT** — it has no typed POCO mapper to run there. PicoToml does

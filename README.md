@@ -160,8 +160,11 @@ below the CPU limit.
 
 ### Measured results (2026-10-27)
 
-The first figures published since the withdrawal, measured end to end under the protocol
-above — nothing here is a leftover from the broken harness. **They do not flatter the project:
+The first figures published since the withdrawal, measured under the protocol's *checkable*
+criteria above: every relative criterion and the 35% other-CPU ceiling passed on each arm that
+carries a number below; the machine was nevertheless **not** perfectly idle, which the
+environment table states rather than hides. Nothing here is a leftover from the broken harness.
+**They do not flatter the project:
 on these micro-benchmarks PicoSerDe is slower than System.Text.Json (all 12 AOT JSON scenarios)
 and slower than MessagePack-CSharp (all 4 AOT MessagePack scenarios).** The one mixed table is
 MessagePack's JIT one, where PicoSerDe is 2–6% faster on four of its eight rows — inside the two
@@ -194,14 +197,20 @@ round — confusing the two readings is what inverted the old table.
 | Measured on | **2026-10-27**, 11:06:3x–11:11:15 local; 7 processes, strictly serial, ≈4.8 min of measuring |
 | Publication | **115 of 116 arms published, 1 refused**; all 7 processes exited `0` |
 | The one refusal | PicoYaml `Simple — Deserialize`: `other processes used 37.0% of the machine's CPU while this action was measured (limit 35%)`. It carries **no number** here — that row is left empty rather than re-run until it produced a publishable figure. |
-| Machine load | **The machine was not fully idle.** System-wide other-CPU sat between **6% and 32%** for the whole session (mostly this session's own host/tooling processes); the limit is 35% and the closest published arm reached 32%. Drift ≤12.7%, spread ≤2.12×, dispersion ≤15.0% — inside the protocol's 20% / 3.0× / 25% — so no arm was refused on those criteria. |
+| Machine load | **The machine was not fully idle.** System-wide other-CPU ran **3%–37%** across the session: **3%–32% over the 115 published arms** (quietest arm 3%, and the closest to the line 32%, i.e. 3 points below it) plus **37.0% on the one arm refused in the row above**. Mostly this session's own host/tooling processes. Drift ≤12.7%, spread ≤2.12×, dispersion ≤15.0% — inside the protocol's 20% / 3.0× / 25% — so no arm was refused on those criteria. |
 | Execution modes | AOT runs report `Mode: Aot \| IL on disk: no \| IsDynamicCodeSupported: no`. JIT runs report `Mode: Jit \| IL on disk: yes`, but **four of the five JIT benchmarks still carry the AOT feature switches** (`IsDynamicCodeSupported: no`, `JsonSerializer.IsReflectionEnabledByDefault: false`) because their csproj sets `PublishAot=true` while the harness executes IL; only PicoMsgPack's unified benchmark is plain JIT (`IsDynamicCodeSupported: yes`). AOT and JIT figures are never merged, and never divided by each other. |
 
-Each table cites the run it came from, as `<mode> · 2026-10-27 · bench-measure/logs/<file>.txt`,
-next to that run's own `PICOBENCH_SUMMARY` line, so a digit can be traced to the process that
-printed it. Those log files are the harness's verbatim stdout for that session and are not
-checked in (`.superpowers/` is gitignored); the same command on the same project regenerates the
-same table, footers included.
+Each table cites the run it came from, as
+`<mode> · 2026-10-27 · .superpowers/sdd/bench-measure/logs/<file>.txt`, next to that run's own
+`PICOBENCH_SUMMARY` line, so a digit can be traced to the process that printed it. Those log files
+are the harness's verbatim stdout for that session and are **not checked in** — `.gitignore`
+excludes `.superpowers/`, so a reader cannot open them; what a reader *can* check is the quoted
+`PICOBENCH_SUMMARY` line, the per-arm other-CPU range and the footer printed beside each table,
+which is why they are copied verbatim rather than summarised. Re-running is the only way to
+reproduce the raw logs, and that is a different session on a differently loaded machine: the same
+command on the same project reproduces **the same rows in the same footer format, but not the same
+numbers** — medians, min–max and other-CPU percentages move run to run, so every figure below is
+this session's, not a constant.
 
 These are micro-benchmarks on one machine: two-to-fifty-field POCOs and a 1 KB string, no I/O, no
 contention, no cold start. They say nothing about allocation behaviour, streaming, large documents
@@ -232,7 +241,7 @@ row, so every row carries a ratio.
 | LargeString 1KB — Serialize | 1.493 (1.351–1.623 ±0.106) | 0.449 (0.433–0.475 ±0.018) | 3.33× |
 | LargeString 1KB — Deserialize | 1.630 (1.564–1.637 ±0.036) | 0.496 (0.469–0.508 ±0.015) | 3.29× |
 
-> Source: **AOT · 2026-10-27 · `bench-measure/logs/PicoJetson-Aot.txt`** —
+> Source: **AOT · 2026-10-27 · `.superpowers/sdd/bench-measure/logs/PicoJetson-Aot.txt`** —
 > `PICOBENCH_SUMMARY scenarios=12 published=24 refused=0 mode=Aot equivalent=true cpu=known exit=0`;
 > per-arm other-CPU 3%–21%; 100,000–278,460 iterations per arm; warm-up 24/24 converged (0.2–0.5 s).
 
@@ -251,7 +260,7 @@ two must not be aligned by scenario name.
 
 Wire size, same run (verbatim from the log): `Size: Person Pico=16B MPC=14B | Metrics Pico=53B MPC=26B`.
 
-> Source: **AOT · 2026-10-27 · `bench-measure/logs/PicoMsgPack-Aot.txt`** —
+> Source: **AOT · 2026-10-27 · `.superpowers/sdd/bench-measure/logs/PicoMsgPack-Aot.txt`** —
 > `PICOBENCH_SUMMARY scenarios=4 published=8 refused=0 mode=Aot equivalent=true cpu=known exit=0`;
 > per-arm other-CPU 4%–22%; 100,000–300,000 iterations per arm; warm-up 8/8 converged (0.1–0.2 s).
 
@@ -275,7 +284,7 @@ Same models as the AOT JSON table above, in a separate process with its own numb
 | LargeString 1KB — Serialize | 1.018 (0.965–1.061 ±0.038) | 0.261 (0.260–0.274 ±0.007) | 3.90× |
 | LargeString 1KB — Deserialize | 1.598 (1.507–1.653 ±0.058) | 0.300 (0.277–0.405 ±0.052) | 5.33× |
 
-> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoJetson.txt`** —
+> Source: **JIT · 2026-10-27 · `.superpowers/sdd/bench-measure/logs/PicoJetson.txt`** —
 > `PICOBENCH_SUMMARY scenarios=12 published=24 refused=0 mode=Jit equivalent=true cpu=known exit=0`;
 > per-arm other-CPU 6%–24%; 100,000–114,720 iterations per arm; warm-up 24/24 converged (1.0–1.1 s).
 > This is one of the four `Mode: Jit` runs that still carry the AOT feature switches (see the
@@ -298,15 +307,15 @@ ahead of time.
 | Collection — Serialize | 0.466 (0.450–0.504 ±0.024) | 0.222 (0.218–0.260 ±0.018) | 2.10× |
 | Collection — Deserialize | 1.382 (1.361–1.435 ±0.030) | 0.639 (0.598–0.680 ±0.031) | 2.16× |
 
-> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoMsgPack.txt`** —
+> Source: **JIT · 2026-10-27 · `.superpowers/sdd/bench-measure/logs/PicoMsgPack.txt`** —
 > `PICOBENCH_SUMMARY scenarios=8 published=16 refused=0 mode=Jit equivalent=true cpu=known exit=0`;
 > per-arm other-CPU 6%–23%; 100,000–126,200 iterations per arm; warm-up 16/16 converged (1.0 s).
 > This is the only plain-JIT run of the seven (`IsDynamicCodeSupported: yes`).
 >
 > Its `Simple — Serialize` row is the least trustworthy figure published here: 0.065 with a max of
 > 0.133 and a stddev of 0.031 (48% of the median), against a counterpart at 0.069 ±0.002. The
-> 0.94× on those two rows should be read as "indistinguishable", not as "ahead" — the difference is
-> smaller than the ours-side dispersion.
+> 0.94× on those two rows should be read as "indistinguishable", not as "ahead": their min–max
+> ranges overlap, and the difference between the medians is smaller than the ours-side dispersion.
 
 #### NON-EQUIVALENT — PicoIni, absolute cost only
 
@@ -328,7 +337,7 @@ invited to divide one by the other. `equivalent=false` in this run's summary lin
 | Simple — SerializeToString | 0.113 (0.112–0.127 ±0.007) |
 | Simple — Deserialize←string | 0.138 (0.134–0.154 ±0.008) |
 
-> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoIni.txt`** —
+> Source: **JIT · 2026-10-27 · `.superpowers/sdd/bench-measure/logs/PicoIni.txt`** —
 > `PICOBENCH_SUMMARY scenarios=9 published=18 refused=0 mode=Jit equivalent=false cpu=known exit=0`;
 > per-arm other-CPU 7%–23%; 100,000–117,630 iterations per arm; warm-up 18/18 converged (1.0–1.4 s).
 >
@@ -357,7 +366,7 @@ deliberately not reproduced here. `equivalent=false` in the summary line.
 | Simple — SerializeToString | 0.134 (0.128–0.144 ±0.007) |
 | Simple — Deserialize←string | 0.158 (0.153–0.163 ±0.004) |
 
-> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoToml.txt`** —
+> Source: **JIT · 2026-10-27 · `.superpowers/sdd/bench-measure/logs/PicoToml.txt`** —
 > `PICOBENCH_SUMMARY scenarios=10 published=20 refused=0 mode=Jit equivalent=false cpu=known exit=0`;
 > per-arm other-CPU 8%–25%; 100,000–121,275 iterations per arm; warm-up 20/20 converged (1.0–1.4 s).
 
@@ -376,7 +385,7 @@ reflection and does not run under AOT. One row of six was refused and stays empt
 | Collection — Serialize | 1.788 (1.688–1.805 ±0.047) | published |
 | Collection — Deserialize | 5.477 (5.093–5.526 ±0.185) | published |
 
-> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoYaml.txt`** —
+> Source: **JIT · 2026-10-27 · `.superpowers/sdd/bench-measure/logs/PicoYaml.txt`** —
 > `PICOBENCH_SUMMARY scenarios=6 published=5 refused=1 mode=Jit equivalent=true cpu=known exit=0`;
 > per-arm other-CPU 12%–32% on the published arms; 100,000–106,095 iterations per arm; warm-up 5/5
 > converged (1.0 s). The two `Nested` rows were measured at 32% and 29% other-CPU, i.e. 3–6 points
@@ -388,9 +397,22 @@ reflection and does not run under AOT. One row of six was refused and stays empt
 They are not a claim about production throughput, latency under load, memory or cold start, and they
 do not compare INI or TOML against anything. What they do say, however the table is sliced: **on
 this machine and these micro-benchmarks, System.Text.Json and MessagePack-CSharp are faster than
-PicoSerDe** — in AOT and in JIT, with JSON's `Nested POCO — Deserialize` (JIT) and MessagePack's
-four small-shape rows (`Simple` and `Nested`, serialize and deserialize) as the only rows where the
-two are indistinguishable. PicoSerDe's claim is that
+PicoSerDe**, in AOT and in JIT.
+
+So that the word is not left to the eye, "indistinguishable" has one concrete meaning here:
+**the two arms' min–max ranges overlap**, i.e. at least one run of the slower library was faster
+than at least one run of the faster one. Five of the 36 ratio cells satisfy it:
+
+- **AOT JSON `Nested POCO — Deserialize`** — 1.07× (1.210–1.278 vs 1.186–1.260): ours is 7%
+  slower on the medians (1.275 vs 1.193 µs), but the ranges overlap — our fastest run (1.210) sits
+  inside their range and their slowest (1.260) sits inside ours.
+- **MessagePack JIT, four small shapes** — `Simple`/`Nested`, serialize/deserialize, 0.94×–0.98×:
+  the same overlap, in the other direction.
+
+The only row that comes out ahead without overlap is **JSON JIT `Nested POCO — Deserialize`** —
+0.88× (0.838–0.926 vs 0.934–1.073), one row out of 36 where the two ranges do not touch and the
+faster arm is ours. It is reported as a single-row outlier on a micro-benchmark, and it offsets
+neither the 12 of 12 AOT JSON rows nor the 4 of 4 AOT MessagePack rows. PicoSerDe's claim is that
 it runs everywhere ahead of time and maps typed POCOs across five formats (see the next table), not
 that it is the fastest thing in it.
 
