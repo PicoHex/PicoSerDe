@@ -14,7 +14,7 @@ file static class S9MsgpackMsgPackSerializer {
             mw.WriteString(Encoding.UTF8.GetBytes(__kv.Key));            mw.WriteInt32(__kv.Value);
         }
         mw.WriteEndObject();
-        mw.WriteEndObject(); mw.FlushToBuffer(); } }
+        mw.WriteEndObject(); _ = mw.Buffer; } }
 
 file static class S9MsgpackMsgPackDeserializer {
     public static S9Msgpack Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options) {

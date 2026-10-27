@@ -7,10 +7,11 @@ namespace PicoMsgPack;
 /// interface calls per <em>chunk</em> instead of two per token.
 /// <para>
 /// Consequence: bytes can still be sitting in the local span when the caller stops
-/// writing. Anything that reads the buffer must first call
-/// <see cref="FlushToBuffer"/> — <see cref="Buffer"/> does it implicitly, and so do
-/// <see cref="WriteEndObject"/> / <see cref="WriteEndArray"/> when the outermost
-/// container closes. Generated serializers end with <c>mw.FlushToBuffer()</c>.
+/// writing. Anything that reads the buffer must first commit the tail — reading
+/// <see cref="Buffer"/> does it, and so do <see cref="WriteEndObject"/> /
+/// <see cref="WriteEndArray"/> when the outermost container closes. Generated
+/// serializers hand off with <c>_ = mw.Buffer;</c> (they compile into the consumer
+/// assembly, so they can only touch the public surface).
 /// </para>
 /// </summary>
 public ref struct MsgPackWriter
@@ -64,11 +65,16 @@ public ref struct MsgPackWriter
     }
 
     /// <summary>
-    /// Commits every byte written so far to the underlying buffer. Call this before
-    /// reading the buffer, and at the end of any serializer that writes into
-    /// <see cref="Buffer"/>.
+    /// Commits every byte written so far to the underlying buffer.
     /// </summary>
-    public void FlushToBuffer() => Flush();
+    /// <remarks>
+    /// Deliberately <c>internal</c>: the public surface keeps a single flush exit,
+    /// <see cref="Buffer"/>, whose getter commits the tail — so this optimisation did
+    /// not have to add a public member. Generated serializers run in the consumer
+    /// assembly and therefore hand off with <c>_ = mw.Buffer;</c>; this member stays
+    /// for in-assembly tests that want to say "commit" out loud.
+    /// </remarks>
+    internal void FlushToBuffer() => Flush();
 
     /// <summary>Makes room for <paramref name="n"/> more bytes in <see cref="_span"/>.</summary>
     [System.Runtime.CompilerServices.MethodImpl(

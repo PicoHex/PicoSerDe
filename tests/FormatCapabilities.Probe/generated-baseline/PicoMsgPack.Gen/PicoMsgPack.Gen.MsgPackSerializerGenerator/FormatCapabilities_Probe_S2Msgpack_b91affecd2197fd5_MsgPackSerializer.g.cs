@@ -20,7 +20,7 @@ file static class S2MsgpackMsgPackSerializer {
             }
         }
         mw.WriteEndArray();
-        mw.WriteEndObject(); mw.FlushToBuffer(); } }
+        mw.WriteEndObject(); _ = mw.Buffer; } }
 
 file static class S2MsgpackMsgPackDeserializer {
     public static S2Msgpack Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options) {
