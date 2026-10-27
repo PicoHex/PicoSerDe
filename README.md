@@ -62,11 +62,13 @@ where it was bad and changed where it was unfair:
   MessagePack: slower in **3 of 4**, **0.93×–3.34×** (median **1.40×**). JIT JSON: slower in
   **12 of 12**, **1.07×–5.60×** (median **1.91×**). JIT MessagePack: slower in **5 of 8**,
   **0.76×–2.26×** (median **1.44×**).
-- **TOML — PicoSerDe is faster (CoreCLR, versus Tomlyn 2.10.1), and it now has an opponent that
-  does the same job.** Tomlyn's typed, source-generated API replaces the DOM-walk stand-in as
-  TOML's competitor: we land at **0.08×–0.41× of Tomlyn's cost (median 0.20×), faster in 10 of 10
-  scenarios** — i.e. between **2.4× and 12.5× faster**. The old Tommy DOM walk is kept as a
-  labelled reference table with no ratio, because it is still not the same job.
+- **TOML — PicoSerDe is faster under JIT *and* under AOT (versus Tomlyn 2.10.1), and the opponent
+  does the same job in both.** Tomlyn's typed, source-generated API replaces the DOM-walk stand-in
+  as TOML's competitor: under **JIT** we land at **0.08×–0.41× of Tomlyn's cost (median 0.20×),
+  faster in 10 of 10 scenarios** — between **2.4× and 12.5× faster** — and under **NativeAOT** at
+  **0.10×–0.40× (median 0.21×), also faster in 10 of 10** — between **2.5× and 10× faster**. The
+  old Tommy DOM walk is kept as a labelled reference table with no ratio, because it is still not
+  the same job.
 - **YAML — faster on CoreCLR, and only there.** Against YamlDotNet's typed API: **0.02×–0.06×
   (17×–50× faster), 6 of 6 scenarios**. **There is no AOT opponent**, and that absence is a fact
   about YamlDotNet, not a choice of ours — see
@@ -195,13 +197,19 @@ wholesale. Every relative criterion and the 35% other-CPU ceiling passed on each
 number below; the machine was nevertheless **not** perfectly idle, which the environment table
 states rather than hides. Nothing here is a leftover from the broken harness.
 
+**Exactly one table here comes from a different window**, and it is labelled where it stands: TOML's
+**AOT** table, measured in a separate later session on the same machine and date because this
+session's own TOML AOT attempt was refused. Its JIT counterpart, all four JSON/MessagePack tables
+and the YAML and INI tables are this session's. The two are never mixed, and AOT cells are never
+compared with JIT cells.
+
 **The numbers do not flatter the project in the places that matter most:** on these micro-benchmarks
 PicoSerDe is slower than System.Text.Json on the AOT JSON table (11 of 12 scenarios) and slower than
-MessagePack-CSharp on the AOT MessagePack table (3 of 4). It is faster than Tomlyn on the CoreCLR TOML
-table (10 of 10) and faster than YamlDotNet on the CoreCLR YAML table (6 of 6) — two formats where
-the opponent's typed path costs a builder plus reflection (YamlDotNet) or its own source generator
-(Tomlyn 2.10.1). Source generation is therefore not the explanation for the TOML gap; the gap is
-measured, not attributed.
+MessagePack-CSharp on the AOT MessagePack table (3 of 4). It is faster than Tomlyn on the TOML table,
+under JIT **and** under AOT (10 of 10 in each), and faster than YamlDotNet on the CoreCLR YAML table
+(6 of 6) — two formats where the opponent's typed path costs a builder plus reflection (YamlDotNet)
+or its own source generator (Tomlyn 2.10.1). Source generation is therefore not the explanation for
+the TOML gap; the gap is measured, not attributed.
 
 - **AOT vs AOT, JSON** (PicoJetson vs System.Text.Json, 12 scenarios): slower in **11 of 12**, by
   **0.92×–3.58×**, median **1.95×**. The single row on our side of 1.00 is
@@ -214,6 +222,10 @@ measured, not attributed.
   **1.44×** — the small shapes are marginally ahead (0.76×–0.98×, of which only the 0.89× is outside
   the noise: one row is the least stable figure on this page and two sit inside the band), while the
   `Complex` and `Collection` shapes are **1.84×–2.26×** behind.
+- **AOT vs AOT, TOML** (PicoToml vs Tomlyn, 10 scenarios): **faster in 10 of 10**, by
+  **0.10×–0.40×**, median **0.21×** — the same pair as the JIT TOML table below, measured ahead of
+  time in a separate session on the same date; see
+  [AOT vs AOT — PicoToml vs Tomlyn](#aot-vs-aot--picotoml-vs-tomlyn-10-scenarios).
 - **JIT vs JIT, TOML** (10 scenarios): **faster in 10 of 10**, **0.08×–0.41×**, median **0.20×**.
 - **JIT vs JIT, YAML** (6 scenarios): **faster in 6 of 6**, **0.02×–0.06×**. CoreCLR only.
 - **INI and the Tommy reference table are not compared at all** — their competitor arms are
@@ -236,7 +248,8 @@ no verdict to give.
 | Publication | **142 of 142 arms published across those 7 processes (8 tables), 0 refused**; all 7 exited `0` with `exit=0` in the summary line |
 | Machine load | **The machine was not fully idle.** Per-arm other-CPU ran **5%–29%** across the 142 published arms (quietest arm 5%, closest to the line 29%), against the protocol's 35% limit — no arm was refused on that criterion, and none was measured on a silent machine either. Self-checks: drift ≤9.0%, spread ≤1.64×, dispersion ≤10.0% — inside the protocol's 20% / 3.0× / 25%. |
 | Execution modes | AOT runs report `Mode: Aot \| IL on disk: no \| IsDynamicCodeSupported: no`. JIT runs report `Mode: Jit \| IL on disk: yes`, but **four of the five JIT benchmarks still carry the AOT feature switches** (`IsDynamicCodeSupported: no`) because their csproj sets `PublishAot=true` while the harness executes IL; only PicoMsgPack's unified benchmark is plain JIT (`IsDynamicCodeSupported: yes`). AOT and JIT figures are never merged, and never divided by each other. |
-| The run that is **not** counted above | One extra run was attempted after the seven — TOML under AOT — and it is **not** part of the 142 arms: **20 of its 40** were refused, **18 on system-wide CPU** (39.4%–80.6% against the 35% limit; the first reads `other processes used 60.4% of the machine's CPU during the check (limit 35%) — the machine is not idle`) and **2 on drift** (34.2% and 39.2%, against the 20% limit), after external load on the machine rose mid-window. Nothing from it is published as a table here; TOML's AOT parity needs a re-measure on an idle machine. The protocol refused those arms rather than reporting inflated ones, which is the entire point of it. |
+| The run that is **not** counted above | One extra run was attempted after the seven — TOML under AOT — and it is **not** part of the 142 arms: **20 of its 40** were refused, **18 on system-wide CPU** (39.4%–80.6% against the 35% limit; the first reads `other processes used 60.4% of the machine's CPU during the check (limit 35%) — the machine is not idle`) and **2 on drift** (34.2% and 39.2%, against the 20% limit), after external load on the machine rose mid-window. Nothing from it is published as a table here; TOML's AOT parity needed a re-measure on an idle machine — done in the row below. The protocol refused those arms rather than reporting inflated ones, which is the entire point of it. |
+| The TOML AOT **re-measure** — a separate session later the same date (`14:54–15:05` local) | The refused attempt above is what motivated this window, and this one published. TOML under AOT: **20 of 20 arms in its equivalent table, 0 refused** (banner `Mode: Aot, IL on disk: no, IsDynamicCodeSupported: no`), load self-check drift 1.3% / spread 1.38× / dispersion 5.9% at other-CPU 10%, per-arm other-CPU **3%–26%**. It is **not** part of the 142 arms above, and its figures are never mixed with them or with any JIT figure — it is its own session with its own log (`.superpowers/sdd/bench-aot-toml/logs/PicoToml-Aot-run2.txt`), and its second (Tommy, `NON-EQUIVALENT`) table published 19 of 20. The window was not silent either: an external process held the machine at 85%–99% for several minutes after its first attempt, and the run was only taken once load fell back to 9%–20%. |
 
 Each table cites the run it came from, as
 `<mode> · 2026-10-27 · .superpowers/sdd/bench-measure-2/logs/<file>.txt`, next to that run's own
@@ -413,6 +426,66 @@ ahead of time. **Ratio = ours ÷ theirs: above 1.00 we are slower.**
 > is made of is our own dispersion. `Nested — Serialize` (0.89×) is the only row of the two
 > MessagePack tables that is ahead *without* overlapping ranges, and at 11 points it is just outside
 > the band; `Nested — Deserialize` (0.98×, ranges overlapping) is inside it.
+
+#### AOT vs AOT — PicoToml vs Tomlyn (10 scenarios)
+
+**The same equivalent pair as the JIT table below, with both sides published ahead of time.**
+Tomlyn 2.10.1 round-trips typed POCOs under NativeAOT, so the comparison survives the mode change
+and a ratio still exists: one library call per row, same POCO in and out. **Ratio = ours ÷ theirs:
+above 1.00 we are slower, below 1.00 we are faster — every row here is below 1.00, and the run's
+verdict column reads ✓ ten times.**
+
+| Scenario | PicoToml (ours) | Tomlyn | Pico ÷ Tomlyn |
+|---|---:|---:|---:|
+| Simple — Serialize (bytes) | 0.182 (0.181–0.185 ±0.002) | 0.757 (0.728–0.792 ±0.025) | 0.24× |
+| Simple — Deserialize (bytes) | 0.240 (0.237–0.245 ±0.003) | 2.291 (2.195–2.312 ±0.051) | 0.10× |
+| Medium — Serialize (bytes) | 0.510 (0.483–0.529 ±0.017) | 1.495 (1.475–1.578 ±0.041) | 0.34× |
+| Medium — Deserialize (bytes) | 0.586 (0.551–0.610 ±0.024) | 5.185 (4.981–5.495 ±0.220) | 0.11× |
+| Nested — Serialize (bytes) | 0.712 (0.690–0.754 ±0.025) | 1.825 (1.782–1.854 ±0.028) | 0.39× |
+| Nested — Deserialize (bytes) | 0.796 (0.771–0.827 ±0.026) | 6.378 (6.228–6.647 ±0.156) | 0.12× |
+| Large — Serialize (bytes) | 2.617 (2.599–2.717 ±0.052) | 6.579 (6.452–6.725 ±0.117) | 0.40× |
+| Large — Deserialize (bytes) | 3.478 (3.402–3.607 ±0.083) | 19.773 (19.720–19.941 ±0.112) | 0.18× |
+| Simple — SerializeToString | 0.187 (0.181–0.194 ±0.006) | 0.520 (0.504–0.554 ±0.021) | 0.36× |
+| Simple — Deserialize←string | 0.225 (0.217–0.231 ±0.006) | 2.227 (2.159–2.245 ±0.034) | 0.10× |
+
+> Source: **AOT · 2026-10-27 · `.superpowers/sdd/bench-aot-toml/logs/PicoToml-Aot-run2.txt`** (table 1
+> of 2 in that process) — `PICOBENCH_SUMMARY scenarios=10 published=20 refused=0 mode=Aot
+> equivalent=true cpu=known exit=0 exit_scope=process-so-far process_published=20
+> process_refused=0`; banner `Mode: Aot | IL on disk: no | IsDynamicCodeSupported: no`; per-arm
+> other-CPU 3%–26%; load self-check drift 1.3%, spread 1.38×, dispersion 5.9% at other-CPU 10%;
+> 100,000–230,520 iterations per arm; warm-up 20/20 converged (0.1–0.2 s, 4–27 bursts). This is a
+> **separate session** from every other table on this page: same machine, same date, later window —
+> run precisely because the earlier window's TOML AOT attempt was refused. Its second table is the
+> `NON-EQUIVALENT` Tommy reference (19 of 20 arms published, no ratio).
+
+Four things this table says, all of them about ratio or scope rather than about absolutes:
+
+- **AOT does not reverse the TOML result.** 10 of 10 rows stay below 1.00, at 0.10×–0.40×, median
+  **0.21×** against the JIT table's 0.20× — between **2.5× and 10× faster**.
+- **AOT costs more than JIT for *both* libraries, which is why the two TOML tables are never
+  subtracted from each other.** `Large — Serialize (bytes)` is 1.351 µs for us under JIT and
+  2.617 µs here, while Tomlyn's moves 4.185 → 6.579 µs; the same AOT-above-JIT direction is recorded
+  for the JSON tables above, and it is the anomaly this section already flags rather than a new one.
+  What survives the mode change is the **ratio**: 0.32× under JIT, 0.40× under AOT.
+- **The margin narrows slightly under AOT, and it is reported narrowing.** Two rows move up
+  materially (`Medium — Serialize` 0.26× → 0.34×, `Large — Serialize` 0.32× → 0.40×), `Nested —
+  Serialize` gains 3 points, `Simple — SerializeToString` is the only row that moves down (0.41× →
+  0.36×, −5 points), and the other five move by two points or less. Median 0.20× → 0.21×. Nothing
+  crosses 1.00, and at this resolution a move of two points is the cross-session band rather than a
+  trend.
+- **The JIT table's caveats apply here unchanged:** `[equiv] nested text identical = False` (key
+  order inside `[Address]`), our deserialize rows pay a UTF-8 decode inside the timed region that
+  Tomlyn's `Deserialize<T>(string)` does not, and Tomlyn's serialize arm is not handicapped.
+
+**A same-day JIT re-measure is what the AOT ratios are checked against.** `dotnet run -c Release`
+was this session's first process, and its Tomlyn table reproduced the published JIT figures —
+**0.07×–0.42×, median 0.20×** against **0.08×–0.41×, median 0.20×**; nine of the ten ratios land
+inside the ±10% cross-session band, and the tenth (`Simple — Deserialize←string`, 0.08× → 0.07×,
+−12.5%) is the row whose Tomlyn arm carried the widest spread in that run (±0.621 on 2.071 µs,
+other-CPU 32%) — the noisiest cell of the ten, not a new finding. No row crossed 1.00 in either
+session. Source: `JIT · 2026-10-27 · .superpowers/sdd/bench-aot-toml/logs/PicoToml-Jit.txt`,
+`mode=Jit published=20 refused=0`. Background load rose during that process and cost its *Tommy*
+table 13 of its 20 arms; its Tomlyn table published all 20, and no Tommy figure is quoted from it.
 
 #### JIT vs JIT — PicoToml vs Tomlyn (10 scenarios)
 
@@ -597,10 +670,12 @@ so that no reader is invited to divide one by the other.
 They are not a claim about production throughput, latency under load, memory or cold start, and they
 do not compare INI or the Tommy reference against anything. What they do say, however the table is
 sliced: **on this machine and these micro-benchmarks, System.Text.Json and MessagePack-CSharp are
-faster than PicoSerDe, while PicoSerDe is faster than Tomlyn and than YamlDotNet's typed mapper — in
-JIT only**, and on CoreCLR only. In AOT, System.Text.Json and MessagePack-CSharp are faster than
-PicoSerDe, in the two formats where an AOT opponent exists at all (JSON, MessagePack); TOML's AOT run
-was refused and YAML has no AOT opponent, so neither has an AOT ratio here.
+faster than PicoSerDe, while PicoSerDe is faster than Tomlyn under both JIT and AOT, and faster
+than YamlDotNet's typed mapper under JIT.** In AOT, System.Text.Json and MessagePack-CSharp are
+faster than PicoSerDe while Tomlyn is still slower, in the three formats where an AOT opponent
+exists at all (JSON, MessagePack, TOML). YAML has no AOT opponent — YamlDotNet's typed layer does
+not work ahead of time — so it is the only one of the five whose ratio column is JIT-only, and its
+table says so.
 
 So that "indistinguishable" is not left to the eye, it has one concrete meaning here: **the two arms'
 min–max ranges overlap, or the ratio sits within the ±10% cross-session band.** Of the 36 ratio cells

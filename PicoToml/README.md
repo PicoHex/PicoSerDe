@@ -98,16 +98,19 @@ lives in the [root README](../README.md#format-limits-what-each-wire-format-cann
 
 ## Performance
 
-**TOML now has a competitor that does the same job, and on it PicoSerDe is faster on CoreCLR:
-0.08×–0.41× of Tomlyn's cost, faster in 10 of 10 scenarios (median 0.20×, i.e. 2.4×–12.5×).**
-The root README's [Measured results](../README.md#measured-results-2026-10-27) section carries the
-per-scenario table — median µs/op with min–max ±stddev, ratio printed as **ours ÷ theirs** — beside
-that run's own summary line. Two highlights: `Simple — Deserialize` 0.141 vs 1.688 µs (0.08×) and
-`Nested — Deserialize` 0.592 vs 5.094 µs (0.12×).
+**TOML has a competitor that does the same job, and on it PicoSerDe is faster under JIT *and* under
+NativeAOT: 0.08×–0.41× of Tomlyn's cost under JIT (faster in 10 of 10 scenarios, median 0.20×, i.e.
+2.4×–12.5×) and 0.10×–0.40× under AOT (10 of 10, median 0.21×, i.e. 2.5×–10×).**
+The root README's [Measured results](../README.md#measured-results-2026-10-27) section carries both
+per-scenario tables — median µs/op with min–max ±stddev, ratio printed as **ours ÷ theirs** — beside
+each run's own summary line. Two highlights under JIT: `Simple — Deserialize` 0.141 vs 1.688 µs
+(0.08×) and `Nested — Deserialize` 0.592 vs 5.094 µs (0.12×); under AOT the same two rows read
+0.240 vs 2.291 µs (0.10×) and 0.796 vs 6.378 µs (0.12×).
 
 Tomlyn 2.10.1 is the equivalent opponent the earlier sessions did not have: a typed API with its own
 source generator, one library call per row, the same POCO in and out, round-tripping under
-NativeAOT. Three things are stated rather than tucked away:
+NativeAOT. Three things are stated rather than tucked away — they hold for the AOT table too, whose
+`[equiv]` lines are identical:
 
 - **The same document is produced, with one exception.** The harness prints `[equiv] simple`,
   `medium` and `large text identical = True` plus a round-trip check; `[equiv] nested text identical
@@ -127,10 +130,22 @@ that used to be here compared our serialization against a hand-written `TomlTabl
 mapping on the Tommy side, and both actions also went through `Benchmark.Compare` in the wrong
 slots; it has been withdrawn rather than corrected in place.
 
-Scope, honestly: this is a **CoreCLR (JIT)** table. A TOML AOT run was attempted in the same session
-and **20 of its 40 arms were refused** — 18 on system-wide CPU (39.4%–80.6% against the 35% limit)
-and 2 on drift — after external load on the machine rose mid-window, so **no TOML AOT table is
-published**; that needs a re-measure on an idle machine.
+Scope, honestly: **both modes now carry data, from two different sessions on the same machine and the
+same date.** The JIT table is the second measurement session's. The **AOT** table is a later, separate
+window, run precisely because the first AOT attempt — inside the JIT session — was refused: **20 of
+its 40 arms**, 18 on system-wide CPU (39.4%–80.6% against the 35% limit) and 2 on drift, after
+external load rose mid-window. The re-measure published **all 20 arms** of its equivalent table
+(`Mode: Aot, IL on disk: no, IsDynamicCodeSupported: no`; load self-check drift 1.3%, spread 1.38×,
+dispersion 5.9% at other-CPU 10%; per-arm other-CPU 3%–26%), and its source is
+`AOT · 2026-10-27 · .superpowers/sdd/bench-aot-toml/logs/PicoToml-Aot-run2.txt`.
+
+The two modes are **never mixed**, and in this case that rule has teeth: AOT costs more than JIT for
+**both** libraries — our `Large — Serialize` moves 1.351 → 2.617 µs, Tomlyn's 4.185 → 6.579 µs — so a
+cell from one table may not be compared with a cell from the other. What does cross the boundary is
+the **ratio**, and it holds: 0.32× under JIT, 0.40× under AOT for that row, 0.10×–0.40× overall, no
+row anywhere near 1.00. The margin does narrow slightly on the serialize rows under AOT (median
+0.20× → 0.21×); that is reported rather than smoothed over.
+
 Ratios are read to the session's precision: a single session's ±stddev comes from five runs in one
 process, and the honest band between sessions is about ±10% (see
 [the root README's note](../README.md#one-sessions-stddev-is-not-a-cross-session-error-bar)) — the
@@ -138,8 +153,17 @@ widest row at 0.41× is still an order of magnitude clear of that band.
 
 Capability fact that does not depend on measurement: **Tommy's DOM API (`TOML.Parse`, `TomlTable`)
 works under NativeAOT** — it has no typed POCO mapper to run there. PicoToml does both, and so does
-Tomlyn. Run `dotnet run -c Release --project PicoToml/benchmarks/PicoToml.Benchmarks` for current
-local timings.
+Tomlyn. Run `dotnet run -c Release --project PicoToml/benchmarks/PicoToml.Benchmarks` for the JIT
+table, and
+
+```bash
+dotnet publish PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj \
+  -c Release -r win-x64 -o /tmp/toml-aot -p:PublishAot=true
+/tmp/toml-aot/PicoToml.Benchmarks.exe
+```
+
+for the AOT one. Both print their own `PICOBENCH_SUMMARY` line, and both refuse to publish an arm
+measured on a busy machine.
 
 ## Low-Level API
 
