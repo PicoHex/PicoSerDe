@@ -882,25 +882,23 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         // can rewind to the property snapshot. Span mode keeps the old strict
         // error path (NeedsMoreData is false there).
         sb.AppendLine("            if (!reader.Read() && reader.NeedsMoreData) break;");
-        for (int i = 0; i < props.Length; i++)
-        {
-            var np = props[i];
-            var kw = i == 0 ? "if" : "else if";
-            sb.Append("            ");
-            sb.Append(kw);
-            sb.Append(" (TextHelpers.Eq(__n, \"");
-            sb.Append(EscapeCSharpString(np.JsonName));
-            sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
-            sb.AppendLine("            {");
-            EmitDeserializeProperty(sb, np, "obj", "                ");
-            if (np.IsRequired)
+        EmitNameDispatch(
+            sb,
+            props,
+            "__n",
+            "            ",
+            (np, bodyIndent) =>
             {
-                sb.Append("                __seen_");
-                sb.Append(np.Name);
-                sb.AppendLine(" = true;");
+                EmitDeserializeProperty(sb, np, "obj", bodyIndent);
+                if (np.IsRequired)
+                {
+                    sb.Append(bodyIndent);
+                    sb.Append("__seen_");
+                    sb.Append(np.Name);
+                    sb.AppendLine(" = true;");
+                }
             }
-            sb.AppendLine("            }");
-        }
+        );
         if (props.Length > 0)
         {
             sb.AppendLine(
@@ -2689,35 +2687,31 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("                reader.Read();");
             sb.AppendLine();
 
-            for (var i = 0; i < type.Properties.Length; i++)
-            {
-                var prop = type.Properties[i];
-                var keyword = i == 0 ? "if" : "else if";
-                sb.Append("                ");
-                sb.Append(keyword);
-                sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
-                sb.Append(EscapeCSharpString(prop.JsonName));
-                sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
-                sb.AppendLine("                {");
-
-                if (hasCtor)
+            EmitNameDispatch(
+                sb,
+                type.Properties,
+                "propNameSpan",
+                "                ",
+                (prop, bodyIndent) =>
                 {
-                    // Map JSON property to constructor parameter by name
-                    EmitDeserializeCtorParam(sb, prop, type, "                    ");
-                }
-                else
-                {
-                    EmitDeserializeProperty(sb, prop, "obj", "                    ");
-                    if (prop.IsRequired)
+                    if (hasCtor)
                     {
-                        sb.Append("                    __seen_");
-                        sb.Append(prop.Name);
-                        sb.AppendLine(" = true;");
+                        // Map JSON property to constructor parameter by name
+                        EmitDeserializeCtorParam(sb, prop, type, bodyIndent);
+                    }
+                    else
+                    {
+                        EmitDeserializeProperty(sb, prop, "obj", bodyIndent);
+                        if (prop.IsRequired)
+                        {
+                            sb.Append(bodyIndent);
+                            sb.Append("__seen_");
+                            sb.Append(prop.Name);
+                            sb.AppendLine(" = true;");
+                        }
                     }
                 }
-
-                sb.AppendLine("                }");
-            }
+            );
 
             if (type.Properties.Length > 0)
             {
@@ -3753,6 +3747,282 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// Emits the property-name dispatch of a deserializer. <paramref name="nameVar"/> is
+    /// the already-read property name span; <paramref name="emitBody"/> writes one
+    /// property's read at the indent it is handed.
+    /// <para>
+    /// Shape (P0-1): a length-bucketed <b>exact-match</b> fast path over the compiled
+    /// UTF-8 names resolves a match index, so binding one name costs a <c>switch</c> on
+    /// the length plus one <c>SequenceEqual</c> per same-length candidate — instead of the
+    /// old chain of case-insensitive byte loops, which is O(n²) comparisons per object.
+    /// When nothing matched exactly <b>and</b> the reader is case-insensitive (the
+    /// default) the pre-P0-1 chain runs as the fallback; that fallback is what still binds
+    /// <c>{"name":…}</c> to <c>Name</c>. With <c>PropertyNameCaseInsensitive = false</c>
+    /// the fallback never runs — exactly like the old chain, which then matched no
+    /// differently-cased name either.
+    /// </para>
+    /// <para>
+    /// The fallback is reached only when no compiled name matched exactly, which would let
+    /// an exact match outrank an EARLIER case-insensitive one. For a type whose JSON names
+    /// differ only by case the fast path is therefore not emitted at all and the old chain
+    /// stands verbatim (same declaration-order precedence). That relation is
+    /// <c>OrdinalIgnoreCase</c>, a superset of the ASCII-only fold
+    /// <c>TextHelpers.Eq</c> applies, so the guard can only be too strict, never too loose.
+    /// </para>
+    /// </summary>
+    private static void EmitNameDispatch(
+        StringBuilder sb,
+        IReadOnlyList<PropertyInfo> props,
+        string nameVar,
+        string indent,
+        Action<PropertyInfo, string> emitBody,
+        string indexVar = "__mi"
+    )
+    {
+        if (props.Count == 0)
+            return;
+
+        if (HasCaseInsensitiveNameCollision(props))
+        {
+            EmitNameDispatchLegacy(sb, props, nameVar, indent, emitBody);
+            return;
+        }
+
+        var inner = indent + "    ";
+        var inner2 = indent + "        ";
+
+        // 1. Exact-match fast path: bucketed by UTF-8 name length, so the span compare
+        //    only ever runs against names that can possibly be equal.
+        sb.Append(indent);
+        sb.Append("int ");
+        sb.Append(indexVar);
+        sb.AppendLine(" = -1;");
+        sb.Append(indent);
+        sb.Append("switch (");
+        sb.Append(nameVar);
+        sb.AppendLine(".Length)");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        foreach (var bucket in LengthBuckets(props))
+        {
+            sb.Append(inner);
+            sb.Append("case ");
+            sb.Append(bucket.Key);
+            sb.AppendLine(":");
+
+            // Several names of the same length are the common case (F01…F10, N01…N10 all
+            // have three bytes), so a plain chain inside the bucket would stay O(k). One
+            // more level — the first byte — makes each candidate set smaller, and for
+            // one-character names (A…J) the first byte IS the whole name.
+            var byFirstByte =
+                bucket.Key == 0
+                    ? null
+                    : bucket.Value.GroupBy(c => FirstUtf8Byte(c.Prop.JsonName)).ToList();
+            if (byFirstByte is null || byFirstByte.Count == 1)
+            {
+                EmitExactChain(sb, bucket.Value, nameVar, indexVar, inner2);
+            }
+            else
+            {
+                sb.Append(inner2);
+                sb.Append("switch (");
+                sb.Append(nameVar);
+                sb.AppendLine("[0])");
+                sb.Append(inner2);
+                sb.AppendLine("{");
+                foreach (var group in byFirstByte)
+                {
+                    sb.Append(inner2);
+                    sb.Append("    ");
+                    sb.Append("case ");
+                    sb.Append(FirstByteLiteral(group.Key));
+                    sb.AppendLine(":");
+                    EmitExactChain(sb, group, nameVar, indexVar, inner2 + "        ");
+                    sb.Append(inner2);
+                    sb.AppendLine("        break;");
+                }
+                sb.Append(inner2);
+                sb.AppendLine("}");
+            }
+
+            sb.Append(inner2);
+            sb.AppendLine("break;");
+        }
+        sb.Append(indent);
+        sb.AppendLine("}");
+
+        // 2. Fallback: the pre-P0-1 chain, now reached only by a name that differs from a
+        //    compiled one by case, and only while case-insensitivity is on.
+        sb.Append(indent);
+        sb.Append("if (");
+        sb.Append(indexVar);
+        sb.AppendLine(" < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        for (var i = 0; i < props.Count; i++)
+        {
+            sb.Append(inner);
+            sb.Append(i == 0 ? "if (" : "else if (");
+            sb.Append("TextHelpers.Eq(");
+            sb.Append(nameVar);
+            sb.Append(", \"");
+            sb.Append(EscapeCSharpString(props[i].JsonName));
+            sb.AppendLine("\"u8))");
+            sb.Append(inner);
+            sb.Append("    ");
+            sb.Append(indexVar);
+            sb.Append(" = ");
+            sb.Append(i);
+            sb.AppendLine(";");
+        }
+        sb.Append(indent);
+        sb.AppendLine("}");
+
+        // 3. One body per property, dispatched on the resolved index.
+        for (var i = 0; i < props.Count; i++)
+        {
+            sb.Append(indent);
+            sb.Append(i == 0 ? "if (" : "else if (");
+            sb.Append(indexVar);
+            sb.Append(" == ");
+            sb.Append(i);
+            sb.AppendLine(")");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            emitBody(props[i], inner);
+            sb.Append(indent);
+            sb.AppendLine("}");
+        }
+    }
+
+    /// <summary>
+    /// The pre-P0-1 dispatch: one case-insensitive <c>TextHelpers.Eq</c> per property,
+    /// chained in declaration order. Kept for the types <see cref="EmitNameDispatch"/>
+    /// cannot fast-path (case-only name collisions).
+    /// </summary>
+    private static void EmitNameDispatchLegacy(
+        StringBuilder sb,
+        IReadOnlyList<PropertyInfo> props,
+        string nameVar,
+        string indent,
+        Action<PropertyInfo, string> emitBody
+    )
+    {
+        for (var i = 0; i < props.Count; i++)
+        {
+            sb.Append(indent);
+            sb.Append(i == 0 ? "if" : "else if");
+            sb.Append(" (TextHelpers.Eq(");
+            sb.Append(nameVar);
+            sb.Append(", \"");
+            sb.Append(EscapeCSharpString(props[i].JsonName));
+            sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            emitBody(props[i], indent + "    ");
+            sb.Append(indent);
+            sb.AppendLine("}");
+        }
+    }
+
+    /// <summary>
+    /// True when two compiled names can match the same document name through the
+    /// case-insensitive relation <c>TextHelpers.Eq</c> uses (ASCII a-z folding).
+    /// <c>OrdinalIgnoreCase</c> is a superset of that fold, so this guard is conservative:
+    /// it can only disable the fast path, never widen a match.
+    /// </summary>
+    private static bool HasCaseInsensitiveNameCollision(IReadOnlyList<PropertyInfo> props)
+    {
+        for (var i = 0; i < props.Count; i++)
+        for (var j = i + 1; j < props.Count; j++)
+            if (
+                string.Equals(
+                    props[i].JsonName,
+                    props[j].JsonName,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Groups (property index, property) by the UTF-8 byte length of the compiled name —
+    /// ascending by length, declaration-ordered inside a bucket, i.e. a deterministic
+    /// order so the generated file and the checked-in baseline stay stable.
+    /// </summary>
+    private static IEnumerable<
+        KeyValuePair<int, List<(int Index, PropertyInfo Prop)>>
+    > LengthBuckets(IReadOnlyList<PropertyInfo> props)
+    {
+        var buckets = new Dictionary<int, List<(int Index, PropertyInfo Prop)>>();
+        for (var i = 0; i < props.Count; i++)
+        {
+            var length = Encoding.UTF8.GetByteCount(props[i].JsonName);
+            if (!buckets.TryGetValue(length, out var bucket))
+                buckets[length] = bucket = new List<(int Index, PropertyInfo Prop)>();
+            bucket.Add((i, props[i]));
+        }
+        foreach (var length in buckets.Keys.OrderBy(k => k))
+            yield return new KeyValuePair<int, List<(int Index, PropertyInfo Prop)>>(
+                length,
+                buckets[length]
+            );
+    }
+
+    /// <summary>
+    /// Emits one exact-match chain over <paramref name="candidates"/>: the first test is an
+    /// <c>if</c>, the rest are <c>else if</c>, each assigning the match index.
+    /// </summary>
+    private static void EmitExactChain(
+        StringBuilder sb,
+        IEnumerable<(int Index, PropertyInfo Prop)> candidates,
+        string nameVar,
+        string indexVar,
+        string indent
+    )
+    {
+        var first = true;
+        foreach (var (index, prop) in candidates)
+        {
+            sb.Append(indent);
+            sb.Append(first ? "if (" : "else if (");
+            sb.Append(nameVar);
+            sb.Append(".SequenceEqual(\"");
+            sb.Append(EscapeCSharpString(prop.JsonName));
+            sb.AppendLine("\"u8))");
+            sb.Append(indent);
+            sb.Append("    ");
+            sb.Append(indexVar);
+            sb.Append(" = ");
+            sb.Append(index);
+            sb.AppendLine(";");
+            first = false;
+        }
+    }
+
+    /// <summary>
+    /// The first UTF-8 byte of a compiled name — the byte the generated
+    /// <c>switch (propNameSpan[0])</c> actually tests. Deriving it from the string's
+    /// first CHAR would disagree for a non-ASCII name (U+00FC is the byte 0xFC, while its
+    /// UTF-8 lead byte is 0xC3), and the exact fast path would silently never match it.
+    /// </summary>
+    private static byte FirstUtf8Byte(string name) => Encoding.UTF8.GetBytes(name)[0];
+
+    /// <summary>
+    /// A <c>switch</c> label for one first-byte bucket: <c>'F'</c> when the byte is
+    /// printable ASCII (it reads as the property name it comes from), hex otherwise.
+    /// </summary>
+    private static string FirstByteLiteral(byte b) =>
+        b is >= 0x20 and <= 0x7E && b != (byte)'\'' && b != (byte)'\\'
+            ? $"(byte)'{(char)b}'"
+            : $"0x{b:X2}";
+
+    /// <summary>
+    /// Emits the dispatch described by <see cref="EmitNameDispatch"/> for a nested object
+    /// deserializer body that assigns straight into <paramref name="target"/>.
+    /// </summary>
     private static void EmitNestedDeserialize(
         StringBuilder sb,
         ImmutableArray<PropertyInfo> props,
@@ -3762,23 +4032,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string propVarName = "__nestedPropName"
     )
     {
-        for (var i = 0; i < props.Length; i++)
-        {
-            var np = props[i];
-            var keyword = i == 0 ? "if" : "else if";
-            sb.Append(indent);
-            sb.Append(keyword);
-            sb.Append(" (TextHelpers.Eq(");
-            sb.Append(propVarName);
-            sb.Append(", \"");
-            sb.Append(EscapeCSharpString(np.JsonName));
-            sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
-            sb.Append(indent);
-            sb.AppendLine("{");
-            EmitDeserializeProperty(sb, np, target, indent + "    ", nestLevel);
-            sb.Append(indent);
-            sb.AppendLine("}");
-        }
+        EmitNameDispatch(
+            sb,
+            props,
+            propVarName,
+            indent,
+            (np, bodyIndent) => EmitDeserializeProperty(sb, np, target, bodyIndent, nestLevel)
+        );
     }
 
     /// <summary>Emits value write for a nested list inner element (simplified — emits jw.WriteNumber).</summary>
@@ -5039,30 +5299,28 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
         );
-        for (var i = 0; i < type.Properties.Length; i++)
-        {
-            var prop = type.Properties[i];
-            var keyword = i == 0 ? "if" : "else if";
-            sb.Append("            ");
-            sb.Append(keyword);
-            sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
-            sb.Append(EscapeCSharpString(prop.JsonName));
-            sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
-            sb.AppendLine("            {");
-            if (hasCtor)
-                EmitDeserializeCtorParam(sb, prop, type, "                ");
-            else
+        EmitNameDispatch(
+            sb,
+            type.Properties,
+            "propNameSpan",
+            "            ",
+            (prop, bodyIndent) =>
             {
-                EmitDeserializeProperty(sb, prop, "result", "                ");
-                if (prop.IsRequired)
+                if (hasCtor)
+                    EmitDeserializeCtorParam(sb, prop, type, bodyIndent);
+                else
                 {
-                    sb.Append("                __seen_");
-                    sb.Append(prop.Name);
-                    sb.AppendLine(" = true;");
+                    EmitDeserializeProperty(sb, prop, "result", bodyIndent);
+                    if (prop.IsRequired)
+                    {
+                        sb.Append(bodyIndent);
+                        sb.Append("__seen_");
+                        sb.Append(prop.Name);
+                        sb.AppendLine(" = true;");
+                    }
                 }
             }
-            sb.AppendLine("            }");
-        }
+        );
         if (type.Properties.Length > 0)
         {
             sb.AppendLine(
@@ -5382,9 +5640,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "            if (!reader.Read() && reader.NeedsMoreData) return null!; // discriminator property name"
         );
-        sb.Append("            if (!TextHelpers.Eq(reader.GetStringRaw(), \"");
+        // Fast path first (exact bytes), the case-insensitive Eq stays as the fallback:
+        // discriminators are matched case-insensitively (Eq's third argument is
+        // `caseSensitive: false`), so the exact compare can skip the byte-fold loop but
+        // must never be the only test.
+        sb.Append("            if (!(reader.GetStringRaw().SequenceEqual(\"");
         sb.Append(EscapeCSharpString(dpn));
-        sb.AppendLine("\"u8, false))");
+        sb.Append("\"u8) || TextHelpers.Eq(reader.GetStringRaw(), \"");
+        sb.Append(EscapeCSharpString(dpn));
+        sb.AppendLine("\"u8, false)))");
         sb.Append(
             "                throw new System.FormatException(\"Expected discriminator property '"
         );
@@ -5409,7 +5673,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
             sb.Append("            ");
             sb.Append(keyword);
-            sb.Append(" (TextHelpers.Eq(__disc, \"");
+            sb.Append(" (__disc.SequenceEqual(\"");
+            sb.Append(EscapeCSharpString(dt.TypeDiscriminator));
+            sb.Append("\"u8) || TextHelpers.Eq(__disc, \"");
             sb.Append(EscapeCSharpString(dt.TypeDiscriminator));
             sb.AppendLine("\"u8, false))");
             sb.AppendLine("            {");
@@ -5462,23 +5728,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("                {");
             sb.AppendLine("                    var __n = reader.GetStringRaw();");
             sb.AppendLine("                    if (!reader.Read() && reader.NeedsMoreData) break;");
-            var first = true;
-            for (int pi = 0; pi < dtProps.Length; pi++)
-            {
-                var prop = dtProps[pi];
-                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
-                sb.Append("                    ");
-                sb.Append(kw2);
-                sb.Append(" (TextHelpers.Eq(__n, \"");
-                sb.Append(EscapeCSharpString(prop.JsonName));
-                sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
-                sb.AppendLine("                    {");
-                if (hasCtor)
-                    EmitDeserializeCtorParam(sb, prop, dti, "                        ");
-                else
-                    EmitDeserializeProperty(sb, prop, "obj", "                        ");
-                sb.AppendLine("                    }");
-            }
+            EmitNameDispatch(
+                sb,
+                dtProps,
+                "__n",
+                "                    ",
+                (prop, bodyIndent) =>
+                {
+                    if (hasCtor)
+                        EmitDeserializeCtorParam(sb, prop, dti, bodyIndent);
+                    else
+                        EmitDeserializeProperty(sb, prop, "obj", bodyIndent);
+                }
+            );
             if (dtProps.Length > 0)
                 sb.AppendLine("                    else reader.TrySkip();");
             sb.AppendLine("                }");
@@ -5596,9 +5858,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "            if (reader.TokenType != TokenType.PropertyName) return ReadStatus.Success;"
         );
-        sb.Append("            if (!TextHelpers.Eq(reader.GetStringRaw(), \"");
+        // Fast path first (exact bytes), the case-insensitive Eq stays as the fallback.
+        sb.Append("            if (!(reader.GetStringRaw().SequenceEqual(\"");
         sb.Append(EscapeCSharpString(dpn));
-        sb.AppendLine("\"u8, false))");
+        sb.Append("\"u8) || TextHelpers.Eq(reader.GetStringRaw(), \"");
+        sb.Append(EscapeCSharpString(dpn));
+        sb.AppendLine("\"u8, false)))");
         sb.Append(
             "                throw new System.FormatException(\"Expected discriminator property '"
         );
@@ -5629,7 +5894,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
             sb.Append("        ");
             sb.Append(keyword);
-            sb.Append(" (TextHelpers.Eq(System.Text.Encoding.UTF8.GetBytes(__disc), \"");
+            sb.Append(" (__disc == \"");
+            sb.Append(EscapeCSharpString(dt.TypeDiscriminator));
+            sb.Append("\" || TextHelpers.Eq(System.Text.Encoding.UTF8.GetBytes(__disc), \"");
             sb.Append(EscapeCSharpString(dt.TypeDiscriminator));
             sb.AppendLine("\"u8, false))");
             sb.AppendLine("        {");
@@ -5662,28 +5929,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 "                if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;"
             );
 
-            var first = true;
-            for (int pi = 0; pi < dtProps.Length; pi++)
-            {
-                var prop = dtProps[pi];
-                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
-                sb.Append("                ");
-                sb.Append(kw2);
-                sb.Append(" (TextHelpers.Eq(propNameSpan, \"");
-                sb.Append(EscapeCSharpString(prop.JsonName));
-                sb.AppendLine("\"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))");
-                sb.AppendLine("                {");
-                if (hasCtor)
-                    EmitDeserializeCtorParam(sb, prop, dti, "                    ", $"{i}_");
-                else
-                    EmitDeserializeProperty(
-                        sb,
-                        prop,
-                        $"(({dtName})result!)",
-                        "                    "
-                    );
-                sb.AppendLine("                }");
-            }
+            EmitNameDispatch(
+                sb,
+                dtProps,
+                "propNameSpan",
+                "                ",
+                (prop, bodyIndent) =>
+                {
+                    if (hasCtor)
+                        EmitDeserializeCtorParam(sb, prop, dti, bodyIndent, $"{i}_");
+                    else
+                        EmitDeserializeProperty(sb, prop, $"(({dtName})result!)", bodyIndent);
+                }
+            );
 
             if (dtProps.Length > 0)
                 sb.AppendLine("                else reader.TrySkip();");

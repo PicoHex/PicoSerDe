@@ -49,7 +49,31 @@ internal static class FormatCapabilities_Probe_S11bJsonPartner_601b6887da4786e7J
         {
             var __n = reader.GetStringRaw();
             if (!reader.Read() && reader.NeedsMoreData) break;
-            if (TextHelpers.Eq(__n, "N"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            int __mi = -1;
+            switch (__n.Length)
+            {
+                case 1:
+                    switch (__n[0])
+                    {
+                        case (byte)'N':
+                            if (__n.SequenceEqual("N"u8))
+                                __mi = 0;
+                            break;
+                        case (byte)'A':
+                            if (__n.SequenceEqual("A"u8))
+                                __mi = 1;
+                            break;
+                    }
+                    break;
+            }
+            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            {
+                if (TextHelpers.Eq(__n, "N"u8))
+                    __mi = 0;
+                else if (TextHelpers.Eq(__n, "A"u8))
+                    __mi = 1;
+            }
+            if (__mi == 0)
             {
                 if (!reader.TryGetInt32(out var __intValue))
                 {
@@ -59,7 +83,7 @@ internal static class FormatCapabilities_Probe_S11bJsonPartner_601b6887da4786e7J
                 }
                 obj.N = __intValue;
             }
-            else if (TextHelpers.Eq(__n, "A"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 1)
             {
                 if (reader.TokenType == TokenType.Null)
                     obj.A = null;

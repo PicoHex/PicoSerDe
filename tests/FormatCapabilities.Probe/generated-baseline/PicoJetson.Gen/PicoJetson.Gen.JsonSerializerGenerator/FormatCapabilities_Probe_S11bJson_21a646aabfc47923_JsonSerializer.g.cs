@@ -99,7 +99,26 @@ file static class S11bJsonStreaming
             if (reader.TokenType != TokenType.PropertyName) break;
             var propNameSpan = reader.GetStringRaw();
             if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
-            if (TextHelpers.Eq(propNameSpan, "Name"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            int __mi = -1;
+            switch (propNameSpan.Length)
+            {
+                case 1:
+                    if (propNameSpan.SequenceEqual("B"u8))
+                        __mi = 1;
+                    break;
+                case 4:
+                    if (propNameSpan.SequenceEqual("Name"u8))
+                        __mi = 0;
+                    break;
+            }
+            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            {
+                if (TextHelpers.Eq(propNameSpan, "Name"u8))
+                    __mi = 0;
+                else if (TextHelpers.Eq(propNameSpan, "B"u8))
+                    __mi = 1;
+            }
+            if (__mi == 0)
             {
                 if (reader.TokenType != TokenType.String)
                 {
@@ -107,7 +126,7 @@ file static class S11bJsonStreaming
                 }
                 result.Name = Encoding.UTF8.GetString(reader.GetStringRaw());
             }
-            else if (TextHelpers.Eq(propNameSpan, "B"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 1)
             {
                 if (reader.TokenType == TokenType.Null)
                     result.B = null;

@@ -126,13 +126,66 @@ file static class S15JsonStreaming
             if (reader.TokenType != TokenType.PropertyName) break;
             var propNameSpan = reader.GetStringRaw();
             if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
-            if (TextHelpers.Eq(propNameSpan, "F"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            int __mi = -1;
+            switch (propNameSpan.Length)
+            {
+                case 1:
+                    switch (propNameSpan[0])
+                    {
+                        case (byte)'F':
+                            if (propNameSpan.SequenceEqual("F"u8))
+                                __mi = 0;
+                            break;
+                        case (byte)'D':
+                            if (propNameSpan.SequenceEqual("D"u8))
+                                __mi = 1;
+                            break;
+                    }
+                    break;
+                case 2:
+                    if (propNameSpan.SequenceEqual("Id"u8))
+                        __mi = 4;
+                    break;
+                case 3:
+                    if (propNameSpan.SequenceEqual("Day"u8))
+                        __mi = 5;
+                    break;
+                case 4:
+                    switch (propNameSpan[0])
+                    {
+                        case (byte)'W':
+                            if (propNameSpan.SequenceEqual("When"u8))
+                                __mi = 2;
+                            break;
+                        case (byte)'S':
+                            if (propNameSpan.SequenceEqual("Span"u8))
+                                __mi = 3;
+                            break;
+                    }
+                    break;
+            }
+            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            {
+                if (TextHelpers.Eq(propNameSpan, "F"u8))
+                    __mi = 0;
+                else if (TextHelpers.Eq(propNameSpan, "D"u8))
+                    __mi = 1;
+                else if (TextHelpers.Eq(propNameSpan, "When"u8))
+                    __mi = 2;
+                else if (TextHelpers.Eq(propNameSpan, "Span"u8))
+                    __mi = 3;
+                else if (TextHelpers.Eq(propNameSpan, "Id"u8))
+                    __mi = 4;
+                else if (TextHelpers.Eq(propNameSpan, "Day"u8))
+                    __mi = 5;
+            }
+            if (__mi == 0)
             {
                 if (!reader.TryGetFloat64(out var __floatValue))
                     throw new System.FormatException($"Expected a floating-point number value for property \"F\" at offset {reader.BytesConsumed}");
                 result.F = (float)__floatValue;
             }
-            else if (TextHelpers.Eq(propNameSpan, "D"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 1)
             {
                 if (reader.TokenType is not (TokenType.String or TokenType.Int32 or TokenType.Int64 or TokenType.Float32 or TokenType.Float64))
                 {
@@ -143,7 +196,7 @@ file static class S15JsonStreaming
                     throw new System.FormatException($"Expected a decimal number value for property \"D\" at offset {reader.BytesConsumed}");
                 result.D = __decimalValue;
             }
-            else if (TextHelpers.Eq(propNameSpan, "When"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 2)
             {
                 if (reader.TokenType != TokenType.String)
                 {
@@ -155,7 +208,7 @@ file static class S15JsonStreaming
                     throw new System.FormatException($"Expected a DateTime value for property \"When\" at offset {reader.BytesConsumed}");
                 result.When = __dt_When;
             }
-            else if (TextHelpers.Eq(propNameSpan, "Span"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 3)
             {
                 if (reader.TokenType != TokenType.String)
                 {
@@ -167,7 +220,7 @@ file static class S15JsonStreaming
                     throw new System.FormatException($"Expected a TimeSpan value for property \"Span\" at offset {reader.BytesConsumed}");
                 result.Span = __timeSpanValue;
             }
-            else if (TextHelpers.Eq(propNameSpan, "Id"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 4)
             {
                 if (reader.TokenType != TokenType.String)
                 {
@@ -178,7 +231,7 @@ file static class S15JsonStreaming
                     throw new System.FormatException($"Expected a Guid value for property \"Id\" at offset {reader.BytesConsumed}");
                 result.Id = __guidValue;
             }
-            else if (TextHelpers.Eq(propNameSpan, "Day"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 5)
             {
                 if (reader.TokenType == TokenType.Null)
                     result.Day = null;

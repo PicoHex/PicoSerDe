@@ -82,7 +82,20 @@ file static class S7JsonStreaming
             if (reader.TokenType != TokenType.PropertyName) break;
             var propNameSpan = reader.GetStringRaw();
             if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
-            if (TextHelpers.Eq(propNameSpan, "V"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            int __mi = -1;
+            switch (propNameSpan.Length)
+            {
+                case 1:
+                    if (propNameSpan.SequenceEqual("V"u8))
+                        __mi = 0;
+                    break;
+            }
+            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            {
+                if (TextHelpers.Eq(propNameSpan, "V"u8))
+                    __mi = 0;
+            }
+            if (__mi == 0)
             {
                 var __list_V = new System.Collections.Generic.List<int>();
                 if (reader.TokenType == TokenType.ArrayStart)

@@ -49,7 +49,54 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
         {
             var __n = reader.GetStringRaw();
             if (!reader.Read() && reader.NeedsMoreData) break;
-            if (TextHelpers.Eq(__n, "Name"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            int __mi = -1;
+            switch (__n.Length)
+            {
+                case 1:
+                    switch (__n[0])
+                    {
+                        case (byte)'N':
+                            if (__n.SequenceEqual("N"u8))
+                                __mi = 1;
+                            break;
+                        case (byte)'F':
+                            if (__n.SequenceEqual("F"u8))
+                                __mi = 2;
+                            break;
+                        case (byte)'D':
+                            if (__n.SequenceEqual("D"u8))
+                                __mi = 3;
+                            break;
+                    }
+                    break;
+                case 4:
+                    switch (__n[0])
+                    {
+                        case (byte)'N':
+                            if (__n.SequenceEqual("Name"u8))
+                                __mi = 0;
+                            break;
+                        case (byte)'W':
+                            if (__n.SequenceEqual("When"u8))
+                                __mi = 4;
+                            break;
+                    }
+                    break;
+            }
+            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            {
+                if (TextHelpers.Eq(__n, "Name"u8))
+                    __mi = 0;
+                else if (TextHelpers.Eq(__n, "N"u8))
+                    __mi = 1;
+                else if (TextHelpers.Eq(__n, "F"u8))
+                    __mi = 2;
+                else if (TextHelpers.Eq(__n, "D"u8))
+                    __mi = 3;
+                else if (TextHelpers.Eq(__n, "When"u8))
+                    __mi = 4;
+            }
+            if (__mi == 0)
             {
                 if (reader.TokenType != TokenType.String)
                 {
@@ -57,7 +104,7 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
                 }
                 obj.Name = Encoding.UTF8.GetString(reader.GetStringRaw());
             }
-            else if (TextHelpers.Eq(__n, "N"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 1)
             {
                 if (!reader.TryGetInt32(out var __intValue))
                 {
@@ -67,13 +114,13 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
                 }
                 obj.N = __intValue;
             }
-            else if (TextHelpers.Eq(__n, "F"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 2)
             {
                 if (!reader.TryGetFloat64(out var __doubleValue))
                     throw new System.FormatException($"Expected a floating-point number value for property \"F\" at offset {reader.BytesConsumed}");
                 obj.F = __doubleValue;
             }
-            else if (TextHelpers.Eq(__n, "D"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 3)
             {
                 if (reader.TokenType is not (TokenType.String or TokenType.Int32 or TokenType.Int64 or TokenType.Float32 or TokenType.Float64))
                 {
@@ -84,7 +131,7 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
                     throw new System.FormatException($"Expected a decimal number value for property \"D\" at offset {reader.BytesConsumed}");
                 obj.D = __decimalValue;
             }
-            else if (TextHelpers.Eq(__n, "When"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 4)
             {
                 if (reader.TokenType != TokenType.String)
                 {
