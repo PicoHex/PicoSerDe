@@ -4,10 +4,14 @@
     <TargetFramework>net10.0</TargetFramework>
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
-<IsPackable>false</IsPackable>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="PicoBench" />
+    <!-- The CoreCLR-only equivalent arm (YamlDotNetTypedArms.cs). It is deliberately not part
+         of the AOT table: under NativeAOT Deserialize<T> throws MissingMethodException and
+         Serialize silently emits `{}`, so no like-for-like arm exists there. -->
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\..\shared\BenchModels.cs" Link="BenchModels.cs" />

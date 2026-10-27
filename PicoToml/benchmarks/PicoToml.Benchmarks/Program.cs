@@ -1,10 +1,13 @@
+// `PicoToml` is imported per file, not globally: Tomlyn's source generator emits a file into
+// this project that declares `using Tomlyn.Serialization;` for its own `TomlReader`/
+// `TomlWriter`, and a global `using PicoToml;` would make those two names ambiguous inside a
+// file this project cannot edit (25 x CS0104, then CS0534 on the members it could not match).
+using PicoToml;
+
 Console.OutputEncoding = Encoding.UTF8;
-Console.WriteLine("PicoToml vs Tommy — Performance Comparison");
+Console.WriteLine("PicoToml vs Tomlyn — Performance Comparison (typed, source-generated)");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
-Console.WriteLine(
-    "NOTE: Tommy is DOM-only under NativeAOT — it has no typed POCO mapper to run there."
-);
-Console.WriteLine(new string('=', 60));
+Console.WriteLine(new string('=', 78));
 Console.WriteLine();
 
 var simple = new SimplePoco { Name = "Hello World", Age = 42 };
@@ -36,6 +39,7 @@ var medium = new MediumScalarPoco
     Zeta = "z",
 };
 var mediumBytes = TomlSerializer.SerializeToUtf8Bytes(medium);
+var mediumStr = TomlSerializer.Serialize(medium);
 
 var large = new LargeFlatPoco
 {
@@ -71,82 +75,228 @@ var large = new LargeFlatPoco
     D05 = 5.5,
 };
 var largeBytes = TomlSerializer.SerializeToUtf8Bytes(large);
+var largeStr = TomlSerializer.Serialize(large);
 
+// Every input is pre-encoded once, outside every measured delegate: a deserialize row has to
+// time one deserialize call. (The Medium/Large rows used to call TomlSerializer.Serialize
+// inside the delegate, so their competitor column was "our serialize + their parse".)
 var simpleStrBytes = Encoding.UTF8.GetBytes(simpleStr);
-var nestedStrBytes = Encoding.UTF8.GetBytes(nestedStr);
 
-// Roles are positional: ours = PicoToml, theirs = Tommy. The table runs the pair
-// through BenchRoleGuard (candidate must be a Pico* name), so the two columns cannot
-// be swapped without an exception.
+// Tomlyn: one source-generated context and one reusable buffer, created outside every measured
+// delegate for the same reason — a context rebuilt per call makes the row measure the context.
+var tomlynContext = new TomlynBenchContext();
+var tomlynBuffer = new MemoryStream(4096);
+
+// Equivalence is checked before anything is timed, and the answer is printed: two columns are
+// only comparable if they really are the same job on the same document.
+Console.WriteLine(
+    $"[equiv] simple  text identical = {TomlynStr(simple) == simpleStr}"
+        + $" | pico {simpleStr.Length} chars / tomlyn {TomlynStr(simple).Length}"
+);
+Console.WriteLine($"[equiv] nested  text identical = {TomlynStr(nested) == nestedStr}");
+if (TomlynStr(nested) != nestedStr)
+{
+    // Not a defect on either side: the two documents differ only in the ORDER of the keys
+    // inside [Address] — our emitter writes City, Street, Zip (sorted) where Tomlyn writes
+    // Street, City, Zip (declaration order). Same keys, same values, same POCO; printed so
+    // the difference is visible rather than assumed.
+    Console.WriteLine("        pico  : " + Escaped(nestedStr));
+    Console.WriteLine("        tomlyn: " + Escaped(TomlynStr(nested)));
+}
+Console.WriteLine($"[equiv] medium  text identical = {TomlynStr(medium) == mediumStr}");
+Console.WriteLine($"[equiv] large   text identical = {TomlynStr(large) == largeStr}");
+Console.WriteLine(
+    "[equiv] tomlyn stream arm == tomlyn string arm = "
+        + $"{TomlynBytes(simple).AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(TomlynStr(simple)))}"
+);
+var tomlynRoundTrip = TomlynDeserialize<SimplePoco>(simpleStr);
+Console.WriteLine(
+    $"[equiv] tomlyn round-trip SimplePoco = {tomlynRoundTrip.Name}/{tomlynRoundTrip.Age}"
+        + " (equal to the POCO = "
+        + $"{tomlynRoundTrip.Name == simple.Name && tomlynRoundTrip.Age == simple.Age})"
+);
+Console.WriteLine();
+
+// TABLE 1 — the equivalent comparison.
 //
-// NON-EQUIVALENT — not comparable: the Tommy arm is a hand-written TomlTable DOM walk
-// (TOML.Parse + TomlTable writes / TomlTable[...] reads) plus a typed mapping
-// performed by this file, not a single library call. The timings are listed for
-// reference and the table computes and prints no ratio: a ratio between two different
-// jobs measures neither library.
-var table = new ProtocolTable("PicoToml", "Tommy¹", equivalent: false);
+// PicoToml.SerializeToUtf8Bytes<T> / Deserialize<T>  ↔  Tomlyn's typed serialize/deserialize.
+// Both sides are ONE library call on the same document producing/consuming the same POCO, and
+// both sides do their type mapping with their own source generator, in JIT and under
+// NativeAOT alike (Tomlyn's reflection overloads do not work in AOT; this context does).
+// Roles are positional and enforced by BenchRoleGuard: ours = PicoToml, theirs = Tomlyn.
+var table = new ProtocolTable("PicoToml", "Tomlyn²", equivalent: true);
 
 table.Compare(
     "Simple — Serialize (bytes)",
     () => TomlSerializer.SerializeToUtf8Bytes(simple),
-    () => TommySerSimple()
+    () => TomlynBytes(simple)
 );
 table.Compare(
     "Simple — Deserialize (bytes)",
     () => TomlSerializer.Deserialize<SimplePoco>(simpleBytes),
-    () => TommyDeserSimple(simpleStr)
+    () => TomlynDeserialize<SimplePoco>(simpleStr)
 );
 table.Compare(
     "Medium — Serialize (bytes)",
     () => TomlSerializer.SerializeToUtf8Bytes(medium),
-    () => TommySerMedium(medium)
+    () => TomlynBytes(medium)
 );
 table.Compare(
     "Medium — Deserialize (bytes)",
     () => TomlSerializer.Deserialize<MediumScalarPoco>(mediumBytes),
-    () => TommyDeserMedium(TomlSerializer.Serialize(medium))
+    () => TomlynDeserialize<MediumScalarPoco>(mediumStr)
 );
 table.Compare(
     "Nested — Serialize (bytes)",
     () => TomlSerializer.SerializeToUtf8Bytes(nested),
-    () => TommySerNested(nested)
+    () => TomlynBytes(nested)
 );
 table.Compare(
     "Nested — Deserialize (bytes)",
     () => TomlSerializer.Deserialize<NestedPoco>(nestedBytes),
-    () => TommyDeserNested(nestedStr)
+    () => TomlynDeserialize<NestedPoco>(nestedStr)
 );
 table.Compare(
     "Large — Serialize (bytes)",
     () => TomlSerializer.SerializeToUtf8Bytes(large),
-    () => TommySerLarge(large)
+    () => TomlynBytes(large)
 );
 table.Compare(
     "Large — Deserialize (bytes)",
     () => TomlSerializer.Deserialize<LargeFlatPoco>(largeBytes),
-    () => TommyDeserLarge(TomlSerializer.Serialize(large))
+    () => TomlynDeserialize<LargeFlatPoco>(largeStr)
 );
 table.Compare(
     "Simple — SerializeToString",
     () => TomlSerializer.Serialize(simple),
-    () => TommySerStrSimple()
+    () => TomlynStr(simple)
 );
 table.Compare(
+    "Simple — Deserialize←string",
+    () => TomlSerializer.Deserialize<SimplePoco>(simpleStrBytes),
+    () => TomlynDeserialize<SimplePoco>(simpleStr)
+);
+
+table.Print();
+Console.WriteLine();
+
+// TABLE 2 — the historical reference, kept and labelled, not deleted.
+//
+// NON-EQUIVALENT: Tommy 3.1.2 is DOM-only. Its column is this file's hand-written TomlTable
+// walk plus typed conversion, not a library call, so its numbers are listed and never divided.
+var referenceTable = new ProtocolTable(
+    "PicoToml",
+    "Tommy¹",
+    equivalent: false,
+    nonEquivalentReason: "Tommy 3.1.2 exposes no typed POCO API at all: it is TOML.Parse"
+        + " (TextReader) → TomlTable, i.e. a DOM parser. The TomlTable walk and the typed"
+        + " conversion in this file's helpers are caller-written, so no equivalent operation"
+        + " exists to time — the column is kept as a reference, without a ratio."
+);
+
+referenceTable.Compare(
+    "Simple — Serialize (bytes)",
+    () => TomlSerializer.SerializeToUtf8Bytes(simple),
+    () => TommySerSimple()
+);
+referenceTable.Compare(
+    "Simple — Deserialize (bytes)",
+    () => TomlSerializer.Deserialize<SimplePoco>(simpleBytes),
+    () => TommyDeserSimple(simpleStr)
+);
+referenceTable.Compare(
+    "Medium — Serialize (bytes)",
+    () => TomlSerializer.SerializeToUtf8Bytes(medium),
+    () => TommySerMedium(medium)
+);
+referenceTable.Compare(
+    "Medium — Deserialize (bytes)",
+    () => TomlSerializer.Deserialize<MediumScalarPoco>(mediumBytes),
+    () => TommyDeserMedium(mediumStr)
+);
+referenceTable.Compare(
+    "Nested — Serialize (bytes)",
+    () => TomlSerializer.SerializeToUtf8Bytes(nested),
+    () => TommySerNested(nested)
+);
+referenceTable.Compare(
+    "Nested — Deserialize (bytes)",
+    () => TomlSerializer.Deserialize<NestedPoco>(nestedBytes),
+    () => TommyDeserNested(nestedStr)
+);
+referenceTable.Compare(
+    "Large — Serialize (bytes)",
+    () => TomlSerializer.SerializeToUtf8Bytes(large),
+    () => TommySerLarge(large)
+);
+referenceTable.Compare(
+    "Large — Deserialize (bytes)",
+    () => TomlSerializer.Deserialize<LargeFlatPoco>(largeBytes),
+    () => TommyDeserLarge(largeStr)
+);
+referenceTable.Compare(
+    "Simple — SerializeToString",
+    () => TomlSerializer.Serialize(simple),
+    () => TommySerStrSimple()
+);
+referenceTable.Compare(
     "Simple — Deserialize←string",
     () => TomlSerializer.Deserialize<SimplePoco>(simpleStrBytes),
     () => TommyDeserSimple(simpleStr)
 );
 
-table.Print();
+referenceTable.Print();
 Console.WriteLine();
-Console.WriteLine("¹ Tommy: DOM-only (TOML.Parse / TomlTable); no typed POCO mapping.");
-Console.WriteLine(new string('=', 60));
+
+Console.WriteLine(
+    "² Tomlyn 2.10.1 (theirs, table 1): typed API with its own source generator — one library"
+        + " call per row, the same POCO in and out, and it round-trips under NativeAOT (this"
+        + " project is published with PublishAot=true and the same arms run there). Its"
+        + " 'Serialize (bytes)' arm uses the Stream overload into one reused MemoryStream"
+        + " (SetLength(0) → Serialize → ToArray()); the [equiv] lines above are the evidence"
+        + " that those bytes are identical to ours. The ~10 lines of TomlynBenchContext are a"
+        + " compile-time configuration cost, not a per-operation cost, so they are not timed."
+);
+Console.WriteLine(
+    "   Input shape is NOT identical on the deserialize rows, and the difference is in the"
+        + " competitor's favour: our Deserialize<T>(byte[]) is handed UTF-8 bytes that were"
+        + " encoded outside the delegate, so it pays the UTF-8 decode inside the timed region,"
+        + " while Tomlyn's Deserialize<T>(string) is handed a string that was built outside it."
+        + " Both sides do one library call on the same document, but our deserialize columns"
+        + " carry one extra decode that theirs does not, which can only understate us."
+);
+Console.WriteLine(
+    "¹ Tommy 3.1.2 (theirs, table 2): DOM-only (TOML.Parse / TomlTable); no typed POCO mapping."
+        + " Kept for continuity; table 2 publishes no ratio because the two columns are not the"
+        + " same job."
+);
+Console.WriteLine(new string('=', 78));
 
 Environment.ExitCode = BenchProtocol.ExitCode;
 
 return;
 
-// ── Helpers ──
+// ── Tomlyn arms (the equivalent competitor) ──
+
+static string Escaped(string text) => text.Replace("\r", "\\r").Replace("\n", "\\n");
+
+// Typed serialize → the same bytes our SerializeToUtf8Bytes produces, through Tomlyn's Stream
+// overload (TOML is text, so this is where "bytes" has to come from on that side).
+byte[] TomlynBytes<T>(T value)
+{
+    tomlynBuffer.SetLength(0);
+    Tomlyn.TomlSerializer.Serialize(tomlynBuffer, value, tomlynContext);
+    return tomlynBuffer.ToArray();
+}
+
+string TomlynStr<T>(T value) => Tomlyn.TomlSerializer.Serialize(value, tomlynContext);
+
+T TomlynDeserialize<T>(string text)
+    where T : class =>
+    Tomlyn.TomlSerializer.Deserialize<T>(text, tomlynContext)
+    ?? throw new InvalidOperationException($"Tomlyn returned null for {typeof(T).Name}.");
+
+// ── Tommy arms (the historical reference) ──
 
 static byte[] TommySer(TomlTable t)
 {

@@ -47,8 +47,8 @@ var colMp = MpLib.Serialize(collection);
 
 // Roles are positional: ours = PicoMsgPack, theirs = MessagePack-CSharp. The table
 // runs the pair through BenchRoleGuard (candidate must be a Pico* name), so the two
-// columns cannot be swapped without an exception. Ratio = theirs / ours, so >1 means
-// PicoMsgPack is faster.
+// columns cannot be swapped without an exception. Ratio = ours / theirs, so >1 means
+// PicoMsgPack is slower — the README's direction, so a printed figure is quoted as it stands.
 var table = new ProtocolTable("PicoMsgPack", "MessagePack-CSharp");
 
 table.Compare(
