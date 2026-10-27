@@ -103,7 +103,31 @@ file static class S11aJsonStreaming
             if (reader.TokenType != TokenType.PropertyName) break;
             var propNameSpan = reader.GetStringRaw();
             if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
-            if (TextHelpers.Eq(propNameSpan, "Value"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            int __mi = -1;
+            switch (propNameSpan.Length)
+            {
+                case 5:
+                    switch (propNameSpan[0])
+                    {
+                        case (byte)'V':
+                            if (propNameSpan.SequenceEqual("Value"u8))
+                                __mi = 0;
+                            break;
+                        case (byte)'C':
+                            if (propNameSpan.SequenceEqual("Child"u8))
+                                __mi = 1;
+                            break;
+                    }
+                    break;
+            }
+            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            {
+                if (TextHelpers.Eq(propNameSpan, "Value"u8))
+                    __mi = 0;
+                else if (TextHelpers.Eq(propNameSpan, "Child"u8))
+                    __mi = 1;
+            }
+            if (__mi == 0)
             {
                 if (!reader.TryGetInt32(out var __intValue))
                 {
@@ -113,7 +137,7 @@ file static class S11aJsonStreaming
                 }
                 result.Value = __intValue;
             }
-            else if (TextHelpers.Eq(propNameSpan, "Child"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 1)
             {
                 if (reader.TokenType == TokenType.Null)
                     result.Child = null;

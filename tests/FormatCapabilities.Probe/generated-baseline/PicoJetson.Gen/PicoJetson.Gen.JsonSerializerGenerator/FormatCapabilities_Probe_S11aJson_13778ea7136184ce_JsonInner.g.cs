@@ -49,7 +49,31 @@ internal static class FormatCapabilities_Probe_S11aJson_13778ea7136184ceJsonInne
         {
             var __n = reader.GetStringRaw();
             if (!reader.Read() && reader.NeedsMoreData) break;
-            if (TextHelpers.Eq(__n, "Value"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            int __mi = -1;
+            switch (__n.Length)
+            {
+                case 5:
+                    switch (__n[0])
+                    {
+                        case (byte)'V':
+                            if (__n.SequenceEqual("Value"u8))
+                                __mi = 0;
+                            break;
+                        case (byte)'C':
+                            if (__n.SequenceEqual("Child"u8))
+                                __mi = 1;
+                            break;
+                    }
+                    break;
+            }
+            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            {
+                if (TextHelpers.Eq(__n, "Value"u8))
+                    __mi = 0;
+                else if (TextHelpers.Eq(__n, "Child"u8))
+                    __mi = 1;
+            }
+            if (__mi == 0)
             {
                 if (!reader.TryGetInt32(out var __intValue))
                 {
@@ -59,7 +83,7 @@ internal static class FormatCapabilities_Probe_S11aJson_13778ea7136184ceJsonInne
                 }
                 obj.Value = __intValue;
             }
-            else if (TextHelpers.Eq(__n, "Child"u8, !(reader.Options?.PropertyNameCaseInsensitive ?? true)))
+            else if (__mi == 1)
             {
                 if (reader.TokenType == TokenType.Null)
                     obj.Child = null;

@@ -91,14 +91,28 @@ public static class TextHelpers
         return false;
     }
 
-    /// <summary>Case-insensitive byte-span equality (used by SG deserializers for property name matching).</summary>
+    /// <summary>
+    /// Exact (case-sensitive) byte-span equality — <see cref="Eq"/>'s case-sensitive branch.
+    /// Internal on purpose: <c>PicoSerDe.Core</c> ships <see cref="TextHelpers"/>, so a public
+    /// member here would be a public API addition, and generated code does not need it (its
+    /// exact match is a direct <c>Span.SequenceEqual</c>).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool EqExact(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) => a.SequenceEqual(b);
+
+    /// <summary>
+    /// Case-insensitive byte-span equality (used by SG deserializers for property name
+    /// matching). <paramref name="caseSensitive"/> skips the fold and is exactly
+    /// <see cref="EqExact"/>; the default (<c>false</c>) folds ASCII <c>a</c>–<c>z</c>
+    /// only, which is why a non-ASCII byte never matches its other-case counterpart.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool Eq(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b, bool caseSensitive = false)
     {
         if (a.Length != b.Length)
             return false;
         if (caseSensitive)
-            return a.SequenceEqual(b);
+            return EqExact(a, b);
         for (int i = 0; i < a.Length; i++)
         {
             byte x = a[i],
