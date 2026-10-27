@@ -58,12 +58,15 @@
 //                               competitor arm, and the Tommy reference arm, are hand-written
 //                               DOM walks, not single library calls). The positive case is
 //                               labelled just as loudly: equivalent: true prints "EQUIVALENT"
-//                               plus the ratio's direction (Verdict = theirs ÷ ours), so a
-//                               table's divisibility is never asserted by silence. A program
-//                               that needs both kinds of table prints two of them; the banner
-//                               appears once per process and the counters in Print() are per
-//                               table — the summary line names both scopes (`published=`,
-//                               `process_published=`) so the two can never be conflated.
+//                               plus the ratio's direction (Verdict = ours ÷ theirs — the
+//                               README's own direction, where above 1.00 means we are slower, so
+//                               no printed figure ever needs a reciprocal taken before it is
+//                               quoted), so a table's divisibility is never asserted by
+//                               silence. A program that needs both kinds of table prints two of
+//                               them; the banner appears once per process and the counters in
+//                               Print() are per table — the summary line names both scopes
+//                               (`published=`, `process_published=`) so the two can never be
+//                               conflated.
 //
 // Role semantics: `ours` is always PicoSerDe's own action and `theirs` the
 // competitor's, in that argument order. BenchRoleGuard.cs (unchanged) still owns
@@ -619,15 +622,18 @@ public static class BenchProtocol
             : "UNSTABLE — not published";
 
     /// <summary>
-    /// How many times faster ours is (theirs / ours) — the same direction as the old
-    /// PicoBench speedup, where &gt;1 meant PicoSerDe won. Never called for
-    /// non-equivalent arms.
+    /// How many times slower ours is (ours / theirs) — deliberately the <b>README's</b>
+    /// direction ("PicoSerDe ÷ competitor", where &gt;1.00 means we are slower) and the only
+    /// one this repository prints. The harness used to report the reciprocal (theirs / ours,
+    /// the old PicoBench "speedup", where &gt;1 meant PicoSerDe won), so every figure quoted
+    /// from a run into a table had to be inverted first; two directions over one measurement
+    /// is what let the old table come out backwards. Never called for non-equivalent arms.
     /// </summary>
     /// <param name="ours">PicoSerDe's sample.</param>
     /// <param name="theirs">The competitor's sample.</param>
     /// <returns>The ratio, or NaN when either side was refused.</returns>
     public static double Ratio(ProtocolSample ours, ProtocolSample theirs) =>
-        ours.Stable && theirs.Stable ? theirs.MedianUs / ours.MedianUs : double.NaN;
+        ours.Stable && theirs.Stable ? ours.MedianUs / theirs.MedianUs : double.NaN;
 
     /// <summary>
     /// Cheap, dependency-free system-wide CPU accounting: how much of the machine
@@ -1221,18 +1227,21 @@ public sealed class ProtocolTable
             // The positive label. Without it "these columns are divisible" was visible only by
             // the *absence* of the banner above, so silence carried the strongest claim in the
             // table. It also fixes the ratio's direction in the output itself: the Verdict column
-            // is theirs/ours (see Ratio), the reciprocal of the README's Pico ÷ competitor tables
-            // — reading one as the other is what inverted the old table, so the direction is
-            // stated where the numbers are, not only in prose elsewhere.
+            // is ours/theirs (see Ratio) — the same direction as the README's Pico ÷ competitor
+            // tables, so a printed figure is quoted as it stands. There used to be two reciprocals
+            // here (the harness one way, the README the other) plus a sentence asking the reader
+            // to convert; one direction, stated where the numbers are, removes that source of
+            // error — it is how the old table got inverted.
             Console.WriteLine(
                 $"EQUIVALENT: both arms do one library call for the same job on the same document"
-                    + $" (same POCO in and out), so {theirsLabel} ÷ {oursLabel} is a ratio, not"
+                    + $" (same POCO in and out), so {oursLabel} ÷ {theirsLabel} is a ratio, not"
                     + " two unrelated costs."
             );
             Console.WriteLine(
-                $"  Verdict column = {theirsLabel} ÷ {oursLabel}: above 1.00 means {oursLabel} is"
-                    + " faster. The README's tables print the reciprocal (Pico ÷ competitor),"
-                    + " where above 1.00 means we are slower."
+                $"  Verdict column = {oursLabel} ÷ {theirsLabel}: above 1.00 means we are"
+                    + " slower, below 1.00 means we are faster — the README's direction, so a"
+                    + " figure here is quoted as it stands, with no reciprocal to take."
+                    + " ✓ = we are not slower, ✗ = we are."
             );
         }
 
@@ -1276,7 +1285,7 @@ public sealed class ProtocolTable
         var marker =
             refused ? "⚠"
             : !_equivalent ? "·"
-            : ratio >= 1 ? "✓"
+            : ratio <= 1 ? "✓"
             : "✗";
         var verdict =
             !_equivalent ? "NON-EQUIVALENT"

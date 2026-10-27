@@ -95,8 +95,8 @@ Console.WriteLine(new string('=', 60));
 
 // Roles are positional: ours = PicoJetson, theirs = System.Text.Json. The table
 // runs the pair through BenchRoleGuard (candidate must be a Pico* name), so the two
-// columns cannot be swapped without an exception. Ratio = theirs / ours, so >1 means
-// PicoJetson is faster.
+// columns cannot be swapped without an exception. Ratio = ours / theirs, so >1 means
+// PicoJetson is slower — the README's direction, so a printed figure is quoted as it stands.
 var table = new ProtocolTable("PicoJetson", "System.Text.Json");
 
 table.Compare(
