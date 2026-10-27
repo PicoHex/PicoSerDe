@@ -99,11 +99,59 @@ Item 2 above, written down as a rule. A run that misses **any** of these is not 
 however good its numbers look:
 
 - **Idle machine** — nothing else compiling, publishing or debugging, no antivirus first scan.
-- **≥100k iterations per operation and ≥5 independent runs** — every run kept, none discarded.
+- **≥100k iterations per operation and ≥5 independent runs** — every run kept, none discarded;
+  the product is asserted in code and the iteration count each arm really ran is printed in the
+  table footer, so the floor is auditable rather than claimed.
 - **Median + dispersion** (min/max, standard deviation) — never a bare average on its own.
 - **AOT and JIT in separate columns** — never merged into one figure, and never into one ratio.
 - **Equivalent competitor arms** — same input, same typed mapping, same output type; a
   hand-written DOM walk is not the same job as a library call.
+
+The rules say what the benchmarks must do; the harness also says *how* it decides, because
+"we think the machine was idle" is not checkable:
+
+- **The idle self-check is a fixed workload, not a feeling.** Before every arm the harness times
+  the same allocation-free loop twice, at least 200 ms per probe, and refuses the arm on any of
+  three *relative* criteria — the ones that fire in practice, and the ones the banner prints:
+  **drift** (the second probe's median moved more than **20%** away from the first's),
+  **spread** (either probe's run-to-run max/min exceeds **3.0×**), or
+  **dispersion** (either probe's relative standard deviation, stddev/median, exceeds **25%**).
+  The same **3.0×** run-to-run limit applies once more to the arm's own five measured runs, once
+  the idle check has passed: an action that had not settled (tiered JIT, GC) or a machine that
+  got busy while it ran cannot be turned into a figure by averaging harder.
+- **System-wide CPU is the decisive criterion.** Windows (`GetSystemTimes`) and Linux
+  (`/proc/stat`) are asked how much of the machine processes *other than the benchmark* used
+  (own CPU is subtracted). Above **35%** — override: `PICOBENCH_MAX_OTHER_CPU` — the arm is not
+  published. It is decisive and not just one more probe because the three relative criteria
+  above are blind to a machine that is *uniformly* loaded: every probe is slowed by the same
+  factor, drift stays at zero, and the number is inflated anyway. When the host cannot answer
+  at all (macOS, or a container with no readable `/proc/stat`) the answer is *unknown*, and
+  unknown **refuses** the arm instead of passing it: a criterion that cannot be evaluated is
+  not a criterion that was met. `PICOBENCH_ALLOW_UNKNOWN_CPU=1` is the only way to publish
+  there, and it brands the banner and the table footer with a "load unknown — numbers not
+  trustworthy" warning and sets `cpu=unknown` in the summary line.
+- **A garbage collection runs before every measured run.** Otherwise the first run measures a
+  small heap and the later ones pay for the garbage the earlier ones produced.
+- **Warm-up runs to convergence, and a timeout is visible.** Each burst is the median of three
+  timings, and an arm counts as warm only after three consecutive bursts agree within 5% (and
+  after a minimum budget, deliberately generous under tiered JIT). If the budget runs out first
+  the arm is marked in the table (`w⚠…`); `PICOBENCH_STRICT=1` refuses it outright.
+- **Every table ends with a machine-readable summary line** (the counters are per process, which
+  is per table in every benchmark here), for example
+  `PICOBENCH_SUMMARY scenarios=6 published=0 refused=6 mode=Jit equivalent=false cpu=known exit=1`.
+  Fields: `scenarios` = rows in this table; `published` / `refused` = arms that were / were not
+  published (two per row in a comparison table); `mode` = the process-wide execution mode the
+  banner prints; `equivalent` = `false` on a `NON-EQUIVALENT` table, where no ratio exists;
+  `cpu` = `known` or `unknown`, whether system-wide load could be read at all; `exit` = the exit
+  code the run will return. A run that publishes *nothing at all* is a broken run rather than a
+  finding, so `published=0` with `refused>0` exits `1` — except on a host that cannot measure
+  load at all (the criterion is unavailable rather than violated, so the environment failed,
+  not the run) and unless `PICOBENCH_ALLOW_ZERO_PUBLISH=1`. A single refused arm still exits
+  `0`. `PICOBENCH_STRICT=1` overrides every one of these: any refusal exits `1`.
+
+None of this makes a number quotable. The protocol excludes the interference it can measure; it
+cannot see thermal throttling, cgroup quotas, cache contention, or a busy neighbour that stays
+below the CPU limit.
 
 ### NativeAOT support, by competitor (verified, not a performance claim)
 

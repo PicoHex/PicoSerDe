@@ -15,6 +15,10 @@ using MpLib = MessagePack.MessagePackSerializer;
 // statically (string, int, long, bool, double, DateTime). That is what makes an
 // honest AOT-vs-AOT comparison possible: both sides are compiled ahead of time and
 // both actually finish.
+//
+// The mode is now printed and asserted rather than assumed: the banner reports
+// Aot/Jit from RuntimeFeature.IsDynamicCodeSupported, and a JIT run says out loud
+// that it is not the AOT-vs-AOT pair this file claims to be.
 // ─────────────────────────────────────────────────────────────────────────────
 
 Console.OutputEncoding = Encoding.UTF8;
@@ -25,7 +29,12 @@ Console.WriteLine(
         + " unified benchmark's models cannot run under AOT (see the file header)."
 );
 Console.WriteLine(new string('=', 60));
-Console.WriteLine();
+
+if (BenchProtocol.Mode != ProtocolMode.Aot)
+    Console.WriteLine(
+        "⚠ WARNING: this binary is NOT NativeAOT (Mode: Jit), so the table below is a"
+            + " JIT-vs-JIT run and must not be published as AOT-vs-AOT."
+    );
 
 var person = new AotPerson { Name = "Hello World", Age = 42 };
 var metrics = new AotMetrics
@@ -41,51 +50,42 @@ var personMp = MpLib.Serialize(person);
 var metricsPico = MsgPackSerializer.SerializeToUtf8Bytes(metrics);
 var metricsMp = MpLib.Serialize(metrics);
 
-var results = new List<ComparisonResult>
-{
-    B(
-        "Person — Serialize",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(person),
-        () => MpLib.Serialize(person)
-    ),
-    B(
-        "Person — Deserialize",
-        () => MsgPackSerializer.Deserialize<AotPerson>(personPico),
-        () => MpLib.Deserialize<AotPerson>(personMp)
-    ),
-    B(
-        "Metrics — Serialize",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(metrics),
-        () => MpLib.Serialize(metrics)
-    ),
-    B(
-        "Metrics — Deserialize",
-        () => MsgPackSerializer.Deserialize<AotMetrics>(metricsPico),
-        () => MpLib.Deserialize<AotMetrics>(metricsMp)
-    ),
-};
+// Roles are positional: ours = PicoMsgPack, theirs = MessagePack-CSharp. The table
+// runs the pair through BenchRoleGuard (candidate must be a Pico* name), so the two
+// columns cannot be swapped without an exception.
+var table = new ProtocolTable("PicoMsgPack", "MessagePack-CSharp");
 
-foreach (var c in results)
-    Console.WriteLine(
-        $"{(c.IsFaster ? "✓" : "✗")} {c.Name, -38} PicoMsgPack={c.Candidate.Statistics.Avg / 1000:F1}μs  MPC={c.Baseline.Statistics.Avg / 1000:F1}μs  x{c.Speedup:F2}"
-    );
+table.Compare(
+    "Person — Serialize",
+    () => MsgPackSerializer.SerializeToUtf8Bytes(person),
+    () => MpLib.Serialize(person)
+);
+table.Compare(
+    "Person — Deserialize",
+    () => MsgPackSerializer.Deserialize<AotPerson>(personPico),
+    () => MpLib.Deserialize<AotPerson>(personMp)
+);
+table.Compare(
+    "Metrics — Serialize",
+    () => MsgPackSerializer.SerializeToUtf8Bytes(metrics),
+    () => MpLib.Serialize(metrics)
+);
+table.Compare(
+    "Metrics — Deserialize",
+    () => MsgPackSerializer.Deserialize<AotMetrics>(metricsPico),
+    () => MpLib.Deserialize<AotMetrics>(metricsMp)
+);
 
-Console.WriteLine();
+table.Print();
 Console.WriteLine(
-    $"Size: Person Pico={personPico.Length}B MPC={personMp.Length}B  |  Metrics Pico={metricsPico.Length}B MPC={metricsMp.Length}B"
+    $"Size: Person Pico={personPico.Length}B MPC={personMp.Length}B  |  Metrics"
+        + $" Pico={metricsPico.Length}B MPC={metricsMp.Length}B"
 );
 Console.WriteLine(new string('=', 60));
-Console.WriteLine(SummaryFormatter.Format(results));
+
+Environment.ExitCode = BenchProtocol.ExitCode;
 
 return;
-
-// Candidate = PicoMsgPack (ours), baseline = MessagePack-CSharp (competitor), so
-// Speedup > 1 means PicoMsgPack is faster. BenchmarkRoles.Guard throws if that is
-// ever inverted.
-static ComparisonResult B(string name, Action candidate, Action baseline) =>
-    BenchmarkRoles.Guard(
-        Benchmark.Compare(name, "MessagePack-CSharp", baseline, "PicoMsgPack", candidate)
-    );
 
 // Statically resolvable only: MessagePack's builtin resolver covers these without
 // run-time generic construction, which is what NativeAOT cannot do.

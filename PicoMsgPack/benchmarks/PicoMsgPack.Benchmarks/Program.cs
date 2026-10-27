@@ -4,7 +4,6 @@ Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("PicoMsgPack vs MessagePack-CSharp — Performance Comparison");
 Console.WriteLine($"Runtime: {Environment.Version} | OS: {Environment.OSVersion}");
 Console.WriteLine(new string('=', 60));
-Console.WriteLine();
 
 var simple = new MsgSimple { Name = "Hello World", Age = 42 };
 var simplePico = MsgPackSerializer.SerializeToUtf8Bytes(simple);
@@ -46,79 +45,57 @@ var collection = new MsgCollection
 var colPico = MsgPackSerializer.SerializeToUtf8Bytes(collection);
 var colMp = MpLib.Serialize(collection);
 
-var results = new List<ComparisonResult>
-{
-    Benchmark.Compare(
-        "Simple — Serialize",
-        "MessagePack-CSharp",
-        () => MpLib.Serialize(simple),
-        "PicoMsgPack",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(simple)
-    ),
-    Benchmark.Compare(
-        "Simple — Deserialize",
-        "MessagePack-CSharp",
-        () => MpLib.Deserialize<MsgSimple>(simpleMp),
-        "PicoMsgPack",
-        () => MsgPackSerializer.Deserialize<MsgSimple>(simplePico)
-    ),
-    Benchmark.Compare(
-        "Complex — Serialize",
-        "MessagePack-CSharp",
-        () => MpLib.Serialize(complex),
-        "PicoMsgPack",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(complex)
-    ),
-    Benchmark.Compare(
-        "Complex — Deserialize",
-        "MessagePack-CSharp",
-        () => MpLib.Deserialize<MsgComplex>(complexMp),
-        "PicoMsgPack",
-        () => MsgPackSerializer.Deserialize<MsgComplex>(complexPico)
-    ),
-    Benchmark.Compare(
-        "Nested — Serialize",
-        "MessagePack-CSharp",
-        () => MpLib.Serialize(nested),
-        "PicoMsgPack",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(nested)
-    ),
-    Benchmark.Compare(
-        "Nested — Deserialize",
-        "MessagePack-CSharp",
-        () => MpLib.Deserialize<MsgNested>(nestedMp),
-        "PicoMsgPack",
-        () => MsgPackSerializer.Deserialize<MsgNested>(nestedPico)
-    ),
-    Benchmark.Compare(
-        "Collection — Serialize",
-        "MessagePack-CSharp",
-        () => MpLib.Serialize(collection),
-        "PicoMsgPack",
-        () => MsgPackSerializer.SerializeToUtf8Bytes(collection)
-    ),
-    Benchmark.Compare(
-        "Collection — Deserialize",
-        "MessagePack-CSharp",
-        () => MpLib.Deserialize<MsgCollection>(colMp),
-        "PicoMsgPack",
-        () => MsgPackSerializer.Deserialize<MsgCollection>(colPico)
-    ),
-};
+// Roles are positional: ours = PicoMsgPack, theirs = MessagePack-CSharp. The table
+// runs the pair through BenchRoleGuard (candidate must be a Pico* name), so the two
+// columns cannot be swapped without an exception. Ratio = theirs / ours, so >1 means
+// PicoMsgPack is faster.
+var table = new ProtocolTable("PicoMsgPack", "MessagePack-CSharp");
 
-foreach (var c in results)
-{
-    // candidate = PicoMsgPack (ours), baseline = MessagePack-CSharp.
-    BenchmarkRoles.Guard(c);
-    var icon = c.IsFaster ? "✓" : "✗";
-    Console.WriteLine(
-        $"{icon} {c.Name, -36} Pico={c.Candidate.Statistics.Avg / 1000:F1}μs  MPC={c.Baseline.Statistics.Avg / 1000:F1}μs  Speedup={c.Speedup:F2}x"
-    );
-}
+table.Compare(
+    "Simple — Serialize",
+    () => MsgPackSerializer.SerializeToUtf8Bytes(simple),
+    () => MpLib.Serialize(simple)
+);
+table.Compare(
+    "Simple — Deserialize",
+    () => MsgPackSerializer.Deserialize<MsgSimple>(simplePico),
+    () => MpLib.Deserialize<MsgSimple>(simpleMp)
+);
+table.Compare(
+    "Complex — Serialize",
+    () => MsgPackSerializer.SerializeToUtf8Bytes(complex),
+    () => MpLib.Serialize(complex)
+);
+table.Compare(
+    "Complex — Deserialize",
+    () => MsgPackSerializer.Deserialize<MsgComplex>(complexPico),
+    () => MpLib.Deserialize<MsgComplex>(complexMp)
+);
+table.Compare(
+    "Nested — Serialize",
+    () => MsgPackSerializer.SerializeToUtf8Bytes(nested),
+    () => MpLib.Serialize(nested)
+);
+table.Compare(
+    "Nested — Deserialize",
+    () => MsgPackSerializer.Deserialize<MsgNested>(nestedPico),
+    () => MpLib.Deserialize<MsgNested>(nestedMp)
+);
+table.Compare(
+    "Collection — Serialize",
+    () => MsgPackSerializer.SerializeToUtf8Bytes(collection),
+    () => MpLib.Serialize(collection)
+);
+table.Compare(
+    "Collection — Deserialize",
+    () => MsgPackSerializer.Deserialize<MsgCollection>(colPico),
+    () => MpLib.Deserialize<MsgCollection>(colMp)
+);
 
-Console.WriteLine();
+table.Print();
 Console.WriteLine(new string('=', 60));
-Console.WriteLine(SummaryFormatter.Format(results));
+
+Environment.ExitCode = BenchProtocol.ExitCode;
 
 // Dual-attributed models: [MsgPackKey] for PicoMsgPack, [MessagePack.Key] for MPC
 [MessagePack.MessagePackObject]
