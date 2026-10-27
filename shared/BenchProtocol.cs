@@ -1010,7 +1010,18 @@ public static class BenchProtocol
             action();
         watch.Stop();
 
-        var perOpMilliseconds = watch.Elapsed.TotalMilliseconds / calibrationCalls;
+        return IterationsFor(watch.Elapsed.TotalMilliseconds / calibrationCalls);
+    }
+
+    // The arithmetic half of the calibration, kept apart from the stopwatch so it can be
+    // asserted on synthetic per-op costs instead of on whatever a possibly loaded machine
+    // measured in 500 calls: how many calls fit in one target-length sample, clamped at both
+    // ends. A sample below the floor measures the clock rather than the code; one above the
+    // ceiling makes a run take minutes without buying any resolution.
+    internal static int IterationsFor(double perOpMilliseconds)
+    {
+        // A batch too short for the clock to resolve reports 0 (or a NaN from a caller). Free
+        // is the honest reading of that, so the ceiling wins; the floor would be a guess.
         if (!(perOpMilliseconds > 0))
             return MaximumIterationsPerSample;
 

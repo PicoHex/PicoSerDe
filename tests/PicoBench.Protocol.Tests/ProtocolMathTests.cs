@@ -10,7 +10,8 @@ namespace PicoBench.Protocol.Tests;
 //   * Median            — odd / even / single / input not mutated
 //   * StdDev            — the n-1 denominator (sample standard deviation, not population)
 //   * OtherCpuFraction  — the fail-closed NaN branches, the clamp, and a known 50% case
-//   * iteration floor    — SamplesPerRunFor x ResolveIterationsPerSample >= 100k
+//   * iteration floor    — SamplesPerRunFor x ResolveIterationsPerSample >= 100k, and the
+//                          calibration clamp itself (IterationsFor, on synthetic costs)
 //
 // Test names are sentences: a failure should say what the protocol promises, not which
 // method was called.
@@ -194,28 +195,69 @@ public class ProtocolMathTests
         await Assert.That(BenchProtocol.SamplesPerRunFor(1_000)).IsEqualTo(20);
     }
 
-    [Test]
-    public async Task ResolveIterationsPerSample_keeps_a_slow_action_at_the_floor()
-    {
-        // ~50 us/op would need only ~60 iterations to fill a 3 ms sample, which is below the
-        // floor: a sample that short measures the clock, not the code.
-        var slow = BenchProtocol.ResolveIterationsPerSample(SlowAction);
+    // Calibration is split in two on purpose. The clamp arithmetic is pinned on synthetic
+    // per-op costs (no clock involved, so no machine can make it fail); the one test that
+    // still times a real action asserts only the contract a timer can honour anywhere — a
+    // count inside the clamps — and never a relation between two measurements. Timing the
+    // no-op instead was flaky on a busy box: 500 calls that normally cost ~1 us together
+    // were measured at >= 3 us *each*, so it landed on the same floor as SlowAction and
+    // "a cheaper action gets more iterations" read as a protocol bug.
 
-        await Assert.That(slow).IsEqualTo(BenchProtocol.MinimumIterationsPerSample);
+    [Test]
+    public async Task IterationsFor_hits_the_ceiling_for_a_cheap_action_and_the_floor_for_an_expensive_one()
+    {
+        // ~1 ns/op asks for 3,000,000 iterations to fill a 3 ms sample -> the ceiling.
+        // ~50 us/op asks for 60 -> the floor: a sample that short measures the clock, not the
+        // code.
+        var cheap = BenchProtocol.IterationsFor(0.000001);
+        var expensive = BenchProtocol.IterationsFor(0.05);
+
+        await Assert.That(cheap).IsEqualTo(BenchProtocol.MaximumIterationsPerSample);
+        await Assert.That(expensive).IsEqualTo(BenchProtocol.MinimumIterationsPerSample);
+        await Assert.That(cheap > expensive).IsTrue();
     }
 
     [Test]
-    public async Task ResolveIterationsPerSample_calibrates_instead_of_returning_a_constant()
+    public async Task IterationsFor_keeps_a_mid_range_cost_off_both_clamps()
     {
-        // A cheaper action must get MORE iterations per sample than an expensive one, and
-        // both ends stay inside the clamps. (The ceiling itself is only reached by an action
-        // below ~0.15 us/op, so it is asserted as a bound rather than as an equality.)
-        var fast = BenchProtocol.ResolveIterationsPerSample(() => { });
-        var slow = BenchProtocol.ResolveIterationsPerSample(SlowAction);
+        // 3 ms / 1 us = 3,000 iterations, inside [1k, 20k], so it must pass through untouched.
+        // Both equality tests above would also pass with a clamp that always returned one of
+        // its ends — which would make every published sample the same length.
+        var mid = BenchProtocol.IterationsFor(0.001);
 
-        await Assert.That(fast > slow).IsTrue();
-        await Assert.That(fast).IsGreaterThanOrEqualTo(BenchProtocol.MinimumIterationsPerSample);
-        await Assert.That(fast).IsLessThanOrEqualTo(BenchProtocol.MaximumIterationsPerSample);
+        await Assert.That(mid).IsEqualTo(3_000);
+        await Assert.That(mid).IsGreaterThan(BenchProtocol.MinimumIterationsPerSample);
+        await Assert.That(mid).IsLessThan(BenchProtocol.MaximumIterationsPerSample);
+    }
+
+    [Test]
+    public async Task IterationsFor_treats_a_cost_it_cannot_measure_as_free()
+    {
+        // A stopwatch reports 0 for a batch too short to resolve; dividing the target by that
+        // is an infinity, and the cast of an infinity is not a count any caller could act on.
+        await Assert
+            .That(BenchProtocol.IterationsFor(0))
+            .IsEqualTo(BenchProtocol.MaximumIterationsPerSample);
+        await Assert
+            .That(BenchProtocol.IterationsFor(double.NaN))
+            .IsEqualTo(BenchProtocol.MaximumIterationsPerSample);
+    }
+
+    [Test]
+    public async Task ResolveIterationsPerSample_always_returns_a_count_inside_the_clamps()
+    {
+        // The only remaining test that reads a real clock. What it can promise on any machine
+        // is a count inside the clamps and nothing more; which end it takes is the arithmetic
+        // pinned above, never a stopwatch.
+        var cheap = BenchProtocol.ResolveIterationsPerSample(() => { });
+        var expensive = BenchProtocol.ResolveIterationsPerSample(SlowAction);
+
+        await Assert.That(cheap).IsGreaterThanOrEqualTo(BenchProtocol.MinimumIterationsPerSample);
+        await Assert.That(cheap).IsLessThanOrEqualTo(BenchProtocol.MaximumIterationsPerSample);
+        await Assert
+            .That(expensive)
+            .IsGreaterThanOrEqualTo(BenchProtocol.MinimumIterationsPerSample);
+        await Assert.That(expensive).IsLessThanOrEqualTo(BenchProtocol.MaximumIterationsPerSample);
     }
 
     // ── The printed cell ────────────────────────────────────────────────────────────
