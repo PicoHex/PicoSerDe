@@ -8,6 +8,7 @@ public class MsgPackWriter32BitHeaderTests
         var buf = new ArrayBufferWriter<byte>(16);
         var writer = new MsgPackWriter(buf);
         writer.WriteStartObject(70000); // > 65535
+        writer.FlushToBuffer();
         // 0xDF = map32, followed by 4-byte uint32 count (70000 = 0x00011170)
         await Assert
             .That(buf.WrittenSpan.ToArray())
@@ -20,6 +21,7 @@ public class MsgPackWriter32BitHeaderTests
         var buf = new ArrayBufferWriter<byte>(16);
         var writer = new MsgPackWriter(buf);
         writer.WriteStartArray(70000); // > 65535
+        writer.FlushToBuffer();
         // 0xDD = array32, followed by 4-byte uint32 count
         await Assert
             .That(buf.WrittenSpan.ToArray())
@@ -32,6 +34,7 @@ public class MsgPackWriter32BitHeaderTests
         var buf = new ArrayBufferWriter<byte>(16);
         var writer = new MsgPackWriter(buf);
         writer.WriteStartObject(1000);
+        writer.FlushToBuffer();
         // 0xDE = map16, followed by 2-byte ushort count (1000 = 0x03E8)
         await Assert
             .That(buf.WrittenSpan.ToArray())
@@ -44,6 +47,7 @@ public class MsgPackWriter32BitHeaderTests
         var buf = new ArrayBufferWriter<byte>(16);
         var writer = new MsgPackWriter(buf);
         writer.WriteStartArray(1000);
+        writer.FlushToBuffer();
         // 0xDC = array16, followed by 2-byte ushort count
         await Assert
             .That(buf.WrittenSpan.ToArray())

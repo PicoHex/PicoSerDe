@@ -25,6 +25,9 @@ file readonly struct McInnerCustomSer : ISerializer<McInner>
     {
         var mw = new MsgPackWriter(writer);
         mw.WriteString(Encoding.UTF8.GetBytes($"custom-{value.V}"));
+        // A custom serializer owns its writer: it must commit the tail itself, or the
+        // bytes stay in the writer's span and the caller's buffer never sees them.
+        mw.FlushToBuffer();
     }
 }
 

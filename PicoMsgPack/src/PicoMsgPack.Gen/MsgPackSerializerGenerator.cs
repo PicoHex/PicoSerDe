@@ -551,7 +551,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             WriteSer(s, p, $"value.{p.Name}", bodyInd, ref c);
             EmitSkipGuardClose(s, sv, "        ");
         }
-        s.AppendLine("        mw.WriteEndObject(); } }");
+        s.AppendLine("        mw.WriteEndObject(); mw.FlushToBuffer(); } }");
         s.AppendLine();
 
         s.Append("file static class ");
@@ -1302,7 +1302,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.Append($"v.{p.Name}");
             s.AppendLine(");");
         }
-        s.AppendLine("        mw.WriteEndObject(); } }");
+        s.AppendLine("        mw.WriteEndObject(); mw.FlushToBuffer(); } }");
         s.AppendLine();
 
         // Registration
@@ -1370,6 +1370,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         WriteSerElem(s, elemP, "__item", "            ", ref c);
         s.AppendLine("        }");
         s.AppendLine("        mw.WriteEndArray();");
+        s.AppendLine("        mw.FlushToBuffer();");
         s.AppendLine("    } }");
         s.AppendLine();
 
@@ -3650,6 +3651,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.AppendLine("            }");
         }
         s.AppendLine("        }");
+        // The polymorphic map was written straight into the caller's buffer by the
+        // case above, which never closes with WriteEndObject — commit the tail here.
+        s.AppendLine("        mw.FlushToBuffer();");
         s.AppendLine("    }");
         s.AppendLine("}");
         s.AppendLine();
