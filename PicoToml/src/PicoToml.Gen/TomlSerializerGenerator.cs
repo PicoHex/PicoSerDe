@@ -1551,6 +1551,16 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         {
             // Array of tables: [[data]] → ArrayStart per item
             // After r.Read(), r is at ArrayStart (first [[data]])
+            s.AppendLine("        var __arrPath = r.TablePath.ToArray();");
+            // D-9d at the ROOT: this is the fourth `[[…]]` element loop (the member-level
+            // buffered/streaming/polymorphic emitters were the first three). TOML v1.0.0
+            // "Array of Tables" says a `[[name]]` header "will start a new element of the array
+            // of tables named `name`" — an element belongs to the array its header NAMES, not to
+            // the array that happened to be read first. So the root list owns the ONE array whose
+            // header it started with: remember that path (COPIED — `TablePath` is a span into the
+            // reader's buffer, and a dotted header builds its path in a scratch buffer) and stop
+            // when a later header names a different array. Without this, `[[Unknown]]` appended an
+            // EMPTY element: a value the document never had (measured: count=2, names="a,").
             s.AppendLine("        // Read first object");
             s.Append("        var __item = new ");
             s.Append(et);
@@ -1569,7 +1579,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("        }");
             s.AppendLine("        __tmpList.Add(__item);");
             s.AppendLine("        // Read subsequent objects (delimited by ArrayStart)");
-            s.AppendLine("        while (r.TokenType == TokenType.ArrayStart)");
+            s.AppendLine(
+                "        while (r.TokenType == TokenType.ArrayStart && r.TablePath.SequenceEqual(__arrPath))"
+            );
             s.AppendLine("        {");
             s.Append("            __item = new ");
             s.Append(et);

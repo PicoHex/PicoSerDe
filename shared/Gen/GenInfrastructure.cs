@@ -800,6 +800,25 @@ internal static class GenInfrastructure
     /// five formats hold one (spec §3 S1) — but the branch is selected by the facts table
     /// rather than written into the template, so the day a format answers "no" the wording
     /// follows without an edit here (spec C1 / I-5).
+    ///
+    /// <b>Why the anonymous-type drop channel keeps its OWN id (<c>PICOSERDE005</c>) instead of
+    /// being folded into <c>PICOSERDE001</c>/<c>004</c>:</b> this is a maintainer RULING (spec §4
+    /// D-8, status "resolved by ruling"), not the last open axis of the D-8 merge.
+    ///
+    /// D-8 was the double-standard complaint: the anonymous type carried its own verdict logic,
+    /// its own message ("cannot be serialized by {format}") and a null location. Those four axes
+    /// are now shared with the named-DTO surfaces - the verdict comes from
+    /// <see cref="FormatCapabilities.AnonCollectionIsFormatFact"/>, the marker from
+    /// <see cref="FormatCapabilities.DeferredMarker"/>, the message is a sibling pair with a
+    /// <c>reopen:</c> tail, and the location/declared type come from the shared
+    /// <c>SourceLocationOf</c>/<c>DeclaredTypeOf</c> helpers. The FIFTH axis - the id - is
+    /// deliberately NOT merged, because an id is the part of a diagnostic that is a public
+    /// contract (spec §5 D4: ids are stable within a year, messages are not). Renumbering 005
+    /// into 001 would delete a published id and silently break every downstream
+    /// <c>#pragma warning disable PICOSERDE005</c> / <c>&lt;NoWarn&gt;</c> entry - a harder
+    /// contract break than the renumber it buys - and it would have to land together with the
+    /// three README id tables in one release (a cross-task decision, not a code-review cleanup).
+    /// The anonymous type is a separate EMIT SURFACE: the PIPELINE is shared, the ID stays.
     /// </summary>
     private static readonly DiagnosticDescriptor AnonCollectionImpossibleWarning = new(
         id: "PICOSERDE005",

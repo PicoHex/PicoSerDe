@@ -90,7 +90,7 @@ currently gets wrong about them, and what the library must do about it
 ### R5 — 值级保真
 成员进入生成代码**不等于**保真。标记为支持的格必须由**含边界值**的往返测试支撑（null 元素、空集合、单元素、`NaN`/`±Inf`、`decimal` invariant、`DateTime.Kind`、含分隔符/引号/换行的字符串、`int.MaxValue`）。
 
-> **R5 清单新增一项（R2 T6 移交）**：**含 `\n` / `\r` / `=` 的字典键**。它不是"能力欠账"而是**格式约定下的不可承载**：INI 的字典是"成员级 `[V]` section + 键=行内原文"，键里出现换行或 `=` 时 `IniReader` 的键扫描（`IniReader.cs:597-608`）必然提前终止，而 `IniWriter.WriteKey`（`IniWriter.cs:371-376`）没有键转义 ⇒ 写出去读不回。R2 **不**为 INI 造一套键转义约定（那会改公共 wire 约定，属值级议题）；该 boundary 值改由 R5 记录，`S9 × INI` 的 ✅ 附条件 ⁵。**YAML/TOML 不受此限**：两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）。
+> **R5 清单新增一项（R2 T6 移交）**：**含 `\n` / `\r` / `=` 的字典键**。它不是"能力欠账"而是**格式约定下的不可承载**：INI 的字典是"成员级 `[V]` section + 键=行内原文"，键里出现换行或 `=` 时 `IniReader` 的键扫描（`IniReader.cs:597-608`）必然提前终止，而 `IniWriter.WriteKey`（`IniWriter.cs:371-376`）没有键转义 ⇒ 写出去读不回。R2 **不**为 INI 造一套键转义约定（那会改公共 wire 约定，属值级议题）；该 boundary 值登记在 **§8.1（V-1）**，`S9 × INI` 的 ✅ 附条件 ⁵。**YAML/TOML 不受此限**：两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）。
 
 ## 3. 格式事实（实测，R1 的判据）
 
@@ -116,7 +116,7 @@ currently gets wrong about them, and what the library must do about it
 
 **判据与证据**：TOML 用 Python `tomllib`、YAML 用 PyYAML 实测（脚本见 §9；其逐字输出记录在计划的探针章节）。**INI 无独立实现可依据**（`configparser` 对任何输入都当字符串收下），其边界是**本规格的约定**：
 
-> INI 的约定：标量列表 = 单层逗号串（`V = 1,2,3`）；对象列表只在**顶层**用编号 section（`[0]`、`[1]`）；字典 = 成员级 `[V]` section；**成员内不承载任何嵌套**；**不承载 null**（空值与空串不可区分）。
+> INI 的约定：标量列表 = 单层逗号串（`V = 1,2,3`）；对象列表只在**顶层**用编号 section（`[0]`、`[1]`）；字典 = 成员级 `[V]` section；**成员内不承载任何嵌套**；**不承载 null**（空值与空串不可区分）；**值不承载换行**（`\n`/`\r` 会切断行，读回来是 `FormatException`）；**值首尾空白不保**（被裁掉）；**值首 `#` / 值含 `;` 会被当注释**（前者整行丢失、后者截断）—— 后三条与键的字符集限制同源（`IniWriter` 没有键/值转义），登记在 §8.1（V-2…V-4）。
 
 **结论**：真正的 `❌` 只有两类 —— ①**INI 的结构性限制**（任何嵌套、任何 null、成员内对象列表）；②**TOML 缺 null**。其余所有「不支持」都是欠账。
 
@@ -171,7 +171,7 @@ currently gets wrong about them, and what the library must do about it
    `DateTime.MinValue` 的往返文本返回 `false`**（同形不同值）。读侧补 `DateTime.Parse(…, RoundtripKind)` 兜底后
    `S15 × ini` 复测为 `OK`（见 §3 实测表）。
 
-⁵ **`S9 × INI` 的 ✅ 附条件（R2 T6 修正）**：只在键**不含 `\n`、`\r`、`=`** 时成立。INI 的字典形式是本规格自己的约定（"成员级 `[V]` section + 键 = 行内原文"），而 `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 没有键转义 — 所以含换行/等号的键**写出去读不回**（探针的 boundary 键 `n\nline` 就是这一例）。这是**值级**约束，不是能力欠账：R2 **不**为 INI 造一套键转义约定（改公共 wire 约定属值级议题），该 boundary 值按 R2/R5 分工记入 **R5 的清单**（见 §2 R5 下的移交说明）。**同一形状在 YAML/TOML 不受此限** — 两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）并据此把这两格从 MISMATCH 转 OK。
+⁵ **`S9 × INI` 的 ✅ 附条件（R2 T6 修正）**：只在键**不含 `\n`、`\r`、`=`** 时成立。INI 的字典形式是本规格自己的约定（"成员级 `[V]` section + 键 = 行内原文"），而 `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 没有键转义 — 所以含换行/等号的键**写出去读不回**（探针的 boundary 键 `n\nline` 就是这一例）。这是**值级**约束，不是能力欠账：R2 **不**为 INI 造一套键转义约定（改公共 wire 约定属值级议题），该 boundary 值按 R2/R5 分工登记在 **§8.1 的 V-1 行**（见 §2 R5 下的移交说明）。**同一形状在 YAML/TOML 不受此限** — 两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）并据此把这两格从 MISMATCH 转 OK。
 
 **结论补充**：S14 的 `❌` 仍只有「TOML 无 null」与「INI 结构性限制」；S15 的 `❌` 只有「JSON 无 NaN/±Inf 字面量」。
 其余「今天不支持」全部是欠账（S15 × toml/yaml 的 NaN —— `S14 × yaml` 与 `S15 × ini` 的默认时间已在 R2 闭合，见上表）。
@@ -188,14 +188,14 @@ currently gets wrong about them, and what the library must do about it
 | **D-7b** | 值级丢失 | YAML：同上。YAML 有 null ⇒ 应**支持** |
 | **D-3** | 实现缺口 | 两种「容器套容器」可表达却丢弃：①`Dictionary<string, List<T>>`（S10）在 JSON/MsgPack/TOML/YAML；②嵌套对象数组（S4）× TOML —— 两条均在 R2 修完（① T3、② T6） |
 | **D-4** | 诊断措辞 | ①递归诊断指向**内层类型**的成员而非用户声明的成员；②欠账格与不可表示格**共用同一条消息**「cannot be represented by this format」，对可表示的格构成误导 |
-| **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与消息，口径可能与具名类型不一致。**R2 T8 已修 4/5 轴**（`53dfb69`）：①丢弃决策 → `DecisionTables.AnonCollectionFormats`（`AnonTypeHandler` 里已无任何格式字面量**参与判定**，只剩 `"json" => "JsonWriter"` 那种名字表）；②判定口径 → `FormatCapabilities.AnonCollectionIsFormatFact` 由 `CanRepresent(tag,"S1")` **推导**，不写死；③消息 → 与 001/003/004 完全同形的 ⛔/⏸ 兄弟对（头部标记 + `reopen:` 尾句）；④位置/声明类型 → `GenInfrastructure.SourceLocationOf`/`DeclaredTypeOf` 提权共用（是同一个拼法，不是抄一份）。**第 5 轴（id）未并，且这是有意的**：按 §5 **D4**（id 年内稳定、消息可变），把 `005` 并进 `004` 等于让一个已发布 id 消失 —— 比 renumber 更硬的契约破坏；id 归并须跨任务一次性收口（实现 + README 三处 + `NoWarn`），**不能**在 R2 T8 单方面制造 T9 不知道的文档债。⇒ **在该裁定落地前，D-8 不算全修**（`53dfb69` 的 D-8 部分因此标 PARTIAL）。测试：`AnonCollectionDiagnosticTests`（决策 ≡ 能力模型 / verdict 由事实表推导两侧夹住） |
+| **D-8** | 双口径 | 匿名类型走**另一套** id（`PICOSERDE005`）与消息，口径可能与具名类型不一致。**R2 T8 已并 4 轴**（`53dfb69`）：①丢弃决策 → `DecisionTables.AnonCollectionFormats`（`AnonTypeHandler` 里已无任何格式字面量**参与判定**，只剩 `"json" => "JsonWriter"` 那种名字表）；②判定口径 → `FormatCapabilities.AnonCollectionIsFormatFact` 由 `CanRepresent(tag,"S1")` **推导**，不写死；③消息 → 与 001/003/004 完全同形的 ⛔/⏸ 兄弟对（头部标记 + `reopen:` 尾句）；④位置/声明类型 → `GenInfrastructure.SourceLocationOf`/`DeclaredTypeOf` 提权共用（是同一个拼法，不是抄一份）。**第 5 轴（id）未并，且这是有意的**：按 §5 **D4**（id 年内稳定、消息可变），把 `005` 并进 `004` 等于让一个已发布 id 消失 —— 比 renumber 更硬的契约破坏；id 归并须跨任务一次性收口（实现 + README 三处 + `NoWarn`），**不能**在 R2 T8 单方面制造 T9 不知道的文档债。⇒ **第 5 轴（id）已由维护者裁定：保留 `PICOSERDE005`，不并入 `PICOSERDE001` ⇒ 本条状态 = "resolved by ruling"（R2 清债，`debt/r2`）**。裁定理由（代码里同样写明：`GenInfrastructure.cs` 中 `AnonCollectionImpossibleWarning` 上方的 `<summary>`）：①id 是**公共契约的一半**（§5 D4：id 年内稳定、消息可变），把 `005` 并进 `004`/`001` 等于让一个**已发布 id 消失** ⇒ 静默破坏下游已有的 `#pragma warning disable PICOSERDE005` / `NoWarn` 条目，这比 renumber 本身更硬；②匿名类型是**独立发射面**（第 6 个 surface），共用的是**管线**（丢弃决策 / 判定口径 / 标记 / 消息形状 / 位置 / 声明类型），不是编号；③id 归并必须与 README 三处 id 表**同一窗口**发布，属跨任务决策，不能在"清债"里单方面制造 T9 不知道的文档债。**因此"4/5 轴"不再是欠账口径**：4 轴已并（`53dfb69`），第 5 轴是**裁定不改**。测试：`AnonCollectionDiagnosticTests`（决策 ≡ 能力模型 / verdict 由事实表推导两侧夹住；`Id` 常量处注明为何断言 005 是有意为之） |
 | **D-9** | **挂死** | TOML：字典成员被写成**空表**时反序列化**永不返回**（纯 CPU 自旋）。判据不是「空表」本身，而是「回到外层循环时 token 仍是**未被消费的 `ObjectStart`**」—— 所以 `[V]`+EOF、`[V]`+后续 `[W]` 表头都会挂，而 `[V]` 后跟 `a = 7` 不挂。根因：生成代码的 `ObjectStart` 分支 `continue` 前不推进 reader（`TomlSerializerGenerator.cs:913-935`），而 `TomlReader.ReadSpan()` 在 EOF 只 `return false`、不换 token（`TomlReader.cs:777-785`） | 探针 W2 实测（`S9×toml` 空字典 → wire `[V]`）；三条独立证据见 `.superpowers/sdd/r1-w2/review-spec.md`。**R2 T0 已修**（`f34d5be`）：reader 在 final block 失败出口清 token + 发射层推进守卫，两层各承其重 |
 | **D-9b** | 静默 | TOML **写侧**：`TomlWriter.NeedsKeyQuoting` 只判 `空格 \t = [ ] . # "`，**不含** `\n`/`\r`/其他控制字符`/`\` ⇒ 含换行的键写出后**读不回来**（与 D-9 的挂死无关，是独立缺陷） | `TomlWriter.cs`；W0 实测（`toml\|S9` 从 TIMEOUT 变 MISMATCH 后露出）。**归属**：R2 Task 6 **已修**——黑名单换成 TOML 1.0 的 bare-key 文法（`[A-Za-z0-9_-]+`，其余一律加引号并转义），`toml\|S9` 由 MISMATCH 转 OK；回往测试 `TomlDictKeyQuotingTests`。同一修法顺带修正了推导键 `$type`的 wire（`$` 不在 bare-key 文法里 ⇒ 写成 `"$type"`）。**范围**：本条只覆盖 **KEY**；表头名（`WriteTable`/`WriteNestedTable`/`WriteArrayTable`）仍裸写，属 pre-existing，不在本条修复面内 |
 | **D-9c** | **挂死族** | 表头名**不在模型里**时发射层零 `Read()` ⇒ token 恒 `ObjectStart` ⇒ 自旋。触发面比 D-9 更广（`[tool.*]`/`[build-system]` 等真实文件必然命中）。实测需 **6 个派发分支 + 3 个内层循环**的推进守卫（`BytesConsumed` 未变则 `Read()`） | W0 fix round 1（`f34d5be`）+ 两份复核。**归属**：R2 T0 已修 |
-| **D-9d** | 静默 | `[[Unknown]]`（外来数组表头）会开出**第二个空元素**，不重查表名。今天测试把它钉成"2 个元素"的契约 ⇒ 将来修它必须同步改断言 | W0 fix round 1 实测。**归属**：R2 Task 6 **已修**——元素循环在接下一个 `[[…]]` 表头前重查表名（三个发射点：缓冲/流式/多态）。**正确元素数是 1**（`[[Items]]` + `Name = "a"` 就是一个元素；`Unknown` 不是 `Items`，贡献 0；0 也错，那个真元素必须活下来）；断言已同步改为 1（`TomlUnknownTableHangTests`）。**T6 fix round 1 修正比较口径**：重查与 arm 匹配都改成**同层比较**（`TextHelpers.EqLastSegment`，表头的**最后一段** vs 成员名）—— 拿**整条 `TablePath`** 与裸名比较时，手写的标准嵌套表头 `[[Parent.Items]]` 匹配不到任何 arm，元素**全部静默丢失**（实测 0 个，不是 1 个）；现由 `TomlUnknownTableHangTests.DottedArrayOfTablesHeader_NamesTheMemberByItsLastSegment` 钉住（`[[Parent.Items]]`×2 ⇒ **2 个元素**），流式与多态两个入口各有同一条用例。`[table]` 头**不**改：嵌套表由各自的 helper 按前缀派发，放松会把真实文件里的 `[tool.ruff]` 喂给名为 `ruff` 的成员 |
+| **D-9d** | 静默 | `[[Unknown]]`（外来数组表头）会开出**第二个空元素**，不重查表名。今天测试把它钉成"2 个元素"的契约 ⇒ 将来修它必须同步改断言 | W0 fix round 1 实测。**归属**：R2 Task 6 **已修**——元素循环在接下一个 `[[…]]` 表头前重查表名（三个发射点：缓冲/流式/多态）。**正确元素数是 1**（`[[Items]]` + `Name = "a"` 就是一个元素；`Unknown` 不是 `Items`，贡献 0；0 也错，那个真元素必须活下来）；断言已同步改为 1（`TomlUnknownTableHangTests`）。**T6 fix round 1 修正比较口径**：重查与 arm 匹配都改成**同层比较**（`TextHelpers.EqLastSegment`，表头的**最后一段** vs 成员名）—— 拿**整条 `TablePath`** 与裸名比较时，手写的标准嵌套表头 `[[Parent.Items]]` 匹配不到任何 arm，元素**全部静默丢失**（实测 0 个，不是 1 个）；现由 `TomlUnknownTableHangTests.DottedArrayOfTablesHeader_NamesTheMemberByItsLastSegment` 钉住（`[[Parent.Items]]`×2 ⇒ **2 个元素**），流式与多态两个入口各有同一条用例。`[table]` 头**不**改：嵌套表由各自的 helper 按前缀派发，放松会把真实文件里的 `[tool.ruff]` 喂给名为 `ruff` 的成员。**R2 清债补记（`debt/r2`）：D-9d 还有第四个 `[[…]]` 元素循环没被 T6 覆盖 —— 根类型 `List<T>` 的反序列化器**（`TomlSerializerGenerator.cs` 中根列表的 `Deserialize`）：它把**任何** `ArrayStart` 都当成"本列表的又一个元素"，实测 `[[data]]\nName = "a"\n[[Unknown]]\n` ⇒ **2 个元素、names=`a,`**（凭空多出一个空元素，正是本条描述的缺陷形态）；`[[Unknown]]` 在前时同样多算。**已修**：进元素循环前先记住**首个表头的路径**（复制一份 —— `TablePath` 是 reader buffer 上的 span，点号表头的路径建在 scratch buffer 里），后续表头必须与之相等才继续。修后实测 **1 个元素、names=`a`**。**元素数依据（不是我们的循环形状，是格式判据 R1）**：Python `tomllib`（TOML v1.0.0 的合规独立实现）实测 `tomllib.loads('[[Items]]\nName = "a"\n[[Unknown]]\n')` ⇒ `{"Items": [{"Name": "a"}], "Unknown": [{}]}` —— **`Items` 恰好 1 个元素**，`Unknown` 是**另一个数组**；TOML v1.0.0「Array of Tables」：一个 `[[name]]` 头开始的元素属于**它点名的数组**（"Each double-bracketed sub-table will belong to the most recently defined table element"，而该头自身定义的就是 `name` 这个数组的元素），故 `Unknown` 对 `Items` 贡献 **0**；而 **0 也错**（`[[Items]]`+`Name="a"` 那个真元素必须活下来）⇒ **1**。测试：`TomlRootArrayOfTablesTests`（3 条元素数 + 3 条内容断言；先红后绿：6 例中 4 例红）。**为什么还要内容断言**：`TomlUnknownTableHangTests` 只钉数量，而"1 个元素"也可能是**那个空元素活着、真元素丢了** —— 计数分不开二者 |
 | **D-10** | 误导 | `PICOSERDE005`（匿名类型）曾是**第四个 drop 通道**（R2 T8 前：无标记、消息写成格式事实、`location: null`）。它使 I-5 的「每条 drop 消息都带标记」**名义上有、实际没被强制**（现有测试的样本永远命不中它） | `GenInfrastructure.cs:798-820`；W5 第三轮 code review N-1。**归属**：R2（与 D-8 并入共用管线一起做）。**R2 T8 已修**（`53dfb69`）：①⏸/⛔ 由**事实表推导** —— 前缀取 `FormatCapabilities.DeferredMarker` 常量、模板由 `FormatCapabilities.AnonCollectionIsFormatFact(tag)`（= `!CanRepresent(tag,"S1")`）选，不按实现进度硬写；②消息**删掉**「cannot be serialized by {format}」（对可表达的格式是假话），改为「{format} can hold a collection, but this generator has no collection form yet」+ `reopen:` 尾句（C4）；③`location` 不再是 `null`：由 `GenInfrastructure.SourceLocationOf(成员符号)` 填**成员自己的声明位置**（匿名初始化器里的 `Xs` token，实测 `line=10 col=17 textAtSpan='Xs'`、`Location.IsInSource == true`），并补上声明类型 `DeclaredTypeOf`（与具名类型共用同一套拼法，helper 由 `private` 提为 `internal`）；④「每条 drop 消息都带标记」的样本数 **4 → 5**（新增匿名集合样本 —— 正是「样本永远命不中它」的那个洞口），`VerdictMarkerGuardTests` 的模板计数 **3 → 4**（⏸ 兄弟由 4 条参数化用例钉住）。**残留（不影响本条「已修」）**：⑤⛔ 兄弟模板今天不可达（五格式对 S1 全 ✅），它是「由事实表选模板」的产物、不是死代码，但无测试能发现其占位符写反；⑥「可按站点 `#pragma` 抑制」只被结构性推导覆盖（Warning 级 + 真实 span），没有专门编译级用例。测试：`AnonCollectionDiagnosticTests` / `SilentDropDiagnosticTests` / `VerdictMarkerGuardTests` |
 
-**归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）—— **R2 T8 已并 4/5 轴（`53dfb69`），id 轴待裁定**；**D-9 → R2**（R1 禁止改行为）；D-10 → **R2 T8 已修（`53dfb69`）**。
+**归属**：D-1/D-2/D-3/D-5/D-6/D-7 → 分批修复（§5.6）；D-4 → 诊断改造；D-8 → 并入共用管线（匿名类型是第 6 个发射面）—— **R2 T8 已并 4 轴（`53dfb69`），第 5 轴（id）已裁定保留 `PICOSERDE005` ⇒ resolved by ruling**；**D-9 → R2**（R1 禁止改行为）；D-10 → **R2 T8 已修（`53dfb69`）**。
 
 ## 5. 裁定（维护者已定）
 
@@ -256,8 +256,33 @@ currently gets wrong about them, and what the library must do about it
 | **I-3** | 能力判定只有**一个**来源；该来源必须能表达 §3 的每一格；格式字面量不得散落在判定逻辑里。**实现方式**：单一入口（`Decide`/`DecideShape` + 键类型查询）+ 架构测试扫描，**不改公共 API** —— 类型级禁止需要改 `FormatConfig`（public，已在 `api/*.Gen.public.txt` 中），会与 D5「internal」和 R1 的 `y` bump 冲突。 |
 | **I-4** | README 的格式限制矩阵与 §6 必须由同一来源生成，测试断言二者一致。；**R1 口径**：README 只文档化 5 个常见形状（钉现状值），§6 的 14 行终态随 R2 落地并由矩阵生成 |
 | **I-5** | 诊断消息含成员名 + 格式 + 形状；⛔ 类与欠账类**可区分**（对应 D-4）。 |
-| **I-6** | 每个标记为支持的格，都有**含边界值**的往返测试（R5）。 |
+| **I-6** | 每个标记为支持的格，都有**含边界值**的往返测试（R5）。**R2 口径**：R1 时期列出的 **8 条候选白区已逐条收口 —— 真白区 6 条、不是 I-6 白区 2 条（点名 #3 / #8）**，逐条的处理（修 / 记录 / 补测即绿）与依据见 **§7.1**。 |
 | **I-7** | 每处「不支持」都能回答**丢弃粒度**（丢成员还是丢元素）—— 粒度差异会改变 wire 输出与发布批次，不能含糊。 |
+
+### 7.1 I-6 白区的最终口径（R2 清债，`debt/r2`）
+
+R1 的规格复核按 R5 的边界清单（null 元素、空集合、单元素、`NaN`/`±Inf`、`decimal` invariant、
+`DateTime.Kind`、含分隔符/引号/换行的字符串、`int.MaxValue`）列了 **8 条候选白区**。R2 逐条写"理想断言"跑过
+（红 = 白区真实存在），结论是 **真白区 6 条 + 不是 I-6 白区 2 条**；下表把**每一类的最终处理**落字，
+免得下一个复核者照旧报告重算成 8 条。
+
+| # | 候选白区 | 真伪 | 处理 | 依据 / 测试 |
+|---|---|---|---|---|
+| 1 | `±Inf` 全白 | **真**（五格式都没有值） | **记录（分裂口径）**：msgpack / INI 往返保 `±∞`；json **⛔ 格式事实**（无字面量，§3 脚注 ²）；toml / yaml **⏸ 欠账**（有 `inf`/`-inf`，§3 脚注 ³）⇒ §8.1 **V-5** | `Infinity_round_trips_where_the_format_has_a_form_for_it` / `Infinity_is_refused_by_json_because_the_format_has_no_literal` / `Infinity_is_refused_by_toml_and_yaml_today_*` |
+| 2 | null 集合 vs 空集合 | **真**（没有任何用例区分） | **补测即绿**（无缺陷）：往返 + **wire 必须不同**双向断言；字符串半边 **INI 已知限制**（§8.1 **V-6**） | `Null_and_empty_collections_stay_different_values` / `Null_and_empty_strings_stay_different_values_outside_ini` |
+| 3 | json/toml/yaml 的 `NaN`「只抛不诊断」 | **不是 I-6 白区** | 不按 I-6 处理：`NaN` 是运行期值，源生成器看不见 ⇒ 属 D-4/C1 的措辞议题；今日"响地拒绝"已断言 | `NaN_is_refused_by_json_because_the_format_has_no_literal` / `NaN_is_refused_by_toml_and_yaml_today_*` |
+| 4 | S14（`List<Dto?>`）整成员被丢 | **半个真**：yaml 在 R2 T4 已闭合（R1 的表值已腐化）；toml / ini 半边是真的 | **记录**：toml/ini 丢整成员**且必须有诊断**（I-1/I-7）；yaml 不丢、`- null` 元素往返 | `S14_drops_are_diagnosed_and_yaml_no_longer_drops_the_member` |
+| 5 | INI 的默认 `DateTime` 读不回 | **真缺陷** | **修（R2 T8，`654133b`；本轮复核并钉住根因）**：读侧补 `DateTime.Parse(…, RoundtripKind)` 兜底；**根因不是**旧脚注 ⁴ 猜的"缺 Kind 后缀"，而是 `Utf8Parser.TryParse(…, 'O')` 对 `DateTime.MinValue` 的往返文本返回 `false` —— 本轮把这条根因**钉进测试**，防止有人把兜底"简化"回去 | `Ini_reads_back_a_default_DateTime_member` / `Utf8Parser_round_trip_format_rejects_DateTime_MinValue` |
+| 6 | `DateTimeKind.Unspecified` 未测 | **真**（只测过 `Utc`/`Local`） | **补测即绿**（无缺陷）：三 Kind × 五格式，**断言 `Kind` 而不只是 ticks** | `Every_datetime_kind_survives_every_format` |
+| 7 | S15 无字符串/分隔符覆盖 | **真**（S15 六成员无 `string`） | 四格式**补测即绿**；INI 实测出**三条静默值级限制**（换行抛、首尾空白被裁、首 `#`/含 `;` 当注释）⇒ **记录**，§8.1 **V-2…V-4** | `Scalar_text_with_separators_survives_every_format` / `Separator_heavy_strings_round_trip_outside_ini` / `Ini_cannot_carry_a_newline_in_a_value` / `Ini_trims_surrounding_spaces_in_a_value` / `Ini_drops_a_value_that_starts_with_a_comment_marker` |
+| 8 | `CELL-OBS` 无门禁 | **不是 I-6 白区** | 属 I-4 家族的文档一致性：R2 T8 已建 `baseline-observations.txt` + `ProbeObservationGateTests`（比对 spec §3 的表） | `ProbeObservationGateTests` |
+
+**汇总**：真白区 **6**（1 / 2 / 4 的 toml·ini 半边 / 5 / 6 / 7）｜不是 I-6 白区 **2**（3 / 8）｜其中 **修代码 1 条**
+（#5，唯一的真缺陷）｜**记录为已知限制 4 条**（#1 的 toml/yaml 半边、#2 的 INI 字符串半边、#4 的 toml/ini 半边、
+#7 的 INI 值级三条）｜**补测即绿（无缺陷）2 处**（#2 的集合半边、#6）。所有"记录"都写明了 reopen 条件，
+并在 §8.1 有唯一住处。
+
+---
 
 ## 8. 兼容性政策
 
@@ -273,6 +298,28 @@ currently gets wrong about them, and what the library must do about it
 - **诊断 id + 消息模板是公共契约**（用户 `NoWarn` 依赖它），变更同样计版本。
 - 能力表为 `internal`（D5）⇒ 本批**全程不改** `api/*.public.txt`。
 - 逐缺陷 → 版本档的映射表由**计划**维护（属发布说明素材）。
+
+### 8.1 下一版清单：**值级**约定不承载的值（R2 明确不做）
+
+R2 的交付口径是「**能力**（成员是否进入生成代码）+ **形状**（哪格式能表达）」。下面这些值是**值级**议题：
+格式（或本规格自己给 INI 定的行式约定）**能**表达形状，但承载不了这些**字符/形态**，而承载它们需要**新的
+wire 约定**（键转义、值转义、null token、原生字面量）—— 那属 `x+1` 级的公共约定变更，R2 **不做**。
+登记在此是为了让「已知限制」只有**一个**住处，而不是散在测试注释里（每条都有断言钉住现状，见右列）。
+
+| # | 值 | 受限格 | 现状（实测）与断言 | 下一版要做什么 |
+|---|---|---|---|---|
+| **V-1** | 字典**键**含 `\n` / `\r` / `=` | **S9 × INI**（§3/§6 的 ✅ ⁵） | `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 无键转义 ⇒ 写出去读不回（§3 脚注 ⁵） | INI 键转义约定（公共 wire 变更） |
+| **V-2** | 字符串**值**含 `\n` / `\r` | INI 的任何字符串成员 | 写侧照原样写出（行被切断），读回来抛 `FormatException: Invalid INI line: expected '='` —— **响但晚**；断言 `BoundaryValueWhiteAreaTests.Ini_cannot_carry_a_newline_in_a_value` | INI 值转义约定（与 V-1 同一套） |
+| **V-3** | 字符串值**首/尾空白** | INI | `" pad "` 写成 `Text =  pad `、读回 `"pad"`（**静默**改值）；断言 `Ini_trims_surrounding_spaces_in_a_value` | 同上（或加引号值形态） |
+| **V-4** | 值**首 `#`** / 值**含 `;`** | INI | 值首 `#`：整行被当注释 ⇒ 键消失、成员回到 `null`（**静默丢失**）；`a ; b` 截断成 `a`（**静默截断**）；值中间 `#`（`a#b`）正常。断言 `Ini_drops_a_value_that_starts_with_a_comment_marker` | 同上 |
+| **V-5** | `NaN` / `±Inf` 的**原生字面量** | TOML / YAML | 两格式都有 `nan`/`inf`/`-inf`（§3 脚注 ³）⇒ **⏸ 欠账**，今日写侧抛 `ArgumentException`；断言 `NaN_is_refused_by_toml_and_yaml_today_*` / `Infinity_is_refused_by_toml_and_yaml_today_*` | 写侧改原生字面量 + 读侧接受（R4） |
+| **V-6** | `null` 与 `""` 的区分 | INI | `Key = ` 一种形态同时表示二者（§3 的 INI 约定：空值与空串不可区分）；断言 `Null_and_empty_strings_stay_different_values_outside_ini` | INI 值级 null token（与 V-1…V-4 同一套） |
+
+> **与 §3/§5 的关系**：V-1…V-4、V-6 是**本规格自己给 INI 定的行式约定**的边界（"不承载" ≠ 能力欠账，§3 已写明
+> INI 无独立实现可依据）；V-5 是 **⏸ 欠账**（有 reopen 条件）。两者都**不得**被写进发布说明的"已知限制"
+> 当作格式事实（C2/R4）—— 这正是本表存在的原因。
+
+---
 
 ## 9. 附录：证据脚本
 
