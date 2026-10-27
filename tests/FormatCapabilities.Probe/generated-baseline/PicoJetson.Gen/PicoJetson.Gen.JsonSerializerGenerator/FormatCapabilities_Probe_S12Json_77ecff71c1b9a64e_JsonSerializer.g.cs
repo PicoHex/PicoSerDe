@@ -7,13 +7,18 @@ namespace FormatCapabilities.Probe;
 
     file static class S12JsonJsonSer
     {
+        private static global::System.ReadOnlySpan<byte> PropName_V => "V"u8;
+
         public static void Serialize(IBufferWriter<byte> writer, S12Json value, global::PicoSerDe.Core.SerOptions? options)
         {
             var __opts = (global::PicoJetson.JsonOptions?)options;
             var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);
             jw.WriteStartObject();
-            var __name_V = jw.Options?.PropertyNamingPolicy?.ConvertName("V") ?? "V";
-            jw.WritePropertyName(__name_V);
+            var __policy = jw.Options?.PropertyNamingPolicy;
+            if (__policy is null)
+                jw.WritePropertyName(PropName_V);
+            else
+                jw.WritePropertyName(__policy.ConvertName("V") ?? "V");
             jw.WriteStartArray();
             foreach (var __item in value.V)
             {
