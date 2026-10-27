@@ -197,23 +197,29 @@ await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
 
 ## Performance
 
-**No performance numbers are published right now** — see the
-[root README](../README.md#performance). The benchmark harness had a defect that inverted
-every comparison: `Benchmark.Compare(name, baselineName, baselineAction, candidateName,
-candidateAction)` was called with PicoSerDe's own action in the *baseline* slot at all 26 call
-sites, so every ratio and every column header came out backwards. What is fixed here: the
-argument order, a runtime role guard that throws on inversion, and honest labels. What is
-**not** fixed yet: the [measurement protocol](../README.md#measurement-protocol) itself —
-nothing pinned machine load, iteration count, run count or run-to-run dispersion, so the same
-binary could be reported with values orders of magnitude apart depending on what else the
-machine was doing. That is a protocol defect, **not** an AOT one: on an idle machine the AOT
-binary and a direct `Stopwatch` loop agree to within a few percent, and AOT and JIT land in
-the same range — the earlier "AOT absolute cost" reading is retracted. Also not fixed: the
-INI/TOML competitor arms, which still do non-equivalent work. Nothing from those runs is
-quoted until the re-measurement lands.
+**PicoJetson is slower than System.Text.Json on these micro-benchmarks, and the figures are now
+published.** The full tables, the machine they were taken on and the log behind every number live
+in the root README's [Measured results](../README.md#measured-results-2026-10-27); this page keeps
+only what is specific to JSON:
 
-Run `dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks` for current
-local timings — but do not quote them until this section publishes them again.
+- **AOT vs AOT, 12 scenarios — slower in 12 of 12.** Range 1.07×–3.33×, median 1.94×:
+  `Simple POCO — Serialize` 0.274 vs 0.163 µs (1.68×), `Complex POCO — Serialize` 1.258 vs
+  0.654 µs (1.92×), `Collection POCO — Deserialize` 6.955 vs 5.502 µs (1.26×), `LargeString 1KB —
+  Serialize` 1.493 vs 0.449 µs (3.33×, the widest gap).
+- **JIT vs JIT, 12 scenarios — slower in 11 of 12.** Range 0.88×–5.33×, median 1.76×. The single
+  row ahead is `Nested POCO — Deserialize`, 0.877 vs 1.002 µs.
+
+Both tables come from 5 independent runs × ≥100,000 iterations per arm on 2026-10-27, on an AMD
+Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (6%–32% other-CPU; the
+protocol's limit is 35%). `dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks`
+reproduces the JIT table; the AOT table is that project published with `-p:PublishAot=true` and run
+as a native binary. AOT and JIT are separate processes and are never merged into one figure.
+
+The withdrawn table is still worth knowing about, because it is why every ratio in this repository
+is printed as `<ours> ÷ <theirs>`: `Benchmark.Compare(name, baselineName, baselineAction,
+candidateName, candidateAction)` had PicoSerDe's own action in the *baseline* slot at all 26 call
+sites, so each ratio and each column header came out backwards. A runtime role guard now throws on
+that inversion.
 
 One capability fact does not depend on any of that: **System.Text.Json is fully usable under
 NativeAOT** (with a source-generated `JsonSerializerContext`), so JSON is the one format where

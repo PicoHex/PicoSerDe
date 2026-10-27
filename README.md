@@ -53,16 +53,18 @@ Every module has its own suite, cross-validated against a competitor implementat
 
 ## Performance
 
-**No performance numbers are published right now, and the ones that used to be here were
-wrong.** The benchmark harness had a measurement defect that inverted every comparison, so
-the previous speedup table is withdrawn rather than corrected in place. Re-measurement is
-in progress; this section will only get numbers back once they come from the fixed harness.
+**The numbers are back, they come from the fixed harness and the protocol below, and they say
+PicoSerDe is slower than its competitors on micro-benchmarks.** On the AOT-vs-AOT JSON table it
+is slower in 12 of 12 scenarios (1.07×–3.33×, median 1.94×); on the AOT-vs-AOT MessagePack
+table, 4 of 4 (1.15×–3.53×). The old speedup table stays withdrawn rather than corrected in
+place: it was measured with the defects below, so no figure in it can be trusted — not even the
+ones that happened to point the right way. Everything quoted now was re-measured from scratch on
+2026-10-27; see [Measured results](#measured-results-2026-10-27).
 
-What was wrong — none of it a change to the serializers themselves. **Two of the four are
-fixed in `bench/fix-inversion`** (the inverted call sites, and the `PrintComparison` labels);
-**the other two are still open, and both are defects of the measurement *protocol*, not of any
-serializer and not of ahead-of-time compilation** — which is exactly why no number is
-published until they are redesigned:
+What was wrong — none of it a change to the serializers themselves. **Three of the four are
+fixed** (the inverted call sites and the `PrintComparison` labels in `bench/fix-inversion`, and
+the missing *protocol*, now written down in the two subsections below); **one is still open** —
+the non-equivalent INI/TOML competitor arms, which is why those two formats get no ratio:
 
 1. **Every `Benchmark.Compare` call passed its two actions in the wrong slots** (fixed here).
    PicoBench's signature is
@@ -71,14 +73,17 @@ published until they are redesigned:
    action as the *baseline* and the competitor's as the *candidate*, which swapped the column
    labels in every table and turned each ratio upside down: a row that read as a speedup was
    in truth the same magnitude of slowdown, with the two column headers printed backwards.
-2. **Published numbers were measured without a protocol** — **still open**, a
-   measurement-design defect, and *not* an AOT defect. Nothing pinned machine load, iteration
-   count, run count or run-to-run dispersion, and AOT and JIT were not kept in separate
-   columns, so the *same* binary could be reported with values orders of magnitude apart
-   depending on what else the machine was doing. That spread used to be read here as an "AOT"
-   absolute-cost blow-up; **that reading is retracted** — on an idle machine the AOT binary and
-   a direct `Stopwatch` loop agree to within a few percent, and AOT and JIT land in the same
-   range. What was missing is the protocol, not the compile mode.
+2. **Published numbers were measured without a protocol** — **fixed**: the protocol is the next
+   subsection. It was a measurement-design defect, and *not* an AOT defect. Nothing pinned
+   machine load, iteration count, run count or run-to-run dispersion, and AOT and JIT were not
+   kept in separate columns, so the *same* binary could be reported with values orders of
+   magnitude apart depending on what else the machine was doing. That spread used to be read
+   here as an "AOT" absolute-cost blow-up; **that reading is retracted**, and the retraction is
+   not replaced by its opposite: AOT and JIT are two separate processes and are reported in two
+   separate tables precisely because they are not interchangeable. In the 2026-10-27 session the
+   AOT table came out higher than the JIT table for *both* libraries — a fact about that session
+   that is still unexplained ([Measured results](#measured-results-2026-10-27)), not a verdict
+   on ahead-of-time compilation.
 3. **The INI/TOML competitor arms still do non-equivalent work** — **still open**, a
    measurement-design defect: the "competitor" arm does a hand-written DOM walk plus typed
    mapping while ours is a single library call, so the two arms are not the same job. The
@@ -152,6 +157,242 @@ The rules say what the benchmarks must do; the harness also says *how* it decide
 None of this makes a number quotable. The protocol excludes the interference it can measure; it
 cannot see thermal throttling, cgroup quotas, cache contention, or a busy neighbour that stays
 below the CPU limit.
+
+### Measured results (2026-10-27)
+
+The first figures published since the withdrawal, measured end to end under the protocol
+above — nothing here is a leftover from the broken harness. **They do not flatter the project:
+on these micro-benchmarks PicoSerDe is slower than System.Text.Json (all 12 AOT JSON scenarios)
+and slower than MessagePack-CSharp (all 4 AOT MessagePack scenarios).** The one mixed table is
+MessagePack's JIT one, where PicoSerDe is 2–6% faster on four of its eight rows — inside the two
+arms' shared dispersion, and not something to build a claim on.
+
+- **AOT vs AOT, JSON** (PicoJetson vs System.Text.Json, 12 scenarios): **slower in 12 of 12**,
+  by **1.07×–3.33× per scenario, median 1.94×**.
+- **AOT vs AOT, MessagePack** (PicoMsgPack vs MessagePack-CSharp, 4 scenarios): **slower in 4 of
+  4**, by **1.15×–3.53×, median 1.36×** — `Metrics — Deserialize` is 3.53× slower.
+- **JIT vs JIT, JSON** (12 scenarios): slower in 11 of 12, **0.88×–5.33×, median 1.76×**; the one
+  exception is `Nested POCO — Deserialize` at 0.88×.
+- **JIT vs JIT, MessagePack** (8 scenarios): slower in 4 of 8 — the small shapes are marginally
+  ahead (0.94×–0.98×, where the two arms are within each other's dispersion), the `Complex` and
+  `Collection` shapes are **1.71×–2.16× behind**.
+- **INI and TOML are not compared at all** — their competitor arms are non-equivalent, so they get
+  no ratio, only their own cost; **YAML is measured against nothing but itself.**
+
+In the ratio columns "×" is *PicoSerDe ÷ competitor*, so **above 1.00 means PicoSerDe is
+slower**. The harness prints the reciprocal in its own `Verdict` column (the AOT JSON table's
+`0.59x` sits where this table shows `1.68x`), which is the same measurement read the other way
+round — confusing the two readings is what inverted the old table.
+
+#### Environment, and what was imperfect about it
+
+| Item | Detail |
+|---|---|
+| CPU | AMD Ryzen 7 6800H with Radeon Graphics — 8 physical / 16 logical cores (mobile APU) |
+| OS | Windows 11 (`Microsoft Windows NT 10.0.26100.0`) |
+| SDK / runtime | `dotnet --version` = `10.0.401`; `Environment.Version` = `10.0.12` in every banner |
+| Measured on | **2026-10-27**, 11:06:3x–11:11:15 local; 7 processes, strictly serial, ≈4.8 min of measuring |
+| Publication | **115 of 116 arms published, 1 refused**; all 7 processes exited `0` |
+| The one refusal | PicoYaml `Simple — Deserialize`: `other processes used 37.0% of the machine's CPU while this action was measured (limit 35%)`. It carries **no number** here — that row is left empty rather than re-run until it produced a publishable figure. |
+| Machine load | **The machine was not fully idle.** System-wide other-CPU sat between **6% and 32%** for the whole session (mostly this session's own host/tooling processes); the limit is 35% and the closest published arm reached 32%. Drift ≤12.7%, spread ≤2.12×, dispersion ≤15.0% — inside the protocol's 20% / 3.0× / 25% — so no arm was refused on those criteria. |
+| Execution modes | AOT runs report `Mode: Aot \| IL on disk: no \| IsDynamicCodeSupported: no`. JIT runs report `Mode: Jit \| IL on disk: yes`, but **four of the five JIT benchmarks still carry the AOT feature switches** (`IsDynamicCodeSupported: no`, `JsonSerializer.IsReflectionEnabledByDefault: false`) because their csproj sets `PublishAot=true` while the harness executes IL; only PicoMsgPack's unified benchmark is plain JIT (`IsDynamicCodeSupported: yes`). AOT and JIT figures are never merged, and never divided by each other. |
+
+Each table cites the run it came from, as `<mode> · 2026-10-27 · bench-measure/logs/<file>.txt`,
+next to that run's own `PICOBENCH_SUMMARY` line, so a digit can be traced to the process that
+printed it. Those log files are the harness's verbatim stdout for that session and are not
+checked in (`.superpowers/` is gitignored); the same command on the same project regenerates the
+same table, footers included.
+
+These are micro-benchmarks on one machine: two-to-fifty-field POCOs and a 1 KB string, no I/O, no
+contention, no cold start. They say nothing about allocation behaviour, streaming, large documents
+or startup cost. **One anomaly to keep in view:** in this session the AOT table is slower than the
+JIT table for *both* libraries (System.Text.Json: 0.125 → 0.163 µs on `Simple POCO — Serialize`,
+0.390 → 0.654 on `Complex POCO — Serialize`) even though the AOT run had the cleaner machine
+(other-CPU 7% vs 30%). The cause is not established here, so the AOT columns are reported as
+measured and are not used to argue that PicoSerDe's AOT output is worse or better *relative* to
+System.Text.Json's — both sides moved together.
+
+#### AOT vs AOT — PicoJetson vs System.Text.Json (12 scenarios)
+
+µs/op, median over 5 independent runs, parenthesised min–max ±stddev. `equivalent=true` on every
+row, so every row carries a ratio.
+
+| Scenario | PicoJetson (ours) | System.Text.Json | Pico ÷ STJ |
+|---|---:|---:|---:|
+| Simple POCO — Serialize | 0.274 (0.272–0.288 ±0.007) | 0.163 (0.158–0.173 ±0.005) | 1.68× |
+| Simple POCO — Deserialize | 0.354 (0.330–0.356 ±0.011) | 0.280 (0.267–0.298 ±0.012) | 1.26× |
+| Complex POCO — Serialize | 1.258 (1.210–1.262 ±0.022) | 0.654 (0.621–0.657 ±0.015) | 1.92× |
+| Complex POCO — Deserialize | 1.643 (1.590–1.836 ±0.095) | 0.965 (0.878–0.975 ±0.042) | 1.70× |
+| Nested POCO — Serialize | 1.016 (0.965–1.062 ±0.039) | 0.439 (0.417–0.468 ±0.019) | 2.31× |
+| Nested POCO — Deserialize | 1.275 (1.210–1.278 ±0.030) | 1.193 (1.186–1.260 ±0.034) | 1.07× |
+| Collection POCO — Serialize | 3.895 (3.603–3.899 ±0.127) | 1.749 (1.695–1.796 ±0.036) | 2.23× |
+| Collection POCO — Deserialize | 6.955 (6.625–6.997 ±0.157) | 5.502 (5.481–5.764 ±0.121) | 1.26× |
+| LargeFlat 50-fields — Serialize | 3.832 (3.696–3.991 ±0.112) | 1.586 (1.526–1.636 ±0.044) | 2.42× |
+| LargeFlat 50-fields — Deserialize | 6.919 (6.748–7.014 ±0.130) | 3.550 (3.455–3.603 ±0.069) | 1.95× |
+| LargeString 1KB — Serialize | 1.493 (1.351–1.623 ±0.106) | 0.449 (0.433–0.475 ±0.018) | 3.33× |
+| LargeString 1KB — Deserialize | 1.630 (1.564–1.637 ±0.036) | 0.496 (0.469–0.508 ±0.015) | 3.29× |
+
+> Source: **AOT · 2026-10-27 · `bench-measure/logs/PicoJetson-Aot.txt`** —
+> `PICOBENCH_SUMMARY scenarios=12 published=24 refused=0 mode=Aot equivalent=true cpu=known exit=0`;
+> per-arm other-CPU 3%–21%; 100,000–278,460 iterations per arm; warm-up 24/24 converged (0.2–0.5 s).
+
+#### AOT vs AOT — PicoMsgPack vs MessagePack-CSharp (4 scenarios)
+
+AOT changes the model set: only statically resolvable types work under MessagePack-CSharp's AOT
+path, so this table's scenarios (`Person`, `Metrics`) are **not** the JIT table's below, and the
+two must not be aligned by scenario name.
+
+| Scenario | PicoMsgPack (ours) | MessagePack-CSharp | Pico ÷ MPC |
+|---|---:|---:|---:|
+| Person — Serialize | 0.116 (0.114–0.118 ±0.002) | 0.101 (0.098–0.103 ±0.002) | 1.15× |
+| Person — Deserialize | 0.164 (0.159–0.196 ±0.017) | 0.138 (0.136–0.142 ±0.002) | 1.19× |
+| Metrics — Serialize | 0.190 (0.189–0.192 ±0.001) | 0.124 (0.123–0.127 ±0.001) | 1.53× |
+| Metrics — Deserialize | 0.519 (0.480–0.542 ±0.027) | 0.147 (0.135–0.161 ±0.011) | **3.53×** |
+
+Wire size, same run (verbatim from the log): `Size: Person Pico=16B MPC=14B | Metrics Pico=53B MPC=26B`.
+
+> Source: **AOT · 2026-10-27 · `bench-measure/logs/PicoMsgPack-Aot.txt`** —
+> `PICOBENCH_SUMMARY scenarios=4 published=8 refused=0 mode=Aot equivalent=true cpu=known exit=0`;
+> per-arm other-CPU 4%–22%; 100,000–300,000 iterations per arm; warm-up 8/8 converged (0.1–0.2 s).
+
+#### JIT vs JIT — PicoJetson vs System.Text.Json (12 scenarios)
+
+Same models as the AOT JSON table above, in a separate process with its own numbers.
+`equivalent=true` on every row.
+
+| Scenario | PicoJetson (ours) | System.Text.Json | Pico ÷ STJ |
+|---|---:|---:|---:|
+| Simple POCO — Serialize | 0.162 (0.159–0.203 ±0.019) | 0.125 (0.123–0.127 ±0.001) | 1.30× |
+| Simple POCO — Deserialize | 0.243 (0.230–0.260 ±0.011) | 0.183 (0.175–0.191 ±0.006) | 1.33× |
+| Complex POCO — Serialize | 0.684 (0.674–0.808 ±0.056) | 0.390 (0.386–0.396 ±0.004) | 1.75× |
+| Complex POCO — Deserialize | 1.157 (1.123–1.174 ±0.020) | 0.614 (0.602–0.634 ±0.014) | 1.88× |
+| Nested POCO — Serialize | 0.580 (0.551–0.598 ±0.019) | 0.330 (0.317–0.339 ±0.009) | 1.76× |
+| Nested POCO — Deserialize | 0.877 (0.838–0.926 ±0.032) | 1.002 (0.934–1.073 ±0.057) | 0.88× |
+| Collection POCO — Serialize | 2.349 (2.260–2.391 ±0.059) | 1.414 (1.307–1.470 ±0.062) | 1.66× |
+| Collection POCO — Deserialize | 5.713 (5.591–6.067 ±0.179) | 3.551 (3.511–3.794 ±0.115) | 1.61× |
+| LargeFlat 50-fields — Serialize | 2.173 (2.130–2.363 ±0.113) | 1.000 (0.980–1.035 ±0.020) | 2.17× |
+| LargeFlat 50-fields — Deserialize | 6.574 (6.527–6.677 ±0.071) | 2.326 (2.234–2.627 ±0.165) | 2.83× |
+| LargeString 1KB — Serialize | 1.018 (0.965–1.061 ±0.038) | 0.261 (0.260–0.274 ±0.007) | 3.90× |
+| LargeString 1KB — Deserialize | 1.598 (1.507–1.653 ±0.058) | 0.300 (0.277–0.405 ±0.052) | 5.33× |
+
+> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoJetson.txt`** —
+> `PICOBENCH_SUMMARY scenarios=12 published=24 refused=0 mode=Jit equivalent=true cpu=known exit=0`;
+> per-arm other-CPU 6%–24%; 100,000–114,720 iterations per arm; warm-up 24/24 converged (1.0–1.1 s).
+> This is one of the four `Mode: Jit` runs that still carry the AOT feature switches (see the
+> environment table); it is not a plain-JIT environment.
+
+#### JIT vs JIT — PicoMsgPack vs MessagePack-CSharp (8 scenarios)
+
+`equivalent=true` on every row. The scenarios differ from the AOT table above — the unified models
+carry `DayOfWeek`, `Dictionary<string,string>` and `List<int>`, which MessagePack-CSharp cannot map
+ahead of time.
+
+| Scenario | PicoMsgPack (ours) | MessagePack-CSharp | Pico ÷ MPC |
+|---|---:|---:|---:|
+| Simple — Serialize | 0.065 (0.062–0.133 ±0.031) | 0.069 (0.068–0.072 ±0.002) | 0.94× |
+| Simple — Deserialize | 0.097 (0.096–0.119 ±0.010) | 0.099 (0.095–0.128 ±0.013) | 0.98× |
+| Complex — Serialize | 0.357 (0.331–0.372 ±0.017) | 0.209 (0.206–0.210 ±0.002) | 1.71× |
+| Complex — Deserialize | 0.602 (0.561–0.625 ±0.031) | 0.320 (0.315–0.321 ±0.003) | 1.88× |
+| Nested — Serialize | 0.205 (0.202–0.229 ±0.011) | 0.218 (0.214–0.230 ±0.006) | 0.94× |
+| Nested — Deserialize | 0.352 (0.341–0.376 ±0.015) | 0.375 (0.366–0.381 ±0.006) | 0.94× |
+| Collection — Serialize | 0.466 (0.450–0.504 ±0.024) | 0.222 (0.218–0.260 ±0.018) | 2.10× |
+| Collection — Deserialize | 1.382 (1.361–1.435 ±0.030) | 0.639 (0.598–0.680 ±0.031) | 2.16× |
+
+> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoMsgPack.txt`** —
+> `PICOBENCH_SUMMARY scenarios=8 published=16 refused=0 mode=Jit equivalent=true cpu=known exit=0`;
+> per-arm other-CPU 6%–23%; 100,000–126,200 iterations per arm; warm-up 16/16 converged (1.0 s).
+> This is the only plain-JIT run of the seven (`IsDynamicCodeSupported: yes`).
+>
+> Its `Simple — Serialize` row is the least trustworthy figure published here: 0.065 with a max of
+> 0.133 and a stddev of 0.031 (48% of the median), against a counterpart at 0.069 ±0.002. The
+> 0.94× on those two rows should be read as "indistinguishable", not as "ahead" — the difference is
+> smaller than the ours-side dispersion.
+
+#### NON-EQUIVALENT — PicoIni, absolute cost only
+
+**NON-EQUIVALENT — the competitor arm is a hand-written DOM walk, so no ratio is computed.** The
+ini-parser arm parses a DOM and maps it with hand-written code while PicoIni's arm is a single
+library call; the two are not the same job. PicoIni's own cost is what is published here, and the
+competitor column is deliberately **not** reproduced: it exists in the log, but no reader should be
+invited to divide one by the other. `equivalent=false` in this run's summary line.
+
+| Scenario | PicoIni median µs/op (min–max ±stddev) |
+|---|---:|
+| Simple — Serialize (bytes) | 0.102 (0.101–0.160 ±0.026) |
+| Simple — Deserialize (bytes) | 0.256 (0.165–0.277 ±0.044) |
+| Medium — Serialize (bytes) | 0.242 (0.237–0.249 ±0.005) |
+| Medium — Deserialize (bytes) | 0.376 (0.353–0.406 ±0.021) |
+| Complex — Serialize (bytes) | 0.384 (0.373–0.387 ±0.005) |
+| Large — Serialize (bytes) | 1.233 (1.176–1.253 ±0.030) |
+| Large — Deserialize (bytes) | 2.426 (2.349–2.511 ±0.059) |
+| Simple — SerializeToString | 0.113 (0.112–0.127 ±0.007) |
+| Simple — Deserialize←string | 0.138 (0.134–0.154 ±0.008) |
+
+> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoIni.txt`** —
+> `PICOBENCH_SUMMARY scenarios=9 published=18 refused=0 mode=Jit equivalent=false cpu=known exit=0`;
+> per-arm other-CPU 7%–23%; 100,000–117,630 iterations per arm; warm-up 18/18 converged (1.0–1.4 s).
+>
+> Two rows are the weakest in this table and are shown as measured: `Simple — Deserialize`'s min is
+> 0.165 against a median of 0.256 (the other four runs sit at 0.25–0.277), and `Simple — Serialize`'s
+> max is 0.160 against a median of 0.102. Both stayed inside the protocol's 3.0× spread limit, so
+> they are published rather than discarded — and quoted with that caveat attached.
+
+#### NON-EQUIVALENT — PicoToml, absolute cost only
+
+**NON-EQUIVALENT — the competitor arm is a hand-written DOM walk, so no ratio is computed.** Tommy
+is a DOM-only TOML parser (`TOML.Parse` / `TomlTable`) with no typed POCO mapping, so the two arms
+do not perform the same work. PicoToml's own cost only; the competitor column is in the log and
+deliberately not reproduced here. `equivalent=false` in the summary line.
+
+| Scenario | PicoToml median µs/op (min–max ±stddev) |
+|---|---:|
+| Simple — Serialize (bytes) | 0.120 (0.115–0.144 ±0.012) |
+| Simple — Deserialize (bytes) | 0.147 (0.144–0.152 ±0.003) |
+| Medium — Serialize (bytes) | 0.300 (0.299–0.327 ±0.013) |
+| Medium — Deserialize (bytes) | 0.367 (0.343–0.391 ±0.020) |
+| Nested — Serialize (bytes) | 0.428 (0.414–0.439 ±0.010) |
+| Nested — Deserialize (bytes) | 0.694 (0.659–0.723 ±0.026) |
+| Large — Serialize (bytes) | 1.437 (1.367–1.563 ±0.075) |
+| Large — Deserialize (bytes) | 2.871 (2.733–3.169 ±0.172) |
+| Simple — SerializeToString | 0.134 (0.128–0.144 ±0.007) |
+| Simple — Deserialize←string | 0.158 (0.153–0.163 ±0.004) |
+
+> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoToml.txt`** —
+> `PICOBENCH_SUMMARY scenarios=10 published=20 refused=0 mode=Jit equivalent=false cpu=known exit=0`;
+> per-arm other-CPU 8%–25%; 100,000–121,275 iterations per arm; warm-up 20/20 converged (1.0–1.4 s).
+
+#### PicoYaml — self-measured, no opponent, no ratio
+
+There is no YAML comparison here at all: the format is benchmarked against itself, which is the only
+honest thing to publish while the library that would be its competitor maps typed POCOs by
+reflection and does not run under AOT. One row of six was refused and stays empty.
+
+| Scenario | PicoYaml median µs/op (min–max ±stddev) | Status |
+|---|---:|---|
+| Simple — Serialize | 0.219 (0.183–0.248 ±0.028) | published |
+| Simple — Deserialize | — | **refused**: other-CPU 37.0% > 35% limit |
+| Nested — Serialize | 0.676 (0.634–0.693 ±0.022) | published (other-CPU 32%) |
+| Nested — Deserialize | 1.071 (1.049–1.163 ±0.052) | published (other-CPU 29%) |
+| Collection — Serialize | 1.788 (1.688–1.805 ±0.047) | published |
+| Collection — Deserialize | 5.477 (5.093–5.526 ±0.185) | published |
+
+> Source: **JIT · 2026-10-27 · `bench-measure/logs/PicoYaml.txt`** —
+> `PICOBENCH_SUMMARY scenarios=6 published=5 refused=1 mode=Jit equivalent=true cpu=known exit=0`;
+> per-arm other-CPU 12%–32% on the published arms; 100,000–106,095 iterations per arm; warm-up 5/5
+> converged (1.0 s). The two `Nested` rows were measured at 32% and 29% other-CPU, i.e. 3–6 points
+> below the refusal threshold, and are worth less than the `Collection` rows measured at 15% and
+> 12%.
+
+#### What these numbers do not say
+
+They are not a claim about production throughput, latency under load, memory or cold start, and they
+do not compare INI or TOML against anything. What they do say, however the table is sliced: **on
+this machine and these micro-benchmarks, System.Text.Json and MessagePack-CSharp are faster than
+PicoSerDe** — in AOT and in JIT, with JSON's `Nested POCO — Deserialize` (JIT) and MessagePack's
+four small-shape rows (`Simple` and `Nested`, serialize and deserialize) as the only rows where the
+two are indistinguishable. PicoSerDe's claim is that
+it runs everywhere ahead of time and maps typed POCOs across five formats (see the next table), not
+that it is the fastest thing in it.
 
 ### NativeAOT support, by competitor (verified, not a performance claim)
 

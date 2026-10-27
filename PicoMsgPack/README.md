@@ -95,10 +95,29 @@ accepts options for API uniformity.
 
 ## Performance
 
-**No performance numbers are published right now** — see the
-[root README](../README.md#performance). The harness had a defect that inverted every
-comparison (PicoSerDe's action passed in PicoBench's *baseline* slot, at all 26 call sites),
-so the previous speedup table described the opposite of what it claimed and has been withdrawn.
+**PicoMsgPack is slower than MessagePack-CSharp on these micro-benchmarks, and the figures are
+now published.** The full tables, the machine and the log behind every number live in the root
+README's [Measured results](../README.md#measured-results-2026-10-27); the MessagePack-specific
+summary:
+
+- **AOT vs AOT, 4 scenarios — slower in 4 of 4.** Range 1.15×–3.53×, median 1.36×:
+  `Person — Serialize` 0.116 vs 0.101 µs (1.15×), `Metrics — Deserialize` 0.519 vs 0.147 µs
+  (**3.53×**, the widest gap in the whole measurement). Wire size, same run:
+  `Person` 16 B vs 14 B, `Metrics` 53 B vs 26 B.
+- **JIT vs JIT, 8 scenarios — slower in 4 of 8.** `Simple` and `Nested` (serialize and
+  deserialize) land at 0.94×–0.98×, i.e. inside each other's dispersion and not a win;
+  `Complex` and `Collection` are 1.71×–2.16× behind.
+
+Both tables come from 5 independent runs × ≥100,000 iterations per arm on 2026-10-27, on an AMD
+Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (6%–23% other-CPU on these
+tables). The AOT table uses a different model set from the JIT one on purpose — only statically
+resolvable types run under MessagePack-CSharp's AOT path — so the two must not be aligned by
+scenario name, and AOT and JIT are never merged into one figure.
+
+The withdrawn table is still worth knowing about, because it is why every ratio in this repository
+is printed as `<ours> ÷ <theirs>`: the harness had PicoSerDe's action in PicoBench's *baseline*
+slot at all 26 call sites, so each ratio and each column header came out backwards. A runtime role
+guard now throws on that inversion.
 
 What *is* verified, and is a capability fact rather than a ratio: **MessagePack-CSharp only
 partly works under NativeAOT.** It builds formatters for enums and generic collections at run
