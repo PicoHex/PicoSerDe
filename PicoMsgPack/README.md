@@ -93,6 +93,21 @@ options argument.
 (`DefaultIgnoreCondition = WhenWritingNull` omits null members); `Deserialize`
 accepts options for API uniformity.
 
+### `DateTime` on the wire
+
+`DateTime` is written as the MessagePack **timestamp extension** (tag `0xFF`): timestamp 32
+when the value has no sub-second part and its seconds fit 4 bytes, timestamp 64 (`(nsec << 34)
+| sec`: 30 bits of nanoseconds above 34 bits of seconds) while the seconds stay below 2^34, and
+timestamp 96 (nanoseconds + signed 64-bit seconds) otherwise. That is byte-for-byte what
+MessagePack-CSharp writes — `TimestampInteropTests` checks both directions, to the tick.
+
+The extension carries an **instant**, not a `DateTimeKind`: `Utc` is written as is, `Local` is
+converted with `ToUniversalTime()`, `Unspecified` is taken at face value (as UTC), and every
+value reads back as `DateTimeKind.Utc`. The reader still accepts the 28-character ISO (`"O"`)
+string earlier builds wrote, so already-stored payloads stay readable. Set
+`MsgPackOptions.DateTimeFormat = MsgPackDateTimeFormat.IsoString` to write that text form
+again.
+
 ## Performance
 
 **PicoMsgPack is slower than MessagePack-CSharp on these micro-benchmarks.** The full tables, the

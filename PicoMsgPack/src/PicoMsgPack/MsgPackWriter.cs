@@ -33,6 +33,21 @@ public ref struct MsgPackWriter
     /// <summary>Minimum span the writer asks for, so short tokens amortise one fetch.</summary>
     private const int MinSpanSize = 256;
 
+    /// <summary>Application-defined extension tag MessagePack reserves for timestamps.</summary>
+    private const byte TimestampExtTag = 0xFF;
+
+    /// <summary>Payload length of a timestamp 96 extension (4-byte nsec + 8-byte sec).</summary>
+    private const byte TimestampExtLength96 = 12;
+
+    /// <summary>Raw <see cref="DateTime.Ticks"/> of the Unix epoch, 1970-01-01T00:00:00Z.</summary>
+    private const long UnixEpochTicks = 621_355_968_000_000_000L;
+
+    /// <summary>Highest second count a timestamp 32 carries (2^32).</summary>
+    private const long Timestamp32Limit = 1L << 32;
+
+    /// <summary>Highest second count a timestamp 64 carries (2^34).</summary>
+    private const long Timestamp64Limit = 1L << 34;
+
     private IBufferWriter<byte> _buffer;
     private long _bytesWritten;
     private int _depth;
@@ -491,6 +506,108 @@ public ref struct MsgPackWriter
         BinaryPrimitives.WriteInt64BigEndian(s.Slice(1), BitConverter.DoubleToInt64Bits(value));
         _spanPos += 9;
         _bytesWritten += 9;
+    }
+
+    /// <summary>
+    /// Writes a <see cref="DateTime"/> as the MessagePack <b>timestamp extension</b>
+    /// (application-defined tag <c>0xFF</c>) — the shape MessagePack-CSharp emits.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three encodings, chosen from the value (spec §"Timestamp extension type"):
+    /// </para>
+    /// <list type="table">
+    /// <item>
+    /// <term>timestamp 32</term>
+    /// <description><c>0xD6 0xFF</c> + 4-byte big-endian seconds — only when the
+    /// sub-second part is zero <em>and</em> the seconds fit <c>[0, 2³²)</c>.</description>
+    /// </item>
+    /// <item>
+    /// <term>timestamp 64</term>
+    /// <description><c>0xD7 0xFF</c> + 8-byte big-endian <c>(nsec &lt;&lt; 34) | sec</c> —
+    /// 30 bits of nanoseconds above 34 bits of seconds, for <c>[0, 2³⁴)</c> seconds.
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <term>timestamp 96</term>
+    /// <description><c>0xC7 0x0C 0xFF</c> + 4-byte big-endian nanoseconds + 8-byte
+    /// big-endian signed seconds — everything else, including instants before 1970.
+    /// </description>
+    /// </item>
+    /// </list>
+    /// <para>
+    /// <b>Kind policy.</b> The wire carries an instant, not a <see cref="DateTimeKind"/>:
+    /// <see cref="DateTimeKind.Utc"/> is written as is, <see cref="DateTimeKind.Local"/> is
+    /// converted with <see cref="DateTime.ToUniversalTime"/>, and
+    /// <see cref="DateTimeKind.Unspecified"/> is <b>interpreted as UTC</b> — its ticks go on
+    /// the wire unchanged, so a value read back is the same instant carrying
+    /// <see cref="DateTimeKind.Utc"/>. Round-tripping an <c>Unspecified</c> or <c>Local</c>
+    /// value therefore preserves the instant and normalises the Kind.
+    /// </para>
+    /// <para>
+    /// Set <see cref="MsgPackOptions.DateTimeFormat"/> to
+    /// <see cref="MsgPackDateTimeFormat.IsoString"/> to keep the legacy 28-character
+    /// <c>"O"</c> text instead.
+    /// </para>
+    /// </remarks>
+    public void WriteDateTime(DateTime value)
+    {
+        if (_options is { DateTimeFormat: MsgPackDateTimeFormat.IsoString })
+        {
+            WriteString(Encoding.UTF8.GetBytes(value.ToString("O")));
+            return;
+        }
+
+        if (value.Kind == DateTimeKind.Local)
+            value = value.ToUniversalTime();
+
+        // Seconds/nanoseconds since the epoch, floored on purpose: a pre-1970 instant has
+        // negative ticks, and truncation towards zero would leave a negative remainder and
+        // nanoseconds outside the 30-bit field.
+        long ticks = value.Ticks - UnixEpochTicks;
+        long sec = ticks / TimeSpan.TicksPerSecond;
+        long rem = ticks % TimeSpan.TicksPerSecond;
+        if (rem < 0)
+        {
+            sec--;
+            rem += TimeSpan.TicksPerSecond;
+        }
+        // A tick is 100 ns, so the sub-second part is always a whole number of nanoseconds
+        // and the 30-bit field can hold anything below 1e9.
+        uint nsec = (uint)(rem * 100);
+
+        if (nsec == 0 && sec >= 0 && sec < Timestamp32Limit)
+        {
+            Ensure(6);
+            var s = _span.Slice(_spanPos);
+            s[0] = 0xD6;
+            s[1] = TimestampExtTag;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(2), (uint)sec);
+            _spanPos += 6;
+            _bytesWritten += 6;
+        }
+        else if (sec >= 0 && sec < Timestamp64Limit)
+        {
+            Ensure(10);
+            var s = _span.Slice(_spanPos);
+            s[0] = 0xD7;
+            s[1] = TimestampExtTag;
+            BinaryPrimitives.WriteUInt64BigEndian(s.Slice(2), ((ulong)nsec << 34) | (ulong)sec);
+            _spanPos += 10;
+            _bytesWritten += 10;
+        }
+        else
+        {
+            Ensure(15);
+            var s = _span.Slice(_spanPos);
+            s[0] = 0xC7;
+            s[1] = TimestampExtLength96;
+            s[2] = TimestampExtTag;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(3), nsec);
+            BinaryPrimitives.WriteInt64BigEndian(s.Slice(7), sec);
+            _spanPos += 15;
+            _bytesWritten += 15;
+        }
     }
 
     public void WriteStartArray(int count)

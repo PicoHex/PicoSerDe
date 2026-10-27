@@ -1662,10 +1662,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(");");
                 break;
             case "datetime":
+                // The timestamp extension (tag 0xFF) is what every other MessagePack
+                // library writes for DateTime; the writer picks 32/64/96 from the value
+                // and falls back to the legacy "O" text only when MsgPackOptions asks
+                // for it. The reader accepts both shapes either way.
                 s.Append(ind);
-                s.Append("mw.WriteString(");
+                s.Append("mw.WriteDateTime(");
                 s.Append(a);
-                s.AppendLine(".ToString(\"O\"));");
+                s.AppendLine(");");
                 break;
             case "timespan":
                 // C-14: pin the payload to the invariant culture so it never depends on the
@@ -1948,10 +1952,14 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(");");
                 break;
             case "datetime":
+                // The timestamp extension (tag 0xFF) is what every other MessagePack
+                // library writes for DateTime; the writer picks 32/64/96 from the value
+                // and falls back to the legacy "O" text only when MsgPackOptions asks
+                // for it. The reader accepts both shapes either way.
                 s.Append(ind);
-                s.Append("mw.WriteString(");
+                s.Append("mw.WriteDateTime(");
                 s.Append(a);
-                s.AppendLine(".ToString(\"O\"));");
+                s.AppendLine(");");
                 break;
             case "timespan":
                 // C-14: pin the payload to the invariant culture so it never depends on the
@@ -3142,6 +3150,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             "float32" => $"{wv}.WriteFloat64((double){vv});",
             "float64" => $"{wv}.WriteFloat64({vv});",
             "boolean" => $"{wv}.WriteBoolean({vv});",
+            "datetime" => $"{wv}.WriteDateTime({vv});",
             _ => $"{wv}.WriteString({vv}.ToString());",
         };
 
