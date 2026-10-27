@@ -14,7 +14,7 @@ internal static class FormatCapabilities_Probe_S11bMsgpack_b84dd7056be5654bMsgPa
         mw.WriteStartObject(__n0);
         mw.WriteInt32(0);
         if (v.Name != null) {
-            mw.WriteString(Encoding.UTF8.GetBytes(v.Name));
+            mw.WriteString(v.Name);
         } else mw.WriteNull();
         if (!__sk1) {
             mw.WriteInt32(1);

@@ -13,7 +13,7 @@ file static class S11bMsgpackMsgPackSerializer {
         mw.WriteStartObject(__n0);
         mw.WriteInt32(0);
         if (value.Name != null) {
-            mw.WriteString(Encoding.UTF8.GetBytes(value.Name));
+            mw.WriteString(value.Name);
         } else mw.WriteNull();
         if (!__sk1) {
             mw.WriteInt32(1);

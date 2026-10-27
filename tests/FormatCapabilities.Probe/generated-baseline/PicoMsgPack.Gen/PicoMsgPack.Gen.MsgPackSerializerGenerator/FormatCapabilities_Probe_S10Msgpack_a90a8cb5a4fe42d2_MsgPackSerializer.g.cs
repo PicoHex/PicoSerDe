@@ -11,7 +11,7 @@ file static class S10MsgpackMsgPackSerializer {
         mw.WriteInt32(0);
         mw.WriteStartObject(value.V.Count);
         foreach (var __kv in value.V) {
-            mw.WriteString(Encoding.UTF8.GetBytes(__kv.Key));            mw.WriteStartArray(__kv.Value.Count);
+            mw.WriteString(__kv.Key);            mw.WriteStartArray(__kv.Value.Count);
             foreach (var __nl0 in __kv.Value) {
                 mw.WriteInt32(__nl0);
             }

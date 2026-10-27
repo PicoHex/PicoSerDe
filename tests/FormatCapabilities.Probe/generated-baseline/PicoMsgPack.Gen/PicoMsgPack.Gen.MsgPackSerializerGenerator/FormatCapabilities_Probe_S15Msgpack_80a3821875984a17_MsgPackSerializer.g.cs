@@ -14,17 +14,17 @@ file static class S15MsgpackMsgPackSerializer {
         mw.WriteInt32(0);
         mw.WriteFloat64((double)(value.F));
         mw.WriteInt32(1);
-        mw.WriteString(Encoding.UTF8.GetBytes(value.D.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        mw.WriteString(value.D.ToString(System.Globalization.CultureInfo.InvariantCulture));
         mw.WriteInt32(2);
-        mw.WriteString(Encoding.UTF8.GetBytes(value.When.ToString("O")));
+        mw.WriteString(value.When.ToString("O"));
         mw.WriteInt32(3);
-        mw.WriteString(Encoding.UTF8.GetBytes(value.Span.ToString("c", System.Globalization.CultureInfo.InvariantCulture)));
+        mw.WriteString(value.Span.ToString("c", System.Globalization.CultureInfo.InvariantCulture));
         mw.WriteInt32(4);
-        mw.WriteString(Encoding.UTF8.GetBytes(value.Id.ToString()));
+        mw.WriteString(value.Id.ToString());
         if (!__sk1) {
             mw.WriteInt32(5);
             if (value.Day.HasValue) {
-                mw.WriteString(Encoding.UTF8.GetBytes(value.Day.Value.ToString()));
+                mw.WriteString(value.Day.Value.ToString());
             } else mw.WriteNull();
         }
         mw.WriteEndObject(); _ = mw.Buffer; } }

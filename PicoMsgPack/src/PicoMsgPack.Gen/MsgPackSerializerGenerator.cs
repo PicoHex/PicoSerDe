@@ -829,11 +829,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine(" value) {");
         s.AppendLine("        mw.WriteStartObject(value.Count);");
         s.AppendLine("        foreach (var __dikvp in value) {");
-        s.AppendLine("            mw.WriteString(Encoding.UTF8.GetBytes(__dikvp.Key));");
+        s.AppendLine("            mw.WriteString(__dikvp.Key);");
         switch (dp.ElementTypeKind)
         {
             case "string":
-                s.AppendLine("            mw.WriteString(Encoding.UTF8.GetBytes(__dikvp.Value));");
+                s.AppendLine("            mw.WriteString(__dikvp.Value);");
                 break;
             case "int32":
                 s.AppendLine("            mw.WriteInt32(__dikvp.Value);");
@@ -882,9 +882,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             }
             default:
-                s.AppendLine(
-                    "            mw.WriteString(Encoding.UTF8.GetBytes(__dikvp.Value.ToString()));"
-                );
+                s.AppendLine("            mw.WriteString(__dikvp.Value.ToString());");
                 break;
         }
         s.AppendLine("        }");
@@ -1157,7 +1155,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append(indent);
         s.Append("else if (");
         s.Append(valueExpr);
-        s.AppendLine(" is string __s) mw.WriteString(Encoding.UTF8.GetBytes(__s));");
+        s.AppendLine(" is string __s) mw.WriteString(__s);");
         s.Append(indent);
         s.Append("else if (");
         s.Append(valueExpr);
@@ -1203,9 +1201,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append(valueExpr);
         s.AppendLine(" is bool __b) mw.WriteBoolean(__b);");
         s.Append(indent);
-        s.Append("else mw.WriteString(Encoding.UTF8.GetBytes(");
+        s.Append("else mw.WriteString(");
         s.Append(valueExpr);
-        s.AppendLine(".ToString()!));");
+        s.AppendLine(".ToString()!);");
     }
 
     static void EmitMsgPackAnyDeserialize(StringBuilder s, string assignTarget, string indent)
@@ -1608,9 +1606,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         {
             case "string":
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine("));");
+                s.AppendLine(");");
                 break;
             case "int32":
                 s.Append(ind);
@@ -1665,43 +1663,43 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             case "datetime":
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine(".ToString(\"O\")));");
+                s.AppendLine(".ToString(\"O\"));");
                 break;
             case "timespan":
                 // C-14: pin the payload to the invariant culture so it never depends on the
                 // ambient culture (paired with the invariant reader below).
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
                 s.AppendLine(
-                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "dateonly":
             case "guid":
             case "enum":
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine(".ToString()));");
+                s.AppendLine(".ToString());");
                 break;
             case "decimal":
                 // C-14: a plain ToString() writes "1,5" under de-DE, which the invariant
                 // reader rejects - always emit the invariant form ("1.5") instead of
                 // falling through to the culture-sensitive default: branch.
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture));");
                 break;
             case "timeonly":
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
                 s.AppendLine(
-                    ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "list":
@@ -1754,7 +1752,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(a);
                 s.AppendLine(") {");
                 s.Append(ind);
-                s.Append("    mw.WriteString(Encoding.UTF8.GetBytes(__kv.Key));");
+                s.Append("    mw.WriteString(__kv.Key);");
                 WriteSerElem(s, p, "__kv.Value", ind + "    ", ref c);
                 s.Append(ind);
                 s.AppendLine("}");
@@ -1842,9 +1840,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             default:
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine(".ToString()));");
+                s.AppendLine(".ToString());");
                 break;
         }
         if (p.IsNullable || p.TypeKind == "string")
@@ -1894,9 +1892,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         {
             case "string":
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine("));");
+                s.AppendLine(");");
                 break;
             case "int32":
                 s.Append(ind);
@@ -1951,43 +1949,43 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 break;
             case "datetime":
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine(".ToString(\"O\")));");
+                s.AppendLine(".ToString(\"O\"));");
                 break;
             case "timespan":
                 // C-14: pin the payload to the invariant culture so it never depends on the
                 // ambient culture (paired with the invariant reader below).
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
                 s.AppendLine(
-                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    ".ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "dateonly":
             case "guid":
             case "enum":
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine(".ToString()));");
+                s.AppendLine(".ToString());");
                 break;
             case "decimal":
                 // C-14: a plain ToString() writes "1,5" under de-DE, which the invariant
                 // reader rejects - always emit the invariant form ("1.5") instead of
                 // falling through to the culture-sensitive default: branch.
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture));");
                 break;
             case "timeonly":
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
                 s.AppendLine(
-                    ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture)));"
+                    ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
             case "bytes":
@@ -2092,9 +2090,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             }
             default:
                 s.Append(ind);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append("mw.WriteString(");
                 s.Append(a);
-                s.AppendLine(".ToString()));");
+                s.AppendLine(".ToString());");
                 break;
         }
     }
@@ -3135,7 +3133,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
     private static string EmitMsgPackValue(AnonFieldInfo f, string vv, string wv) =>
         f.TypeKind switch
         {
-            "string" => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}));",
+            "string" => $"{wv}.WriteString({vv});",
             "int32" => $"{wv}.WriteInt32({vv});",
             "int64" => $"{wv}.WriteInt64({vv});",
             "int16" or "uint16" or "sbyte" or "byte" => $"{wv}.WriteInt32({vv});",
@@ -3144,7 +3142,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             "float32" => $"{wv}.WriteFloat64((double){vv});",
             "float64" => $"{wv}.WriteFloat64({vv});",
             "boolean" => $"{wv}.WriteBoolean({vv});",
-            _ => $"{wv}.WriteString(Encoding.UTF8.GetBytes({vv}.ToString()));",
+            _ => $"{wv}.WriteString({vv}.ToString());",
         };
 
     static void ReadDeserElem(
@@ -3631,19 +3629,19 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 ref c,
                 extraCount: 1
             );
-            s.Append("                mw.WriteString(Encoding.UTF8.GetBytes(\"");
+            s.Append("                mw.WriteString(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dpn));
-            s.AppendLine("\"));");
-            s.Append("                mw.WriteString(Encoding.UTF8.GetBytes(\"");
+            s.AppendLine("\");");
+            s.Append("                mw.WriteString(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dt.TypeDiscriminator));
-            s.AppendLine("\"));");
+            s.AppendLine("\");");
             foreach (var prop in dtProps)
             {
                 var bodyInd = EmitSkipGuardOpen(s, skips, prop, "                ", out var sv);
                 s.Append(bodyInd);
-                s.Append("mw.WriteString(Encoding.UTF8.GetBytes(\"");
+                s.Append("mw.WriteString(\"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
-                s.AppendLine("\"));");
+                s.AppendLine("\");");
                 WriteSer(s, prop, $"__v.{prop.Name}", bodyInd, ref c);
                 EmitSkipGuardClose(s, sv, "                ");
             }

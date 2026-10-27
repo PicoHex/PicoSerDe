@@ -221,6 +221,98 @@ public ref struct MsgPackWriter
         }
     }
 
+    /// <summary>
+    /// Writes a string, encoding it straight into the span this writer owns.
+    /// </summary>
+    /// <remarks>
+    /// Generated serializers used to hand strings over as a freshly allocated
+    /// <c>byte[]</c> (<c>WriteString(Encoding.UTF8.GetBytes(value))</c>), which cost one
+    /// allocation per string member and encoded the characters twice — once into the
+    /// array, once into the span. Passing the characters lets the encoder land directly
+    /// behind the header.
+    /// <para>
+    /// The header length is a function of the UTF-8 <em>byte</em> count, not the char
+    /// count, so it cannot be chosen before the encoding runs. Two arms cover that:
+    /// up to 31 characters the payload cannot exceed 93 bytes, which is a fixstr or str8
+    /// header — the encoder writes the payload first and the header is backfilled from the
+    /// count it returns, so there is no counting pass and (for anything that fits fixstr, the
+    /// overwhelmingly common case) no move at all; longer strings take the exact byte count
+    /// first. <see cref="Encoding.GetByteCount(ReadOnlySpan{char})"/> is exact, which keeps
+    /// <see cref="Ensure"/> honest: <c>GetMaxByteCount</c> would reserve three bytes per char
+    /// (the underlying buffer would grow to three times an all-ASCII payload) and a long
+    /// header would then need a memmove of a long payload.
+    /// </para>
+    /// </remarks>
+    public void WriteString(scoped ReadOnlySpan<char> value)
+    {
+        if (value.Length <= 31)
+        {
+            // At most 93 bytes, so the header is fixstr or str8 and - whatever the characters
+            // are - no counting is needed: encode behind a one-byte header slot and backfill
+            // it. Only a payload that outgrew fixstr has to move, and then by one byte.
+            Ensure(2 + value.Length * 3);
+            var head = _span.Slice(_spanPos);
+            int written = Encoding.UTF8.GetBytes(value, head.Slice(1));
+            if (written <= 31)
+            {
+                head[0] = (byte)(0xA0 | written);
+                _spanPos += 1 + written;
+                _bytesWritten += 1 + written;
+            }
+            else
+            {
+                // str8: overlapping move (Span.CopyTo is a memmove), then the two-byte header.
+                head.Slice(1, written).CopyTo(head.Slice(2, written));
+                head[0] = 0xD9;
+                head[1] = (byte)written;
+                _spanPos += 2 + written;
+                _bytesWritten += 2 + written;
+            }
+            return;
+        }
+
+        int len = Encoding.UTF8.GetByteCount(value);
+        if (len <= 31)
+        {
+            Ensure(1 + len);
+            var s = _span.Slice(_spanPos);
+            s[0] = (byte)(0xA0 | len);
+            Encoding.UTF8.GetBytes(value, s.Slice(1));
+            _spanPos += 1 + len;
+            _bytesWritten += 1 + len;
+        }
+        else if (len <= 255)
+        {
+            Ensure(2 + len);
+            var s = _span.Slice(_spanPos);
+            s[0] = 0xD9;
+            s[1] = (byte)len;
+            Encoding.UTF8.GetBytes(value, s.Slice(2));
+            _spanPos += 2 + len;
+            _bytesWritten += 2 + len;
+        }
+        else if (len <= 65535)
+        {
+            Ensure(3 + len);
+            var s = _span.Slice(_spanPos);
+            s[0] = 0xDA;
+            BinaryPrimitives.WriteUInt16BigEndian(s.Slice(1), (ushort)len);
+            Encoding.UTF8.GetBytes(value, s.Slice(3));
+            _spanPos += 3 + len;
+            _bytesWritten += 3 + len;
+        }
+        else
+        {
+            Ensure(5 + len);
+            var s = _span.Slice(_spanPos);
+            s[0] = 0xDB;
+            BinaryPrimitives.WriteUInt32BigEndian(s.Slice(1), (uint)len);
+            Encoding.UTF8.GetBytes(value, s.Slice(5));
+            _spanPos += 5 + len;
+            _bytesWritten += 5 + len;
+        }
+    }
+
     public void WritePropertyName(ReadOnlySpan<byte> utf8Name) => WriteString(utf8Name);
 
     public void WriteStartObject(int count)
