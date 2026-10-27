@@ -91,3 +91,56 @@ diff -r <旧基线> <新基线>                                   # 应只有生
 # 性能（按 README 协议，一次一个，机器空闲）
 dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks --no-launch-profile
 ```
+
+---
+
+# 第二部分：MsgPack（依据 `.superpowers/sdd/perf-msgpack/analysis.md` 的实测归因）
+
+**与 JSON 部分的关系**：MsgPack 的主因**和 JSON 完全不同** —— 键是整数（无名字分派）、格式是二进制（无文本扫描）。
+它的三条主因是：**每 token 一次 `IBufferWriter` 调用**（写侧）、**每 token 9–11 ns 的 `Read()`**（读侧）、
+**`DateTime` 写成 28 字符 ISO 字符串**（MPC 写 4 字节 timestamp 扩展）。
+
+**顺序是刻意的**：先修一个**既有的正确性 bug**（timestamp-64 字段序反了），再谈性能 ——
+否则"改成扩展"会把那个 bug 推到主路径上。
+
+## Task 4a: 修 timestamp-64 字段序（**正确性 bug，先做**）
+
+**Files:**
+- Modify: `PicoMsgPack/src/PicoMsgPack.Gen/MsgPackSerializerGenerator.cs:2176-2178`
+- Test: `PicoMsgPack/tests/`（新增 timestamp 往返测试）
+
+**Interfaces:**
+- Consumes: 现有 `case 4 / 8 / 12` 的 timestamp 解码分支
+- Produces: 64 位按规范 `(nsec << 34) | sec` 解出
+
+- [ ] **Step 1: 写失败测试**：用**规范编码**手写 timestamp32/64/96 三档载荷（96 位的秒取一个 > 2³⁴ 的值，强制走 64 分支的则是中等值），断言解出的 `DateTime` 与预期 UTC 时刻一致；64 位那条现在会红（会解出 1992 年）。
+- [ ] **Step 2: 跑，确认 64 位那条红。**
+- [ ] **Step 3: 改为 `sec = (long)(v & 0x3_FFFF_FFFF)`、`nsec = (uint)(v >> 34)`。**
+- [ ] **Step 4: 三档全绿 + 全量 0 failed。**
+- [ ] **Step 5: 提交。**
+
+## Task 4b: `MsgPackWriter` 自带 span 缓存（P0-1，写侧最大收益）
+
+**Files:** `PicoMsgPack/src/PicoMsgPack/MsgPackWriter.cs`
+**做法**：加 `Span<byte> _span; int _spanPos;` + `Ensure(n)` / `Flush()`；所有 `Write*` 写 `_span`，只有 `Ensure` 碰 `_buffer`。
+**收益（实测）**：`MThirty` 序列化 **1126 → 528 ns（−53%）**。
+**要求**：输出**逐字节相同**（必须有对照测试）。
+
+## Task 4c: 字符串直接编码进 span（P0-3，依赖 4b）
+
+**Files:** `MsgPackWriter.cs`（新增 `WriteString(ReadOnlySpan<char>)`）+ 生成器 20 处 `GetBytes` 调用点。
+**收益（实测）**：`MThirty` 再 **−46%**，分配 **480 → 0 B/op**。
+
+## Task 4d: `DateTime` 写 timestamp 扩展（P0-2，依赖 4a，**改 wire**）
+
+**Files:** `MsgPackWriter.cs`（`WriteTimestampExtension`）+ 生成器（`1951-1955`、`1665-1669`、`3134`）。
+**编码选择**：纳秒==0 且 秒∈[0,2³²) → **32**；秒 < 2³⁴ → **64**；否则 → **96**。
+**`Kind` 策略**：`Utc` 直用；`Local` 转 UTC；`Unspecified` **默认按 UTC**（文档写明，可选开关）。
+**兼容**：读侧保留 **ISO 字符串回落**（旧载荷仍可读）。
+**收益（实测）**：`Metrics` DES **533 → 188 ns（−65%）**、分配 128 → 48 B/op、载荷 53 → 30 B。
+**要求**：与 MessagePack-CSharp **互写互读**的交叉兼容测试。
+
+## Task 4e: 读侧纯 span 快路径（P1-1）
+
+**Files:** `MsgPackReader.cs:144-165`（5 个 helper 的 `_isSequence` 分支）、`:353` 的 `Read()`。
+**收益**：tokenize 目前占 `MTenInts` 反序列化的 **57%**，裸 span 只需 **7%**。
