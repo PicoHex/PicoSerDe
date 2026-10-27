@@ -2173,14 +2173,17 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                         + ");"
                 );
                 s.Append(ind);
-                s.AppendLine("            long __secs64 = (long)(__ts64 >> 34);");
+                // timestamp64 packs (nsec << 34) | sec: the HIGH 30 bits are nanoseconds and
+                // the LOW 34 bits are seconds. Reading the halves the other way round decodes
+                // every timestamp64 value to the wrong century.
+                s.AppendLine("            long __secs64 = (long)(__ts64 & 0x3FFFFFFFFUL);");
                 s.Append(ind);
-                s.AppendLine("            ulong __nano64 = __ts64 & 0x3FFFFFFFFUL;");
+                s.AppendLine("            uint __nsec64 = (uint)(__ts64 >> 34);");
                 s.Append(ind);
                 s.AppendLine(
                     "            __dt"
                         + id
-                        + " = System.DateTimeOffset.FromUnixTimeSeconds(__secs64).UtcDateTime.AddTicks((long)(__nano64 / 100));"
+                        + " = System.DateTimeOffset.FromUnixTimeSeconds(__secs64).UtcDateTime.AddTicks((long)(__nsec64 / 100));"
                 );
                 s.Append(ind);
                 s.AppendLine("            break;");

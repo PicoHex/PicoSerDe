@@ -77,9 +77,9 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351MsgPackI
                             case 8:
                             {
                                 ulong __ts64 = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(__extData3);
-                                long __secs64 = (long)(__ts64 >> 34);
-                                ulong __nano64 = __ts64 & 0x3FFFFFFFFUL;
-                                __dt3 = System.DateTimeOffset.FromUnixTimeSeconds(__secs64).UtcDateTime.AddTicks((long)(__nano64 / 100));
+                                long __secs64 = (long)(__ts64 & 0x3FFFFFFFFUL);
+                                uint __nsec64 = (uint)(__ts64 >> 34);
+                                __dt3 = System.DateTimeOffset.FromUnixTimeSeconds(__secs64).UtcDateTime.AddTicks((long)(__nsec64 / 100));
                                 break;
                             }
                             case 12:
