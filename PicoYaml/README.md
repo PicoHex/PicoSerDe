@@ -1,7 +1,7 @@
 # PicoYaml
 
-The **only AOT-compatible YAML library** for .NET — reflection-free source
-generation with `ref struct` readers/writers. Supports indentation-based
+The only YAML library in this comparison that maps **typed POCOs** under NativeAOT —
+reflection-free source generation with `ref struct` readers/writers. Supports indentation-based
 block mappings/sequences, anchors & aliases, and multi-document streams.
 
 **Coverage:** Core YAML 1.2 subset. Complex block scalar combinations,
@@ -46,7 +46,8 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 - **`ref struct`** reader/writer — stack-allocated on the hot path
 - **AOT-compatible** — `IsAotCompatible=true`, zero reflection
 - **Ref struct serialization** — serialize `ref struct` types directly
-- **Only AOT YAML library** — YamlDotNet and VYaml cannot run under NativeAOT
+- **Only YAML library with typed POCO mapping under NativeAOT** — YamlDotNet parses a DOM
+  there but its reflection-based typed mapping fails; VYaml was not verified either way
 - **Anchors & aliases** — `&name` / `*name` with self-referencing support
 - **Multi-document** — `---` separator support
 - **Complex keys** — `? key\n: value` syntax
@@ -143,12 +144,17 @@ local timings.
 
 | | PicoYaml | YamlDotNet | VYaml |
 |--|:---:|:---:|:---:|
-| AOT-compatible | ✅ | ❌ | ⚠️¹ |
+| Typed POCO mapping under AOT | ✅ | ❌ | ⚠️¹ |
 | Zero attributes | ✅ | ✅ | ❌ |
 | Zero reflection | ✅ | ❌ | ❌ |
 | ref struct readers | ✅ | ❌ | ❌ |
 
-> ¹ VYaml has source generator support but requires `[YamlObject]` on every type.
+> The AOT row means *typed POCO mapping ahead of time*, which is what a serializer user
+> needs: YamlDotNet's parser does run under NativeAOT, its reflection-based typed mapping does
+> not.
+>
+> ¹ VYaml has source generator support but requires `[YamlObject]` on every type; this
+> repo did not verify VYaml under NativeAOT either way.
 
 ## Packages
 

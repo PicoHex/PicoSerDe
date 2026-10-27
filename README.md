@@ -21,7 +21,8 @@ many serialization libraries cannot run.
 | TOML | PicoToml | ✅ Production | ✅ | [→](PicoToml/README.md) |
 | YAML | PicoYaml | ✅ Production | ✅ | [→](PicoYaml/README.md) |
 
-> PicoYaml is the **only AOT-compatible YAML library** on .NET.
+> PicoYaml is the only YAML library in this comparison that maps **typed POCOs** under
+> NativeAOT. YamlDotNet's DOM parser does run there; VYaml was not verified either way.
 
 ---
 
@@ -57,21 +58,28 @@ wrong.** The benchmark harness had a measurement defect that inverted every comp
 the previous speedup table is withdrawn rather than corrected in place. Re-measurement is
 in progress; this section will only get numbers back once they come from the fixed harness.
 
-What was wrong — all four fixed in `bench/fix-inversion`, none of them a change to the
-serializers themselves:
+What was wrong — none of it a change to the serializers themselves. **Two of the four are
+fixed in `bench/fix-inversion`** (the inverted call sites, and the `PrintComparison` labels);
+**the other two are measurement-*design* defects, documented here and still open** — which
+is exactly why no number is published until they are redesigned:
 
-1. **Every `Benchmark.Compare` call passed its two actions in the wrong slots.** PicoBench's
-   signature is `Compare(name, baselineName, baselineAction, candidateName, candidateAction)`
+1. **Every `Benchmark.Compare` call passed its two actions in the wrong slots** (fixed here).
+   PicoBench's signature is
+   `Compare(name, baselineName, baselineAction, candidateName, candidateAction)`
    and `Speedup = Baseline.Avg / Candidate.Avg`. All 26 call sites passed PicoSerDe's own
    action as the *baseline* and the competitor's as the *candidate*, which swapped the column
    labels in every table and turned each ratio upside down: a row that read as a speedup was
    in truth the same magnitude of slowdown, with the two column headers printed backwards.
-2. **A reported "AOT" comparison measured an inflated absolute cost** because the two sides
-   were not compiled the same way.
-3. **The INI/TOML/YAML benchmarks did not run equivalent work on the competitor's side** —
-   the "competitor" arm included a hand-written DOM walk plus typed mapping, or (in YAML) a
-   second `Serialize` call labelled "Deserialize".
-4. **A `PrintComparison` helper labelled the candidate (the competitor) as `PicoJetson=`.**
+2. **A reported "AOT" comparison's absolute cost is inflated** — **still open**, a
+   measurement-design defect: the two sides are still not compiled the same way.
+3. **The INI/TOML competitor arms still do non-equivalent work** — **still open**, a
+   measurement-design defect: the "competitor" arm does a hand-written DOM walk plus typed
+   mapping while ours is a single library call, so the two arms are not the same job. The
+   third case in that family, YAML, was not a design question but a plain bug, and it is
+   fixed: the "Deserialize" row was a second `Serialize` call, so the comparison was
+   removed — PicoYaml now reports absolute cost only, with no competitor and no ratio.
+4. **A `PrintComparison` helper labelled the candidate (the competitor) as `PicoJetson=`**
+   (fixed here).
 
 A runtime role guard (`shared/BenchRoleGuard.cs`, linked into every benchmark project) now
 throws `InvalidOperationException` — naming both actual benchmark names — if a comparison's
@@ -87,7 +95,7 @@ time" are different questions and only the second one is what a serializer user 
 | Library | Runs under NativeAOT | Typed POCO round-trip under AOT |
 |---------|:--------------------:|:-------------------------------:|
 | System.Text.Json | ✅ with a source-generated `JsonSerializerContext` | ✅ |
-| MessagePack-CSharp | ⚠️ only statically resolvable types (`string`, `int`, `List<int>`) | ⚠️ enums and generic collections throw `MissingMethodException` — it builds formatters with `MakeGenericType` + `Activator.CreateInstance` |
+| MessagePack-CSharp | ⚠️ only statically resolvable types — e.g. `string`, `int`, `bool`, `double`, `DateTime`; **no enum, no generic collection** | ⚠️ enums and generic collections throw `MissingMethodException` — it builds formatters with `MakeGenericType` + `Activator.CreateInstance` |
 | ini-parser | ✅ DOM parsing works | ❌ reflection-based, no AOT mapper |
 | Tommy | ✅ DOM parsing works | ❌ no typed mapper (only the DOM API) |
 | YamlDotNet | ✅ DOM works | ❌ reflection-based typed POCO mapping fails |
@@ -100,6 +108,9 @@ throughput statement: it says what runs at all, not what runs fastest.
 > The [`Comparison`](#comparison) table further down scores `AOT` as the second column above
 > — typed serialization works ahead of time — which is why ini-parser, Tommy, YamlDotNet and
 > MessagePack-CSharp score ❌/⚠️ there even though their parsers themselves do run under AOT.
+>
+> That table's VYaml `⚠️` is a documentation claim (`[YamlObject]` + source generation),
+> **not** something this repo verified — no VYaml publish/run was attempted here.
 
 ---
 

@@ -201,9 +201,11 @@ await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
 [root README](../README.md#performance). The benchmark harness had a defect that inverted
 every comparison: `Benchmark.Compare(name, baselineName, baselineAction, candidateName,
 candidateAction)` was called with PicoSerDe's own action in the *baseline* slot at all 26 call
-sites, so every ratio and every column header came out backwards. The harness is fixed
-(correct argument order, a runtime role guard that throws on inversion, an honest AOT-vs-AOT
-setup, equivalent work on both sides) and re-measurement is in progress.
+sites, so every ratio and every column header came out backwards. What is fixed here: the
+argument order, a runtime role guard that throws on inversion, and honest labels. What is
+**not** fixed yet: the AOT absolute-cost measurement, and the INI/TOML competitor arms (they
+still do non-equivalent work) — so nothing from those runs is quoted until the
+re-measurement lands.
 
 Run `dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks` for current
 local timings — but do not quote them until this section publishes them again.
