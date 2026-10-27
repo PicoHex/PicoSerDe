@@ -1728,6 +1728,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(type.Name);
         sb.AppendLine("JsonSer");
         sb.AppendLine("    {");
+        EmitPropertyNameConstants(sb, type.Properties, "        ");
         sb.Append("        public static void Serialize(IBufferWriter<byte> writer, ");
         sb.Append(type.Name);
         sb.AppendLine(" value, global::PicoSerDe.Core.SerOptions? options)");
@@ -1737,6 +1738,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "            var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);"
         );
         sb.AppendLine("            jw.WriteStartObject();");
+        if (type.Properties.Length > 0)
+            sb.AppendLine("            var __policy = jw.Options?.PropertyNamingPolicy;");
 
         foreach (var prop in type.Properties)
         {
@@ -1747,14 +1750,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 "value." + prop.Name,
                 "            "
             );
-            sb.Append("            var __name_");
-            sb.Append(prop.Name);
-            sb.Append(" = jw.Options?.PropertyNamingPolicy?.ConvertName(\"");
-            sb.Append(EscapeCSharpString(prop.JsonName));
-            sb.AppendLine("\") ?? \"" + EscapeCSharpString(prop.JsonName) + "\";");
-            sb.Append("            jw.WritePropertyName(__name_");
-            sb.Append(prop.Name);
-            sb.AppendLine(");");
+            EmitPropertyNameWrite(sb, prop, "            ");
             EmitSerializeProperty(sb, prop, $"value.{prop.Name}", "            ");
             if (checkNull)
                 sb.AppendLine("            }");
@@ -1763,6 +1759,59 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            jw.WriteEndObject();");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// Emits one <c>private static ReadOnlySpan&lt;byte&gt; PropName_X =&gt; "X"u8;</c> per
+    /// property: the compiled UTF-8 form of the JSON name, so a serializer without a
+    /// naming policy never transcodes the name at run time (P0-2). The span is exactly
+    /// what <c>JsonWriter.WritePropertyName(ReadOnlySpan&lt;byte&gt;)</c> already takes, so no
+    /// new runtime member is needed — that overload still runs the escape scan and stays
+    /// the single exit for every name, escapable bytes or not.
+    /// </summary>
+    private static void EmitPropertyNameConstants(
+        StringBuilder sb,
+        ImmutableArray<PropertyInfo> props,
+        string indent
+    )
+    {
+        if (props.IsDefaultOrEmpty)
+            return;
+        foreach (var prop in props)
+        {
+            sb.Append(indent);
+            sb.Append("private static global::System.ReadOnlySpan<byte> PropName_");
+            sb.Append(prop.Name);
+            sb.Append(" => \"");
+            sb.Append(EscapeCSharpString(prop.JsonName));
+            sb.AppendLine("\"u8;");
+        }
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Emits the property-name write for one property. Without a naming policy the compiled
+    /// UTF-8 constant goes straight to <c>WritePropertyName(ReadOnlySpan&lt;byte&gt;)</c> — no
+    /// <c>GetMaxByteCount</c>/<c>GetBytes</c> per property, no per-call stack copy. With a
+    /// policy (CamelCase, a custom <c>JsonNamingPolicy</c>, …) the name is not a compile-time
+    /// constant, so the pre-P0-2 <c>ConvertName</c> call is kept verbatim, including its
+    /// <c>?? name</c> fallback for a policy that returns null.
+    /// </summary>
+    private static void EmitPropertyNameWrite(StringBuilder sb, PropertyInfo prop, string indent)
+    {
+        var jsonName = EscapeCSharpString(prop.JsonName);
+        sb.Append(indent);
+        sb.AppendLine("if (__policy is null)");
+        sb.Append(indent);
+        sb.Append("    jw.WritePropertyName(PropName_");
+        sb.Append(prop.Name);
+        sb.AppendLine(");");
+        sb.Append(indent);
+        sb.AppendLine("else");
+        sb.Append(indent);
+        sb.Append("    jw.WritePropertyName(__policy.ConvertName(\"");
+        sb.Append(jsonName);
+        sb.AppendLine("\") ?? \"" + jsonName + "\");");
     }
 
     /// <summary>

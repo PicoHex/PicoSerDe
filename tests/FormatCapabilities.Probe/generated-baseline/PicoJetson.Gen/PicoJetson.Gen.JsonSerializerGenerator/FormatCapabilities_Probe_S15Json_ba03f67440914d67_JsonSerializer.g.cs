@@ -7,46 +7,64 @@ namespace FormatCapabilities.Probe;
 
     file static class S15JsonJsonSer
     {
+        private static global::System.ReadOnlySpan<byte> PropName_F => "F"u8;
+        private static global::System.ReadOnlySpan<byte> PropName_D => "D"u8;
+        private static global::System.ReadOnlySpan<byte> PropName_When => "When"u8;
+        private static global::System.ReadOnlySpan<byte> PropName_Span => "Span"u8;
+        private static global::System.ReadOnlySpan<byte> PropName_Id => "Id"u8;
+        private static global::System.ReadOnlySpan<byte> PropName_Day => "Day"u8;
+
         public static void Serialize(IBufferWriter<byte> writer, S15Json value, global::PicoSerDe.Core.SerOptions? options)
         {
             var __opts = (global::PicoJetson.JsonOptions?)options;
             var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);
             jw.WriteStartObject();
+            var __policy = jw.Options?.PropertyNamingPolicy;
             if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
                 || value.F != default)
             {
-            var __name_F = jw.Options?.PropertyNamingPolicy?.ConvertName("F") ?? "F";
-            jw.WritePropertyName(__name_F);
+            if (__policy is null)
+                jw.WritePropertyName(PropName_F);
+            else
+                jw.WritePropertyName(__policy.ConvertName("F") ?? "F");
             jw.WriteNumber(value.F);
             }
             if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
                 || value.D != default)
             {
-            var __name_D = jw.Options?.PropertyNamingPolicy?.ConvertName("D") ?? "D";
-            jw.WritePropertyName(__name_D);
+            if (__policy is null)
+                jw.WritePropertyName(PropName_D);
+            else
+                jw.WritePropertyName(__policy.ConvertName("D") ?? "D");
             jw.WriteNumber(value.D);
             }
             if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
                 || value.When != default)
             {
-            var __name_When = jw.Options?.PropertyNamingPolicy?.ConvertName("When") ?? "When";
-            jw.WritePropertyName(__name_When);
+            if (__policy is null)
+                jw.WritePropertyName(PropName_When);
+            else
+                jw.WritePropertyName(__policy.ConvertName("When") ?? "When");
             var __iso_When = value.When.ToString("O");
             jw.WriteString(__iso_When);
             }
             if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
                 || value.Span != default)
             {
-            var __name_Span = jw.Options?.PropertyNamingPolicy?.ConvertName("Span") ?? "Span";
-            jw.WritePropertyName(__name_Span);
+            if (__policy is null)
+                jw.WritePropertyName(PropName_Span);
+            else
+                jw.WritePropertyName(__policy.ConvertName("Span") ?? "Span");
             var __ts = value.Span.ToString();
             jw.WriteString(__ts);
             }
             if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
                 || value.Id != default)
             {
-            var __name_Id = jw.Options?.PropertyNamingPolicy?.ConvertName("Id") ?? "Id";
-            jw.WritePropertyName(__name_Id);
+            if (__policy is null)
+                jw.WritePropertyName(PropName_Id);
+            else
+                jw.WritePropertyName(__policy.ConvertName("Id") ?? "Id");
             jw.WriteString(value.Id.ToString());
             }
             if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull
@@ -55,8 +73,10 @@ namespace FormatCapabilities.Probe;
                 ? (value.Day.HasValue && value.Day.Value != default)
                 : true)
             {
-            var __name_Day = jw.Options?.PropertyNamingPolicy?.ConvertName("Day") ?? "Day";
-            jw.WritePropertyName(__name_Day);
+            if (__policy is null)
+                jw.WritePropertyName(PropName_Day);
+            else
+                jw.WritePropertyName(__policy.ConvertName("Day") ?? "Day");
             if (value.Day.HasValue)
             {
                 jw.WriteNumber((int)value.Day.Value);

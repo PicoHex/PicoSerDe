@@ -7,13 +7,19 @@ namespace FormatCapabilities.Probe;
 
     file static class S11bJsonJsonSer
     {
+        private static global::System.ReadOnlySpan<byte> PropName_Name => "Name"u8;
+        private static global::System.ReadOnlySpan<byte> PropName_B => "B"u8;
+
         public static void Serialize(IBufferWriter<byte> writer, S11bJson value, global::PicoSerDe.Core.SerOptions? options)
         {
             var __opts = (global::PicoJetson.JsonOptions?)options;
             var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);
             jw.WriteStartObject();
-            var __name_Name = jw.Options?.PropertyNamingPolicy?.ConvertName("Name") ?? "Name";
-            jw.WritePropertyName(__name_Name);
+            var __policy = jw.Options?.PropertyNamingPolicy;
+            if (__policy is null)
+                jw.WritePropertyName(PropName_Name);
+            else
+                jw.WritePropertyName(__policy.ConvertName("Name") ?? "Name");
             jw.WriteString(value.Name);
             if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull
                 ? value.B != null
@@ -21,8 +27,10 @@ namespace FormatCapabilities.Probe;
                 ? value.B != null
                 : true)
             {
-            var __name_B = jw.Options?.PropertyNamingPolicy?.ConvertName("B") ?? "B";
-            jw.WritePropertyName(__name_B);
+            if (__policy is null)
+                jw.WritePropertyName(PropName_B);
+            else
+                jw.WritePropertyName(__policy.ConvertName("B") ?? "B");
             if (value.B != null)
             {
                 if (value.B == null) jw.WriteNull();
