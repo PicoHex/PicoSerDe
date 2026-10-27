@@ -20,6 +20,12 @@ namespace PicoSerDe.Integration.Tests;
 /// </summary>
 public class AnonCollectionDiagnosticTests
 {
+    // PICOSERDE005 is asserted here ON PURPOSE, and renumbering it is not a cleanup: the id is
+    // the public half of the contract (spec §5 D4 — ids stable within a year, messages mutable),
+    // so users suppress this anonymous-type drop with `#pragma warning disable PICOSERDE005` /
+    // `<NoWarn>` and those entries would break silently. D-8's fifth axis (the id) was RULED to
+    // stay 005 — spec §4 D-8, status "resolved by ruling"; the other four axes live in the shared
+    // pipeline. If this constant ever changes, the ruling changed, not the code.
     private const string Id = "PICOSERDE005";
 
     [Test]

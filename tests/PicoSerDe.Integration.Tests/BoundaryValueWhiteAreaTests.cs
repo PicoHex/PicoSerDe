@@ -39,6 +39,13 @@ public class NullableCollectionModel
     public string? Text { get; set; }
 }
 
+/// <summary>The one member S15's model never had: a STRING, driven with its own separators.</summary>
+[PicoSerializable]
+public class ScalarStringModel
+{
+    public string Text { get; set; } = "";
+}
+
 /// <summary>An object list with a null element (spec's S14): <c>List&lt;Dto?&gt;</c>.</summary>
 [PicoSerializable]
 public class ObjectNullElementModel
@@ -463,6 +470,50 @@ public class BoundaryValueWhiteAreaTests
         await Assert.That(back.When.Kind).IsEqualTo(DateTimeKind.Unspecified);
     }
 
+    /// <summary>
+    /// I-6 white area 5, the ROOT CAUSE, pinned so the fallback above cannot be "simplified"
+    /// away later: <c>Utf8Parser.TryParse(…, 'O')</c> answers <c>false</c> for
+    /// <c>DateTime.MinValue</c>'s own round-trip text while accepting the identical SHAPE for
+    /// another value. That is why the INI read path needs
+    /// <c>DateTime.Parse(…, RoundtripKind)</c> behind it — not a "missing Kind suffix", which is
+    /// what spec §3 footnote ⁴ guessed before it was measured.
+    /// </summary>
+    [Test]
+    public async Task Utf8Parser_round_trip_format_rejects_DateTime_MinValue()
+    {
+        var min = "0001-01-01T00:00:00.0000000"u8;
+        var ordinary = "2020-12-31T23:59:59.0000000"u8;
+
+        var minParsed = System.Buffers.Text.Utf8Parser.TryParse(
+            min,
+            out DateTime minValue,
+            out _,
+            'O'
+        );
+        var ordinaryParsed = System.Buffers.Text.Utf8Parser.TryParse(
+            ordinary,
+            out DateTime ordinaryValue,
+            out _,
+            'O'
+        );
+
+        await Assert
+            .That(minParsed)
+            .IsFalse()
+            .Because(
+                "this false is the whole bug: the text is the writer's own canonical form for "
+                    + "default(DateTime)"
+            );
+        await Assert
+            .That(ordinaryParsed)
+            .IsTrue()
+            .Because(
+                "the same SHAPE parses for another value — so it is the value, not the format"
+            );
+        await Assert.That(minValue).IsEqualTo(default(DateTime));
+        await Assert.That(ordinaryValue.Year).IsEqualTo(2020);
+    }
+
     // ── item 6: DateTimeKind.Unspecified ───────────────────────────────────────────
 
     /// <summary>
@@ -558,6 +609,120 @@ public class BoundaryValueWhiteAreaTests
         }
     }
 
+    // ── item 7, the STRING half: separators, quotes, newlines ─────────────────────
+
+    /// <summary>
+    /// I-6 white area 7 as R1 actually worded it — "含分隔符/引号/换行的字符串未在 S15 覆盖（S15
+    /// 六成员无 `string`）". The decimal/TimeSpan/Guid/enum texts above cover the separator family
+    /// for S15's own members; a real <c>string</c> member is the other half, and it is the half
+    /// where the format's own punctuation (<c>:</c> <c>,</c> <c>=</c> <c>#</c> <c>[</c> <c>]</c>,
+    /// quotes, TAB) appears inside the VALUE. Four formats carry all of it; INI does not — see the
+    /// three tests below, each of which pins one measured INI limit instead of pretending the
+    /// round trip works.
+    /// </summary>
+    [Test]
+    [Arguments("json")]
+    [Arguments("msgpack")]
+    [Arguments("toml")]
+    [Arguments("yaml")]
+    public async Task Separator_heavy_strings_round_trip_outside_ini(string tag)
+    {
+        foreach (var text in DangerousStrings)
+        {
+            var back = RoundTripString(tag, text);
+            await Assert
+                .That(back.Text)
+                .IsEqualTo(text)
+                .Because($"{tag} must carry the string {Escape(text)} byte for byte");
+        }
+    }
+
+    /// <summary>
+    /// <b>Known limitation (INI), value half — spec §8.1 V-2.</b> INI's line convention has no
+    /// VALUE escaping, so a value containing <c>\n</c>/<c>\r</c> is written as a cut line and the
+    /// reader then rejects the document: <c>FormatException: Invalid INI line: expected '='</c>.
+    /// It is loud (the document cannot be read at all — not silent corruption), but it is also a
+    /// write/read asymmetry: the writer should not produce a line the reader refuses. Fixing it
+    /// means a value-escaping convention — a public wire change, registered in §8.1, not this
+    /// task. Reopen condition: INI value escaping lands ⇒ this test flips to "round trip".
+    /// </summary>
+    [Test]
+    [Arguments("line\nbreak")]
+    [Arguments("cr\rhere")]
+    public async Task Ini_cannot_carry_a_newline_in_a_value(string text)
+    {
+        var bytes = IniSerializer.SerializeToUtf8Bytes(new ScalarStringModel { Text = text });
+
+        await Assert
+            .That(Encoding.UTF8.GetString(bytes))
+            .Contains("\n")
+            .Because("the writer emits the newline raw — no escaping exists on this side either");
+
+        var thrown = Assert.Throws<FormatException>(() =>
+            IniSerializer.Deserialize<ScalarStringModel>(bytes)
+        );
+        await Assert
+            .That(thrown.Message)
+            .Contains("Invalid INI line")
+            .Because(
+                "KNOWN LIMITATION: the failure must at least be loud and name the shape; the day "
+                    + "INI grows value escaping this test flips to a round trip"
+            );
+    }
+
+    /// <summary>
+    /// <b>Known limitation (INI), value half — spec §8.1 V-3.</b> The reader trims a value's
+    /// surrounding spaces, so <c>" pad "</c> comes back as <c>"pad"</c>: a SILENT value change
+    /// (no exception, no diagnostic). Same family as V-2 (no value escaping), same reopen
+    /// condition.
+    /// </summary>
+    [Test]
+    public async Task Ini_trims_surrounding_spaces_in_a_value()
+    {
+        const string text = " pad ";
+        var back = IniSerializer.Deserialize<ScalarStringModel>(
+            IniSerializer.SerializeToUtf8Bytes(new ScalarStringModel { Text = text })
+        );
+
+        await Assert
+            .That(back!.Text)
+            .IsEqualTo("pad")
+            .Because(
+                "KNOWN LIMITATION: INI has no value quoting, so surrounding whitespace is lost "
+                    + "silently — asserted rather than wished away, per §8.1 V-3"
+            );
+    }
+
+    /// <summary>
+    /// <b>Known limitation (INI), value half — spec §8.1 V-4.</b> A value that STARTS with
+    /// <c>#</c> makes the reader treat the whole line as a comment, so the member disappears and
+    /// comes back as <c>null</c> — the worst shape in this file, because it is silent and it
+    /// loses a value the document plainly contains. A <c>;</c> inside the value truncates it.
+    /// (A <c>#</c> in the MIDDLE of a value is fine — measured — so this is a rule about the
+    /// comment marker's position, not "any hash".)
+    /// </summary>
+    [Test]
+    [Arguments("#hash", null)]
+    [Arguments("a ; b", "a")]
+    public async Task Ini_drops_a_value_that_starts_with_a_comment_marker(
+        string text,
+        string? expected
+    )
+    {
+        var back = IniSerializer.Deserialize<ScalarStringModel>(
+            IniSerializer.SerializeToUtf8Bytes(new ScalarStringModel { Text = text })
+        );
+
+        await Assert
+            .That(back!.Text)
+            .IsEqualTo(expected)
+            .Because(
+                "KNOWN LIMITATION: a leading `#` comments the line out (member lost ⇒ null) and an "
+                    + "embedded `;` starts an inline comment (value truncated). Both are silent; "
+                    + "§8.1 V-4 records them and the reopen condition"
+            );
+    }
+
     // ── harness ────────────────────────────────────────────────────────────────────
 
     private static byte[] SerializeFloat(string tag, SpecialFloatModel model) =>
@@ -634,4 +799,41 @@ public class BoundaryValueWhiteAreaTests
             _ => IniSerializer.Deserialize<ScalarBoundaryModel>(bytes)!,
         };
     }
+
+    private static readonly string[] DangerousStrings =
+    [
+        "a,b=c",
+        "q\"uote'",
+        "line\nbreak",
+        "cr\rhere",
+        "tab\there",
+        "#hash",
+        "[bracket]",
+        "x = y",
+        "\u00fcn\u00efcod\u00e9",
+    ];
+
+    private static ScalarStringModel RoundTripString(string tag, string text)
+    {
+        var model = new ScalarStringModel { Text = text };
+        var bytes = tag switch
+        {
+            "json" => JsonSerializer.SerializeToUtf8Bytes(model),
+            "msgpack" => MsgPackSerializer.SerializeToUtf8Bytes(model),
+            "toml" => TomlSerializer.SerializeToUtf8Bytes(model),
+            "yaml" => YamlSerializer.SerializeToUtf8Bytes(model),
+            _ => IniSerializer.SerializeToUtf8Bytes(model),
+        };
+        return tag switch
+        {
+            "json" => JsonSerializer.Deserialize<ScalarStringModel>(bytes)!,
+            "msgpack" => MsgPackSerializer.Deserialize<ScalarStringModel>(bytes)!,
+            "toml" => TomlSerializer.Deserialize<ScalarStringModel>(bytes)!,
+            "yaml" => YamlSerializer.Deserialize<ScalarStringModel>(bytes)!,
+            _ => IniSerializer.Deserialize<ScalarStringModel>(bytes)!,
+        };
+    }
+
+    private static string Escape(string s) =>
+        s.Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
 }
