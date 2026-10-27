@@ -20,7 +20,7 @@ file static class S11aMsgpackMsgPackSerializer {
                 else global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11aMsgpack_e2e46641ba396de0MsgPackInner.Serialize(ref mw, value.Child);
             } else mw.WriteNull();
         }
-        mw.WriteEndObject(); } }
+        mw.WriteEndObject(); _ = mw.Buffer; } }
 
 file static class S11aMsgpackMsgPackDeserializer {
     public static S11aMsgpack Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options) {

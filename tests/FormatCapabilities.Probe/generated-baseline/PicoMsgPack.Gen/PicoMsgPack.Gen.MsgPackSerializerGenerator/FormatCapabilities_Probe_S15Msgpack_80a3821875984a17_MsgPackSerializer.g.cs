@@ -27,7 +27,7 @@ file static class S15MsgpackMsgPackSerializer {
                 mw.WriteString(Encoding.UTF8.GetBytes(value.Day.Value.ToString()));
             } else mw.WriteNull();
         }
-        mw.WriteEndObject(); } }
+        mw.WriteEndObject(); _ = mw.Buffer; } }
 
 file static class S15MsgpackMsgPackDeserializer {
     public static S15Msgpack Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options) {

@@ -17,7 +17,7 @@ file static class S12MsgpackMsgPackSerializer {
             }
         }
         mw.WriteEndArray();
-        mw.WriteEndObject(); } }
+        mw.WriteEndObject(); _ = mw.Buffer; } }
 
 file static class S12MsgpackMsgPackDeserializer {
     public static S12Msgpack Deserialize(ReadOnlySpan<byte> data, global::PicoSerDe.Core.SerOptions? options) {

@@ -8,6 +8,7 @@ public class MsgPackWriterTests
         var buf = new ArrayBufferWriter<byte>(16);
         var writer = new MsgPackWriter(buf);
         writer.WriteNull();
+        writer.FlushToBuffer();
         await Assert.That(buf.WrittenSpan.ToArray()).IsEquivalentTo(new byte[] { 0xC0 });
     }
 
@@ -18,6 +19,7 @@ public class MsgPackWriterTests
         var writer = new MsgPackWriter(buf);
         writer.WriteBoolean(false);
         writer.WriteBoolean(true);
+        writer.FlushToBuffer();
         await Assert.That(buf.WrittenSpan.ToArray()).IsEquivalentTo(new byte[] { 0xC2, 0xC3 });
     }
 
@@ -27,6 +29,7 @@ public class MsgPackWriterTests
         var buf = new ArrayBufferWriter<byte>(16);
         var writer = new MsgPackWriter(buf);
         writer.WriteInt32(0);
+        writer.FlushToBuffer();
         await Assert.That(buf.WrittenSpan.ToArray()).IsEquivalentTo(new byte[] { 0x00 });
     }
 
@@ -36,6 +39,7 @@ public class MsgPackWriterTests
         var buf = new ArrayBufferWriter<byte>(16);
         var writer = new MsgPackWriter(buf);
         writer.WriteInt32(42);
+        writer.FlushToBuffer();
         await Assert.That(buf.WrittenSpan.ToArray()).IsEquivalentTo(new byte[] { 0x2A });
     }
 
@@ -45,6 +49,7 @@ public class MsgPackWriterTests
         var buf = new ArrayBufferWriter<byte>(16);
         var writer = new MsgPackWriter(buf);
         writer.WriteInt32(255);
+        writer.FlushToBuffer();
         await Assert.That(buf.WrittenSpan.ToArray()).IsEquivalentTo(new byte[] { 0xCC, 0xFF });
     }
 
@@ -54,6 +59,7 @@ public class MsgPackWriterTests
         var buf = new ArrayBufferWriter<byte>(16);
         var writer = new MsgPackWriter(buf);
         writer.WriteString("hello"u8);
+        writer.FlushToBuffer();
         var expected = new byte[] { 0xA5, (byte)'h', (byte)'e', (byte)'l', (byte)'l', (byte)'o' };
         await Assert.That(buf.WrittenSpan.ToArray()).IsEquivalentTo(expected);
     }
@@ -71,6 +77,7 @@ public class MsgPackWriterTests
         writer.WriteEndObject();
 
         // Verify by reading back
+        writer.FlushToBuffer();
         var data = buf.WrittenSpan.ToArray();
         TokenType t1;
         string k1,
@@ -109,6 +116,7 @@ public class MsgPackWriterTests
         writer.WriteInt32(25);
         writer.WriteEndObject();
 
+        writer.FlushToBuffer();
         var data = buf.WrittenSpan.ToArray();
         var reader = new MsgPackReader(data);
         string name = string.Empty;
@@ -132,6 +140,7 @@ public class MsgPackWriterTests
         var data = new byte[] { 0x01, 0x02, 0x03 };
         writer.WriteExtension(42, data);
 
+        writer.FlushToBuffer();
         var bytes = buf.WrittenSpan.ToArray();
         TokenType tt;
         bool ok;
@@ -162,6 +171,7 @@ public class MsgPackWriterTests
         Array.Fill<byte>(large, (byte)'a');
         writer.WriteString(large);
 
+        writer.FlushToBuffer();
         var result = buf.WrittenSpan.ToArray();
         // str32 header: 0xDB + 4-byte big-endian length
         await Assert.That(result[0]).IsEqualTo((byte)0xDB);
@@ -180,6 +190,7 @@ public class MsgPackWriterTests
         Array.Fill<byte>(large, (byte)0xFF);
         writer.WriteBytes(large);
 
+        writer.FlushToBuffer();
         var result = buf.WrittenSpan.ToArray();
         // bin32 header: 0xC6 + 4-byte big-endian length
         await Assert.That(result[0]).IsEqualTo((byte)0xC6);
