@@ -329,24 +329,52 @@ public static class BenchProtocol
     /// <summary>
     /// 1 when <see cref="Strict"/> is on and anything was refused; also 1 when the run
     /// published <b>nothing at all</b> — that is a broken run, not a finding. The single
-    /// grey area is a host that cannot measure load at all: there every row is refused by
-    /// construction, so failing the process would report the environment, not the code —
-    /// <see cref="LoadNotMeasurable"/> keeps that case at 0 (the summary line still says
-    /// <c>published=0 refused=N cpu=unknown</c>) unless <c>PICOBENCH_ALLOW_ZERO_PUBLISH</c>
-    /// or <c>PICOBENCH_STRICT</c> says otherwise.
+    /// grey area is a host that cannot measure load at all: there the criterion is
+    /// unavailable rather than violated, so failing the process would report the environment,
+    /// not the code — <see cref="LoadNotMeasurable"/> keeps that case at 0 (the summary line
+    /// still says <c>published=0 refused=N cpu=unknown</c>) unless
+    /// <c>PICOBENCH_ALLOW_ZERO_PUBLISH</c> or <c>PICOBENCH_STRICT</c> says otherwise.
+    /// <para>
+    /// This is the process-wide reading of <see cref="ExitCodeFor"/>, which holds the rule
+    /// itself and is what the tests pin.
+    /// </para>
     /// </summary>
-    public static int ExitCode
+    public static int ExitCode =>
+        ExitCodeFor(PublishedCount, RejectedCount, Strict, LoadNotMeasurable, AllowZeroPublish);
+
+    /// <summary>
+    /// The exit-code rule as a pure function, so the policy can be asserted without touching
+    /// the process-wide counters it is normally fed with. Order matters and is the contract:
+    /// no refusal at all is 0 whatever else is set; <c>PICOBENCH_STRICT=1</c> then outranks
+    /// both zero-publish exemptions (a strict run that kept the machine's excuses would not be
+    /// strict); otherwise anything published, a host that cannot measure load, and
+    /// <c>PICOBENCH_ALLOW_ZERO_PUBLISH=1</c> each turn a total loss into 0; and the remaining
+    /// case — nothing published, something refused, on a host that can measure — is 1, because
+    /// that is a broken run rather than a finding.
+    /// </summary>
+    /// <param name="published">Arms whose figures were published.</param>
+    /// <param name="rejected">Arms the protocol refused.</param>
+    /// <param name="strict">Whether <c>PICOBENCH_STRICT=1</c> is in force.</param>
+    /// <param name="loadNotMeasurable">
+    /// Whether this process met a host that cannot report system-wide CPU load.
+    /// </param>
+    /// <param name="allowZeroPublish">Whether <c>PICOBENCH_ALLOW_ZERO_PUBLISH=1</c> is set.</param>
+    /// <returns>The process exit code.</returns>
+    internal static int ExitCodeFor(
+        int published,
+        int rejected,
+        bool strict,
+        bool loadNotMeasurable,
+        bool allowZeroPublish
+    )
     {
-        get
-        {
-            if (RejectedCount == 0)
-                return 0;
-            if (Strict)
-                return 1;
-            if (PublishedCount > 0 || LoadNotMeasurable || AllowZeroPublish)
-                return 0;
+        if (rejected == 0)
+            return 0;
+        if (strict)
             return 1;
-        }
+        if (published > 0 || loadNotMeasurable || allowZeroPublish)
+            return 0;
+        return 1;
     }
 
     /// <summary>
@@ -379,7 +407,7 @@ public static class BenchProtocol
                 + " published."
         );
         Console.WriteLine(
-            "The system-wide CPU criterion is absolute; when the host cannot report it, the"
+            "The system-wide CPU criterion is the decisive one; when the host cannot report it,"
                 + " measurement is refused (fail-closed) unless PICOBENCH_ALLOW_UNKNOWN_CPU=1."
                 + " Knobs: PICOBENCH_MAX_OTHER_CPU (default"
                 + $" {DefaultMaxOtherCpuFraction:P0}), PICOBENCH_STRICT=1 (a refusal exits 1),"

@@ -281,6 +281,120 @@ public class ProtocolMathTests
         await Assert.That(result.ElapsedMilliseconds).IsGreaterThanOrEqualTo(1_000);
     }
 
+    // ── Exit code: the rule that decides whether a run of nothing is a failure ───────
+
+    [Test]
+    public async Task A_run_that_refused_nothing_exits_zero_whatever_else_is_set()
+    {
+        // No refusal means every arm was published, so there is nothing to report as a
+        // failure — including under PICOBENCH_STRICT=1, which only escalates refusals.
+        await Assert
+            .That(
+                BenchProtocol.ExitCodeFor(
+                    published: 3,
+                    rejected: 0,
+                    strict: true,
+                    loadNotMeasurable: false,
+                    allowZeroPublish: false
+                )
+            )
+            .IsEqualTo(0);
+
+        await Assert
+            .That(
+                BenchProtocol.ExitCodeFor(
+                    published: 0,
+                    rejected: 0,
+                    strict: false,
+                    loadNotMeasurable: false,
+                    allowZeroPublish: false
+                )
+            )
+            .IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Publishing_nothing_on_a_measurable_idle_host_exits_one()
+    {
+        // The case the summary line exists for: every arm refused, no exemption in force.
+        // Exit 0 here is what used to make a broken run look like a completed one.
+        await Assert
+            .That(
+                BenchProtocol.ExitCodeFor(
+                    published: 0,
+                    rejected: 6,
+                    strict: false,
+                    loadNotMeasurable: false,
+                    allowZeroPublish: false
+                )
+            )
+            .IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task The_zero_publish_exemptions_cover_only_a_total_loss_and_strict_outranks_both()
+    {
+        // Each exemption turns "published nothing" into 0 — and nothing more, because a run
+        // that published even one arm already exits 0 on its own.
+        foreach (var allowZeroPublish in new[] { true, false })
+        foreach (var loadNotMeasurable in new[] { true, false })
+        {
+            var exemptionInForce = allowZeroPublish || loadNotMeasurable;
+
+            await Assert
+                .That(
+                    BenchProtocol.ExitCodeFor(
+                        published: 0,
+                        rejected: 4,
+                        strict: false,
+                        loadNotMeasurable: loadNotMeasurable,
+                        allowZeroPublish: allowZeroPublish
+                    )
+                )
+                .IsEqualTo(exemptionInForce ? 0 : 1);
+
+            // One published arm is enough for 0, whatever the exemptions say.
+            await Assert
+                .That(
+                    BenchProtocol.ExitCodeFor(
+                        published: 1,
+                        rejected: 4,
+                        strict: false,
+                        loadNotMeasurable: loadNotMeasurable,
+                        allowZeroPublish: allowZeroPublish
+                    )
+                )
+                .IsEqualTo(0);
+
+            // PICOBENCH_STRICT=1 outranks every exemption: a strict run that kept the
+            // machine's excuses would not be strict, and that is why the check is ordered
+            // before them rather than beside them.
+            await Assert
+                .That(
+                    BenchProtocol.ExitCodeFor(
+                        published: 0,
+                        rejected: 4,
+                        strict: true,
+                        loadNotMeasurable: loadNotMeasurable,
+                        allowZeroPublish: allowZeroPublish
+                    )
+                )
+                .IsEqualTo(1);
+
+            await Assert
+                .That(
+                    BenchProtocol.ExitCodeFor(
+                        published: 9,
+                        rejected: 1,
+                        strict: true,
+                        loadNotMeasurable: loadNotMeasurable,
+                        allowZeroPublish: allowZeroPublish
+                    )
+                )
+                .IsEqualTo(1);
+        }
+    }
+
     private static void FlappingAction()
     {
         var cost = ((_flapCalls++ / 3_000) % 2) == 0 ? 0.010 : 0.030;
