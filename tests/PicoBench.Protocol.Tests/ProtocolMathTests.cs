@@ -318,9 +318,42 @@ public class ProtocolMathTests
         // which the table prints as `w⚠…` and PICOBENCH_STRICT=1 refuses outright.
         var result = BenchProtocol.Warmup(FlappingAction, iterationsPerSample: 1_000);
 
+        // Only protocol facts below — no throughput facts. Every call of FlappingAction spins
+        // to the wall clock, so a preempted thread pays a whole scheduler quantum (~15.6 ms)
+        // for a call that targets 10 us, and one burst grows from 30-90 ms to ~1.7 s. How many
+        // bursts fit a 2.5 s budget is therefore a property of this host's load, not of the
+        // protocol: `Bursts > 2` failed 7 times in 10 on a host oversubscribed 4x. What the
+        // protocol does promise is the three facts below, none of which depends on speed.
         await Assert.That(result.Settled).IsFalse();
-        await Assert.That(result.Bursts).IsGreaterThan(2);
+
+        // It tried: the budget is only read at a burst boundary, so a timed-out warm-up spent
+        // at least one burst.
+        await Assert.That(result.Bursts).IsGreaterThanOrEqualTo(1);
+
+        // It stopped for the budget and not for some earlier reason: Settled = false has
+        // exactly one exit — the one taken once the budget is spent — and no exit can happen
+        // before the floor. (This is a lower bound on purpose: load only makes it larger,
+        // whereas an upper bound here would be a throughput assertion in disguise.)
         await Assert.That(result.ElapsedMilliseconds).IsGreaterThanOrEqualTo(1_000);
+
+        // …and it says so. The report is the other half of "reported, not hidden": the timeout
+        // reaches the cell as `w⚠<elapsed>/<bursts>b`, the marker PICOBENCH_STRICT=1 refuses
+        // on, carrying the elapsed time and burst count of this very warm-up. The cell format
+        // itself is pinned by A_warmup_that_never_converged_is_marked_in_the_cell; what this
+        // asserts is that a *real* timed-out warm-up lands in it instead of a converged one.
+        var sample = new ProtocolSample(1.0, 1.0, 1.0, 0.0, 5)
+        {
+            Label = "PicoYaml",
+            Stable = true,
+            OtherCpuFraction = double.NaN,
+            WarmupMilliseconds = (int)result.ElapsedMilliseconds,
+            WarmupBursts = result.Bursts,
+            WarmupSettled = result.Settled,
+        };
+
+        await Assert
+            .That(BenchProtocol.FormatCell(sample))
+            .Contains($"w⚠{result.ElapsedMilliseconds / 1000.0:F1}s/{result.Bursts}b");
     }
 
     // ── Exit code: the rule that decides whether a run of nothing is a failure ───────
