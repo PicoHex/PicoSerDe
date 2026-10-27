@@ -998,22 +998,20 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
     {
         _position++;
         var start = _position;
-        while (_position < _data.Length)
-        {
-            if (_data[_position] == (byte)'"')
-                break;
-            if (_data[_position] == (byte)'\\' && _position + 1 < _data.Length)
-                _position++;
-            _position++;
-        }
+        var sawEscape = ScanStringTokenSpan();
         if (_position >= _data.Length)
             throw new FormatException($"Unterminated string at offset {_position}");
 
+        // No backslash anywhere in the token => the raw bytes ARE the value, and the
+        // span is a slice of the input document: zero copies, zero allocations, and
+        // no second sweep for escapes. Tokens with escapes keep the previous path
+        // (scan + UnescapeIfNeeded, byte-for-byte unchanged).
         _valueSpan = _data[start.._position];
         _tokenValueStart = start;
         _tokenValueEnd = _position;
         _position++;
-        UnescapeIfNeeded();
+        if (sawEscape)
+            UnescapeIfNeeded();
 
         var saved = _position;
         SkipWhitespaceSpan();
@@ -1030,6 +1028,152 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
         return true;
     }
 
+    /// <summary>
+    /// Advances <c>_position</c> to the closing quote of the string token that
+    /// starts there (or to the end of the data when the token is unterminated).
+    /// Returns <c>true</c> when the token contains a backslash, i.e. when the raw
+    /// span needs unescaping.
+    /// </summary>
+    /// <remarks>
+    /// Fast path: one vectorized sweep over the run of plain bytes up to the next
+    /// byte that can end it (a quote, a backslash or a raw control byte below 0x20). A 1 KB
+    /// escape-free string therefore costs one SIMD pass instead of 1024 scalar
+    /// steps, and the separate <see cref="ContainsBackslash"/> pre-check inside
+    /// <see cref="UnescapeIfNeeded"/> is skipped entirely (the sweep already proved
+    /// there is no backslash).
+    /// Fallbacks — all byte-for-byte the previous behavior:
+    /// <list type="bullet">
+    /// <item>a backslash hands the rest of the token to the original byte-at-a-time
+    /// scan (<see cref="ScanStringTokenSpanScalar"/>), which skips escaped bytes;</item>
+    /// <item>hardware without SIMD support, and any tail shorter than one vector,
+    /// use that same original scan;</item>
+    /// <item>a raw control byte is consumed one byte at a time (the reader never
+    /// rejected bare control bytes, and still does not).</item>
+    /// </list>
+    /// </remarks>
+    private bool ScanStringTokenSpan()
+    {
+        while (_position < _data.Length)
+        {
+            var rel = IndexOfQuoteEscapeOrControl(_data[_position..]);
+            if (rel < 0)
+            {
+                _position = _data.Length;
+                return false;
+            }
+            var idx = _position + rel;
+            var b = _data[idx];
+            if (b == (byte)'"')
+            {
+                _position = idx;
+                return false;
+            }
+            if (b == (byte)'\\')
+            {
+                _position = idx;
+                ScanStringTokenSpanScalar();
+                return true;
+            }
+            // Raw control byte: keep the original per-byte progress.
+            _position = idx + 1;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Original byte-at-a-time string scan — the non-vectorized fallback. Stops on
+    /// the closing quote, or at the end of the data for an unterminated token.
+    /// </summary>
+    private void ScanStringTokenSpanScalar()
+    {
+        while (_position < _data.Length)
+        {
+            if (_data[_position] == (byte)'"')
+                break;
+            if (_data[_position] == (byte)'\\' && _position + 1 < _data.Length)
+                _position++;
+            _position++;
+        }
+    }
+
+    /// <summary>
+    /// Index of the first byte that ends a plain string run: a quote,
+    /// a backslash (escape) or anything below 0x20 (a raw control byte). Returns -1 when
+    /// whole span is plain.
+    /// </summary>
+    /// <remarks>
+    /// Vectorized at 64 / 32 / 16 bytes per step; those gates are JIT-time
+    /// constants, so an unsupported width costs nothing. The scalar loop is the
+    /// genuine fallback: it covers the tail shorter than one vector, and every byte
+    /// on hardware without SIMD support.
+    /// </remarks>
+    internal static int IndexOfQuoteEscapeOrControl(ReadOnlySpan<byte> span)
+    {
+        ref var ptr = ref MemoryMarshal.GetReference(span);
+        var i = 0;
+
+        if (Vector512.IsHardwareAccelerated)
+        {
+            var quote = Vector512.Create((byte)'"');
+            var escape = Vector512.Create((byte)'\\');
+            var control = Vector512.Create((byte)0x20);
+            for (; i + 64 <= span.Length; i += 64)
+            {
+                var chunk = Vector512.LoadUnsafe(ref Unsafe.Add(ref ptr, i));
+                var hit =
+                    Vector512.Equals(chunk, quote)
+                    | Vector512.Equals(chunk, escape)
+                    | Vector512.LessThan(chunk, control);
+                var bits = hit.ExtractMostSignificantBits();
+                if (bits != 0)
+                    return i + BitOperations.TrailingZeroCount(bits);
+            }
+        }
+
+        if (Vector256.IsHardwareAccelerated)
+        {
+            var quote = Vector256.Create((byte)'"');
+            var escape = Vector256.Create((byte)'\\');
+            var control = Vector256.Create((byte)0x20);
+            for (; i + 32 <= span.Length; i += 32)
+            {
+                var chunk = Vector256.LoadUnsafe(ref Unsafe.Add(ref ptr, i));
+                var hit =
+                    Vector256.Equals(chunk, quote)
+                    | Vector256.Equals(chunk, escape)
+                    | Vector256.LessThan(chunk, control);
+                var bits = hit.ExtractMostSignificantBits();
+                if (bits != 0)
+                    return i + BitOperations.TrailingZeroCount(bits);
+            }
+        }
+
+        if (Vector128.IsHardwareAccelerated)
+        {
+            var quote = Vector128.Create((byte)'"');
+            var escape = Vector128.Create((byte)'\\');
+            var control = Vector128.Create((byte)0x20);
+            for (; i + 16 <= span.Length; i += 16)
+            {
+                var chunk = Vector128.LoadUnsafe(ref Unsafe.Add(ref ptr, i));
+                var hit =
+                    Vector128.Equals(chunk, quote)
+                    | Vector128.Equals(chunk, escape)
+                    | Vector128.LessThan(chunk, control);
+                var bits = hit.ExtractMostSignificantBits();
+                if (bits != 0)
+                    return i + BitOperations.TrailingZeroCount(bits);
+            }
+        }
+
+        for (; i < span.Length; i++)
+        {
+            if (span[i] is (byte)'"' or (byte)'\\' or < 0x20)
+                return i;
+        }
+        return -1;
+    }
+
     private bool ReadStringOrPropertySeq()
     {
         var propStart = _seqReader.Consumed; // position of the opening quote
@@ -1043,6 +1187,27 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
         {
             while (!_seqReader.End)
             {
+                // Fast path: copy the plain run of bytes up to the next byte that can
+                // end it (a quote, a backslash or a raw control byte) in one bulk copy
+                // instead of one array store per byte. A long escape-free string
+                // therefore costs one vector scan + one memcpy per segment; escape
+                // handling below stays byte-for-byte what it was.
+                var unread = _seqReader.UnreadSpan;
+                var plain = unread.IsEmpty ? -1 : IndexOfQuoteEscapeOrControl(unread);
+                if (plain < 0)
+                    plain = unread.Length;
+                if (plain > 0)
+                {
+                    EnsureSeqCapacity(ref buf, di + plain, di);
+                    unread[..plain].CopyTo(buf.AsSpan(di));
+                    di += plain;
+                    _seqReader.Advance(plain);
+                    if (plain == unread.Length)
+                        continue; // segment exhausted — let the loop re-check End
+                }
+                if (_seqReader.End)
+                    break;
+
                 var b = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
                 if (b == (byte)'"')
                 {
@@ -1060,13 +1225,7 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
                     _seqReader.Advance(1);
                     // Ensure capacity BEFORE writing: a \uXXXX escape can
                     // produce up to 4 UTF-8 bytes.
-                    if (di + 4 > buf.Length)
-                    {
-                        var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
-                        buf.AsSpan(0, di).CopyTo(newBuf);
-                        buf = newBuf;
-                        TrackBuffer(buf);
-                    }
+                    EnsureSeqCapacity(ref buf, di + 4, di);
                     switch (b)
                     {
                         case (byte)'"':
@@ -1101,24 +1260,12 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
                                 $"Invalid escape character '{(char)b}' at offset {_seqReader.Consumed - 1}"
                             );
                     }
-                    if (di >= buf.Length)
-                    {
-                        var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
-                        buf.AsSpan(0, di).CopyTo(newBuf);
-                        buf = newBuf;
-                        TrackBuffer(buf);
-                    }
                 }
                 else
                 {
+                    EnsureSeqCapacity(ref buf, di + 1, di);
                     buf[di++] = b;
                     _seqReader.Advance(1);
-                    if (di < buf.Length)
-                        continue;
-                    var newBuf = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
-                    buf.AsSpan(0, di).CopyTo(newBuf);
-                    buf = newBuf;
-                    TrackBuffer(buf);
                 }
             }
 
@@ -1146,6 +1293,23 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Makes sure the sequence-mode scratch buffer can hold <paramref name="needed"/>
+    /// bytes, growing geometrically — at least doubling, and never below the caller's
+    /// requirement, so a large segment does not trigger one regrow per segment.
+    /// <paramref name="valid"/> bytes are carried over; the superseded buffer is
+    /// recycled by <see cref="TrackBuffer"/>.
+    /// </summary>
+    private void EnsureSeqCapacity(ref byte[] buf, int needed, int valid)
+    {
+        if (needed <= buf.Length)
+            return;
+        var newBuf = ArrayPool<byte>.Shared.Rent(Math.Max(buf.Length * 2, needed));
+        buf.AsSpan(0, valid).CopyTo(newBuf);
+        buf = newBuf;
+        TrackBuffer(buf);
     }
 
     private int ReadUnicodeEscapeSeq(byte[] buf, int di)
