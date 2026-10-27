@@ -64,6 +64,12 @@ public class BoundaryValueWhiteAreaTests
 {
     private static readonly string[] AllFormats = ["json", "msgpack", "toml", "yaml", "ini"];
 
+    /// <summary>
+    /// The one format whose DateTime encoding cannot carry a <see cref="DateTimeKind"/>:
+    /// MessagePack's timestamp extension is seconds + nanoseconds since the epoch.
+    /// </summary>
+    private const string InstantOnlyFormat = "msgpack";
+
     // ── item 1: ±Infinity, in every format ──────────────────────────────────────────
 
     /// <summary>
@@ -522,6 +528,15 @@ public class BoundaryValueWhiteAreaTests
     /// <c>DateTime.Parse("2020-12-31")</c> — was never driven. A format that "preserves the
     /// date" while quietly turning <c>Unspecified</c> into <c>Utc</c> changes the value (the
     /// ticks stay, the meaning does not), so all three kinds are asserted per format.
+    /// <para>
+    /// <b>Msgpack is the documented exception</b>: a MessagePack <c>DateTime</c> is the
+    /// timestamp extension (tag <c>0xFF</c>, spec §"Timestamp extension type"), whose payload
+    /// is seconds + nanoseconds since the epoch and <em>nothing else</em> — the wire has no
+    /// Kind bit to preserve. What it does carry is the instant: <c>Utc</c> keeps its ticks,
+    /// <c>Unspecified</c> is taken at face value (see
+    /// <see cref="PicoMsgPack.MsgPackWriter.WriteDateTime"/>), <c>Local</c> is converted, and
+    /// everything comes back as <c>Utc</c> — the same contract MessagePack-CSharp has.
+    /// </para>
     /// </summary>
     [Test]
     [Arguments(DateTimeKind.Utc)]
@@ -544,6 +559,29 @@ public class BoundaryValueWhiteAreaTests
                     Day = DayOfWeek.Friday,
                 }
             );
+
+            if (tag == InstantOnlyFormat)
+            {
+                // The timestamp extension carries an instant: Local is converted on the way
+                // out, Unspecified is taken at face value (as UTC), and the Kind comes back
+                // as Utc because the wire cannot spell one.
+                var expectedTicks =
+                    kind == DateTimeKind.Local ? when.ToUniversalTime().Ticks : when.Ticks;
+                await Assert
+                    .That(back.When.Ticks)
+                    .IsEqualTo(expectedTicks)
+                    .Because(
+                        $"{tag} writes the timestamp extension: the instant of a {kind} value "
+                            + "survives, its Kind does not"
+                    );
+                await Assert
+                    .That(back.When.Kind)
+                    .IsEqualTo(DateTimeKind.Utc)
+                    .Because(
+                        $"{tag}: the timestamp extension has no Kind bit, so it reads back as Utc"
+                    );
+                continue;
+            }
 
             await Assert
                 .That(back.When)
@@ -596,11 +634,27 @@ public class BoundaryValueWhiteAreaTests
                 .That(back.Span)
                 .IsEqualTo(model.Span)
                 .Because($"{tag}: TimeSpan.MinValue is the separator-heavy one");
-            await Assert
-                .That(back.When)
-                .IsEqualTo(model.When)
-                .Because($"{tag}: a Local DateTime carries '+08:00' (or the local offset)");
-            await Assert.That(back.When.Kind).IsEqualTo(DateTimeKind.Local);
+            if (tag == InstantOnlyFormat)
+            {
+                // Msgpack's timestamp extension normalises a Local value to UTC; the other
+                // four formats spell the offset out in their text form.
+                await Assert
+                    .That(back.When.Ticks)
+                    .IsEqualTo(model.When.ToUniversalTime().Ticks)
+                    .Because($"{tag}: the timestamp extension carries the instant, not the offset");
+                await Assert
+                    .That(back.When.Kind)
+                    .IsEqualTo(DateTimeKind.Utc)
+                    .Because($"{tag}: kind");
+            }
+            else
+            {
+                await Assert
+                    .That(back.When)
+                    .IsEqualTo(model.When)
+                    .Because($"{tag}: a Local DateTime carries '+08:00' (or the local offset)");
+                await Assert.That(back.When.Kind).IsEqualTo(DateTimeKind.Local);
+            }
             await Assert.That(back.Id).IsEqualTo(model.Id).Because($"{tag}: all-f Guid");
             await Assert
                 .That(back.Day)

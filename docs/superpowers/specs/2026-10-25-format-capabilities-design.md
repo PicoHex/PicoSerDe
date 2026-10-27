@@ -142,12 +142,12 @@ currently gets wrong about them, and what the library must do about it
 | 格 | 实测 verdict | 实测细节（`CELL-OBS` 原文见 `.superpowers/sdd/r1-w2b/task-2b-report.md`） |
 |---|---|---|
 | S14 × json | `OK` | `null` 元素逐元素往返（`{"V":[{…},null,{…}]}`），`null` 与缺失/空集合仍互不等价 |
-| S14 × msgpack | `OK` | 同上（`C0` = nil 元素） |
+| S14 × msgpack | `MISMATCH` | **Task 4d（timestamp 扩展）起**：形状仍逐元素往返（`C0` = nil 元素），但 `boundary` 里 `Dto.When` 的 `Unspecified` 读回成 `Utc` —— timestamp 扩展的 wire 只承载**瞬时**，没有 `Kind` 位，值级等价判定因此变红（`diff=boundary=v`，tick 不变） |
 | S14 × toml | `MISMATCH` | 三个值 wire 全空：**整个成员被丢**（`PICOSERDE004`），与「无 null」一致 |
 | S14 × yaml | `OK` | **R2 T8 复测**：序列里的 `- null` 逐元素往返（`null` 与缺失/空集合互不等价）。R1 记录的 `MISMATCH`（整成员被丢）已被 **R2 Task 4** 的 `- null` 写侧闭合 —— 这一行的旧值在 R1 之后就腐化了，正是 §7 I-6 白区 8 要的「`CELL-OBS` 无门禁」 |
 | S14 × ini | `MISMATCH` | 同上（与 S2 × ini 同因：成员内不承载对象列表） |
 | S15 × json | `MISMATCH` | `empty`/`single` 六成员**全等价**（`D` 保精度、`When` 保 `Kind`、`Span`/`Id` 走字符串）；`boundary` 序列化抛 `ArgumentException: NaN cannot be written as JSON` ⇒ 注 ² |
-| S15 × msgpack | `OK` | 三个值全等价，**含 `NaN`**（`CB FFF8000000000000`）、`TimeSpan.MinValue`、`Local` 偏移、全 `f` Guid、`null` enum |
+| S15 × msgpack | `MISMATCH` | **Task 4d（timestamp 扩展）起**：`empty` 的 `when`（`Unspecified`）与 `boundary` 的 `when`（`Local`）读回成 `Utc` —— 同一瞬时、`Kind` 归一（`diff=empty=when; boundary=when`）；其余五成员仍全等价（**含 `NaN`** `CB FFF8000000000000`、`TimeSpan.MinValue`、全 `f` Guid、`null` enum）。这是 timestamp 扩展的固有性质：MessagePack-CSharp 读同样的字节同样只给瞬时 |
 | S15 × toml | `MISMATCH` | `empty`/`single` 六成员全等价；`boundary` 序列化抛 `ArgumentException: NaN and Infinity cannot be written as TOML` ⇒ 欠账 ³ |
 | S15 × yaml | `MISMATCH` | 同 toml（`ArgumentException: NaN and Infinity cannot be written as YAML`）⇒ 欠账 ³ |
 | S15 × ini | `OK` | **R2 T8 复测**：三个值六成员全等价（`NaN` 写成文本、`Local` 带 `+08:00`、`TimeSpan.MinValue` 带负号与冒号）。`empty` 的 `when` 从「读侧抛 `FormatException`」变绿：根因**不是**脚注 ⁴ 猜的「缺 `Kind` 后缀」，而是 `Utf8Parser.TryParse(…, 'O')` 对 `DateTime.MinValue` 的往返文本返回 `false`（`2020-12-31T23:59:59.0000000` 同形却通过）；读侧补了 `DateTime.Parse(…, RoundtripKind)` 兜底 |
@@ -175,6 +175,8 @@ currently gets wrong about them, and what the library must do about it
 
 **结论补充**：S14 的 `❌` 仍只有「TOML 无 null」与「INI 结构性限制」；S15 的 `❌` 只有「JSON 无 NaN/±Inf 字面量」。
 其余「今天不支持」全部是欠账（S15 × toml/yaml 的 NaN —— `S14 × yaml` 与 `S15 × ini` 的默认时间已在 R2 闭合，见上表）。
+**`S14 × msgpack` / `S15 × msgpack` 两行的 `MISMATCH` 不属于欠账也不属于格式事实**：它们是 Task 4d 把 `DateTime` 换成 MessagePack timestamp 扩展（tag `0xFF`，与 MessagePack-CSharp 逐字节一致）的**固有代价** —— 该扩展的载荷只有
+ 「秒 + 纳秒」，没有 `DateTimeKind` 位，所以「值 + Kind」判定必然红，而「瞬时」判定仍然绿（`tests/PicoMsgPack.Tests/TimestampInteropTests.cs` 双向逐 tick 覆盖）。
 
 ## 4. 缺陷（现状与 R1/R2/R5 的偏离）
 

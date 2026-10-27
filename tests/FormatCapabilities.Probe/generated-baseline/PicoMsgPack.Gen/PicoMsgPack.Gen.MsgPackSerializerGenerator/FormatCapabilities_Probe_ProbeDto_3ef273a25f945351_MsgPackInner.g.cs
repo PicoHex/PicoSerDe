@@ -20,7 +20,7 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351MsgPackI
         mw.WriteInt32(3);
         mw.WriteString(Encoding.UTF8.GetBytes(v.D.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         mw.WriteInt32(4);
-        mw.WriteString(Encoding.UTF8.GetBytes(v.When.ToString("O")));
+        mw.WriteDateTime(v.When);
         mw.WriteEndObject();
     }
 

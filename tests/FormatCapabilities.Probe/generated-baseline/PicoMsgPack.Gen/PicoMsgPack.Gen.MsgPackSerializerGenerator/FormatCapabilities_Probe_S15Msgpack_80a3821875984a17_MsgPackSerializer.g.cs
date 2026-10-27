@@ -16,7 +16,7 @@ file static class S15MsgpackMsgPackSerializer {
         mw.WriteInt32(1);
         mw.WriteString(Encoding.UTF8.GetBytes(value.D.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         mw.WriteInt32(2);
-        mw.WriteString(Encoding.UTF8.GetBytes(value.When.ToString("O")));
+        mw.WriteDateTime(value.When);
         mw.WriteInt32(3);
         mw.WriteString(Encoding.UTF8.GetBytes(value.Span.ToString("c", System.Globalization.CultureInfo.InvariantCulture)));
         mw.WriteInt32(4);
