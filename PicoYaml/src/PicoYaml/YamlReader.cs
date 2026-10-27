@@ -896,6 +896,47 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
             _depth--;
             return true;
         }
+        // A LINE-LEADING flow collection is a NODE, not a mapping key: `{}` at the start
+        // of a line used to fall through to the block key scan below, which looked for the
+        // ':' a flow mapping never needs and threw "Invalid YAML mapping line". The
+        // same-line form (`V: {}`) already had this branch at the value position; this one
+        // covers the positions a value branch cannot reach - the document root (`{}`, the
+        // empty document an exporter writes for an empty object) and a flow collection that
+        // sits on its own indented line. Both enter the SAME flow readers, so the token
+        // stream is identical to the inline form and the generated deserializers need no
+        // change. A plain scalar may not begin with '{' or '[', so nothing that used to be
+        // a scalar or a key can reach here.
+        if (_data[_position] is (byte)'{' or (byte)'[')
+        {
+            // The close must be inside this buffer: the flow readers below cannot resume
+            // from a partly-read collection, and a FINAL document whose flow collection
+            // never closes is malformed, not empty. (Returning false here instead would
+            // report "no value" and hand back a default object for `{Name: x` - exactly the
+            // swallow this fix must not add.)
+            if (!FlowValueComplete(_position))
+            {
+                if (!_isFinalBlock)
+                    throw new IncompleteInputException();
+                throw new FormatException(
+                    _data[_position] == (byte)'{'
+                        ? "Unterminated YAML flow mapping: expected '}'."
+                        : "Unterminated YAML flow sequence: expected ']'."
+                );
+            }
+            var open = _data[_position];
+            _position++;
+            if (open == (byte)'{')
+            {
+                _inFlow = true;
+                _flowStartEmitted = false;
+            }
+            else
+            {
+                _inFlowSeq = true;
+                _flowSeqStartEmitted = false;
+            }
+            return open == (byte)'{' ? ReadFlowSpan() : ReadFlowSeqSpan();
+        }
         if (_stackCount > 0 && lineIndent > _indentStack[_stackCount - 1])
         {
             _position = lineStart;
