@@ -132,12 +132,20 @@ slots; it has been withdrawn rather than corrected in place.
 
 Scope, honestly: **both modes now carry data, from two different sessions on the same machine and the
 same date.** The JIT table is the second measurement session's. The **AOT** table is a later, separate
-window, run precisely because the first AOT attempt — inside the JIT session — was refused: **20 of
-its 40 arms**, 18 on system-wide CPU (39.4%–80.6% against the 35% limit) and 2 on drift, after
-external load rose mid-window. The re-measure published **all 20 arms** of its equivalent table
-(`Mode: Aot, IL on disk: no, IsDynamicCodeSupported: no`; load self-check drift 1.3%, spread 1.38×,
-dispersion 5.9% at other-CPU 10%; per-arm other-CPU 3%–26%), and its source is
-`AOT · 2026-10-27 · .superpowers/sdd/bench-aot-toml/logs/PicoToml-Aot-run2.txt`.
+window, and **three AOT attempts were needed: the first two were refused, and the third is the one
+published.** The first, inside the JIT session (`.superpowers/sdd/bench-measure-2/logs/PicoToml-Aot.txt`),
+lost **20 of its 40 arms** — 18 on system-wide CPU (39.4%–80.6% against the 35% limit) and 2 on
+drift, after external load rose mid-window. The second, run in the re-measure's own directory
+(`.superpowers/sdd/bench-aot-toml/logs/PicoToml-Aot.txt`), lost **21 of its 40 arms** — 18 on
+system-wide CPU (**42.8%–95.2%**; the first reads `other processes used 42.8% of the machine's CPU
+during the check (limit 35%) — the machine is not idle`) and 3 on drift (28.7%, 31.2%, 46.9%) —
+publishing 19 of 20 equivalent arms and none of its 20 Tommy arms. The third published **all 20 arms**
+of its equivalent table (`Mode: Aot, IL on disk: no, IsDynamicCodeSupported: no`; load self-check
+drift 1.3%, spread 1.38×, dispersion 5.9% at other-CPU 10%; per-arm other-CPU 3%–26% across those
+20 arms), and its source is
+`AOT · 2026-10-27 · .superpowers/sdd/bench-aot-toml/logs/PicoToml-Aot-run2.txt`. Its Tommy table
+published 19 of 20 — the missing arm was refused at 48.4% other-CPU — so no Tommy figure is quoted
+from this window.
 
 The two modes are **never mixed**, and in this case that rule has teeth: AOT costs more than JIT for
 **both** libraries — our `Large — Serialize` moves 1.351 → 2.617 µs, Tomlyn's 4.185 → 6.579 µs — so a
