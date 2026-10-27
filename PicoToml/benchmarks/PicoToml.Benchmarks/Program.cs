@@ -75,75 +75,76 @@ var largeBytes = TomlSerializer.SerializeToUtf8Bytes(large);
 var simpleStrBytes = Encoding.UTF8.GetBytes(simpleStr);
 var nestedStrBytes = Encoding.UTF8.GetBytes(nestedStr);
 
-var results = new List<ComparisonResult>
-{
-    B(
-        "Simple — Serialize (bytes)",
-        () => TomlSerializer.SerializeToUtf8Bytes(simple),
-        () => TommySerSimple()
-    ),
-    B(
-        "Simple — Deserialize (bytes)",
-        () => TomlSerializer.Deserialize<SimplePoco>(simpleBytes),
-        () => TommyDeserSimple(simpleStr)
-    ),
-    B(
-        "Medium — Serialize (bytes)",
-        () => TomlSerializer.SerializeToUtf8Bytes(medium),
-        () => TommySerMedium(medium)
-    ),
-    B(
-        "Medium — Deserialize (bytes)",
-        () => TomlSerializer.Deserialize<MediumScalarPoco>(mediumBytes),
-        () => TommyDeserMedium(TomlSerializer.Serialize(medium))
-    ),
-    B(
-        "Nested — Serialize (bytes)",
-        () => TomlSerializer.SerializeToUtf8Bytes(nested),
-        () => TommySerNested(nested)
-    ),
-    B(
-        "Nested — Deserialize (bytes)",
-        () => TomlSerializer.Deserialize<NestedPoco>(nestedBytes),
-        () => TommyDeserNested(nestedStr)
-    ),
-    B(
-        "Large — Serialize (bytes)",
-        () => TomlSerializer.SerializeToUtf8Bytes(large),
-        () => TommySerLarge(large)
-    ),
-    B(
-        "Large — Deserialize (bytes)",
-        () => TomlSerializer.Deserialize<LargeFlatPoco>(largeBytes),
-        () => TommyDeserLarge(TomlSerializer.Serialize(large))
-    ),
-    B(
-        "Simple — SerializeToString",
-        () => TomlSerializer.Serialize(simple),
-        () => TommySerStrSimple()
-    ),
-    B(
-        "Simple — Deserialize←string",
-        () => TomlSerializer.Deserialize<SimplePoco>(simpleStrBytes),
-        () => TommyDeserSimple(simpleStr)
-    ),
-};
+// Roles are positional: ours = PicoToml, theirs = Tommy. The table runs the pair
+// through BenchRoleGuard (candidate must be a Pico* name), so the two columns cannot
+// be swapped without an exception.
+//
+// NON-EQUIVALENT — not comparable: the Tommy arm is a hand-written TomlTable DOM walk
+// (TOML.Parse + TomlTable writes / TomlTable[...] reads) plus a typed mapping
+// performed by this file, not a single library call. The timings are listed for
+// reference and the table computes and prints no ratio: a ratio between two different
+// jobs measures neither library.
+var table = new ProtocolTable("PicoToml", "Tommy¹", equivalent: false);
 
-foreach (var c in results)
-    Console.WriteLine(
-        $"{(c.IsFaster ? "✓" : "✗")} {c.Name, -38} Pico={c.Candidate.Statistics.Avg / 1000:F1}μs  Tommy={c.Baseline.Statistics.Avg / 1000:F1}μs  x{c.Speedup:F2}"
-    );
+table.Compare(
+    "Simple — Serialize (bytes)",
+    () => TomlSerializer.SerializeToUtf8Bytes(simple),
+    () => TommySerSimple()
+);
+table.Compare(
+    "Simple — Deserialize (bytes)",
+    () => TomlSerializer.Deserialize<SimplePoco>(simpleBytes),
+    () => TommyDeserSimple(simpleStr)
+);
+table.Compare(
+    "Medium — Serialize (bytes)",
+    () => TomlSerializer.SerializeToUtf8Bytes(medium),
+    () => TommySerMedium(medium)
+);
+table.Compare(
+    "Medium — Deserialize (bytes)",
+    () => TomlSerializer.Deserialize<MediumScalarPoco>(mediumBytes),
+    () => TommyDeserMedium(TomlSerializer.Serialize(medium))
+);
+table.Compare(
+    "Nested — Serialize (bytes)",
+    () => TomlSerializer.SerializeToUtf8Bytes(nested),
+    () => TommySerNested(nested)
+);
+table.Compare(
+    "Nested — Deserialize (bytes)",
+    () => TomlSerializer.Deserialize<NestedPoco>(nestedBytes),
+    () => TommyDeserNested(nestedStr)
+);
+table.Compare(
+    "Large — Serialize (bytes)",
+    () => TomlSerializer.SerializeToUtf8Bytes(large),
+    () => TommySerLarge(large)
+);
+table.Compare(
+    "Large — Deserialize (bytes)",
+    () => TomlSerializer.Deserialize<LargeFlatPoco>(largeBytes),
+    () => TommyDeserLarge(TomlSerializer.Serialize(large))
+);
+table.Compare(
+    "Simple — SerializeToString",
+    () => TomlSerializer.Serialize(simple),
+    () => TommySerStrSimple()
+);
+table.Compare(
+    "Simple — Deserialize←string",
+    () => TomlSerializer.Deserialize<SimplePoco>(simpleStrBytes),
+    () => TommyDeserSimple(simpleStr)
+);
+
+table.Print();
 Console.WriteLine();
 Console.WriteLine("¹ Tommy: DOM-only (TOML.Parse / TomlTable); no typed POCO mapping.");
 Console.WriteLine(new string('=', 60));
-Console.WriteLine(SummaryFormatter.Format(results));
+
+Environment.ExitCode = BenchProtocol.ExitCode;
 
 return;
-
-// Candidate = PicoToml (ours), baseline = Tommy (competitor), so Speedup > 1
-// means PicoToml is faster. BenchmarkRoles.Guard throws if that is ever inverted.
-static ComparisonResult B(string name, Action candidate, Action baseline) =>
-    BenchmarkRoles.Guard(Benchmark.Compare(name, "Tommy¹", baseline, "PicoToml", candidate));
 
 // ── Helpers ──
 

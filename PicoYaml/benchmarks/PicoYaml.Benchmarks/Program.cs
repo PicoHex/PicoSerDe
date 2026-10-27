@@ -7,7 +7,6 @@ Console.WriteLine(
 );
 Console.WriteLine("Absolute timings only — this file reports no ratio and claims no speedup.");
 Console.WriteLine(new string('=', 60));
-Console.WriteLine();
 
 var simple = new SimplePoco { Name = "Hello World", Age = 42 };
 var simpleBytes = YamlSerializer.SerializeToUtf8Bytes(simple);
@@ -33,33 +32,23 @@ var collection = new CollectionPoco
 };
 var collectionBytes = YamlSerializer.SerializeToUtf8Bytes(collection);
 
-// Self-baseline: one Benchmark.Run per operation. Deliberately no
-// Benchmark.Compare — a comparison needs a competitor, and constructing one from
-// our own two operations is what produced the meaningless "Ser vs Deser ratio"
-// this file used to print (on top of measuring Serialize twice for the
-// "Deserialize" row).
-var results = new List<BenchmarkResult>
-{
-    Benchmark.Run("Simple — Serialize", () => YamlSerializer.SerializeToUtf8Bytes(simple)),
-    Benchmark.Run(
-        "Simple — Deserialize",
-        () => YamlSerializer.Deserialize<SimplePoco>(simpleBytes)
-    ),
-    Benchmark.Run("Nested — Serialize", () => YamlSerializer.SerializeToUtf8Bytes(nested)),
-    Benchmark.Run(
-        "Nested — Deserialize",
-        () => YamlSerializer.Deserialize<NestedPoco>(nestedBytes)
-    ),
-    Benchmark.Run("Collection — Serialize", () => YamlSerializer.SerializeToUtf8Bytes(collection)),
-    Benchmark.Run(
-        "Collection — Deserialize",
-        () => YamlSerializer.Deserialize<CollectionPoco>(collectionBytes)
-    ),
-};
+// Self-benchmark: one arm per operation, measured under the shared protocol.
+// Deliberately no competitor arm — a comparison needs one, and constructing one from
+// our own two operations is what produced the meaningless "Ser vs Deser ratio" this
+// file used to print (on top of measuring Serialize twice for the "Deserialize" row).
+var table = new ProtocolTable("PicoYaml", theirsLabel: null);
 
-foreach (var r in results)
-    Console.WriteLine($"{r.Name, -32} {r.Statistics.Avg / 1000, 8:F1}μs");
+table.Measure("Simple — Serialize", () => YamlSerializer.SerializeToUtf8Bytes(simple));
+table.Measure("Simple — Deserialize", () => YamlSerializer.Deserialize<SimplePoco>(simpleBytes));
+table.Measure("Nested — Serialize", () => YamlSerializer.SerializeToUtf8Bytes(nested));
+table.Measure("Nested — Deserialize", () => YamlSerializer.Deserialize<NestedPoco>(nestedBytes));
+table.Measure("Collection — Serialize", () => YamlSerializer.SerializeToUtf8Bytes(collection));
+table.Measure(
+    "Collection — Deserialize",
+    () => YamlSerializer.Deserialize<CollectionPoco>(collectionBytes)
+);
 
-Console.WriteLine();
+table.Print();
 Console.WriteLine(new string('=', 60));
-Console.WriteLine(new ConsoleFormatter().Format(results));
+
+Environment.ExitCode = BenchProtocol.ExitCode;

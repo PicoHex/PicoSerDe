@@ -75,68 +75,73 @@ var largeBytes = IniSerializer.SerializeToUtf8Bytes(large);
 var simpleStrBytes = Encoding.UTF8.GetBytes(simpleStr);
 var complexStrBytes = Encoding.UTF8.GetBytes(complexStr);
 
-var results = new List<ComparisonResult>
-{
-    B(
-        "Simple — Serialize (bytes)",
-        () => IniSerializer.SerializeToUtf8Bytes(simple),
-        () => SerIniSimple()
-    ),
-    B(
-        "Simple — Deserialize (bytes)",
-        () => IniSerializer.Deserialize<SimplePoco>(simpleBytes),
-        () => DeserSimple(simpleStr)
-    ),
-    B(
-        "Medium — Serialize (bytes)",
-        () => IniSerializer.SerializeToUtf8Bytes(medium),
-        () => SerIniMedium(medium)
-    ),
-    B(
-        "Medium — Deserialize (bytes)",
-        () => IniSerializer.Deserialize<MediumScalarPoco>(mediumBytes),
-        () => DeserMedium(IniSerializer.Serialize(medium))
-    ),
-    B(
-        "Complex — Serialize (bytes)",
-        () => IniSerializer.SerializeToUtf8Bytes(complex),
-        () => SerIniComplex(complex)
-    ),
-    B(
-        "Large — Serialize (bytes)",
-        () => IniSerializer.SerializeToUtf8Bytes(large),
-        () => SerIniLarge(large)
-    ),
-    B(
-        "Large — Deserialize (bytes)",
-        () => IniSerializer.Deserialize<LargeFlatPoco>(largeBytes),
-        () => DeserLarge(IniSerializer.Serialize(large))
-    ),
-    B("Simple — SerializeToString", () => IniSerializer.Serialize(simple), () => SerIniSimple()),
-    B(
-        "Simple — Deserialize←string",
-        () => IniSerializer.Deserialize<SimplePoco>(simpleStrBytes),
-        () => DeserSimple(simpleStr)
-    ),
-};
+// Roles are positional: ours = PicoIni, theirs = ini-parser. The table runs the pair
+// through BenchRoleGuard (candidate must be a Pico* name), so the two columns cannot
+// be swapped without an exception.
+//
+// NON-EQUIVALENT — not comparable: the ini-parser arm is a hand-written DOM walk
+// (IniDataParser + IniData.WriteTo / Global[...] reads) plus a typed mapping performed
+// by this file, not a single library call. The timings are listed for reference and
+// the table computes and prints no ratio: a ratio between two different jobs measures
+// neither library.
+var table = new ProtocolTable("PicoIni", "ini-parser¹", equivalent: false);
 
-foreach (var c in results)
-    Console.WriteLine(
-        $"{(c.IsFaster ? "✓" : "✗")} {c.Name, -38} Pico={c.Candidate.Statistics.Avg / 1000:F1}μs  IFP={c.Baseline.Statistics.Avg / 1000:F1}μs  x{c.Speedup:F2}"
-    );
+table.Compare(
+    "Simple — Serialize (bytes)",
+    () => IniSerializer.SerializeToUtf8Bytes(simple),
+    () => SerIniSimple()
+);
+table.Compare(
+    "Simple — Deserialize (bytes)",
+    () => IniSerializer.Deserialize<SimplePoco>(simpleBytes),
+    () => DeserSimple(simpleStr)
+);
+table.Compare(
+    "Medium — Serialize (bytes)",
+    () => IniSerializer.SerializeToUtf8Bytes(medium),
+    () => SerIniMedium(medium)
+);
+table.Compare(
+    "Medium — Deserialize (bytes)",
+    () => IniSerializer.Deserialize<MediumScalarPoco>(mediumBytes),
+    () => DeserMedium(IniSerializer.Serialize(medium))
+);
+table.Compare(
+    "Complex — Serialize (bytes)",
+    () => IniSerializer.SerializeToUtf8Bytes(complex),
+    () => SerIniComplex(complex)
+);
+table.Compare(
+    "Large — Serialize (bytes)",
+    () => IniSerializer.SerializeToUtf8Bytes(large),
+    () => SerIniLarge(large)
+);
+table.Compare(
+    "Large — Deserialize (bytes)",
+    () => IniSerializer.Deserialize<LargeFlatPoco>(largeBytes),
+    () => DeserLarge(IniSerializer.Serialize(large))
+);
+table.Compare(
+    "Simple — SerializeToString",
+    () => IniSerializer.Serialize(simple),
+    () => SerIniSimple()
+);
+table.Compare(
+    "Simple — Deserialize←string",
+    () => IniSerializer.Deserialize<SimplePoco>(simpleStrBytes),
+    () => DeserSimple(simpleStr)
+);
+
+table.Print();
 Console.WriteLine();
 Console.WriteLine(
     "¹ ini-parser: DOM parsing is AOT-safe, POCO mapping needs reflection and is not."
 );
 Console.WriteLine(new string('=', 60));
-Console.WriteLine(SummaryFormatter.Format(results));
+
+Environment.ExitCode = BenchProtocol.ExitCode;
 
 return;
-
-// Candidate = PicoIni (ours), baseline = ini-parser (competitor), so Speedup > 1
-// means PicoIni is faster. BenchmarkRoles.Guard throws if that is ever inverted.
-static ComparisonResult B(string name, Action candidate, Action baseline) =>
-    BenchmarkRoles.Guard(Benchmark.Compare(name, "ini-parser¹", baseline, "PicoIni", candidate));
 
 // ── Helpers ──
 

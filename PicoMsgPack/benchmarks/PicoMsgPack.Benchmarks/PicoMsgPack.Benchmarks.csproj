@@ -25,6 +25,7 @@
   <ItemGroup>
     <Compile Include="..\..\..\shared\BenchModels.cs" Link="BenchModels.cs" />
     <Compile Include="..\..\..\shared\BenchRoleGuard.cs" Link="BenchRoleGuard.cs" />
+    <Compile Include="..\..\..\shared\BenchProtocol.cs" Link="BenchProtocol.cs" />
   </ItemGroup>
 
   <ItemGroup>
