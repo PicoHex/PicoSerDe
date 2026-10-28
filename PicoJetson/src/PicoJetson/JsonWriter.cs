@@ -510,16 +510,77 @@ public ref struct JsonWriter
         }
     }
 
+    /// <summary>
+    /// Writes <c>"name":</c> — separator, quotes and colon included — as one staged write.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The name used to go out as four separate writes (<c>"</c>, the name, <c>"</c>, <c>:</c>),
+    /// each paying its own <see cref="Ensure"/> bound check and its own <see cref="CommitBare"/>:
+    /// five staged writes and a call each for a token that is a handful of bytes. A property
+    /// name is the most frequent non-value token in a document (30 of them in `LargeFlat 50`),
+    /// so a fixed cost per call dominates the payload. Here the whole token is staged once
+    /// behind a single <see cref="Ensure"/> and committed once.
+    /// </para>
+    /// <para>
+    /// The escape question is asked <em>before</em> staging, because an escapable name needs a
+    /// different (longer) byte sequence and must not be half-written first: a name that needs
+    /// escaping — <c>"</c>, <c>\</c>, a control character, all of which a naming policy or a
+    /// dictionary key can produce at run time — takes the previous path verbatim, and so does an
+    /// indented writer, whose colon carries a trailing space. Names arrive from the generated
+    /// serializers as compile-time UTF-8 constants, so the scan is over a handful of bytes;
+    /// from one vector up it is the same vectorized scan the string path uses, so a long name
+    /// (a policy can produce one) never falls back to a byte-at-a-time loop.
+    /// </para>
+    /// </remarks>
     public void WritePropertyName(scoped ReadOnlySpan<byte> utf8Name)
     {
-        if ((_needsComma & (1UL << _depth)) != 0)
-            WriteByte((byte)',');
+        var comma = (_needsComma & (1UL << _depth)) != 0;
         _needsComma |= (1UL << _depth);
-        if (_indented)
-            WriteIndent();
-        WriteQuotedString(utf8Name);
-        WriteRaw(_indented ? ": "u8 : ":"u8);
+
+        var n = utf8Name.Length;
+        var escapable =
+            n >= Vector128Size ? NeedsEscapingVectorized(utf8Name) : NameNeedsEscaping(utf8Name);
+        if (_indented || escapable)
+        {
+            if (comma)
+                WriteByte((byte)',');
+            if (_indented)
+                WriteIndent();
+            WriteQuotedString(utf8Name);
+            WriteRaw(_indented ? ": "u8 : ":"u8);
+            _afterPropertyName = true;
+            return;
+        }
+
+        Ensure(n + 3);
+        var start = _spanPos;
+        var pos = start;
+        if (comma)
+            _span[pos++] = (byte)',';
+        _span[pos++] = (byte)'"';
+        utf8Name.CopyTo(_span[pos..]);
+        pos += n;
+        _span[pos++] = (byte)'"';
+        _span[pos++] = (byte)':';
+        _spanPos = pos;
+        _bytesWritten += pos - start;
         _afterPropertyName = true;
+        CommitBare();
+    }
+
+    /// <summary>
+    /// True when a name shorter than one vector contains a byte JSON must escape: <c>"</c>,
+    /// <c>\</c> or a control byte. <see cref="NeedsEscapingVectorized"/> is its vectorized
+    /// twin; below one vector that scan would only run its own scalar tail through a call.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool NameNeedsEscaping(scoped ReadOnlySpan<byte> name)
+    {
+        foreach (var b in name)
+            if (b is (byte)'"' or (byte)'\\' or < 0x20)
+                return true;
+        return false;
     }
 
     public void WritePropertyName(scoped ReadOnlySpan<char> name)
