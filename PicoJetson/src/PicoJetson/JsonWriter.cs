@@ -306,7 +306,11 @@ public ref struct JsonWriter
 
     private void WriteQuotedString(scoped ReadOnlySpan<byte> utf8Value)
     {
-        WriteByte((byte)'"');
+        // The escape count runs BEFORE the opening quote reaches the write cursor: the scan
+        // is a pure read of the payload, and keeping the writer's span cursor live across it
+        // costs ~0.4 ns/byte in JIT codegen (see .superpowers/sdd/perf-json-strscan/report.md).
+        // The output is unchanged — the quote is still written ahead of the payload, it is just
+        // not held open while counting.
         int escapeCount = 0;
         foreach (var b in utf8Value)
         {
@@ -314,6 +318,7 @@ public ref struct JsonWriter
                 escapeCount++;
         }
 
+        WriteByte((byte)'"');
         if (escapeCount == 0)
         {
             WriteRaw(utf8Value);
@@ -388,11 +393,11 @@ public ref struct JsonWriter
             Span<byte> buf = stackalloc byte[max];
             int w = Encoding.UTF8.GetBytes(value, buf);
             var slice = buf[..w];
-            WriteByte((byte)'"');
             int escapeCount = 0;
             foreach (var b in slice)
                 if (b is (byte)'"' or (byte)'\\' or < 0x20)
                     escapeCount++;
+            WriteByte((byte)'"');
             if (escapeCount == 0)
             {
                 WriteRaw(slice);
