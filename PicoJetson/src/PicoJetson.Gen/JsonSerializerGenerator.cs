@@ -3157,15 +3157,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
                 sb.Append(indent);
                 sb.AppendLine("{");
-                sb.Append(indent);
-                sb.AppendLine(
-                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-                );
-                sb.Append(indent);
-                sb.AppendLine("    {");
-                EmitDeserializeElementAdd(sb, prop, listVar, indent + "        ", 0);
-                sb.Append(indent);
-                sb.AppendLine("    }");
+                EmitCollectionElementLoop(sb, prop, listVar, indent + "    ", 0);
                 sb.Append(indent);
                 sb.AppendLine("}");
                 if (cp.TypeKind != "list")
@@ -3667,33 +3659,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         prop.ElementTypeKind == "array"
                     );
                 }
-                else if (
-                    prop.ElementTypeKind == "int32"
-                    || prop.ElementTypeKind == "int64"
-                    || prop.ElementTypeKind == "boolean"
-                )
-                {
-                    sb.Append(indent);
-                    sb.AppendLine(
-                        "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-                    );
-                    sb.Append(indent);
-                    sb.AppendLine("    {");
-                    EmitDeserializeElementAdd(sb, prop, listAcc, indent + "        ", nestLevel);
-                    sb.Append(indent);
-                    sb.AppendLine("    }");
-                }
                 else
                 {
-                    sb.Append(indent);
-                    sb.AppendLine(
-                        "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-                    );
-                    sb.Append(indent);
-                    sb.AppendLine("    {");
-                    EmitDeserializeElementAdd(sb, prop, listAcc, indent + "        ", nestLevel);
-                    sb.Append(indent);
-                    sb.AppendLine("    }");
+                    // One emitter for every element kind: the loop shape lives in
+                    // EmitCollectionElementLoop, including the E-3 fused read for scalar elements.
+                    // The former int32/int64/boolean branch was byte-identical to this one.
+                    EmitCollectionElementLoop(sb, prop, listAcc, indent + "    ", nestLevel);
                 }
 
                 sb.Append(indent);
@@ -4097,6 +4068,169 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append("jw.WriteNumber(");
         sb.Append(itemVar);
         sb.AppendLine(");");
+    }
+
+    /// <summary>
+    /// The element kinds T15 reads with <b>one fused call</b> instead of "<c>Read()</c>, then
+    /// <c>TryGetX()</c>" (spec §3.4.1 rule <b>E-3</b>). Only <c>int32</c> qualifies: spec §3.3 marks
+    /// <c>TryReadInt32</c> as JSON's single override and leaves the other three fused reads as one
+    /// forwarding line each, so emitting those would rewrite every golden file for no gain.
+    /// </summary>
+    static bool IsFusedElementKind(string? kind) => kind == "int32";
+
+    /// <summary>
+    /// Emits one collection read loop: rule <b>E-2</b> (spec §3.4.1) — JSON carries no element count
+    /// (spec §3.3: the reader finds the closing bracket by scanning bytes and counts nothing), so there
+    /// is no counted loop (<b>E-1</b>) to emit — with rule <b>E-3</b> applied to the element read where
+    /// the element is one JSON fuses (<see cref="IsFusedElementKind"/>).
+    /// <para>
+    /// <b>Everything else keeps the reference shape verbatim</b>, which is what holds the golden diff to
+    /// the <c>int</c> element sites: a non-fused element still reads
+    /// <c>while (reader.Read() &amp;&amp; reader.TokenType != TokenType.ArrayEnd)</c> and then
+    /// <c>TryGetX()</c>.
+    /// </para>
+    /// <para>
+    /// <b>The call is made on the concrete reader type.</b> <c>reader</c> is the generated
+    /// <see cref="JsonReader"/> local, never a token-reader interface: spec §3.4.3 bans both interface
+    /// names from the emitted text, and <c>JsonFusedElementEmissionTests</c> greps this file for them —
+    /// so they may not be written here either, not even in prose.
+    /// </para>
+    /// </summary>
+    static void EmitCollectionElementLoop(
+        StringBuilder sb,
+        PropertyInfo element,
+        string addTarget,
+        string ind,
+        int nestLevel
+    )
+    {
+        if (IsFusedElementKind(element.ElementTypeKind))
+        {
+            EmitFusedInt32ElementLoop(
+                sb,
+                addTarget,
+                "__elementValue",
+                element.ElementIsNullableValue,
+                ind
+            );
+            return;
+        }
+
+        sb.Append(ind);
+        sb.AppendLine("while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)");
+        sb.Append(ind);
+        sb.AppendLine("{");
+        EmitDeserializeElementAdd(sb, element, addTarget, ind + "    ", nestLevel);
+        sb.Append(ind);
+        sb.AppendLine("}");
+    }
+
+    /// <summary>
+    /// Rule <b>E-3</b> for an <c>int</c> element (spec §3.4.1): <c>reader.TryReadInt32(out v)</c> advances
+    /// the reader <b>and</b> decodes the token in one pass, replacing the reference pair whose
+    /// <c>Read()</c> classifies the same bytes (int, then long, then ulong) before <c>TryGetInt32()</c>
+    /// parses them once more.
+    /// <para>
+    /// <b>Why the failure path is longer than "swap the two calls".</b> JSON has no count (spec §3.3), so
+    /// the loop cannot assume an element is there, and <c>false</c> means one of three things, each with a
+    /// different answer in the loop being replaced:
+    /// </para>
+    /// <list type="number">
+    /// <item><description><b>The end token</b> (<c>TokenType.ArrayEnd</c>) — that is exactly what the
+    /// reference <c>while</c> condition tested, so break.</description></item>
+    /// <item><description><b>A chunk boundary</b> (<c>NeedsMoreData</c>, which only <c>Read()</c> sets and
+    /// which a token it produced always clears) — the reference loop's <c>reader.Read()</c> was false and
+    /// broke out, so this loop breaks out identically and the caller keeps its rewind-and-retry.</description></item>
+    /// <item><description><b>The end of the data</b> — no token at all. <c>Read()</c> returns the pooled
+    /// buffer and clears the value span when it fails at the end of a final block, so the token still
+    /// current is the <i>previous element</i>: breaking is what the reference loop did, while consuming it
+    /// again would append the last element twice. It is recognised by an empty
+    /// <c>ValueSpan</c> <b>plus</b> a type an int loop can leave behind (<c>Int32</c>/<c>Int64</c>/
+    /// <c>ArrayStart</c>): a fresh <c>Int32</c> can never reach this branch (the fused read answers
+    /// <c>true</c> for every literal <c>Read()</c> would call <c>Int32</c>), a fresh <c>Int64</c> carries
+    /// its literal, and a fresh <c>ArrayStart</c> carries the superseded span.</description></item>
+    /// </list>
+    /// <para>
+    /// <b>Three is a conservative test, not a proof.</b> It can only misfire on a malformed payload whose
+    /// collection is preceded by an <i>empty</i> JSON property name (the superseded span of a fresh
+    /// <c>ArrayStart</c> is then empty too), where this loop exits instead of throwing; every well-formed
+    /// document and every malformed one without that shape takes the reference answer. The alternative —
+    /// asking the reader whether its last read produced a token — would be a new member, and spec §2.2 N2
+    /// keeps <c>Read()</c>'s observable surface closed.
+    /// </para>
+    /// <para>
+    /// <b>Everything else keeps the reference body.</b> A JSON <c>null</c> element is stored when the
+    /// declared element is nullable and is otherwise the same format error; a number that needs
+    /// <c>long</c> is widened and narrowed with <c>checked</c> (the reference never truncates); any other
+    /// token type throws the identical message at the identical offset.
+    /// </para>
+    /// </summary>
+    static void EmitFusedInt32ElementLoop(
+        StringBuilder sb,
+        string addTarget,
+        string valueVar,
+        bool nullableElement,
+        string ind
+    )
+    {
+        var body = ind + "    ";
+        var cold = ind + "        ";
+
+        sb.Append(ind);
+        sb.AppendLine("while (true)");
+        sb.Append(ind);
+        sb.AppendLine("{");
+        sb.Append(body);
+        sb.Append("if (reader.TryReadInt32(out var ");
+        sb.Append(valueVar);
+        sb.AppendLine("))");
+        sb.Append(body);
+        sb.AppendLine("{");
+        sb.Append(cold);
+        sb.Append(addTarget);
+        sb.Append('.');
+        sb.AppendLine("Add(" + valueVar + ");");
+        sb.Append(cold);
+        sb.AppendLine("continue;");
+        sb.Append(body);
+        sb.AppendLine("}");
+        sb.Append(body);
+        sb.AppendLine("// rule E-3 (spec §3.4.1): the three ways the fused read can answer false");
+        sb.Append(body);
+        sb.AppendLine("if (reader.TokenType == TokenType.ArrayEnd) break;");
+        sb.Append(body);
+        sb.AppendLine("if (reader.NeedsMoreData) break;");
+        sb.Append(body);
+        sb.AppendLine("if (reader.ValueSpan.IsEmpty");
+        sb.Append(body);
+        sb.AppendLine(
+            "    && reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.ArrayStart) break;"
+        );
+        if (nullableElement)
+        {
+            sb.Append(body);
+            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
+            sb.Append(body);
+            sb.AppendLine("{");
+            sb.Append(cold);
+            sb.Append(addTarget);
+            sb.AppendLine(".Add(null!);");
+            sb.Append(cold);
+            sb.AppendLine("continue;");
+            sb.Append(body);
+            sb.AppendLine("}");
+        }
+        sb.Append(body);
+        sb.AppendLine("if (!reader.TryGetInt64(out var __lev))");
+        sb.Append(cold);
+        sb.AppendLine(
+            "throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
+        );
+        sb.Append(body);
+        sb.Append(addTarget);
+        sb.AppendLine(".Add(checked((int)__lev));");
+        sb.Append(ind);
+        sb.AppendLine("}");
     }
 
     /// <summary>
@@ -4538,15 +4672,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
                 sb.Append(indent);
                 sb.AppendLine("{");
-                sb.Append(indent);
-                sb.AppendLine(
-                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-                );
-                sb.Append(indent);
-                sb.AppendLine("    {");
-                EmitDeserializeElementAdd(sb, inner, setTmp, indent + "        ", nestLevel + 1);
-                sb.Append(indent);
-                sb.AppendLine("    }");
+                EmitCollectionElementLoop(sb, inner, setTmp, indent + "    ", nestLevel + 1);
                 sb.Append(indent);
                 sb.AppendLine("}");
                 sb.Append(indent);
@@ -5139,15 +5265,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 }
                 else
                 {
-                    sb.Append(indent);
-                    sb.AppendLine(
-                        "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-                    );
-                    sb.Append(indent);
-                    sb.AppendLine("    {");
-                    EmitDeserializeElementAdd(sb, elemDesc, tmpVar, indent + "        ", nestLevel);
-                    sb.Append(indent);
-                    sb.AppendLine("    }");
+                    EmitCollectionElementLoop(sb, elemDesc, tmpVar, indent + "    ", nestLevel);
                 }
                 sb.Append(indent);
                 sb.AppendLine("}");
@@ -6202,15 +6320,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         }
         else
         {
-            sb.Append(indent);
-            sb.AppendLine(
-                "        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-            );
-            sb.Append(indent);
-            sb.AppendLine("        {");
-            EmitDeserializeElementAdd(sb, prop, innerVar, indent + "            ", nestLevel);
-            sb.Append(indent);
-            sb.AppendLine("        }");
+            EmitCollectionElementLoop(sb, prop, innerVar, indent + "        ", nestLevel);
         }
 
         sb.Append(indent);
@@ -6538,12 +6648,27 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(
             "                if (!reader.IsResumed && reader.TokenType != TokenType.ArrayStart) throw new System.FormatException($\"Expected a JSON array at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
         );
-        sb.AppendLine(
-            "                while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
-        );
-        sb.AppendLine("                {");
-        EmitArrayElementDeserialize(sb, elemKind, elemTypeName, "                    ");
-        sb.AppendLine("                }");
+        if (IsFusedElementKind(elemKind))
+        {
+            // The top-level array entry point has its own element body (Engine's `__ev`), so it gets
+            // the fused loop directly instead of going through EmitDeserializeElementAdd.
+            EmitFusedInt32ElementLoop(
+                sb,
+                "__list",
+                "__ev",
+                nullableElement: false,
+                "                "
+            );
+        }
+        else
+        {
+            sb.AppendLine(
+                "                while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)"
+            );
+            sb.AppendLine("                {");
+            EmitArrayElementDeserialize(sb, elemKind, elemTypeName, "                    ");
+            sb.AppendLine("                }");
+        }
         sb.AppendLine(
             "                if (reader.Read()) throw new System.FormatException($\"Unexpected data after the document at offset {reader.BytesConsumed}\");"
         );
