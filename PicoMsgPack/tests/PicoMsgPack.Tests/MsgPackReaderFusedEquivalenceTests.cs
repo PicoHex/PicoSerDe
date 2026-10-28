@@ -12,14 +12,25 @@ namespace PicoMsgPack.Tests;
 /// reach.
 /// </para>
 /// <para>
-/// <b>State at T3 (deliberate; recorded in the task report).</b> <see cref="MsgPackReader"/> does not
-/// implement <see cref="IFusedTokenReader"/> yet — that is T1b, which T3 does not do. Pointing
-/// <see cref="MsgPackFusedTokenDump.DrainFused{TReader,TCapture}"/> at <c>MsgPackReader</c> is therefore
-/// a compile error today (<c>CS0315</c>, reproduced in the T3 report). Until then the fused arm runs on
-/// <see cref="StandInFusedReader"/>: a <see cref="ref struct"/> holding a real <see cref="MsgPackReader"/>
-/// and forwarding all sixteen contract members to it — exactly the six-member shape T1b adds to the
-/// reader — with an injectable fault on top. When T1b lands, the <see cref="FusedFault.None"/> use
-/// collapses to <c>DrainFused&lt;MsgPackReader, …&gt;</c> and the stand-in stays only as the fault injector.
+/// <b>Two fused arms, since T5.</b> The <b>real reader arm</b> drives
+/// <c>DrainFused&lt;MsgPackReader, RealReaderCapture&gt;</c> over every corpus entry: it is the arm that
+/// can see a real overwrite (and, since <see cref="MsgPackReader"/> now declares
+/// <see cref="IFusedTokenReader.HasCountedCollections"/>, the arm that turns the dumped collection-count
+/// column into a live comparison against counts derived from the reference token stream). That arm is what
+/// plan §3.6 requires T5 to switch on — "the stand-in being green does not count".
+/// </para>
+/// <para>
+/// The <b>stand-in arm</b> (<see cref="StandInFusedReader"/>, a <see cref="ref struct"/> holding a real
+/// <see cref="MsgPackReader"/> and forwarding all sixteen contract members to it, plus an injectable fault)
+/// stays for the negative control: a real reader cannot be made to return a wrong value, and the guard is
+/// only worth having if it bites when one does. It also declares <i>no</i> counted collections, so the
+/// count column's fallback branch stays covered by the same comparison.
+/// </para>
+/// <para>
+/// <b>Count column, un-derivable entries.</b> A malformed payload can throw before the end token of a
+/// collection it opened; the reference token stream alone cannot derive that collection's count. Those
+/// entries are marked <see cref="MsgPackFusedTokenDump.OpenCount"/> and skipped; every closed collection is
+/// compared against the arithmetic derivation.
 /// </para>
 /// </summary>
 public class MsgPackReaderFusedEquivalenceTests
@@ -57,12 +68,19 @@ public class MsgPackReaderFusedEquivalenceTests
         foreach (var ints in IntAccessors())
         {
             var reference = MsgPackFusedTokenDump.DrainReference(payload, isFinalBlock, ints);
-            var fused = DrainOnStandIn(payload, reference, FusedFault.None, isFinalBlock, ints);
+            var standIn = DrainOnStandIn(payload, reference, FusedFault.None, isFinalBlock, ints);
             await AssertDumpsMatchAsync(
-                $"{name} (final={isFinalBlock}, {ints})",
+                $"{name} stand-in arm (final={isFinalBlock}, {ints})",
                 payload,
                 reference,
-                fused
+                standIn
+            );
+            var real = DrainOnRealReader(payload, reference, isFinalBlock, ints);
+            await AssertDumpsMatchAsync(
+                $"{name} real reader arm (final={isFinalBlock}, {ints})",
+                payload,
+                reference,
+                real
             );
         }
     }
@@ -79,8 +97,10 @@ public class MsgPackReaderFusedEquivalenceTests
         foreach (var (name, payload) in MsgPackSpanTokenDump.RandomPayloads())
         {
             var reference = MsgPackFusedTokenDump.DrainReference(payload);
-            var fused = DrainOnStandIn(payload, reference, FusedFault.None);
-            await AssertDumpsMatchAsync(name, payload, reference, fused);
+            var standIn = DrainOnStandIn(payload, reference, FusedFault.None);
+            await AssertDumpsMatchAsync(name + " stand-in arm", payload, reference, standIn);
+            var real = DrainOnRealReader(payload, reference);
+            await AssertDumpsMatchAsync(name + " real reader arm", payload, reference, real);
             payloads++;
             tokens += reference.Lines.Count;
         }
@@ -107,23 +127,35 @@ public class MsgPackReaderFusedEquivalenceTests
             .IsNotNull()
             .Because($"{name}: the corpus entry must actually be malformed");
 
-        string fusedFailure;
+        var expected = referenceFailure!.GetType().Name + ": " + referenceFailure.Message;
+        var because =
+            $"{name}: failure type and message must match ({partial.Lines.Count} tokens first)";
+
+        string standInFailure;
         try
         {
             DrainOnStandIn(payload, partial, FusedFault.None);
-            fusedFailure = "<no throw>";
+            standInFailure = "<no throw>";
         }
         catch (Exception ex)
         {
-            fusedFailure = ex.GetType().Name + ": " + ex.Message;
+            standInFailure = ex.GetType().Name + ": " + ex.Message;
         }
 
-        await Assert
-            .That(fusedFailure)
-            .IsEqualTo(referenceFailure!.GetType().Name + ": " + referenceFailure.Message)
-            .Because(
-                $"{name}: failure type and message must match ({partial.Lines.Count} tokens first)"
-            );
+        await Assert.That(standInFailure).IsEqualTo(expected).Because("stand-in arm — " + because);
+
+        string realFailure;
+        try
+        {
+            DrainOnRealReader(payload, partial);
+            realFailure = "<no throw>";
+        }
+        catch (Exception ex)
+        {
+            realFailure = ex.GetType().Name + ": " + ex.Message;
+        }
+
+        await Assert.That(realFailure).IsEqualTo(expected).Because("real reader arm — " + because);
     }
 
     /// <summary>
@@ -292,6 +324,35 @@ public class MsgPackReaderFusedEquivalenceTests
         }
     }
 
+    /// <summary>
+    /// The fused arm on the <b>real</b> reader (plan §3.6: T5 must make this arm live, and "the stand-in
+    /// being green does not count"). Every fused call goes through <see cref="MsgPackReader"/>'s own
+    /// <see cref="IFusedTokenReader"/> members, so a wrong overwrite — and, since T5, a wrong collection
+    /// count — shows up in the dump.
+    /// </summary>
+    private static MsgPackFusedTokenDump.FusedDrain DrainOnRealReader(
+        byte[] payload,
+        MsgPackFusedTokenDump.FusedDrain reference,
+        bool isFinalBlock = true,
+        MsgPackFusedTokenDump.IntAccessor ints = MsgPackFusedTokenDump.IntAccessor.Int32
+    )
+    {
+        var reader = new MsgPackReader(payload.AsSpan(), isFinalBlock);
+        try
+        {
+            return MsgPackFusedTokenDump.DrainFused<MsgPackReader, RealReaderCapture>(
+                ref reader,
+                MsgPackFusedTokenDump.ScriptOf(reference),
+                default,
+                ints
+            );
+        }
+        finally
+        {
+            reader.Dispose();
+        }
+    }
+
     private static async Task AssertDumpsMatchAsync(
         string label,
         byte[] payload,
@@ -303,6 +364,51 @@ public class MsgPackReaderFusedEquivalenceTests
             .That(FirstDifference(expected, actual))
             .IsNull()
             .Because($"{label}: the two arms diverged on a {payload.Length}-byte payload");
+    }
+
+    /// <summary>
+    /// <b>Plan §3.6 evidence</b>: the real-reader arm is not decoration — it walks the named corpus through
+    /// <see cref="MsgPackReader"/>'s own fused members and compares a live collection count on every start
+    /// token against the count derived from the reference token stream. Both numbers come from different
+    /// places (the reader's element stack vs. arithmetic over the dump), so this is not self-certification.
+    /// </summary>
+    [Test]
+    public async Task RealReaderArm_ComparesCountsOnTheRealReader()
+    {
+        var payloads = 0;
+        var countComparisons = 0;
+        var problems = new List<string>();
+        foreach (var (name, payload) in MsgPackSpanTokenDump.Payloads())
+        {
+            var reference = MsgPackFusedTokenDump.DrainReference(payload);
+            var real = DrainOnRealReader(payload, reference);
+            await AssertDumpsMatchAsync(name + " real reader arm", payload, reference, real);
+
+            if (!real.DeclaresCounts)
+                problems.Add($"{name}: the real reader did not declare counted collections");
+            foreach (var line in real.Lines)
+            {
+                if (!MsgPackFusedTokenDump.IsCollectionStart(line.Snapshot.Type))
+                    continue;
+                if (
+                    line.Count == "count=fallback"
+                    || !line.Count.StartsWith("count=", StringComparison.Ordinal)
+                )
+                    problems.Add($"{name}: start token {line.Index} answered <{line.Count}>");
+                countComparisons++;
+            }
+            payloads++;
+        }
+
+        await Assert.That(string.Join("; ", problems)).IsEqualTo("").Because("real reader arm");
+        await Assert
+            .That(payloads)
+            .IsEqualTo(MsgPackSpanTokenDump.Payloads().Count())
+            .Because("every named payload was walked by the real reader arm");
+        await Assert
+            .That(countComparisons)
+            .IsGreaterThan(20)
+            .Because("the named corpus carries arrays and maps at every header width");
     }
 
     /// <summary>
@@ -328,6 +434,15 @@ public class MsgPackReaderFusedEquivalenceTests
                 return $"token {i}: style/state <{want.Snapshot}> vs <{got.Snapshot}>";
             if (got.Read != want.Read)
                 return $"token {i}: fused read <{want.Read}> vs <{got.Read}>";
+            if (want.Count == MsgPackFusedTokenDump.OpenCount)
+            {
+                // The reference walk ended inside this collection (malformed payload): there is no
+                // independent count to compare against. The reader's answer is still required to be an
+                // answer when it declares counted collections (the fallback branch below).
+                if (got.Count == "count=fallback" && actual.DeclaresCounts)
+                    return $"token {i}: declares counted collections but answered fallback";
+                continue;
+            }
             if (got.Count == "count=fallback")
             {
                 if (actual.DeclaresCounts)
@@ -464,6 +579,16 @@ public ref struct StandInFusedReader : IFusedTokenReader
     }
 
     public void Dispose() => _inner.Dispose();
+}
+
+/// <summary>
+/// Snapshot strategy for the <b>real</b> <see cref="MsgPackReader"/>: the same capture the reference arm
+/// uses, so the two arms' snapshots are the same computation on the same type.
+/// </summary>
+public struct RealReaderCapture : MsgPackFusedTokenDump.IMsgPackFusedCapture<MsgPackReader>
+{
+    public readonly MsgPackTokenSnapshot Capture(int index, ref MsgPackReader reader) =>
+        MsgPackSpanTokenDump.Capture(index, ref reader);
 }
 
 /// <summary>Snapshot strategy for <see cref="StandInFusedReader"/>: snapshot the reader it wraps.</summary>

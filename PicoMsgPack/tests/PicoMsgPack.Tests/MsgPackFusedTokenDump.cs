@@ -257,6 +257,15 @@ public static class MsgPackFusedTokenDump
     }
 
     /// <summary>
+    /// The dump column value for a collection the reference walk ended <i>inside</i>: a malformed payload
+    /// can throw before the matching end token, and then no count can be derived from the token stream
+    /// alone. Writing <c>0</c> would be a fabricated number, so the entry is marked and the comparison
+    /// skips exactly these (see <c>FirstDifference</c> in <c>MsgPackReaderFusedEquivalenceTests</c>).
+    /// Every closed collection is still derived and compared.
+    /// </summary>
+    public const string OpenCount = "count=open";
+
+    /// <summary>
     /// Per-<c>Start</c> element counts derived <b>from the reference token stream alone</b> (arrays: their
     /// children; maps: their key-value pairs). This is the independent side of the count comparison: it
     /// is arithmetic over the dump, not a second call into the reader under test.
@@ -286,6 +295,10 @@ public static class MsgPackFusedTokenDump
             }
         }
 
+        // A collection the walk ended inside is un-derivable: mark it instead of guessing 0.
+        foreach (var stillOpen in open)
+            counts[stillOpen.Index] = -1;
+
         var derived = new List<FusedLine>(lines.Count);
         for (int i = 0; i < lines.Count; i++)
         {
@@ -294,8 +307,13 @@ public static class MsgPackFusedTokenDump
                     ? lines[i] with
                     {
                         Count =
-                            "count="
-                            + counts[i].ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            counts[i] < 0
+                                ? OpenCount
+                                : "count="
+                                    + counts[i]
+                                        .ToString(
+                                            System.Globalization.CultureInfo.InvariantCulture
+                                        ),
                     }
                     : lines[i]
             );

@@ -82,4 +82,47 @@ public class TokenReaderConformanceTests
             && reader.Read()
             && reader.TokenType == TokenType.String;
     }
+
+    /// <summary>
+    /// Task T5 (fused token read, spec §5.3 last row + §3.3): <b>MsgPack declares counted collections</b>,
+    /// and the declaration is reachable through the contract — a generic consumer constrained to
+    /// <see cref="IFusedTokenReader"/> (the constraint generated code and the conformance tests use) sees
+    /// <c>true</c> and can read a count without advancing.
+    /// <para>
+    /// <b>The four text formats are absent by construction, not by omission.</b> JSON, TOML, YAML and INI
+    /// have no count in their wire form (spec §3.3 marks their <c>HasCountedCollections</c> as a hard
+    /// <c>false</c>) and they do not implement <see cref="IFusedTokenReader"/> at all yet — that is task
+    /// T1b, which this task does not do. Their "false" is therefore expressed by the type system (no
+    /// interface ⇒ no member to answer), and the moment T1b adds the interface their one-line
+    /// <c>=> false</c> bodies bring them into this witness. Asserting <c>false</c> for a member that does
+    /// not exist yet would be a test of a fiction.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task MsgPack_DeclaresCountedCollections_ThroughTheContract()
+    {
+        byte[] data = [0x82, 0x00, 0x01, 0x01, 0x02]; // fixmap(2)
+        await Assert.That(CountWitness(new MsgPackReader(data))).IsEqualTo("");
+    }
+
+    // Sync helper: ref structs cannot cross into async methods, and TUnit assertions only execute when
+    // awaited — the checks run here and the single awaited assertion reports the result.
+    private static string CountWitness<TReader>(TReader reader)
+        where TReader : IFusedTokenReader, allows ref struct
+    {
+        var problems = new List<string>();
+        if (!reader.HasCountedCollections)
+            problems.Add(
+                "HasCountedCollections: MessagePack carries the count in every array/map header"
+            );
+
+        if (!reader.Read() || reader.TokenType != TokenType.ObjectStart)
+            return "the payload must open a map";
+
+        bool ok = reader.TryGetCollectionCount(out int count);
+        if (!ok || count != 2)
+            problems.Add($"TryGetCollectionCount: expected (True, 2), got ({ok}, {count})");
+
+        return string.Join("; ", problems);
+    }
 }
