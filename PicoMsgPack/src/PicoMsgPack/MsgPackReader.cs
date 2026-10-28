@@ -365,11 +365,12 @@ public ref struct MsgPackReader : ITokenReader
     private bool ReadSpan()
     {
         // Mechanically derived from the original Read() body by
-        // .superpowers/sdd/perf-mp-readspan/harness/derive_readspan.py:
-        // every byte access is a direct index into _data (no IsAtEnd /
-        // PeekByte / AdvanceByte / ReadBytes mode branch). Token types,
-        // _valueSpan contents, _tag, _depth accounting, BytesConsumed and
-        // every exception (type, order and message) are unchanged.
+        // PicoMsgPack/tools/readspan/derive_readspan.py -- do not edit by
+        // hand: regenerate it (same input, same output, `--write` is
+        // idempotent). Every byte access is a direct index into _data (no
+        // IsAtEnd / PeekByte / AdvanceByte / ReadBytes mode branch). Token
+        // types, _valueSpan contents, _tag, _depth accounting, BytesConsumed
+        // and every exception (type, order and message) are unchanged.
         _needsMoreData = false;
         if (_depth > 0 && _elementStack[_depth - 1] == 0)
         {

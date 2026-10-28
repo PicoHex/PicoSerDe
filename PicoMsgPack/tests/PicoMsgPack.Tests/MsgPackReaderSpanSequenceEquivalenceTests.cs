@@ -15,6 +15,58 @@ namespace PicoMsgPack.Tests;
 /// the same cases. Data sources hand out names rather than buffers: a test
 /// parameter that is a mutable array would be shared between test instances.
 /// </para>
+/// <para>
+/// <b>Token-family coverage checklist.</b> Every token family the reader emits is
+/// listed below with the named payloads that exercise it and the test that
+/// compares the two paths on them. When adding a token type to
+/// <c>MsgPackReader</c>: add the arm to <c>ReadSequential</c>, regenerate
+/// <c>ReadSpan</c> (<c>python PicoMsgPack/tools/readspan/derive_readspan.py
+/// --write</c>), add a payload to <see cref="MsgPackSpanTokenDump.Payloads"/>,
+/// and add a row here — a family with no row and no payload is a family where
+/// only one of the two paths is known to work.
+/// </para>
+/// <para>
+/// Legend: <b>A</b> = <see cref="SpanAndSequence_ProduceIdenticalTokens"/>,
+/// <b>B</b> = <see cref="SpanAndSequence_ProduceIdenticalTokens_NonFinalBlock"/>,
+/// <b>C</b> = <see cref="ChunkedSequence_MatchesSpanTokens"/> (applies to every
+/// named payload of 512 bytes or less — <c>SmallPayloads()</c>),
+/// <b>D</b> = <see cref="RandomWellFormedPayloads_AgreeBetweenPaths"/>,
+/// <b>E</b> = <see cref="MalformedPayloads_KeepTheirExactDiagnostics"/>.
+/// A–C run on every named payload, so the payload column is what actually pins a
+/// family down; D and E mark families that are additionally reached by the
+/// random corpus and by the failure-path checks.
+/// </para>
+/// <list type="table">
+/// <item><term>family</term><term>named payload(s)</term><term>covered by</term></item>
+/// <item><term>nil</term><term>nil</term><term>A, B, C, D</term></item>
+/// <item><term>bool</term><term>bool-true, bool-false</term><term>A, B, C, D</term></item>
+/// <item><term>positive fixint 0x00-0x7F</term><term>fixint-0, fixint-127</term><term>A, B, C, D</term></item>
+/// <item><term>negative fixint 0xE0-0xFF</term><term>negfixint-minus1, negfixint-minus32</term><term>A, B, C, D</term></item>
+/// <item><term>uint8 / uint16 / uint32 / uint64</term><term>uint8-155, uint16-256, uint32-65536, uint64-max</term><term>A, B, C, D (uint8/16/32)</term></item>
+/// <item><term>int8 / int16 / int32 / int64</term><term>int8-minus128, int16-300, int32-minus100000, int64-min</term><term>A, B, C, D (int8/32/64)</term></item>
+/// <item><term>float32 / float64</term><term>float32-1.5, float64-1.5</term><term>A, B, C, D</term></item>
+/// <item><term>fixstr 0xA0-0xBF</term><term>fixstr-empty, fixstr-ascii-1, fixstr-ascii-31, fixstr-utf8-3byte-cjk</term><term>A, B, C, D</term></item>
+/// <item><term>str8 / str16 / str32</term><term>str8-32, str8-255, str16-300, str32-70000</term><term>A, B, C (str8/16), D (fixstr+str8)</term></item>
+/// <item><term>bin8 / bin16 / bin32</term><term>bin8-empty, bin8-3, bin16-300, bin32-16772</term><term>A, B, C (bin8), D (bin8); E: hostile-bin32-length</term></item>
+/// <item><term>fixarray 0x90-0x9F</term><term>fixarray-empty, fixarray-3, fixarray-15-nil</term><term>A, B, C, D</term></item>
+/// <item><term>array16 / array32</term><term>array16-300-nil, array32-65536-nil</term><term>A, B, C (array16)</term></item>
+/// <item><term>fixmap 0x80-0x8F</term><term>fixmap-empty, fixmap-2, map-10-int-pairs</term><term>A, B, C, D</term></item>
+/// <item><term>map16 / map32</term><term>map16-20, map32-65536-nil</term><term>A, B, C</term></item>
+/// <item><term>fixext1/2/4/8/16</term><term>fixext1, fixext2, fixext4, fixext8, fixext16</term><term>A, B, C, D (fixext1/16); E: truncated-fixext-tag</term></item>
+/// <item><term>ext8 / ext16 / ext32</term><term>ext8-empty, ext8-3, ext16-300, ext32-70000</term><term>A, B, C (ext8/16), D (ext8)</term></item>
+/// <item><term><b>timestamp 32-bit</b> (fixext4, tag -1)</term><term>timestamp32</term><term>A, B, C, D</term></item>
+/// <item><term><b>timestamp 64-bit</b> (fixext8, tag -1)</term><term>timestamp64</term><term>A, B, C, D</term></item>
+/// <item><term><b>timestamp 96-bit</b> (ext8 len 12, tag -1)</term><term>timestamp96</term><term>A, B, C, D</term></item>
+/// <item><term>nesting (depth / element accounting)</term><term>nested-map-array, nested-array-depth-60, map-10-int-pairs</term><term>A, B, C, D; E: depth-overflow-65</term></item>
+/// <item><term>unknown tag byte 0xC1</term><term>— (malformed only)</term><term>E: unknown-byte-c1</term></item>
+/// <item><term>truncated payloads</term><term>— (malformed only)</term><term>E: truncated-int32, truncated-length-bytes-str16, truncated-str8-body</term></item>
+/// </list>
+/// <para>
+/// The trailing-garbage verdict is the one deliberate mode difference and is
+/// asserted per path by <see cref="TrailingGarbage_ThrowsOnSpanPath_AndStreamsOnSequencePath"/>.
+/// The derivation that makes the two bodies non-diverging by construction is
+/// asserted by <c>MsgPackReaderReadSpanDerivationTests</c>.
+/// </para>
 /// </summary>
 public class MsgPackReaderSpanSequenceEquivalenceTests
 {
