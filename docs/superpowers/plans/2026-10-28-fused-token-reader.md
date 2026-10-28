@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 `docs/superpowers/specs/2026-10-28-fused-token-reader-design.md`（下称 **spec**）的六个契约成员落成**纯新增**，并让五个 reader 在**证明等价**之后各自融合一次分派 —— 不是把 `Read()` 复制一遍（spec §10、spec §1.2 引 4e 报告 `:271-274`）。
+**Goal:** 把 `docs/superpowers/specs/2026-10-28-fused-token-reader-design.md`（下称 **spec**）的六个契约成员落成**派生接口 `IFusedTokenReader` + 静态参考正本 `TokenReaderFused`**（原 DIM 路线已被实测否决，spec **§R1**），并让五个 reader 在**证明等价**之后各自融合一次分派 —— 不是把 `Read()` 复制一遍（spec §10、spec §1.2 引 4e 报告 `:271-274`）。
 
-**Architecture:** 契约（DIM）为规范，覆写为对象；覆写只许在**成功分支**分叉，任何可观测差异（token 类型、span 内容、全部 getter、`Depth`、`BytesConsumed`、`NeedsMoreData`、异常类型与消息）都不许变（spec §3.2.3）。等价性由**同一构建内**的「参考路径 vs 融合路径」全量 token 转储逐字节对拍证明（spec §5.1/§5.2），不由「看起来很融合」证明。
+**Architecture:** 参考正本（`TokenReaderFused` 的 `ref T` 静态方法）为规范，reader 的接口实现为对象；实现只许在**成功分支**分叉、`default:` 一律退回正本，任何可观测差异（token 类型、span 内容、全部 getter、`Depth`、`BytesConsumed`、`NeedsMoreData`、异常类型与消息）都不许变（spec §3.2.3）。等价性由**同一构建内**的「参考路径 vs 融合路径」全量 token 转储逐字节对拍证明（spec §5.1/§5.2），不由「看起来很融合」证明。
 
-**Spec:** `docs/superpowers/specs/2026-10-28-fused-token-reader-design.md`（451 行，已合并于 `22f08c6`）。
+**Spec:** `docs/superpowers/specs/2026-10-28-fused-token-reader-design.md`（**v2 / R1 修订后 610 行**；初版 451 行已合并于 `22f08c6`，机制修订见 spec §R1）。
 **格式范本:** `docs/superpowers/plans/2026-10-27-perf-json-msgpack.md`。
 
 **计划作者只写文档、不写代码。** 本文件不含任何实现代码：只有任务边界、验证命令、验收断言与回退路径。
@@ -73,7 +73,7 @@ spec §9 U1 明确：融合后能回收「每 token 成本」的 **30–50%** �
 
 ### 2.3 不受 G-0 阻塞的任务
 
-`T1`（Core 契约）、`T2`（`api/` 登记）、`T3`/`T4`（护栏与测点）、`T12`–`T18`（JSON / TOML）**不碰 `PicoMsgPack` 读侧**，可以先行。其中 `T3` 只改 `PicoMsgPack/tests/`，过 **G-0t** 即可（本文写作时实测为空）；`T4` 只读现有 reader、不改代码，不需闸门。`T12`–`T18` 完全不碰 `PicoMsgPack`。
+`T1`（Core 契约）、`T1b`（五个 reader 的转发实现）、`T2`（`api/` 登记）、`T3`/`T4`（护栏与测点）、`T12`–`T18`（JSON / TOML）**不碰 `PicoMsgPack` 读侧的优化路径**，可以先行（`T1b` 会碰到 `MsgPackReader.cs`，但只加 6 个转发成员、不碰 `Read()`/`TryGet*` 的 `switch`，与 RK-5 的重叠面为零；若 mp-collection 同时在改同一文件的成员区，按 G-0d 同一时间窗口排序）。其中 `T3` 只改 `PicoMsgPack/tests/`，过 **G-0t** 即可（本文写作时实测为空）；`T4` 只读现有 reader、不改代码，不需闸门。`T12`–`T18` 完全不碰 `PicoMsgPack`。
 
 ---
 
@@ -114,10 +114,11 @@ spec §5.2 的增量要求是 **「参考 vs 融合」两条路径在同一份�
 
 | # | 一句话 | spec 步 | 依赖 | 预算（人手行） | 闸门 |
 |---|---|---|---|---|---|
-| T1 | 六个契约成员以 DIM 进 `ITokenReader` | §6 **S0** | — | ~140 | — |
-| T2 | `api/PENDING-CHANGES.md` 登记 **R-3** 一行 | §4.2 | T1 | ~10 | — |
-| T3 | MsgPack「参考 vs 融合」双走 dump 护栏（先证明护栏有效） | §6 **S0**、§5.2 | T1 | ~190 | G-0t |
-| T4 | per-token 微基准闸门（10⁶ 次，settles §9 U2 方向） | §9 U2 | T1 | ~120 | — |
+| T1 | 契约落地：`IFusedTokenReader`（6 抽象成员）+ `TokenReaderFused` 正本，**并先证机制可用** | §6 **S0**、§3.1/§3.2、**§R1** | — | ~190 | — |
+| T1b | 五个 reader 实现 `IFusedTokenReader`（不优化处 = 一行转发）+ 一致性断言 | §6 **S0**、§3.1 末段 | T1 | ~120 | — |
+| T2 | `api/PENDING-CHANGES.md` 登记 **R-3**（新接口 + 新静态类） | §4.2 | T1 | ~10 | — |
+| T3 | MsgPack「参考 vs 融合」双走 dump 护栏（先证明护栏有效） | §6 **S0**、§5.2 | T1b | ~190 | G-0t |
+| T4 | per-token 微基准闸门（10⁶ 次，settles §9 U2 方向） | §9 U2 | T1b | ~120 | — |
 | T5 | MsgPack `HasCountedCollections` + `TryGetCollectionCount` | §6 **S1** | T3 | ~90 | G-0 |
 | T6 | MsgPack `TryReadInt32` 覆写 | §6 **S1** | T5 | ~150 | G-0 |
 | T7 | MsgPack `TryReadInt64` 覆写 | §6 **S1** | T6 | ~90 | G-0 |
@@ -125,7 +126,7 @@ spec §5.2 的增量要求是 **「参考 vs 融合」两条路径在同一份�
 | T9 | 生成器 **E-1** 计数循环（仅 MsgPack 标量元素站点） | §6 **S1**、§3.4.1 | T5 | ~150 | G-0 |
 | T10 | 生成器护栏：产物不含 `ITokenReader` | §3.4.3 | T9 | ~50 | G-0 |
 | T11 | 生成器 **E-3** 融合元素读（仅 MsgPack 标量元素站点） | §6 **S1**、§3.4.1 | T9、T6/T7/T8 | ~130 | G-0 |
-| T12 | JSON「参考 vs 融合」双走 dump 护栏（新建语料） | §6 **S2** | T1 | ~190 | — |
+| T12 | JSON「参考 vs 融合」双走 dump 护栏（新建语料） | §6 **S2** | T1b | ~190 | — |
 | T13 | 删除 JSON `TryReadNextInt32Seq`（**F-1**）+ 负数回归 | §6 **S2**、§4.3 | T12 | ~130 | — |
 | T14 | JSON `TryReadInt32` 覆写 | §6 **S2** | T13 | ~150 | — |
 | T15 | JSON **E-3** 发射（条件任务） | §6 **S2** | T14 | ~120 | — |
@@ -133,9 +134,11 @@ spec §5.2 的增量要求是 **「参考 vs 融合」两条路径在同一份�
 | T17 | TOML **F-2** 重做（条件任务） | §6 **S3**、§4.3 | T16 | ~140 | — |
 | T18 | TOML `TryReadInt32` 覆写 + E-3（条件任务） | §6 **S3** | T17 | ~140 | — |
 
-**总计：18 个任务，人手改动约 2 290 行（不含 golden 重生成）。** 条件任务 T15–T18 可在 T14 之后按 §1 的停止规则整体转为欠账。
+**总计：19 个任务，人手改动约 2 460 行（不含 golden 重生成）。** 条件任务 T15–T18 可在 T14 之后按 §1 的停止规则整体转为欠账。
 
-**spec §6 S4（YAML / INI）不是独立任务**：spec §6 S4 的验收原文是「不做任何 reader 改动；仅由 S0 的一致性测试断言 `HasCountedCollections == false` 与 `TryGetCollectionCount` 恒 `false`」—— 这条由 **T1** 的验收第 3 条覆盖（五个 reader 全断言 `false`，T5 再把 MsgPack 那一行改成 `true`）。见 §6「不做的事」。
+**为什么 T1 要拆出 T1b**：`ref struct` 拿不到默认体（CS9245，spec §R1.1）⇒ 六个成员是**五个 reader 各写六份**的实体代码，和「契约 + 正本」不是同一个量级。合在一起会破 §0 的 ≤200 行预算。
+
+**spec §6 S4（YAML / INI）不是独立任务**：spec §6 S4 的验收原文是「不做任何 reader 改动；仅由 S0 的一致性测试断言 `HasCountedCollections == false` 与 `TryGetCollectionCount` 恒 `false`」—— 这条由 **T1b** 的验收第 2 条覆盖（五个 reader 全断言 `false`，T5 再把 MsgPack 那一行改成 `true`）。见 §6「不做的事」。
 
 ---
 
@@ -145,37 +148,103 @@ spec §5.2 的增量要求是 **「参考 vs 融合」两条路径在同一份�
 
 ---
 
-### T1 — 六个契约成员以 DIM 进 `ITokenReader`（spec §6 S0）
+### T1 — 契约落地：`IFusedTokenReader` + `TokenReaderFused` 参考正本，**并先证机制可用**（spec §3.1/§3.2、§6 S0、§R1）
+
+**目的**：在写任何 reader 代码之前，先用编译器把「这套机制能不能用」问出答案。上一版计划正是**跳过了这一步**，才在 T1 撞上 30 个 `CS9245`（spec §R1.1/R1.2）——机制没证就落地，是一次白跑的整轮任务。
 
 **改哪里**
-- `PicoSerDe.Core/src/ITokenReader.cs`：在 `Depth`（`ITokenReader.cs:28`）之后、接口右花括号（`:29`）之前，按 **spec §3.1 逐字**加入 6 个成员及其 XML 文档：`HasCountedCollections`（DIM `=> false`）、`TryGetCollectionCount(out int)`（DIM `{ count = 0; return false; }`）、`TryReadInt32`/`TryReadInt64`/`TryReadFloat64`/`TryReadBool`（DIM = spec §3.2.1 的 `Read(); TryGetX()` 字面组合）。**既有成员一个字节不动**（spec §3.1 首句）。
-- `tests/PicoSerDe.Integration.Tests/TokenReaderConformanceTests.cs`：在既有泛型辅助（`:37`/`:53`/`:78` 的 `where TReader : ITokenReader, allows ref struct`）旁新增一个同样的 ref-struct 泛型辅助，穿过它调用全部 6 个新成员。
+
+**第 1 步（可行性证明，必须最先做，产出进 report）** —— 在 `.superpowers/sdd/<本任务>/probe/` 下建**独立最小工程**（gitignored、**不入库**；每个子工程带自己的 `Directory.Build.props` 与 `NuGet.config`，与仓库构建设置隔离），逐条复现 spec §R1 的判据：
+
+| # | 探针 | 必须得到 |
+|---|---|---|
+| P-1 | 6 个成员**带默认体**加进一个 `ITokenReader` 形状的接口 + `ref struct` 实现 | **`error CS9245`**（spec §R1.1） |
+| P-2 | 同形状换成**抽象**成员 | **`error CS0535`**（spec §R1.1 第 4 条） |
+| P-3 | 派生接口 `IFusedTokenReader` + `ref struct` 实现 6 成员（含 `ref this` 一行转发、`where T : IFusedTokenReader, allows ref struct` 见证） | **0 error**，且**位置真的推进**、见证派发到 reader 自己的实现（spec §R1.4 B-1…B-3） |
+| P-4 | 扩展方法三种形状：按值 `this T`、`this ref T`、C# 14 `extension<T>(ref T reader)` | 按值：**编译通过但位置不推进**（spec §R1.3 A-1）；`this ref T`：**`CS8337`**；`extension<T>(ref T)`：**`CS9300`** |
+
+**判据**：P-1…P-4 的实测结果与 spec §R1 记录**逐条一致**才允许进第 2 步。任何一条不一致 ⇒ **停下报告**（说明语言/工具链行为变了，机制要重新裁定，不许在本任务里自行改设计）。
+
+**第 2 步（契约落地）**
+- `PicoSerDe.Core/src/ITokenReader.cs`：在 `ITokenReader` 接口（`ITokenReader.cs:13-29`）**之后追加**两块，按 **spec §3.1 / §3.2 逐字**：
+  - `public interface IFusedTokenReader : ITokenReader` —— 6 个成员**全部抽象**（`HasCountedCollections` 属性 + `TryGetCollectionCount` + 四个 `TryReadX`），XML 文档逐字搬运；
+  - `public static class TokenReaderFused` —— 4 个 `public static bool TryReadX<T>(ref T reader, out T value) where T : ITokenReader, allows ref struct`，体 = spec §3.2.1 的伪代码（`Read()` → `TryGetX()` 字面组合）。
+  - **`ITokenReader` 接口体一个字节不动**（spec §3.1 首句）：不改既有成员、不往里加任何成员。
+- **不改** `tests/PicoSerDe.Integration.Tests/TokenReaderConformanceTests.cs`：一致性断言要等五个 reader 实现成员（T1b）。
 
 **怎么验证**
 ```bash
-dotnet build PicoSerDe.slnx -c Debug -m:1                  # 0 warning / 0 error
-dotnet test PicoSerDe.slnx -c Debug --no-progress          # 0 failed
-git status --short api/                                    # 必须为空
+# 接口与正本单独可编译，且 ITokenReader 未被动过
+dotnet build PicoSerDe.Core/src/PicoSerDe.Core.csproj -c Debug -m:1     # 0 warning / 0 error
+git diff -U0 -- PicoSerDe.Core/src/ITokenReader.cs                      # 只许 + 行
+grep -c "ITokenReader" api/PicoSerDe.Core.public.txt                    # 与改动前同值（基线未动）
+
+dotnet build PicoSerDe.slnx -c Debug -m:1                               # 0 warning / 0 error
+dotnet test PicoSerDe.slnx -c Debug --no-progress                       # 0 failed
+git status --short api/                                                 # 必须为空
 ```
 
 **验收标准**（全部可判定）
-1. 构建 **0 warning / 0 error**；全量测试 **0 failed**。
-2. `git status --short api/` 为空 ⇒ `api/*.public.txt` 零 diff（spec §4.1 A-4）。
-3. 一致性测试断言：**五个** reader（`JsonReader`/`MsgPackReader`/`TomlReader`/`YamlReader`/`IniReader`）经 `allows ref struct` 泛型见证，`HasCountedCollections == false` 且 `TryGetCollectionCount(out var c)` 返回 `false` 且 `c == 0`（此时谁都还没覆写；这条同时是 spec §6 S4 的验收）。
-4. 一致性测试断言：对同一段只含正整数标量的输入，`TryReadInt32(out v)` 的 `(true, v)` 与「`Read()` 后 `TryGetInt32(out v)`」的 `(true, v)` 相等；且在**类型不符**的 token 上，`TryReadInt32` 返回 `false` 而 `TokenType` 仍为**该 token**（spec §3.1 的「失败是无损的」、§3.2.2 (c)）。
-5. 一致性测试断言：`Read()` 在输入尾失败后，`TryReadInt32` 同样返回 `false` 且 `NeedsMoreData` 与参考路径一致（spec §3.2.2 (b)：唯一写者在 `Read()` 里）。
+1. **机制可行性已先证**：P-1…P-4 四条判据全部与 spec §R1 一致，原始输出尾部进 report；不一致 ⇒ 本任务 **BLOCKED**，不许把「应该可以」当结论。
+2. 构建 **0 warning / 0 error** —— 关键判据：`ITokenReader` 未改 ⇒ 五个 reader 与所有外部形状的实现者**一行都不用改**（这正是 DIM 做不到的，spec §R1.2）。
+3. `git status --short api/` 为空 ⇒ `api/*.public.txt` 零 diff（spec §4.1 A-4）；新增的公共面由 **T2** 登记。
+4. `git diff -U0 -- PicoSerDe.Core/src/ITokenReader.cs` **只有 `+` 行**（`ITokenReader` 接口体零改动，spec §3.1）。
+5. `TokenReaderFused` 的四个方法首参都是 `ref T reader`（`grep -c "ref T reader"` = **4**）—— 按值首参会推进副本（spec §R1.3 A-1 的实测）；对应的 reader 成员**不许标 `readonly`**（`CS1605`，spec §R1.6 `probe/08`）。
+6. `IFusedTokenReader` 的六个成员都是**抽象**（无方法体）：`grep -c "bool .*{" PicoSerDe.Core/src/ITokenReader.cs` 里新接口体内命中为 **0**。
 
 **依赖**：无（**无需** G-0，不碰任何格式的 reader）。
-**回退**：`git revert <T1>`。纯新增块 + 测试独占文件段，无后续依赖被破坏（后续任务都是 `override`，revert T1 会让它们编译失败 ⇒ 必须按 T18→…→T2 逆序回退；这一点在各任务「回退」里重复标注）。
-**预算**：~140 行（其中约 90 行是 spec §3.1 的 XML 文档，逐字搬运）。
+**回退**：`git revert <T1>`。纯追加块 + 零 reader 改动 ⇒ 单点回退是干净的；T1b 起依赖它，必须逆序回退。
+**预算**：~190 行（约 100 行是 spec §3.1 的 XML 文档逐字搬运 + 4 个正本方法体 + 探针判据摘要）。
+
+---
+
+### T1b — 五个 reader 实现 `IFusedTokenReader`（不优化处 = 一行转发）+ 一致性断言（spec §6 S0、§3.1 末段）
+
+**为什么单独一个任务**：`ref struct` 拿不到默认体（spec §R1.1）⇒ 六个成员是**五个 reader 各写六份**的实体代码。与 T1 的「契约 + 正本」不是同一个量级，合起来会破 §0 的 ≤200 行预算；分开后两者也各自可独立回退。
+
+**改哪里**
+- 五个 reader 的声明从 `: ITokenReader` 改成 `: IFusedTokenReader`（派生接口 ⇒ 旧成员照旧实现，无需改动任何既有成员），并各实现 6 个成员：
+  `JsonReader`（`PicoJetson/src/PicoJetson/JsonReader.cs:27`）、`MsgPackReader`（`PicoMsgPack/src/PicoMsgPack/MsgPackReader.cs:14`）、`TomlReader`（`PicoToml/src/PicoToml/TomlReader.cs:20`）、`YamlReader`（`PicoYaml/src/PicoYaml/YamlReader.cs:19`）、`IniReader`（`PicoIni/src/PicoIni/IniReader.cs:15`）。
+  - **本任务里 6 个成员全部是转发**（零优化，优化留给 T5–T8/T14/T18）：
+    ```csharp
+    // 纯查询：readonly 可以（也不该改状态）
+    public readonly bool HasCountedCollections => false;
+    public readonly bool TryGetCollectionCount(out int count) { count = 0; return false; }
+
+    // 融合读：会推进 reader ⇒ 不能标 readonly
+    public bool TryReadInt32(out int value) => TokenReaderFused.TryReadInt32(ref this, out value);
+    // TryReadInt64 / TryReadFloat64 / TryReadBool 同形
+    ```
+    **为什么不标 `readonly`**：`readonly` 成员里 `this` 是只读变量，`ref this` 编译失败 **`error CS1605`**（实测，spec §R1.6 的 `probe/08`）。
+  - 成员必须**成员可见性为 public**（不能写成显式接口实现）：生成器在**具体类型**上调用（spec §3.4.3），显式实现调不到。
+- `tests/PicoSerDe.Integration.Tests/TokenReaderConformanceTests.cs`：新增一个 `where TReader : IFusedTokenReader, allows ref struct` 的泛型辅助（口径同既有 `:37`/`:53`/`:78`），五个 reader 各穿一遍。
+
+**怎么验证**
+```bash
+dotnet build PicoSerDe.slnx -c Debug -m:1
+dotnet test PicoSerDe.slnx -c Debug --no-progress          # 0 failed
+git status --short api/                                    # 必须为空
+grep -rn "TokenReaderFused.TryRead" --include=*.cs PicoJetson/src PicoMsgPack/src PicoToml/src PicoYaml/src PicoIni/src | wc -l   # 期望 20（5 reader × 4 融合读）
+```
+
+**验收标准**（全部可判定）
+1. 构建 0 warning / 0 error；全量测试 0 failed。
+2. 五个 reader 经 `IFusedTokenReader` 见证：`HasCountedCollections == false`、`TryGetCollectionCount(out var c)` 返回 `false` 且 `c == 0`（此时谁都还没优化；这条同时是 spec §6 S4 的验收）。
+3. `TryReadInt32(out v)` 与「`Read()` 后 `TryGetInt32(out v)`」在正整数输入上 `(true, v)` 相等；**类型不符**的 token 上返回 `false` 且 `TokenType` 仍为**该 token**（spec §3.2.2 (c)）；`Read()` 在输入尾失败后 `TryReadInt32` 同样 `false` 且 `NeedsMoreData` 与参考路径一致（spec §3.2.2 (b)）。
+4. **转发是唯一实现（评审门）**：五个 reader 里这四个融合读的成员体必须是 `=> TokenReaderFused.TryReadX(ref this, …)`；出现**第二份手写** `Read()`+`TryGetX()` 组合即退回（spec §8 **RK-8** ③）。
+5. `git status --short api/` 为空（spec §4.1 A-4）。
+
+**依赖**：T1（接口与正本必须先存在）。
+**回退**：`git revert <T1b>`（五个 reader 的 6 个成员 + 测试段）；T5 起依赖它，逆序回退。
+**预算**：~120 行（30 个成员体，几乎每行一个）。
 
 ---
 
 ### T2 — `api/PENDING-CHANGES.md` 登记 R-3（spec §4.2）
 
 **改哪里**
-- `api/PENDING-CHANGES.md`：在既有表格（表头 `:11`，末行 `| 4 | PicoMsgPack | ...` 在 `:16`）**追加第 5 行**，格式逐列照抄 spec §4.2 的 R-3 行：`| 5 | PicoSerDe.Core | <六个成员的 mdoc 签名> | **R-3** | <理由> |`。
-- 签名串必须与 spec §4.2 **逐字符相同**（`M:PicoSerDe.Core.ITokenReader.TryGetCollectionCount(out int count)`、`M:...TryReadInt32(out int value)`、`M:...TryReadInt64(out long value)`、`M:...TryReadFloat64(out double value)`、`M:...TryReadBool(out bool value)`、`P:PicoSerDe.Core.ITokenReader.HasCountedCollections`）。
+- `api/PENDING-CHANGES.md`：在既有表格（表头 `:11`，末行 `| 4 | PicoMsgPack | ...` 在 `:16`）**追加第 5 行**，格式逐列照抄 spec §4.2 的 R-3 行：`| 5 | PicoSerDe.Core | <新接口 + 6 个成员 + 新静态类的 mdoc 签名> | **R-3** | <理由> |`。
+- 签名串必须与 spec §4.2 一致：`T:PicoSerDe.Core.IFusedTokenReader`、`P:PicoSerDe.Core.IFusedTokenReader.HasCountedCollections`、`M:PicoSerDe.Core.IFusedTokenReader.TryGetCollectionCount(out int count)`、`M:…TryReadInt32(out int value)`、`M:…TryReadInt64(out long value)`、`M:…TryReadFloat64(out double value)`、`M:…TryReadBool(out bool value)`、`T:PicoSerDe.Core.TokenReaderFused` + 4 个静态泛型方法。**静态泛型方法的 `ref` 首参与泛型元数在 dump 里的确切拼法未实测**（spec §9 **U4**）⇒ 先跑一次 dump 脚本、按**脚本实际输出**写入台账，不许照抄猜出来的形状。
 
 **怎么验证**
 ```bash
@@ -186,7 +255,7 @@ git status --short -- ':!api/PENDING-CHANGES.md'        # 必须为空（本任�
 
 **验收标准**
 1. `git diff api/` 的 `-` 行数为 **0**（纯追加）。
-2. 新增行含 `R-3` 字样，且六个签名串与 spec §4.2 逐字符一致。
+2. 新增行含 `R-3` 字样；类型/成员串与 spec §4.2 一致，其中泛型方法行以 **dump 脚本输出**为准（若与 spec 的写法有差异，把差异写进 report —— 这就是 §9 U4 的证实动作）。
 3. **`api/*.public.txt` 仍然零 diff**（本任务只改 `PENDING-CHANGES.md`，spec §4.1 A-4/A-5）。
 4. 不新增「Registered capability change」段落 —— F-1/F-2 的登记属于 T13/T17（spec §4.3 说明它们是**行为修正**、不是新增，走 `api/PENDING-CHANGES.md:18-30` 的既有体裁）。
 
@@ -203,7 +272,7 @@ git status --short -- ':!api/PENDING-CHANGES.md'        # 必须为空（本任�
 **改哪里**
 - `PicoMsgPack/tests/PicoMsgPack.Tests/MsgPackSpanTokenDump.cs`：新增**两个**走法（与既有 `DrainSpan():360` / `DrainSequence():379` 并列，复用同一个 `Capture():434`）：
   - `DrainSpanFusedReference` —— 就是今天 `DrainSpan` 的字面行为（`Read()` + `Capture`）。
-  - `DrainSpanFused` —— 融合走法：维护一个「剩余计数栈」，每个 Start token 之后调 `TryGetCollectionCount(out n)`（本任务里它恒返回 `false`，因为还没覆写 ⇒ 退回 `Read()` 驱动），元素体按参考侧 `TokenType` 选 `TryReadX`（spec §5.2 增量 + 本计划 §3.3 第 5 条）。
+  - `DrainSpanFused` —— 融合走法：维护一个「剩余计数栈」，每个 Start token 之后调 `TryGetCollectionCount(out n)`（本任务里五个 reader 的成员还是 **T1b 的一行转发** ⇒ 恒返回 `false`、退回 `Read()` 驱动），元素体按参考侧 `TokenType` 选 `TryReadX`（spec §5.2 增量 + 本计划 §3.3 第 5 条）。**本任务的对拍证明的是「护栏 + 转发通道」有效**（spec §5.2 末段明确：真正的等价性证明落在 T5–T8/T14/T18 的优化成员上）。
 - 新测试文件 `PicoMsgPack/tests/PicoMsgPack.Tests/MsgPackReaderFusedEquivalenceTests.cs`：对 `Payloads()` `:44`、`RandomPayloads()` `:183`、`MalformedPayloads()` `:160` 各跑两条走法并逐项比较。
 - **不改** `.superpowers/sdd/perf-mp-readspan/harness/DumpTokens/Program.cs`：它是 4e 的跨构建 golden 工具，属历史留证（且该目录在 `.gitignore:415` 下、未入库 ⇒ 不是可依赖的基线）；本任务的对拍是**同一构建内**的自比对（spec §5.2 明确要求「不依赖历史日志、也不会腐化」）。
 
@@ -221,7 +290,7 @@ dotnet test PicoSerDe.slnx -c Debug --no-progress          # 全量 0 failed
 3. 全量测试 0 failed；`git status --short api/` 为空。
 4. **不改任何 reader 实现**（`git diff --stat` 只许出现 `PicoMsgPack/tests/` 下两个文件）。
 
-**依赖**：T1（没有 DIM 就没有「融合走法」可跑）。
+**依赖**：T1b（融合臂必须是 reader 自己实现的成员；只有 T1 的正本还不够 —— 本任务要打的是 `reader.TryReadX(...)` 这条路）。
 **闸门**：**G-0t**（本任务只改 `PicoMsgPack/tests/`；开工前 `git -C .worktrees/mp-collection status --short PicoMsgPack/tests/` 必须为空——本文写作时实测为空）。
 **回退**：`git revert <T3>`（两个测试侧文件，零生产代码）。
 **预算**：~190 行。**若超 200 行**：按 T3a（两个 `Drain*` 走法，≤100 行）/ T3b（测试文件，≤100 行）切开。
@@ -257,7 +326,7 @@ dotnet run -c Release --project PicoMsgPack/tools/pertoken      # 三轮，每�
 ### T5 — MsgPack `HasCountedCollections` + `TryGetCollectionCount`（spec §6 S1，count 部分）
 
 **改哪里**
-- `PicoMsgPack/src/PicoMsgPack/MsgPackReader.cs`：在 `ITokenReader` 实现区（`TryGetInt32` 族之后）加
+- `PicoMsgPack/src/PicoMsgPack/MsgPackReader.cs`：在 `TryGetInt32` 族之后加（**把 T1b 的转发体换成真实实现**）
   `public readonly bool HasCountedCollections => true;` 与
   `public readonly bool TryGetCollectionCount(out int count)`，语义**逐字照 spec §3.3 的 MsgPack 行**：
   `_isMapStack[_depth-1] ? _elementStack[_depth-1] / 2 : _elementStack[_depth-1]`；`_depth == 0` 或当前 token 不是 Start ⇒ `false` + `count = 0`。
@@ -291,11 +360,11 @@ dotnet run -c Release --project PicoMsgPack/tools/pertoken   # 未变（本任�
 
 **改哪里**
 - `PicoMsgPack/src/PicoMsgPack/MsgPackReader.cs`：覆写 `public readonly bool TryReadInt32(out int value)`，**形状逐字照 spec §3.3 的伪代码**：
-  - `_isSequence` ⇒ 就地退回 DIM 语义（spec §2.2 N4：融合只做 span 快路径）；
-  - `_depth > 0 && _elementStack[_depth-1] == 0`（结束 token 路径，`:375`）⇒ 退回 DIM 语义；
+  - `_isSequence` ⇒ 就地 `return TokenReaderFused.TryReadInt32(ref this, out value);`（退回参考正本，spec §2.2 N4：融合只做 span 快路径）；
+  - `_depth > 0 && _elementStack[_depth-1] == 0`（结束 token 路径，`:375`）⇒ 退回参考正本；
   - `_position >= _data.Length` ⇒ `_needsMoreData = !_isFinalBlock; value = 0; return false`（与 `Read()` 一致，spec §3.3 伪代码）；
   - 一次 `switch (_data[_position])`：int 家族（fixint / negfixint / `0xCC`–`0xD3`）→ 边解码边前进，**且必须物化** `_tokenType` / `_singleByte` / `_valueSpan` 并调 `CountElement()`（spec §3.2.3：「融合 ≠ 不物化状态」）；
-  - `default:` ⇒ **退回 DIM 语义**（这是等价性的关键：非 int token 不做任何特殊处理）。
+  - `default:` ⇒ **退回参考正本** `TokenReaderFused.TryReadInt32(ref this, out value)`（这是等价性的关键：非 int token 不做任何特殊处理，与正本逐字同路）。
 
 **怎么验证**
 ```bash
@@ -323,7 +392,7 @@ dotnet run -c Release --project PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks --
 
 ### T7 — MsgPack `TryReadInt64` 覆写（spec §6 S1）
 
-**改哪里**：`MsgPackReader.cs`，`TryReadInt64` 覆写。**复用 T6 建立的 `switch` 骨架**（int 家族的超集 + `0xCF` uint64 的越界判定），失败分支一律退回 DIM 语义。
+**改哪里**：`MsgPackReader.cs`，`TryReadInt64` 覆写。**复用 T6 建立的 `switch` 骨架**（int 家族的超集 + `0xCF` uint64 的越界判定），失败分支一律退回参考正本（`TokenReaderFused.TryReadInt64(ref this, out value)`）。
 
 **怎么验证 / 验收标准**：同 T6 的 1–5、6–7 条，其中：
 - 额外的溢出断言：`uint64` 值 > `long.MaxValue` ⇒ `false`（与 `TryGetInt64` 今天的判定一致）。
@@ -338,7 +407,7 @@ dotnet run -c Release --project PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks --
 
 ### T8 — MsgPack `TryReadFloat64` / `TryReadBool` 覆写（spec §6 S1）
 
-**改哪里**：`MsgPackReader.cs`，两个覆写：float32（`0xCA`）/ float64（`0xCB`）；bool（`0xC2`/`0xC3`）。同样「成功分支一次分派、`default:` 退回 DIM、必须物化状态」。
+**改哪里**：`MsgPackReader.cs`，两个覆写：float32（`0xCA`）/ float64（`0xCB`）；bool（`0xC2`/`0xC3`）。同样「成功分支一次分派、`default:` 退回参考正本、必须物化状态」。
 
 **怎么验证 / 验收标准**：同 T6 的 1–5 条，另加：
 - float 按**位**比较（`BitConverter.DoubleToInt64Bits`，与 `Capture():434` 的 `X16` 打印一致）⇒ 覆盖 `NaN` / `±Inf` / `-0.0` 三个位模式。
@@ -452,13 +521,13 @@ dotnet test PicoSerDe.slnx -c Debug --no-progress --filter "FullyQualifiedName~J
 dotnet test PicoSerDe.slnx -c Debug --no-progress          # 全量 0 failed
 ```
 **验收标准**
-1. 参考侧与融合侧（此时融合侧全走 DIM）**逐项相等、行数相等**。
+1. 参考侧与融合侧（此时融合侧全是 T1b 的**一行转发**）**逐项相等、行数相等**。
 2. 负控：临时破坏 `ITokenReader.TryReadInt32` 默认体 ⇒ 测试变红，还原变绿（同 T3）。
 3. JSON 的 token 家族覆盖（spec §5.3 的 JSON 相关行）：对象/数组 Start·End、字符串（含 `\uXXXX` 与裸控制字符）、数字（正/负/0/大整数）、`true`/`false`/`null`、截断、畸形（spec 引 `JsonReader.cs:496-499`：`]` 是扫字节得出的，无元素计数）。
 4. 零生产代码改动（`git diff --stat` 只许 `PicoJetson/tests/`）。
 5. 全量 0 failed。
 
-**依赖**：T1（DIM 必须先存在）。
+**依赖**：T1b（融合臂 = reader 自己实现的成员）。
 **闸门**：无（不碰 MsgPack）。
 **回退**：`git revert <T12>`（纯新增测试侧文件）。
 **预算**：~190 行。**若超 200 行** ⇒ 拆 T12a（payload 矩阵）/ T12b（双走 walker）。
@@ -469,7 +538,7 @@ dotnet test PicoSerDe.slnx -c Debug --no-progress          # 全量 0 failed
 
 **改哪里**
 - `PicoJetson/src/PicoJetson/JsonReader.cs`：
-  - `TryReadNextInt32`（`:656`）的分流（`:658` 的 `_isSequence ? TryReadNextInt32Seq(...) : ...`）改为**序列一律走 DIM 语义**（spec §6 S2 原文「删除 seq 融合分支、seq 一律走 DIM」；spec §4.3「该路径**必须**被删除或改正」）。
+  - `TryReadNextInt32`（`:656`）的分流（`:658` 的 `_isSequence ? TryReadNextInt32Seq(...) : ...`）改为**序列一律退回参考正本**（`TokenReaderFused.TryReadInt32(ref this, out value)`；spec §6 S2 原文「删除 seq 融合分支」；spec §4.3「该路径**必须**被删除或改正」）。
   - 删除 `TryReadNextInt32Seq`（`:771`）及其独占 helper；**`TryReadNextInt32Span`（`:725`）逐字保留**。
 - 新回归用例（spec §6 S2 验收原文「F-1 的回归用例（负数的 span 与 seq 两条）进仓库」）：`[-2]` 在 span 与 seq 两种构造下都必须得到 **−2**（今天是 span 对、seq 返回 2：`JsonReader.cs:789-790` `Advance(1)` 吞掉 `-` 而不记负号，对比 `:743-747` span 路径有 `bool neg`）。
 - `api/PicoJetson.public.txt` **不动**（签名不变，spec §4.3）；在 `api/PENDING-CHANGES.md` 的「Registered capability change」体裁下补一条（照 `:18-30` 的既有段落：签名不变、返回值变正确、属 `x+1` 轴）。
@@ -498,8 +567,8 @@ git status --short api/                                    # 只许 PENDING-CHAN
 **改哪里**
 - `PicoJetson/src/PicoJetson/JsonReader.cs`：覆写 `TryReadInt32`。spec §3.3 对 JSON 的裁定是「**`TryReadInt32` 覆写，其余按需**；先修 F-1/F-3」⇒ 本任务只做 `TryReadInt32`。
   - 一次 `switch` 完成「分类 + 取值」：数字起始字节判定 → span 解析 → **物化 `_tokenType` / `_valueSpan` / `_tokenValueStart/End`**（spec §3.2.3：融合 ≠ 不物化状态；F-3 正是覆写必须避免的偏离，spec §1.4 引 `JsonReader.cs:725-768` 全文无 `_tokenType` 赋值）。
-  - `_isSequence` ⇒ 退回 DIM；非 int ⇒ 退回 DIM。
-  - **不许继承 F-4 的不一致**（spec §1.4 F-4：`TryReadNextInt32` 遇 `]`/`}` 不动（`:737-742`）、`TryReadInt32ArrayFast` 遇 `]` 会吃掉（`:1978-1981`））⇒ 覆写只在「当前字节是数字」时行动，否则一律 DIM。
+  - `_isSequence` ⇒ 退回参考正本；非 int ⇒ 退回参考正本。
+  - **不许继承 F-4 的不一致**（spec §1.4 F-4：`TryReadNextInt32` 遇 `]`/`}` 不动（`:737-742`）、`TryReadInt32ArrayFast` 遇 `]` 会吃掉（`:1978-1981`））⇒ 覆写只在「当前字节是数字」时行动，否则一律退回参考正本。
 
 **怎么验证**
 ```bash
@@ -555,7 +624,7 @@ dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks --no
 ### T17 — TOML **F-2** 重做（条件任务，spec §6 S3、spec §4.3）
 
 **改哪里**
-- `PicoToml/src/PicoToml/TomlReader.cs`：`TryReadNextInt32`（`:635`）按 **DIM 语义**重做 —— `TryReadNextInt32Seq`（`:686`，F-2：不处理 `-`，负数直接 `false`）**删除**，seq 一律走 DIM；`TryReadNextInt32Span`（`:642`）保留并修负数。
+- `PicoToml/src/PicoToml/TomlReader.cs`：`TryReadNextInt32`（`:635`）按**参考正本语义**重做 —— `TryReadNextInt32Seq`（`:686`，F-2：不处理 `-`，负数直接 `false`）**删除**，seq 一律退回参考正本；`TryReadNextInt32Span`（`:642`）保留并修负数。
 - `api/PENDING-CHANGES.md`：按「Registered capability change」体裁补一条（**签名不变、返回值变正确**，spec §4.3）。
 
 **验收标准**：同 T13 的 1–5 条（把 JSON 换成 TOML；`api/PicoToml.public.txt:44` 零 diff）。
@@ -586,7 +655,7 @@ dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks --no
 | 1 | **不改任何 wire 格式** | spec §2.2 **N1** |
 | 2 | **不改 `Read()` 的对外语义**（`Skip()`/`TokenType`/`BytesConsumed`/`IsResumed`/`ExportState` 依赖它今天的形状） | spec §2.2 **N2** |
 | 3 | **不做 MemoryPack 那种「无 tag 定长格式」** | spec §2.2 **N3**、§7 否决方案 2 |
-| 4 | **不改流式（sequence）委托的形态**：融合只做 span 快路径，seq 保持 DIM 语义 | spec §2.2 **N4**、§3.3 |
+| 4 | **不改流式（sequence）委托的形态**：融合只做 span 快路径，seq 一律一行转发参考正本 | spec §2.2 **N4**、§3.3 |
 | 5 | **不在 reader 里加「计数作用域」去省掉 ③`CountElement()` 的两次栈写与 ④ 的结束符判定** | spec §2.2 **N5**、§7 否决方案 5（改 `_elementStack` 记账节奏 ⇒ 改可观测行为） |
 | 6 | **不承诺任何性能数字** | spec §2.2 **N6**、§9 U1/U2/U3 |
 | 7 | **不动 YAML / INI 的 reader**（没有可计数的集合形态；只有一致性断言） | spec §3.3、§6 **S4** |
@@ -594,7 +663,7 @@ dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks --no
 | 9 | **不新增第七个融合成员**（`TryReadDateTime`/`TryReadDecimal` 等） | spec RK-7：新增融合读必须**先有 §5.2 的对拍语料** |
 | 10 | **不许手改 `api/*.public.txt`**，也不许手合并 `generated-baseline/` | spec §4.1 **A-4**、§3.4.2 **C-4** |
 | 11 | **不改 TOML 的 `TryReadInt32ArrayFast`（`:2071`）与 JSON 的 `TryReadInt32ArrayFast`（`:1959`）**，除非某任务的验收明确要求 | spec §3.3 未把它们列为覆写点 |
-| 12 | **不把 `TryReadNextInt32` / `TryReadNextInt32Seq` 的分歧「统一成一个更聪明的实现」**：F-1/F-2 的处置是**删除 seq 分支**（seq 走 DIM），不是补一个 seq 融合实现 | spec §4.3（「必须被删除或改正」）、§6 S2/S3 |
+| 12 | **不把 `TryReadNextInt32` / `TryReadNextInt32Seq` 的分歧「统一成一个更聪明的实现」**：F-1/F-2 的处置是**删除 seq 分支**（seq 一行转发参考正本），不是补一个 seq 融合实现 | spec §4.3（「必须被删除或改正」）、§6 S2/S3 |
 
 ---
 
@@ -636,14 +705,16 @@ git add -A && git commit -m "…"
 
 ```text
 G-0（并行冲突闸门，§2）
-  └─ T1 → T2 → T3 → T4 → T5 → T6 ──┬─ 停止点 A（§1：per-token 回收 < 15%）
-                                    ├─ T7 → T8 → T9 → T10 → T11 ── 停止点 B（spec §6 S1 收口）
-                                    │                              └─ T12 → T13 → T14 ──┬─ 停止点 C（spec §6 S2 收口）
-                                    │                                                    ├─ T15
-                                    │                                                    └─ T16 → T17 → T18 ── 停止点 D（spec §6 S3 收口）
+  └─ T1（机制先证）→ T1b（五 reader 转发）→ T2 → T3 → T4 → T5 → T6 ──┬─ 停止点 A（§1：per-token 回收 < 15%）
+                                                                     ├─ T7 → T8 → T9 → T10 → T11 ── 停止点 B（spec §6 S1 收口）
+                                                                     │                              └─ T12 → T13 → T14 ──┬─ 停止点 C（spec §6 S2 收口）
+                                                                     │                                                    ├─ T15
+                                                                     │                                                    └─ T16 → T17 → T18 ── 停止点 D（spec §6 S3 收口）
 ```
 
-- **停止点 A**：T6 起就没有可分辨收益 ⇒ 停在 T6，把 T1–T6 保留为「契约 + MsgPack int 融合」的独立成果（spec RK-6 允许）。
+**T1 是唯一带「前置证伪闸门」的任务**：P-1…P-4 四条判据（spec §R1）只要有一条与实测不符，整条链就在 T1 停下 —— 这比在 T6 发现机制不可行便宜得多（上一版就白跑了整轮 T1）。
+
+- **停止点 A**：T6 起就没有可分辨收益 ⇒ 停在 T6，把 T1/T1b/T2–T6 保留为「契约 + MsgPack int 融合」的独立成果（spec RK-6 允许）。
 - **停止点 B**：spec §6 S1 收口；`Collection — Deserialize` 与 `MTenInts` 已如实公布。
 - **停止点 C**：spec §6 S2 收口；**spec §6 S3 明确允许停在这里**，把 TOML 记为欠账，reopen 条件「TOML 读侧成为瓶颈时」。
 - **停止点 D**：全计划完成。
