@@ -36,11 +36,22 @@ file static class S7MsgpackMsgPackDeserializer {
                 case 0:
                 var __ext0 = new List<int>(16);
                 if (reader.TokenType == TokenType.ArrayStart) {
-                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
-                        if (!reader.TryGetInt32(out var __ev1))
-                            throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
-                        __ext0.Add(__ev1);
-                    } }
+                    if (reader.TryGetCollectionCount(out var __cn1)) {
+                        for (var __ci1 = 0; __ci1 < __cn1; __ci1++) {
+                            if (!reader.Read()) break;
+                            if (!reader.TryGetInt32(out var __ev2))
+                                throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                            __ext0.Add(__ev2);
+                        }
+                        reader.Read();
+                    } else {
+                        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                            if (!reader.TryGetInt32(out var __ev3))
+                                throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                            __ext0.Add(__ev3);
+                        }
+                    }
+                }
                 obj.V = new System.Collections.Generic.HashSet<int>(__ext0);
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
@@ -70,14 +81,25 @@ file static class S7MsgpackMsgPackStreaming {
             }
             switch (__k) {
                 case 0:
-                var __ext2 = new List<int>(16);
+                var __ext4 = new List<int>(16);
                 if (reader.TokenType == TokenType.ArrayStart) {
-                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
-                        if (!reader.TryGetInt32(out var __ev3))
-                            throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
-                        __ext2.Add(__ev3);
-                    } }
-                obj.V = new System.Collections.Generic.HashSet<int>(__ext2);
+                    if (reader.TryGetCollectionCount(out var __cn5)) {
+                        for (var __ci5 = 0; __ci5 < __cn5; __ci5++) {
+                            if (!reader.Read()) break;
+                            if (!reader.TryGetInt32(out var __ev6))
+                                throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                            __ext4.Add(__ev6);
+                        }
+                        reader.Read();
+                    } else {
+                        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                            if (!reader.TryGetInt32(out var __ev7))
+                                throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                            __ext4.Add(__ev7);
+                        }
+                    }
+                }
+                obj.V = new System.Collections.Generic.HashSet<int>(__ext4);
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;

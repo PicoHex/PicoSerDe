@@ -48,7 +48,8 @@ file static class S2MsgpackMsgPackDeserializer {
                         else {
                             obj.V.Add(global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351MsgPackInner.Deserialize(ref reader));
                         }
-                    } }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
@@ -85,7 +86,8 @@ file static class S2MsgpackMsgPackStreaming {
                         else {
                             obj.V.Add(global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351MsgPackInner.Deserialize(ref reader));
                         }
-                    } }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;

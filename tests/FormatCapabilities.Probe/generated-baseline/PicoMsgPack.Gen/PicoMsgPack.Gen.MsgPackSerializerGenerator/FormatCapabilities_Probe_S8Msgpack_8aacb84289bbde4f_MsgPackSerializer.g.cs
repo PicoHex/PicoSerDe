@@ -51,7 +51,8 @@ file static class S8MsgpackMsgPackDeserializer {
                         global::System.Collections.Generic.HashSet<int> __nc1 = default!;
                         __nc1 = new System.Collections.Generic.HashSet<int>(__nl1);
                         obj.V.Add(__nc1);
-                    } }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
@@ -93,7 +94,8 @@ file static class S8MsgpackMsgPackStreaming {
                         global::System.Collections.Generic.HashSet<int> __nc3 = default!;
                         __nc3 = new System.Collections.Generic.HashSet<int>(__nl3);
                         obj.V.Add(__nc3);
-                    } }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;

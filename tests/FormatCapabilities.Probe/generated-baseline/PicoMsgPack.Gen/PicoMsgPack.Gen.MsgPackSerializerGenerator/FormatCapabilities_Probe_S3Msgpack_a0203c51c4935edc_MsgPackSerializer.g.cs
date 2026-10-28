@@ -49,7 +49,8 @@ file static class S3MsgpackMsgPackDeserializer {
                                 __nl1.Add(__ev2);
                             } }
                         obj.V.Add(__nl1);
-                    } }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
@@ -89,7 +90,8 @@ file static class S3MsgpackMsgPackStreaming {
                                 __nl3.Add(__ev4);
                             } }
                         obj.V.Add(__nl3);
-                    } }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
