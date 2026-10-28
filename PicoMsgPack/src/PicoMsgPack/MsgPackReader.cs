@@ -352,6 +352,271 @@ public ref struct MsgPackReader : ITokenReader
 
     public bool Read()
     {
+        // Task 4e: the span path (byte[] / ReadOnlySpan overloads, i.e. every
+        // non-streaming deserialize) tokenizes straight out of _data; the
+        // sequence path (streaming) is the untouched original state machine.
+        // `_isSequence` is readonly per instance, so this branch is resolved
+        // by the predictor on the first call.
+        if (!_isSequence)
+            return ReadSpan();
+        return ReadSequential();
+    }
+
+    private bool ReadSpan()
+    {
+        // Mechanically derived from the original Read() body by
+        // .superpowers/sdd/perf-mp-readspan/harness/derive_readspan.py:
+        // every byte access is a direct index into _data (no IsAtEnd /
+        // PeekByte / AdvanceByte / ReadBytes mode branch). Token types,
+        // _valueSpan contents, _tag, _depth accounting, BytesConsumed and
+        // every exception (type, order and message) are unchanged.
+        _needsMoreData = false;
+        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+        {
+            _depth--;
+            _tokenType = _isMapStack[_depth] ? TokenType.ObjectEnd : TokenType.ArrayEnd;
+            // Span mode: once the root container closes, any remaining byte
+            // is trailing garbage (review P2-4). Sequence mode keeps the
+            // streaming semantics untouched.
+            if (_depth == 0 && _position < _data.Length)
+                throw TrailingGarbage(_position);
+            return true;
+        }
+        if (_position >= _data.Length)
+        {
+            _needsMoreData = !_isFinalBlock;
+            return false;
+        }
+
+        var b = _data[_position];
+        _position++; // consume tag byte
+
+        switch (b)
+        {
+            // Positive fixint 0x00-0x7F
+            case <= 0x7F:
+                _singleByte = b;
+                _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
+                _tokenType = TokenType.Int32;
+                CountElement();
+                return true;
+            // Fixmap 0x80-0x8F
+            case >= 0x80 and <= 0x8F:
+                CountElement();
+                PushLevel(true, (b & 0x0F) * 2);
+                _tokenType = TokenType.ObjectStart;
+                return true;
+            // Fixarray 0x90-0x9F
+            case >= 0x90 and <= 0x9F:
+                CountElement();
+                PushLevel(false, b & 0x0F);
+                _tokenType = TokenType.ArrayStart;
+                return true;
+            // Fixstr 0xA0-0xBF
+            case >= 0xA0 and <= 0xBF:
+                return ReadStringSpan(b & 0x1F);
+            // Negative fixint 0xE0-0xFF
+            case >= 0xE0:
+                _singleByte = b;
+                _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
+                _tokenType = TokenType.Int32;
+                CountElement();
+                return true;
+            default:
+                switch (b)
+                {
+                    case 0xC0:
+                        _tokenType = TokenType.Null;
+                        CountElement();
+                        return true;
+                    case 0xC2:
+                    case 0xC3:
+                        _singleByte = b;
+                        _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
+                        _tokenType = TokenType.Bool;
+                        CountElement();
+                        return true;
+                    case 0xCC:
+                        _valueSpan = ReadBytesSpan(1);
+                        _tokenType = TokenType.UInt8;
+                        CountElement();
+                        return true;
+                    case 0xCD:
+                        _valueSpan = ReadBytesSpan(2);
+                        _tokenType = TokenType.UInt16;
+                        CountElement();
+                        return true;
+                    case 0xCE:
+                        _valueSpan = ReadBytesSpan(4);
+                        _tokenType = TokenType.UInt32;
+                        CountElement();
+                        return true;
+                    case 0xCF:
+                        _valueSpan = ReadBytesSpan(8);
+                        _tokenType = TokenType.UInt64;
+                        CountElement();
+                        return true;
+                    case 0xD0:
+                        _valueSpan = ReadBytesSpan(1);
+                        _tokenType = TokenType.Int32;
+                        CountElement();
+                        return true;
+                    case 0xD1:
+                        _valueSpan = ReadBytesSpan(2);
+                        _tokenType = TokenType.Int32;
+                        CountElement();
+                        return true;
+                    case 0xD2:
+                        _valueSpan = ReadBytesSpan(4);
+                        _tokenType = TokenType.Int32;
+                        CountElement();
+                        return true;
+                    case 0xD3:
+                        _valueSpan = ReadBytesSpan(8);
+                        _tokenType = TokenType.Int64;
+                        CountElement();
+                        return true;
+                    case 0xCA:
+                        _valueSpan = ReadBytesSpan(4);
+                        _tokenType = TokenType.Float32;
+                        CountElement();
+                        return true;
+                    case 0xCB:
+                        _valueSpan = ReadBytesSpan(8);
+                        _tokenType = TokenType.Float64;
+                        CountElement();
+                        return true;
+                    // bin family
+                    case 0xC4:
+                        _valueSpan = ReadBytesSpan(ReadByteLenSpan(1));
+                        _tokenType = TokenType.Bytes;
+                        CountElement();
+                        return true;
+                    case 0xC5:
+                        _valueSpan = ReadBytesSpan(ReadByteLenSpan(2));
+                        _tokenType = TokenType.Bytes;
+                        CountElement();
+                        return true;
+                    case 0xC6:
+                        _valueSpan = ReadBytesSpan(ReadByteLenSpan(4));
+                        _tokenType = TokenType.Bytes;
+                        CountElement();
+                        return true;
+                    // ext family
+                    case 0xD4:
+                        _tag = _data[_position];
+                        _position++;
+                        _valueSpan = ReadBytesSpan(1);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xD5:
+                        _tag = _data[_position];
+                        _position++;
+                        _valueSpan = ReadBytesSpan(2);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xD6:
+                        _tag = _data[_position];
+                        _position++;
+                        _valueSpan = ReadBytesSpan(4);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xD7:
+                        _tag = _data[_position];
+                        _position++;
+                        _valueSpan = ReadBytesSpan(8);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xD8:
+                        _tag = _data[_position];
+                        _position++;
+                        _valueSpan = ReadBytesSpan(16);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    case 0xC7:
+                    {
+                        var extLen = ReadByteLenSpan(1);
+                        _tag = _data[_position];
+                        _position++;
+                        _valueSpan = ReadBytesSpan(extLen);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    }
+                    case 0xC8:
+                    {
+                        var extLen = ReadByteLenSpan(2);
+                        _tag = _data[_position];
+                        _position++;
+                        _valueSpan = ReadBytesSpan(extLen);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    }
+                    case 0xC9:
+                    {
+                        var extLen = ReadByteLenSpan(4);
+                        _tag = _data[_position];
+                        _position++;
+                        _valueSpan = ReadBytesSpan(extLen);
+                        _tokenType = TokenType.Extension;
+                        CountElement();
+                        return true;
+                    }
+                    case 0xD9:
+                        return ReadStringSpan((int)ReadByteLenSpan(1));
+                    case 0xDA:
+                        return ReadStringSpan((int)ReadByteLenSpan(2));
+                    case 0xDB:
+                        return ReadStringSpan((int)Math.Min(ReadByteLenSpan(4), int.MaxValue));
+                    case 0xDC:
+                        CountElement();
+                        PushLevel(false, (int)ReadByteLenSpan(2));
+                        _tokenType = TokenType.ArrayStart;
+                        return true;
+                    case 0xDD:
+                        CountElement();
+                        PushLevel(false, (int)Math.Min(ReadByteLenSpan(4), int.MaxValue));
+                        _tokenType = TokenType.ArrayStart;
+                        return true;
+                    case 0xDE:
+                        CountElement();
+                        PushLevel(true, (int)ReadByteLenSpan(2) * 2);
+                        _tokenType = TokenType.ObjectStart;
+                        return true;
+                    case 0xDF:
+                        CountElement();
+                        PushLevel(true, (int)Math.Min(ReadByteLenSpan(4), int.MaxValue / 2) * 2);
+                        _tokenType = TokenType.ObjectStart;
+                        return true;
+                    default:
+                        throw UnknownByte(b, _position);
+                }
+        }
+    }
+
+    /// <summary>
+    /// The two failure paths of <see cref="ReadSpan"/>, built out of line.
+    /// Interpolating a string allocates a stack buffer inside whichever method
+    /// formats it; when that happens in the tokenizer, every token pays to zero
+    /// a ~112-byte frame (an inlining variant of this method measured a 1168-byte
+    /// frame and a zeroing loop per token). Building the exception here keeps the
+    /// hot frame small. Same exception type, same message.
+    /// </summary>
+    private static FormatException UnknownByte(byte b, int position) =>
+        new($"Unknown MsgPack byte 0x{b:X2} at offset {position}");
+
+    /// <summary>See <see cref="UnknownByte"/>.</summary>
+    private static FormatException TrailingGarbage(int position) =>
+        new($"Unexpected data after the document at offset {position}");
+
+    private bool ReadSequential()
+    {
         _needsMoreData = false;
         if (_depth > 0 && _elementStack[_depth - 1] == 0)
         {
@@ -596,6 +861,53 @@ public ref struct MsgPackReader : ITokenReader
                         );
                 }
         }
+    }
+
+    // ── Span-mode payload helpers (twins of the mode-branched originals) ──
+
+    /// <summary>
+    /// <see cref="ReadBytes"/> for span mode. Both guards are kept, in the
+    /// original order, with the original messages: a hostile length prefix
+    /// must fail exactly as it did before. In span mode <c>_seqReader</c> is
+    /// <c>default</c> (Remaining == 0), so the original "no longer than the
+    /// buffer plus the unread sequence" bound is just <c>_data.Length</c>.
+    /// </summary>
+    private ReadOnlySpan<byte> ReadBytesSpan(long count)
+    {
+        if (count < 0 || count > int.MaxValue || count > _data.Length)
+            throw new FormatException($"Invalid length prefix {count} at offset {_position}");
+        if (_position + count > _data.Length)
+            throw new FormatException(
+                $"Expected {count} bytes at offset {_position}, only {_data.Length - _position} remaining"
+            );
+        var span = _data.Slice(_position, (int)count);
+        _position += (int)count;
+        return span;
+    }
+
+    /// <summary><see cref="ReadByteLen"/> for span mode.</summary>
+    private long ReadByteLenSpan(int bytes)
+    {
+        if (_position + bytes > _data.Length)
+            throw new FormatException(
+                $"Expected {bytes} length bytes at offset {_position}, only {_data.Length - _position} remaining"
+            );
+        long vs = 0;
+        for (int i = 0; i < bytes; i++)
+            vs = (vs << 8) | _data[_position++];
+        return vs;
+    }
+
+    /// <summary><see cref="ReadString"/> for span mode.</summary>
+    private bool ReadStringSpan(int len)
+    {
+        _valueSpan = ReadBytesSpan(len);
+        if (_depth > 0 && _isMapStack[_depth - 1] && _expectKeyStack[_depth - 1])
+            _tokenType = TokenType.PropertyName;
+        else
+            _tokenType = TokenType.String;
+        CountElement();
+        return true;
     }
 
     private bool ReadString(int len)
