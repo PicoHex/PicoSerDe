@@ -16,7 +16,7 @@ public struct YamlReaderState
     internal bool DocStartPending;
 }
 
-public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
+public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTokenReader
 {
     // Span mode fields
     private ReadOnlySpan<byte> _data;
@@ -707,6 +707,46 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader
         v = false;
         return false;
     }
+
+    /// <summary>
+    /// YAML has no collection token at all (spec §3.3: <see cref="TokenType.ArrayStart"/> is never assigned by
+    /// this reader — a sequence is one String token per item line), so a count has neither a source nor a
+    /// consumer. Declared, not hinted — with <see langword="false"/> the contract (§3.1) requires
+    /// <see cref="TryGetCollectionCount"/> to answer <see langword="false"/> for every token.
+    /// </summary>
+    public readonly bool HasCountedCollections => false;
+
+    /// <summary>
+    /// Always <see langword="false"/>: YAML has no count to report (see <see cref="HasCountedCollections"/>).
+    /// A query, not a read (spec §3.1): no position move, no token, no state change.
+    /// </summary>
+    public readonly bool TryGetCollectionCount(out int count)
+    {
+        count = 0;
+        return false;
+    }
+
+    /// <summary>
+    /// Task T1b forwards this to the reference semantics (<see cref="TokenReaderFused"/>): the exact
+    /// <c>Read() &amp;&amp; TryGetX(out value)</c> combination of spec §3.2.1, written once so it cannot drift
+    /// per format. Not <c>readonly</c> — inside a <c>readonly</c> member <c>this</c> is a read-only variable and
+    /// <c>ref this</c> is <c>CS1605</c> (spec §3.1 last paragraph).
+    /// <para>
+    /// YAML never overrides a fused read: spec §3.3 and §6 S4 leave this format unoptimized, because a
+    /// sequence is one String token per item line and there is no collection token to fuse.
+    /// </para>
+    /// </summary>
+    public bool TryReadInt32(out int value) => TokenReaderFused.TryReadInt32(ref this, out value);
+
+    /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="long"/>.</summary>
+    public bool TryReadInt64(out long value) => TokenReaderFused.TryReadInt64(ref this, out value);
+
+    /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="double"/>.</summary>
+    public bool TryReadFloat64(out double value) =>
+        TokenReaderFused.TryReadFloat64(ref this, out value);
+
+    /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="bool"/>.</summary>
+    public bool TryReadBool(out bool value) => TokenReaderFused.TryReadBool(ref this, out value);
 
     public void Skip()
     {

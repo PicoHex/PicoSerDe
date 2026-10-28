@@ -17,7 +17,7 @@ public struct TomlReaderState
     internal bool DottedActive;
 }
 
-public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
+public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTokenReader
 {
     // Span mode fields
     private ReadOnlySpan<byte> _data;
@@ -592,6 +592,46 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader
         v = false;
         return false;
     }
+
+    /// <summary>
+    /// TOML does emit <see cref="TokenType.ArrayStart"/>/<see cref="TokenType.ArrayEnd"/> tokens, but the
+    /// wire form carries no element count (spec §3.3): the closing bracket is found by scanning, so the
+    /// reader holds no counter to report. Declared, not hinted — with <see langword="false"/> the contract
+    /// (§3.1) requires <see cref="TryGetCollectionCount"/> to answer <see langword="false"/> for every token,
+    /// and consumers terminate their loops with <see cref="ITokenReader.Read"/> plus the end token.
+    /// </summary>
+    public readonly bool HasCountedCollections => false;
+
+    /// <summary>
+    /// Always <see langword="false"/>: TOML has no count to report (see <see cref="HasCountedCollections"/>).
+    /// A query, not a read (spec §3.1): no position move, no token, no state change.
+    /// </summary>
+    public readonly bool TryGetCollectionCount(out int count)
+    {
+        count = 0;
+        return false;
+    }
+
+    /// <summary>
+    /// Task T1b forwards this to the reference semantics (<see cref="TokenReaderFused"/>): the exact
+    /// <c>Read() &amp;&amp; TryGetX(out value)</c> combination of spec §3.2.1, written once so it cannot drift
+    /// per format. Not <c>readonly</c> — inside a <c>readonly</c> member <c>this</c> is a read-only variable and
+    /// <c>ref this</c> is <c>CS1605</c> (spec §3.1 last paragraph).
+    /// <para>
+    /// TOML optimization is task T18's, and only if that task is not dropped per spec §6 S3.
+    /// </para>
+    /// </summary>
+    public bool TryReadInt32(out int value) => TokenReaderFused.TryReadInt32(ref this, out value);
+
+    /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="long"/>.</summary>
+    public bool TryReadInt64(out long value) => TokenReaderFused.TryReadInt64(ref this, out value);
+
+    /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="double"/>.</summary>
+    public bool TryReadFloat64(out double value) =>
+        TokenReaderFused.TryReadFloat64(ref this, out value);
+
+    /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="bool"/>.</summary>
+    public bool TryReadBool(out bool value) => TokenReaderFused.TryReadBool(ref this, out value);
 
     public bool TryGetFloat64(out double v)
     {
