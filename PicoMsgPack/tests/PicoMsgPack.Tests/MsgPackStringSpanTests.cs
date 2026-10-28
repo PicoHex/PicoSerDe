@@ -132,9 +132,10 @@ public class MsgPackStringSpanTests
     // ── 2. The allocation is gone ───────────────────────────────────────────
 
     /// <summary>
-    /// Writes the 15-string model through a <em>reused</em> buffer, so the only thing being
-    /// counted is what the serializer itself allocates. Before this change: 600 B/op
-    /// (15 × one <c>byte[]</c>, 40 B each once headers are included). After: nothing.
+    /// Writes each model through a <em>reused</em> buffer, so the only thing being counted is
+    /// what the serializer itself allocates. Before this change: one <c>byte[]</c> per string
+    /// member, i.e. 15 of them per operation on the first model. After: nothing, in every one
+    /// of the nine batches <see cref="AssertAllocatesNothing"/> measures.
     /// </summary>
     [Test]
     public async Task WriterPath_AllocatesNothing()
@@ -144,50 +145,158 @@ public class MsgPackStringSpanTests
         var edge = new StrEdgeModel();
         var collection = StrCollectionModel.Create();
 
-        // Warm up so the measurement does not include JIT/tiering allocations.
-        for (int i = 0; i < 200; i++)
-        {
-            buffer.Clear();
-            MsgPackSerializer.Serialize(buffer, fifteen);
-        }
-
-        double bytesPerOp = Measure(() =>
-        {
-            buffer.Clear();
-            MsgPackSerializer.Serialize(buffer, fifteen);
-        });
-        await Assert
-            .That(bytesPerOp)
-            .IsEqualTo(0.0)
-            .Because(
-                $"15-string object allocated {bytesPerOp} B/op (was {PreChangeFifteenBytesPerOp})"
-            );
-
-        double edgePerOp = Measure(() =>
-        {
-            buffer.Clear();
-            MsgPackSerializer.Serialize(buffer, edge);
-        });
-        await Assert.That(edgePerOp).IsEqualTo(0.0).Because("edge-character object");
-
-        double collectionPerOp = Measure(() =>
-        {
-            buffer.Clear();
-            MsgPackSerializer.Serialize(buffer, collection);
-        });
-        await Assert.That(collectionPerOp).IsEqualTo(0.0).Because("list elements + dictionary");
+        await AssertAllocatesNothing(
+            $"15-string object (pre-change {PreChangeFifteenBytesPerOp} B/op)",
+            () =>
+            {
+                buffer.Clear();
+                MsgPackSerializer.Serialize(buffer, fifteen);
+            }
+        );
+        await AssertAllocatesNothing(
+            "edge-character object",
+            () =>
+            {
+                buffer.Clear();
+                MsgPackSerializer.Serialize(buffer, edge);
+            }
+        );
+        await AssertAllocatesNothing(
+            "list elements + dictionary",
+            () =>
+            {
+                buffer.Clear();
+                MsgPackSerializer.Serialize(buffer, collection);
+            }
+        );
     }
 
-    /// <summary>Bytes allocated per call, over <c>iters</c> calls, on this thread only.</summary>
-    private static double Measure(Action body, int iters = 1000)
+    /// <summary>
+    /// The guard for the guard: the same batched protocol pointed at the <em>pre-change</em>
+    /// write path (one <c>byte[]</c> per string member). It has to report that allocation as
+    /// large in every batch, otherwise the zero in <see cref="WriterPath_AllocatesNothing"/>
+    /// would be a blind counter rather than a free writer.
+    /// </summary>
+    [Test]
+    public async Task AllocationProtocol_SeesTheAllocationTheWriterPathUsedToMake()
     {
-        for (int i = 0; i < 200; i++)
+        var fifteen = StrFifteenModel.Create();
+        string[] members =
+        [
+            fifteen.S00,
+            fifteen.S01,
+            fifteen.S02,
+            fifteen.S03,
+            fifteen.S04,
+            fifteen.S05,
+            fifteen.S06,
+            fifteen.S07,
+            fifteen.S08,
+            fifteen.S09,
+            fifteen.S10,
+            fifteen.S11,
+            fifteen.S12,
+            fifteen.S13,
+            fifteen.S14,
+        ];
+
+        var batches = Batches(() =>
+        {
+            // Exactly what the generated serializer emitted before this change.
+            for (int i = 0; i < members.Length; i++)
+                _ = Encoding.UTF8.GetBytes(members[i]);
+        });
+
+        long smallest = batches.Min();
+        double perOp = smallest / (double)BatchIterations;
+        // 15 arrays per call, and no object on the CLR is smaller than its header plus one
+        // payload word (24 bytes), so 15 allocations per call cannot cost less than 360 B/op.
+        // A counter that reports less than the smallest object it is supposed to see is not
+        // measuring the managed heap, and the zeros above would be worthless.
+        await Assert
+            .That(perOp)
+            .IsGreaterThanOrEqualTo(15 * 24.0)
+            .Because(
+                $"one byte[] per string member: batches [{string.Join(", ", batches)}] over {BatchIterations} calls each"
+            );
+    }
+
+    /// <summary>Calls per measured batch.</summary>
+    /// <remarks>
+    /// A per-call allocation cannot hide inside one batch: the 15 arrays the pre-change
+    /// serializer allocated for <see cref="StrFifteenModel"/> show up in <em>every</em> batch
+    /// (that is what <see cref="AllocationProtocol_SeesTheAllocationTheWriterPathUsedToMake"/>
+    /// pins), while the stray runtime quantum this protocol is built to shrug off appears in
+    /// one batch and is gone from the next.
+    /// </remarks>
+    private const int BatchIterations = 1_000;
+
+    /// <summary>
+    /// Batches run and thrown away before the measured ones, so tier-0 code, the first grown
+    /// <see cref="ArrayBufferWriter{T}"/> capacity and any one-off runtime work are behind us.
+    /// </summary>
+    private const int SettleBatches = 2;
+
+    /// <summary>
+    /// Batches measured. <see cref="Batches"/> hands back all of them so a failure can print
+    /// the whole vector; the assertion reads the smallest, the one stray noise cannot reach.
+    /// </summary>
+    private const int MeasuredBatches = 9;
+
+    /// <summary>
+    /// Runs <paramref name="body"/> in <see cref="MeasuredBatches"/> batches of
+    /// <see cref="BatchIterations"/> calls and asserts that the <em>smallest</em> batch
+    /// allocated exactly zero bytes — not "almost zero", and not an average.
+    /// <para>
+    /// The average was the flake. <see cref="GC.GetAllocatedBytesForCurrentThread"/> is an
+    /// exact ledger of what this thread allocates, but it is not the write path's private
+    /// ledger: under the pressure of a full suite it occasionally jumps by a whole allocation
+    /// quantum (7 680–8 168 B observed) inside one window and then reads exactly 0 again for
+    /// the next thousand calls. A probe of 1120 such windows here saw 17 jumps, every one
+    /// alone in its window — and the jump does not scale with the calls in the window: the
+    /// same ~8 KB appeared in a 100-call window and in one of 8000 calls, where a real
+    /// per-call allocation would have been 60 KB and 4.8 MB. Spread over the old single
+    /// 1000-call window that quantum reads as ≈8 B/op, which is exactly what the flaky
+    /// failure printed.
+    /// </para>
+    /// <para>
+    /// A real allocation is that quantum's opposite in both respects: it is per call, so it
+    /// lands in every batch, and it is proportional to the batch size. So "the smallest of
+    /// nine batches is exactly zero" cannot hold for a serializer that allocates — no batch
+    /// would be zero, let alone all nine — while one quantum, which cannot land in nine
+    /// batches in a row, is discarded as what it is: bookkeeping, not the writer.
+    /// </para>
+    /// </summary>
+    private static async Task AssertAllocatesNothing(string what, Action body)
+    {
+        var batches = Batches(body);
+        long smallest = batches.Min();
+        await Assert
+            .That(smallest)
+            .IsEqualTo(0L)
+            .Because(
+                $"{what}: allocated per batch of {BatchIterations} calls [{string.Join(", ", batches)}] — the smallest batch must be exactly zero"
+            );
+    }
+
+    /// <summary>
+    /// Bytes this thread allocated in each of <see cref="MeasuredBatches"/> batches of
+    /// <see cref="BatchIterations"/> calls, after <see cref="SettleBatches"/> discarded ones.
+    /// </summary>
+    private static long[] Batches(Action body)
+    {
+        for (int i = 0; i < SettleBatches * BatchIterations; i++)
             body();
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < iters; i++)
-            body();
-        long after = GC.GetAllocatedBytesForCurrentThread();
-        return (after - before) / (double)iters;
+
+        var batches = new long[MeasuredBatches];
+        for (int b = 0; b < batches.Length; b++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < BatchIterations; i++)
+                body();
+            batches[b] = GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+        return batches;
     }
 
     // ── 3. The two paths agree, byte for byte ───────────────────────────────
