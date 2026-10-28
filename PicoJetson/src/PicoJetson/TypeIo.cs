@@ -17,13 +17,46 @@ public static class TypeIo
 
     // ── writes ──
 
-    public static void WriteDateTimeOffset(ref JsonWriter w, DateTimeOffset value)
+    /// <summary>Largest text any scalar routed through <see cref="WriteFormattable{T}"/> produces.</summary>
+    /// <remarks>
+    /// GUID "D" is the longest at 36 characters; ISO-8601 "O" dates are 33, and the longest
+    /// constant ("c") <see cref="TimeSpan"/> is 26. One stack buffer serves them all, so the
+    /// helper needs no size argument a call site could get wrong — a value that ever outgrows it
+    /// is rejected by <c>TryFormat</c> and surfaces as an exception rather than as truncated bytes.
+    /// </remarks>
+    private const int MaxScalarTextBytes = 40;
+
+    /// <summary>
+    /// Writes <paramref name="value"/> as a quoted JSON string, formatted straight into UTF-8.
+    /// </summary>
+    /// <remarks>
+    /// The generated code used to write <c>value.ToString("O")</c>, which allocates the text and
+    /// then encodes it — two buffers for a value whose UTF-8 form is pure ASCII. Measuring the
+    /// Complex POCO row put its two <c>ToString</c> members (DateTime 21% of the document, Guid
+    /// 14%) ahead of every other cost there, so both now format into a span instead: same
+    /// characters, no allocation (`.superpowers/sdd/json-elemwrite/report.md`). The text is
+    /// quoted by <see cref="JsonWriter.WriteString(ReadOnlySpan{byte})"/>, which also runs the
+    /// escape scan — this family cannot produce an escapable byte, but the scan stays on the one
+    /// code path every other string takes rather than being special-cased away here.
+    /// </remarks>
+    public static void WriteFormattable<T>(
+        ref JsonWriter w,
+        T value,
+        scoped ReadOnlySpan<char> format
+    )
+        where T : IUtf8SpanFormattable
     {
-        Span<byte> buf = stackalloc byte[40];
-        if (!ScalarCodec.TryFormatDateTimeOffset(value, buf, out var n))
-            throw new ArgumentException("DateTimeOffset value cannot be formatted.", nameof(value));
+        Span<byte> buf = stackalloc byte[MaxScalarTextBytes];
+        if (!value.TryFormat(buf, out var n, format, CultureInfo.InvariantCulture))
+            throw new ArgumentException(
+                $"{typeof(T).Name} value cannot be formatted as '{format}'.",
+                nameof(value)
+            );
         WriteUtf8(ref w, buf[..n]);
     }
+
+    public static void WriteDateTimeOffset(ref JsonWriter w, DateTimeOffset value) =>
+        WriteFormattable(ref w, value, "O");
 
     public static void WriteChar(ref JsonWriter w, char value)
     {

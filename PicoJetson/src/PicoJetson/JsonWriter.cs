@@ -94,95 +94,72 @@ public ref struct JsonWriter
         WriteRaw(value ? "true"u8 : "false"u8);
     }
 
-    public void WriteNumber(int value)
+    /// <summary>
+    /// Writes one number token — separator, digits and cursor bookkeeping — as a single
+    /// staged write. Every <see cref="WriteNumber(int)"/> overload (and the finite arm of
+    /// <see cref="WriteNumber(double)"/> / <see cref="WriteNumber(float)"/>) lands here.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The token used to be four calls: <see cref="BeforeWriteValue"/> (which wrote the
+    /// separator through <see cref="WriteByte"/>), <see cref="Ensure"/>, the format call and
+    /// <see cref="CommitBare"/>. That is the shape of a <em>document</em>-level token, but a
+    /// number is the most frequent token inside a collection: measured
+    /// (`.superpowers/sdd/json-elemwrite/report.md`), a 100-element <c>List&lt;int&gt;</c>
+    /// document spent 80% of its time in the element loop, and 40% of the loop in per-token
+    /// bookkeeping on JIT — 54% on NativeAOT, where those calls are not inlined and each one
+    /// re-reads the writer's fields from memory.
+    /// </para>
+    /// <para>
+    /// Here the separator, the digits and the cursor update share one <see cref="Ensure"/>,
+    /// so one token touches the span once and the buffer never. The formatting call is
+    /// unchanged — same <c>TryFormat</c>, same empty format, same invariant provider — so the
+    /// bytes are the same bytes; a what-if arm that wrote the digits straight into the buffer
+    /// (no writer at all) measured the headroom: what remains above it is 1.4 ns/token on JIT
+    /// and 3.7 ns/token on NativeAOT, against 3.9 and 11.7 before.
+    /// </para>
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void WriteFormattable<T>(T value, int maxBytes)
+        where T : IUtf8SpanFormattable
     {
-        BeforeWriteValue();
-        Ensure(16);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
+        var comma = false;
+        if (_afterPropertyName)
+            _afterPropertyName = false;
+        else
+        {
+            comma = (_needsComma & (1UL << _depth)) != 0;
+            _needsComma |= 1UL << _depth;
+        }
+        // One slot for the separator plus the value's worst case, in one reservation.
+        Ensure(maxBytes + 1);
+        var start = _spanPos;
+        var pos = start;
+        if (comma)
+            _span[pos++] = (byte)',';
+        value.TryFormat(_span[pos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos = pos + w;
+        _bytesWritten += _spanPos - start;
         CommitBare();
     }
 
-    public void WriteNumber(short value)
-    {
-        BeforeWriteValue();
-        Ensure(8);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
-    }
+    public void WriteNumber(int value) => WriteFormattable(value, 16);
 
-    public void WriteNumber(ushort value)
-    {
-        BeforeWriteValue();
-        Ensure(8);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
-    }
+    public void WriteNumber(short value) => WriteFormattable(value, 8);
 
-    public void WriteNumber(sbyte value)
-    {
-        BeforeWriteValue();
-        Ensure(8);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
-    }
+    public void WriteNumber(ushort value) => WriteFormattable(value, 8);
 
-    public void WriteNumber(byte value)
-    {
-        BeforeWriteValue();
-        Ensure(8);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
-    }
+    public void WriteNumber(sbyte value) => WriteFormattable(value, 8);
 
-    public void WriteNumber(uint value)
-    {
-        BeforeWriteValue();
-        Ensure(16);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
-    }
+    public void WriteNumber(byte value) => WriteFormattable(value, 8);
 
-    public void WriteNumber(ulong value)
-    {
-        BeforeWriteValue();
-        Ensure(32);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
-    }
+    public void WriteNumber(uint value) => WriteFormattable(value, 16);
 
-    public void WriteNumber(long value)
-    {
-        BeforeWriteValue();
-        Ensure(32);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
-    }
+    public void WriteNumber(ulong value) => WriteFormattable(value, 32);
 
-    public void WriteNumber(decimal value)
-    {
-        BeforeWriteValue();
-        Ensure(32);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
-    }
+    public void WriteNumber(long value) => WriteFormattable(value, 32);
+
+    public void WriteNumber(decimal value) => WriteFormattable(value, 32);
 
     /// <summary>
     /// Writes a <see cref="float"/> as its shortest round-trip text. Formatting a
@@ -194,7 +171,10 @@ public ref struct JsonWriter
     /// </summary>
     public void WriteNumber(float value)
     {
-        BeforeWriteValue();
+        if (float.IsNaN(value) || float.IsInfinity(value))
+        {
+            BeforeWriteValue();
+        }
         if (float.IsNaN(value))
         {
             if (
@@ -225,16 +205,15 @@ public ref struct JsonWriter
                 nameof(value)
             );
         }
-        Ensure(32);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
+        WriteFormattable(value, 32);
     }
 
     public void WriteNumber(double value)
     {
-        BeforeWriteValue();
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            BeforeWriteValue();
+        }
         if (double.IsNaN(value))
         {
             if (
@@ -265,11 +244,7 @@ public ref struct JsonWriter
                 nameof(value)
             );
         }
-        Ensure(32);
-        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
-        _spanPos += w;
-        _bytesWritten += w;
-        CommitBare();
+        WriteFormattable(value, 32);
     }
 
     /// <summary>
@@ -705,6 +680,7 @@ public ref struct JsonWriter
             );
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void BeforeWriteValue()
     {
         if (_afterPropertyName)
@@ -791,6 +767,7 @@ public ref struct JsonWriter
         CommitBare();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void WriteByte(byte value)
     {
         Ensure(1);
