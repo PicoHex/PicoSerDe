@@ -223,8 +223,21 @@ file static class S15JsonStreaming
                     throw new System.FormatException($"Expected String value for property \"When\" at offset {reader.BytesConsumed}");
                 }
                 var __rawBytes = reader.GetStringRaw();
-                var __strValue = Encoding.UTF8.GetString(__rawBytes);
-                if (!System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt_When))
+                System.DateTime __dt_When;
+                bool __dtOk_When;
+                if ((__rawBytes.Length == 27 || (__rawBytes.Length == 28 && __rawBytes[27] == (byte)'Z'))
+                    && System.Buffers.Text.Utf8Parser.TryParse(__rawBytes, out __dt_When, out var __dtUsed_When, 'O')
+                    && __dtUsed_When == __rawBytes.Length)
+                    __dtOk_When = true;
+                else if (__rawBytes.Length <= 64)
+                {
+                    System.Span<char> __dtChars_When = stackalloc char[64];
+                    var __dtLen_When = Encoding.UTF8.GetChars(__rawBytes, __dtChars_When);
+                    __dtOk_When = System.DateTime.TryParse(__dtChars_When[..__dtLen_When], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __dt_When);
+                }
+                else
+                    __dtOk_When = System.DateTime.TryParse(Encoding.UTF8.GetString(__rawBytes), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __dt_When);
+                if (!__dtOk_When)
                     throw new System.FormatException($"Expected a DateTime value for property \"When\" at offset {reader.BytesConsumed}");
                 result.When = __dt_When;
             }
@@ -262,8 +275,30 @@ file static class S15JsonStreaming
                         throw new System.FormatException($"Expected a string or number value for property \"Day\" at offset {reader.BytesConsumed}");
                     }
                     var __rawBytes = reader.GetStringRaw();
-                    var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);
-                    if (!System.Enum.TryParse<global::System.DayOfWeek>(__strValue, out var __enumValue))
+                    global::System.DayOfWeek __enumValue = default;
+                    bool __enumOk_Day;
+                    if (__rawBytes.Length > 0 && __rawBytes[0] != (byte)'-'
+                        && System.Buffers.Text.Utf8Parser.TryParse(__rawBytes, out long __enumNumber, out var __enumUsed_Day)
+                        && __enumUsed_Day == __rawBytes.Length)
+                    {
+                        var __enumCast_Day = unchecked((global::System.DayOfWeek)__enumNumber);
+                        __enumOk_Day = unchecked((long)__enumCast_Day) == __enumNumber;
+                        __enumValue = __enumCast_Day;
+                    }
+                    else
+                        __enumOk_Day = false;
+                    if (!__enumOk_Day)
+                    {
+                        if (__rawBytes.Length <= 64)
+                        {
+                            System.Span<char> __enumChars_Day = stackalloc char[64];
+                            var __enumLen_Day = Encoding.UTF8.GetChars(__rawBytes, __enumChars_Day);
+                            __enumOk_Day = System.Enum.TryParse<global::System.DayOfWeek>(__enumChars_Day[..__enumLen_Day], out __enumValue);
+                        }
+                        else
+                            __enumOk_Day = System.Enum.TryParse<global::System.DayOfWeek>(Encoding.UTF8.GetString(__rawBytes), out __enumValue);
+                    }
+                    if (!__enumOk_Day)
                         throw new System.FormatException($"Expected an enum value value for property \"Day\" at offset {reader.BytesConsumed}");
                     result.Day = __enumValue;
                 }

@@ -138,8 +138,21 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
                     throw new System.FormatException($"Expected String value for property \"When\" at offset {reader.BytesConsumed}");
                 }
                 var __rawBytes = reader.GetStringRaw();
-                var __strValue = Encoding.UTF8.GetString(__rawBytes);
-                if (!System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt_When))
+                System.DateTime __dt_When;
+                bool __dtOk_When;
+                if ((__rawBytes.Length == 27 || (__rawBytes.Length == 28 && __rawBytes[27] == (byte)'Z'))
+                    && System.Buffers.Text.Utf8Parser.TryParse(__rawBytes, out __dt_When, out var __dtUsed_When, 'O')
+                    && __dtUsed_When == __rawBytes.Length)
+                    __dtOk_When = true;
+                else if (__rawBytes.Length <= 64)
+                {
+                    System.Span<char> __dtChars_When = stackalloc char[64];
+                    var __dtLen_When = Encoding.UTF8.GetChars(__rawBytes, __dtChars_When);
+                    __dtOk_When = System.DateTime.TryParse(__dtChars_When[..__dtLen_When], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __dt_When);
+                }
+                else
+                    __dtOk_When = System.DateTime.TryParse(Encoding.UTF8.GetString(__rawBytes), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __dt_When);
+                if (!__dtOk_When)
                     throw new System.FormatException($"Expected a DateTime value for property \"When\" at offset {reader.BytesConsumed}");
                 obj.When = __dt_When;
             }
