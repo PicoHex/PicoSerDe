@@ -371,8 +371,18 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             return false;
         }
 
+        // One peek per token. The three decisions below - comment, comma, dispatch - all read the same
+        // byte, and in span mode every PeekByte is a `_isSequence ? _seqReader.CurrentSpan[...] :
+        // _data[_position]` branch the JIT cannot fold away (ref struct field), so the byte is read once
+        // and reused. The comment arm still peeks its own bytes because it advances; the comma arm
+        // re-peeks exactly once after consuming the comma, and that single read serves both the
+        // trailing-comma rule and the switch. Order and semantics are the reference's: the comment check
+        // runs before the comma check, and a comment that follows a comma is still NOT skipped (it
+        // reaches the switch's `default:` arm, exactly as before).
+        var b = PeekByte();
+
         // Comment handling: skip // and /* */ if enabled
-        if (PeekByte() == (byte)'/')
+        if (b == (byte)'/')
         {
             var opts = _options;
             if (opts?.ReadCommentHandling == PicoJetson.JsonCommentHandling.Skip)
@@ -427,7 +437,7 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             }
         }
 
-        if (PeekByte() == (byte)',')
+        if (b == (byte)',')
         {
             // A comma may only follow a value or a closing bracket. A comma
             // right after the document start or an opening bracket is a
@@ -458,14 +468,16 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 }
                 throw new FormatException("Trailing comma at end of document");
             }
-            if (PeekByte() is (byte)'}' or (byte)']' && opts?.AllowTrailingCommas != true)
+            // The comma moved the cursor, so the byte to dispatch on is a new one - read it once, for the
+            // trailing-comma rule and for the switch below.
+            b = PeekByte();
+            if (b is (byte)'}' or (byte)']' && opts?.AllowTrailingCommas != true)
                 throw new FormatException("Trailing comma before closing bracket");
             // With AllowTrailingCommas enabled, fall through to the switch below,
             // which emits the proper ObjectEnd/ArrayEnd token instead of returning
             // with a stale token type.
         }
 
-        var b = PeekByte();
         switch (b)
         {
             case (byte)'{':
@@ -802,28 +814,10 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     private bool TryReadInt32Span(out int value)
     {
         value = 0;
-        // Read() is sticky once a chunk boundary was hit; re-deriving that here would be a second copy of
-        // the rule (_incomplete ⇒ NeedsMoreData + false), so this arm simply does not serve that state.
-        if (_incomplete)
+        if (!TryScalarStartSpan(out int pos))
             return false;
 
         var data = _data;
-        int pos = SimdHelpers.SkipWhitespace(data, _position);
-        if (pos < data.Length && data[pos] == (byte)',')
-        {
-            // The comma rules (leading comma, comma at the buffer end, comma before a closing bracket) can
-            // throw or emit an end token; either way they are the reference's business.
-            if (
-                !IsResumed
-                && _tokenType is TokenType.None or TokenType.ObjectStart or TokenType.ArrayStart
-            )
-                return false;
-            pos = SimdHelpers.SkipWhitespace(data, pos + 1);
-            if (pos >= data.Length || data[pos] is (byte)'}' or (byte)']')
-                return false;
-        }
-        if (pos >= data.Length)
-            return false; // end of buffer: Read() owns the NeedsMoreData decision
 
         // The same scan TryReadNextInt32Span uses — one implementation of the sign rule and of the
         // "-2147483648 is legal" boundary, so the two int arms cannot drift apart the way F-1 did (T13).
@@ -836,29 +830,341 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (end < data.Length && data[end] is (byte)'.' or (byte)'e' or (byte)'E')
             return false; // a float literal: Float64 token, and TryGetInt32 answers false on it
 
-        // ── Commit: exactly the state Read() + ReadNumberSpan() leave behind for an int32 token ──
-        _tokenStart = BytesConsumed; // Read(): recorded before anything moves (_position in span mode)
-        _needsMoreData = false; // ReadCore()'s first line
-        Rewound = false; // ReadCore()'s second line
-        _tokenType = TokenType.Int32;
-        _valueSpan = data[pos..end];
-        _tokenValueStart = pos;
-        _tokenValueEnd = end;
-        _position = end;
-        _tokenProduced = true; // Read(): a token was produced
+        CommitScalarSpan(pos, end, TokenType.Int32);
         value = decoded;
         return true;
     }
 
-    /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="long"/>.</summary>
-    public bool TryReadInt64(out long value) => TokenReaderFused.TryReadInt64(ref this, out value);
+    /// <summary>
+    /// See <see cref="TryReadInt32"/>; the same contract for <see cref="long"/>, fused for the integer
+    /// families <see cref="TryGetInt64"/> accepts.
+    /// <para>
+    /// <b>What it serves.</b> A span-mode integer literal that fits <see cref="long"/>: one scan
+    /// (<see cref="TryScanNumberSpan"/>) classifies it exactly as <see cref="ReadNumberSpan"/> does
+    /// (<see cref="TokenType.Int32"/>, <see cref="TokenType.Int64"/>, or <see cref="TokenType.UInt64"/>
+    /// past <c>long.MaxValue</c>) and produces the value — no <c>Utf8Parser</c> re-parse of the same digits.
+    /// </para>
+    /// <para>
+    /// <b>What it does not serve</b> (every case the reference owns, unchanged): the sequence path, a
+    /// reader already paused at a chunk boundary, the comma corners (leading comma, comma at the buffer
+    /// end, comma before a closing bracket), leading zeros, float literals, integers wider than
+    /// <c>uint64</c> (the reference makes them an <see cref="TokenType.Int64"/> token whose value
+    /// <see cref="TryGetInt64"/> rejects), a negative magnitude past <c>long.MinValue</c>, and any
+    /// non-integer token. A <see cref="TokenType.UInt64"/> value declines as well, so the reference
+    /// produces that token and keeps <c>value</c> at 0 itself.
+    /// </para>
+    /// <para>
+    /// <b>Declining, not guessing.</b> Every field is written only in <see cref="CommitScalarSpan"/>, so a
+    /// <see langword="false"/> leaves the reader byte-for-byte untouched and the caller re-runs the
+    /// reference on it. That is what keeps the failure half of the contract the reference's own.
+    /// </para>
+    /// </summary>
+    public bool TryReadInt64(out long value)
+    {
+        if (!_isSequence && TryReadInt64Span(out value))
+            return true;
 
-    /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="double"/>.</summary>
+        return TokenReaderFused.TryReadInt64(ref this, out value);
+    }
+
+    /// <summary>The fused half of <see cref="TryReadInt64"/>; see it for what is served and what is not.</summary>
+    private bool TryReadInt64Span(out long value)
+    {
+        value = 0;
+        if (!TryScalarStartSpan(out int pos))
+            return false;
+
+        if (!TryScanNumberSpan(_data, pos, out var literal) || literal.IsFloat || literal.Overflow)
+            return false; // a float literal, a magnitude past uint64, or no digits: the reference's business
+
+        if (literal.HasLeadingZero(_data))
+            return false; // leading zeros: ReadNumberSpan throws
+        if (!TryClassifyInteger(literal.Magnitude, literal.Negative, out var type, out long signed))
+            return false; // past long.MinValue: an Int64 token whose value Utf8Parser rejects
+        if (type == TokenType.UInt64)
+            return false; // TryGetInt64 rejects a UInt64 token: the reference makes it and keeps value 0
+
+        CommitScalarSpan(pos, literal.End, type);
+        value = signed;
+        return true;
+    }
+
+    /// <summary>
+    /// See <see cref="TryReadInt32"/>; identical contract for <see cref="double"/>.
+    /// <para>
+    /// <b>Deliberately not fused</b> (measured). A fused span arm that scanned the literal and parsed it
+    /// with the reference's own <c>Utf8Parser</c> call answered the same tokens but cost <b>1.39-1.87x</b>
+    /// the forward below across 8 interleaved rounds, while the two fused members that remove real work
+    /// (<see cref="TryReadInt64"/>, <see cref="TryReadBool"/>) measured 0.43-0.62x. A float literal has no
+    /// redundant classification pass to remove (<see cref="ReadNumberSpan"/> parses no value for a
+    /// <see cref="TokenType.Float64"/> token), so fusion buys nothing and the extra call boundary costs.
+    /// The scan such an arm would need (<see cref="TryScanNumberSpan"/>) is kept, so a future attempt
+    /// starts from one implementation of the number grammar instead of a second one.
+    /// </para>
+    /// </summary>
     public bool TryReadFloat64(out double value) =>
         TokenReaderFused.TryReadFloat64(ref this, out value);
 
-    /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="bool"/>.</summary>
-    public bool TryReadBool(out bool value) => TokenReaderFused.TryReadBool(ref this, out value);
+    /// <summary>
+    /// See <see cref="TryReadInt32"/>; the same contract for <see cref="bool"/>, fused for the two
+    /// literals.
+    /// <para>
+    /// <b>What it serves.</b> A span-mode <c>true</c>/<c>false</c>: one comparison writes the token, the
+    /// value span and the cursor. Truncated or wrong literals (<c>tru</c>, <c>trux</c>) decline, so the
+    /// reference still throws its own <c>Unexpected EOF</c> / <c>Invalid literal</c> message; a trailing
+    /// byte after a complete literal is the next token's problem exactly as before (<c>truex</c> yields the
+    /// Bool token and then the reference's <c>Unexpected byte</c> on the next read).
+    /// </para>
+    /// </summary>
+    public bool TryReadBool(out bool value)
+    {
+        if (!_isSequence && TryReadBoolSpan(out value))
+            return true;
+
+        return TokenReaderFused.TryReadBool(ref this, out value);
+    }
+
+    /// <summary>The fused half of <see cref="TryReadBool"/>; see it for what is served and what is not.</summary>
+    private bool TryReadBoolSpan(out bool value)
+    {
+        value = false;
+        if (!TryScalarStartSpan(out int pos))
+            return false;
+
+        var data = _data;
+        int remaining = data.Length - pos;
+        if (remaining >= 4 && data[pos..(pos + 4)].SequenceEqual("true"u8))
+        {
+            CommitScalarSpan(pos, pos + 4, TokenType.Bool);
+            value = true;
+            return true;
+        }
+        if (remaining >= 5 && data[pos..(pos + 5)].SequenceEqual("false"u8))
+        {
+            CommitScalarSpan(pos, pos + 5, TokenType.Bool);
+            return true;
+        }
+        return false; // not a complete literal: the reference classifies (and throws with its own message)
+    }
+
+    /// <summary>
+    /// A number literal as <see cref="TryScanNumberSpan"/> found it: where it ends, the sign, the
+    /// accumulated magnitude, whether it carries a fraction or an exponent, and whether the magnitude left
+    /// <see cref="ulong"/>'s range.
+    /// </summary>
+    private readonly struct NumberLiteral(
+        int start,
+        int end,
+        bool negative,
+        ulong magnitude,
+        bool isFloat,
+        bool overflow
+    )
+    {
+        /// <summary>Where the literal starts (the sign, when there is one).</summary>
+        public int Start { get; } = start;
+
+        /// <summary>Exclusive end of the literal.</summary>
+        public int End { get; } = end;
+
+        /// <summary>A leading <c>-</c> was present.</summary>
+        public bool Negative { get; } = negative;
+
+        /// <summary>The integer digits, accumulated as a magnitude.</summary>
+        public ulong Magnitude { get; } = magnitude;
+
+        /// <summary>A fraction or an exponent is present - <see cref="ReadNumberSpan"/>'s Float64 rule.</summary>
+        public bool IsFloat { get; } = isFloat;
+
+        /// <summary>The digits did not fit <see cref="ulong"/> (only meaningful when <see cref="IsFloat"/> is false).</summary>
+        public bool Overflow { get; } = overflow;
+
+        /// <summary>
+        /// <c>01</c> / <c>-01</c>: more than one integer digit with a leading zero, which
+        /// <see cref="ReadNumberSpan"/> rejects. <c>0</c>, <c>-0</c> and <c>0.5</c> are legal.
+        /// </summary>
+        public bool HasLeadingZero(ReadOnlySpan<byte> data)
+        {
+            int firstDigit = Negative ? Start + 1 : Start;
+            int digits = 0;
+            for (int i = firstDigit; i < End && IsDigit(data[i]); i++)
+                digits++;
+            return digits > 1 && data[firstDigit] == (byte)'0';
+        }
+    }
+
+    /// <summary>
+    /// The <b>one</b> number scan behind both fused number reads: the JSON grammar at
+    /// <paramref name="start"/> — an optional <c>-</c>, digits, an optional fraction, an optional exponent —
+    /// with the integer digits accumulated as it goes.
+    /// <para>
+    /// <b>It scans, it does not decide.</b> Nothing is committed, nothing is thrown: leading zeros, token
+    /// classification and every failure stay with the callers (or, on a decline, with
+    /// <see cref="ReadNumberSpan"/>). The grammar boundaries are <see cref="ReadNumberSpan"/>'s, and the scan
+    /// stops where that method stops, so trailing bytes remain the next token's problem
+    /// (<c>1.2.3</c> is a <c>1.2</c> token followed by the reference's <c>Unexpected byte</c>).
+    /// </para>
+    /// <para>
+    /// <see langword="false"/> means "not a number the reader could classify": no digits, or a fraction/
+    /// exponent with no digit after it (<c>1.</c>, <c>1e</c>, <c>1e+</c>) — the inputs
+    /// <see cref="ReadNumberSpan"/> throws its own message on.
+    /// </para>
+    /// </summary>
+    private static bool TryScanNumberSpan(
+        ReadOnlySpan<byte> data,
+        int start,
+        out NumberLiteral literal
+    )
+    {
+        literal = default;
+        int at = start;
+        bool negative = false;
+        if (at < data.Length && data[at] == (byte)'-')
+        {
+            negative = true;
+            at++;
+        }
+
+        int firstDigit = at;
+        bool overflow = false;
+        ulong magnitude = 0;
+        while (at < data.Length && IsDigit(data[at]))
+        {
+            uint digit = (uint)(data[at] - (byte)'0');
+            if (magnitude > (ulong.MaxValue - digit) / 10)
+                overflow = true; // keep scanning: the literal is still well-formed, the caller decides
+            else
+                magnitude = magnitude * 10 + digit;
+            at++;
+        }
+        if (at == firstDigit)
+            return false;
+
+        bool isFloat = false;
+        if (at < data.Length && data[at] == (byte)'.')
+        {
+            isFloat = true;
+            at++;
+            int fracStart = at;
+            while (at < data.Length && IsDigit(data[at]))
+                at++;
+            if (at == fracStart)
+                return false;
+        }
+        if (at < data.Length && data[at] is (byte)'e' or (byte)'E')
+        {
+            isFloat = true;
+            at++;
+            if (at < data.Length && data[at] is (byte)'+' or (byte)'-')
+                at++;
+            int expStart = at;
+            while (at < data.Length && IsDigit(data[at]))
+                at++;
+            if (at == expStart)
+                return false;
+        }
+
+        literal = new NumberLiteral(start, at, negative, magnitude, isFloat, overflow);
+        return true;
+    }
+
+    /// <summary>
+    /// <see cref="ReadNumberSpan"/>'s classification of an integer literal, from the magnitude
+    /// <see cref="TryScanNumberSpan"/> accumulated: <see cref="TokenType.Int32"/>,
+    /// <see cref="TokenType.Int64"/> or <see cref="TokenType.UInt64"/>.
+    /// <para>
+    /// <see langword="false"/> for a negative magnitude past <c>long.MinValue</c>, where the reference
+    /// produces an <see cref="TokenType.Int64"/> token but <see cref="TryGetInt64"/> rejects the value —
+    /// so the caller declines instead of restating that rule.
+    /// </para>
+    /// </summary>
+    private static bool TryClassifyInteger(
+        ulong magnitude,
+        bool negative,
+        out TokenType type,
+        out long value
+    )
+    {
+        value = 0;
+        if (negative)
+        {
+            if (magnitude > 0x8000_0000_0000_0000UL)
+            {
+                type = TokenType.Int64;
+                return false;
+            }
+            value = magnitude == 0x8000_0000_0000_0000UL ? long.MinValue : -(long)magnitude;
+            type = value is >= int.MinValue and <= int.MaxValue ? TokenType.Int32 : TokenType.Int64;
+            return true;
+        }
+
+        if (magnitude <= int.MaxValue)
+            type = TokenType.Int32;
+        else if (magnitude <= long.MaxValue)
+            type = TokenType.Int64;
+        else
+            type = TokenType.UInt64;
+        value = magnitude > long.MaxValue ? 0 : (long)magnitude;
+        return true;
+    }
+
+    /// <summary>
+    /// The prologue every fused span read shares: where a value may start, or <see langword="false"/> when
+    /// the answer belongs to <see cref="Read"/>.
+    /// <para>
+    /// <b>One copy of the comma rules.</b> Whitespace and the leading comma are skipped here; the corners
+    /// (leading comma, comma at the buffer end, comma before a closing bracket) decline, because they can
+    /// throw or emit an end token. The paused-reader rule (<c>_incomplete</c> ⇒ <c>NeedsMoreData</c> +
+    /// <c>false</c>) is not re-derived either: this arm simply does not serve that state. Nothing is
+    /// written, so a <see langword="false"/> leaves the reader byte-for-byte untouched.
+    /// </para>
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool TryScalarStartSpan(out int pos)
+    {
+        pos = _position;
+        if (_incomplete)
+            return false;
+
+        var data = _data;
+        pos = SimdHelpers.SkipWhitespace(data, _position);
+        if (pos < data.Length && data[pos] == (byte)',')
+        {
+            if (
+                !IsResumed
+                && _tokenType is TokenType.None or TokenType.ObjectStart or TokenType.ArrayStart
+            )
+                return false;
+            pos = SimdHelpers.SkipWhitespace(data, pos + 1);
+            if (pos >= data.Length || data[pos] is (byte)'}' or (byte)']')
+                return false;
+        }
+        return pos < data.Length; // end of buffer: Read() owns the NeedsMoreData decision
+    }
+
+    /// <summary>
+    /// The commit every fused span read shares: exactly the state <see cref="Read"/> plus the reference's
+    /// token reader leave behind for a scalar token at <c>[start, end)</c>.
+    /// <para>
+    /// <b>Fusion ≠ skipping materialisation</b> (spec §3.2.3): the token type, the value span, the token
+    /// and value offsets and the production flag are all written, so every getter answers what it would
+    /// answer after <see cref="Read"/>. <c>_tokenStart</c> is read <b>before</b> anything moves — which is
+    /// this span arm's original <c>BytesConsumed</c>, the value <see cref="Read"/> records.
+    /// </para>
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void CommitScalarSpan(int start, int end, TokenType type)
+    {
+        _tokenStart = BytesConsumed;
+        _needsMoreData = false; // ReadCore()'s first line
+        Rewound = false; // ReadCore()'s second line
+        _tokenType = type;
+        _valueSpan = _data[start..end];
+        _tokenValueStart = start;
+        _tokenValueEnd = end;
+        _position = end;
+        _tokenProduced = true; // Read(): a token was produced
+    }
 
     private bool TryReadNextInt32Span(out int v)
     {
