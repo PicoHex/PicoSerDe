@@ -62,7 +62,11 @@ Measured **2026-10-28** on one machine (AMD Ryzen 7 6800H, Windows 11, .NET SDK 
 **21:45–21:53 local**, which backs the **JSON and MessagePack rows** — both were re-measured after ten
 performance commits landed behind them (see
 [What the last round of changes did](#what-the-last-round-of-changes-did)), so those two rows come from
-a later window than the other three and from the same window as each other. A **round** is one whole
+a later window than the other three and from the same window as each other. The other three were
+not re-measured because nothing on their hot paths changed in between: the only commit to touch
+those readers after 09:00 adds six members their generated code never calls — the fused contract,
+forwarding to the reference implementation — and none of their generators was touched. Should that
+stop being true, those rows get re-measured the same way. A **round** is one whole
 process; each round prints, per arm, the median µs/op over **5 independent runs × ≥100k iterations
 each**, and every figure below is the **median of three rounds**. A row's ratio is `ours ÷ theirs`,
 computed from those two medians. AOT and JIT are separate processes and are never merged into one
