@@ -57,22 +57,39 @@ Every module has its own suite, cross-validated against a competitor implementat
 **above 1.00 means PicoSerDe is slower** and **below 1.00 means PicoSerDe is faster**. No reciprocal
 is ever taken: the direction above is the only one printed.
 
-Measured 2026-10-27 on one machine (AMD Ryzen 7 6800H, Windows 11, .NET SDK 10.0.401); medians of
-µs/op over 5 independent runs per arm, ≥100k iterations each. AOT and JIT are separate processes and
-are never merged into one figure, one column or one ratio.
+Measured **2026-10-28** (08:41–09:00 local) on one machine (AMD Ryzen 7 6800H, Windows 11, .NET SDK
+10.0.401, runtime 10.0.12). A **round** is one whole process; each round prints, per arm, the median
+µs/op over **5 independent runs × ≥100k iterations each**, and every figure below is the **median of
+three rounds**. A row's ratio is `ours ÷ theirs`, computed from those two medians. AOT and JIT are
+separate processes and are never merged into one figure, one column or one ratio. The desktop was
+shared, not an idle lab box: over the session the load criteria refused **32** arm measurements, and
+9 of the 30 processes exited `1` under `PICOBENCH_STRICT=1`. Every arm a round refused was either
+already covered by three published rounds or re-measured in a supplementary round, so **no figure in
+the results table below rests on a refused arm** — and none of its rows was carried over from the
+earlier 2026-10-27 session.
 
 | Format | Opponent | AOT vs AOT | JIT vs JIT | In one line |
 |---|---|---|---|---|
-| JSON | System.Text.Json | slower in **11 of 12** — **0.92×–3.58×**, median **1.95×** | slower in **12 of 12** — **1.07×–5.60×**, median **1.91×** | We are slower in both modes. |
-| MessagePack | MessagePack-CSharp | slower in **3 of 4** — **0.93×–3.34×**, median **1.40×** | slower in **5 of 8** — **0.76×–2.26×**, median **1.44×** | We are slower in both modes; the small shapes are near parity, not ahead. |
-| TOML | Tomlyn 2.10.1 | faster in **10 of 10** — **0.10×–0.40×**, median **0.21×** (between **2.5× and 10×** faster) | faster in **10 of 10** — **0.08×–0.41×**, median **0.20×** (between **2.4× and 12.5×** faster) | We are faster in both modes, against an opponent doing the same job in both. |
-| YAML | YamlDotNet 18.1.0 | — no AOT opponent exists | faster in **6 of 6** — **0.02×–0.06×** (**17×–50×** faster) | We are faster on CoreCLR, and only there. |
+| JSON | System.Text.Json | slower in **9 of 12** — **0.76×–3.56×**, median **1.43×** | slower in **10 of 12** — **0.98×–4.72×**, median **1.53×** | Slower in both modes; the rows on our side are 0.96×/0.91×/0.76× (AOT) and 0.99×/0.98× (JIT), all but the 0.76× inside the ±10% band. |
+| MessagePack | MessagePack-CSharp | split **2–2** — **0.56×–1.51×**, median **0.86×** | ahead in **5 of 8**, behind in **3 of 8** — **0.47×–1.95×**, median **0.96×** | Parity under JIT (the median is inside the band); still behind on the deserialize and collection rows. |
+| TOML | Tomlyn 2.10.1 | faster in **10 of 10** — **0.10×–0.40×**, median **0.19×** (between **2.5× and 10×** faster) | faster in **10 of 10** — **0.08×–0.42×**, median **0.20×** (between **2.4× and 12.5×** faster) | We are faster in both modes, against an opponent doing the same job in both. |
+| YAML | YamlDotNet 18.1.0 | — no AOT opponent exists | faster in **6 of 6** — **0.02×–0.06×**, median **0.04×** (**17×–50×** faster) | We are faster on CoreCLR, and only there. |
 | INI | ini-parser 2.5.3 | — no equivalent operation | — no equivalent operation | No ratio exists to divide by; absolute cost only, on a `NON-EQUIVALENT` table. |
 
-**In words.** PicoSerDe is slower than System.Text.Json and MessagePack-CSharp, under AOT and
-under JIT. It is faster than Tomlyn 2.10.1 under JIT **and** under NativeAOT — the one format where
-the opponent does the same job (one library call, same POCO in and out) in both modes. It is faster
-than YamlDotNet's typed mapper on CoreCLR only: under NativeAOT that layer does not work at all (typed
+**In words.** JSON is where we are behind: slower than System.Text.Json in **9 of 12** scenarios
+under AOT and **10 of 12** under JIT, by as much as **3.56×** and **4.72×**, and 17 of those 19 losses
+are outside the ±10% band, so this is a direction and not noise. MessagePack is no longer a uniform
+loss. Under JIT we are ahead in 5 of 8 rows and behind in 3, but the median is **0.96×** — inside the
+±10% band, so that is **parity, not a win**, and it has to be read that way. Clearly ahead are the
+small shapes (`Nested — Serialize` 0.47×, `Simple — Serialize` 0.78×); clearly behind are
+`Collection — Deserialize` 1.95×, `Complex — Deserialize` 1.32× and `Collection — Serialize` 1.18×.
+Under AOT the four rows split 2–2: `Person` 0.58× and `Metrics` 0.56× on the write side, `Person`
+1.14× and `Metrics` 1.51× on the read side.
+
+PicoSerDe is faster than Tomlyn 2.10.1 under JIT **and** under NativeAOT — the one format where the
+opponent does the same job (one library call, same POCO in and out) in both modes, and here both modes
+were measured in the same three rounds instead of being split across sessions. It is faster than
+YamlDotNet's typed mapper on CoreCLR only: under NativeAOT that layer does not work at all (typed
 `Deserialize<T>` throws `MissingMethodException`, typed `Serialize` silently emits `{}`), so there is
 no AOT opponent to quote and none is invented. INI gets no ratio because ini-parser exposes no typed
 API in any execution mode — a caller-written DOM walk is not the same job as one library call.
@@ -98,6 +115,20 @@ A run that misses **any** of these is not published, however good its numbers lo
 - **Cross-session noise is ±10%, not "a few σ"** — the standard deviation of five runs inside one
   process bounds the measurement, not the machine state, so a ratio within ~10% of 1.00 is not a
   direction claim in either direction.
+- **Three rounds, and a median of medians** — one process is one round, and every figure above is the
+  median of the **three rounds that published every arm of its row**. A round that refused any arm of
+  a row contributes nothing to that row and is re-run; it is never averaged back in, and a row is
+  never filled from an older session.
+
+Reproducing it: `dotnet build PicoSerDe.slnx -c Release -m:1`, then one process per format —
+`PICOBENCH_STRICT=1 dotnet run --project <format>/benchmarks/<format>.Benchmarks -c Release --no-build`
+for `PicoJetson`, `PicoMsgPack`, `PicoIni`, `PicoToml`, `PicoYaml` — three times each, strictly serial.
+The AOT arms are the same projects published as
+`dotnet publish <project> -c Release -r win-x64 -p:PublishAot=true -o <dir>` and the produced `.exe`
+run the same way; MessagePack's AOT arms live in `PicoMsgPack.Benchmarks.Aot`, because
+MessagePack-CSharp's formatters for enums and collections do not survive NativeAOT (see the capability
+table below). Each table ends with its own `PICOBENCH_SUMMARY … published= refused= mode= exit=` line:
+that line, not prose, is what says whether a run published anything.
 
 ### NativeAOT support, by competitor (verified, not a performance claim)
 
@@ -125,7 +156,46 @@ throughput statement: it says what runs at all, not what runs fastest.
 > That table's VYaml `⚠️` is a documentation claim (`[YamlObject]` + source generation),
 > **not** something this repo verified — no VYaml publish/run was attempted here.
 
-Full tables, per-run logs and the history behind these numbers: [docs/perf/measurement-2026-10-27.md](docs/perf/measurement-2026-10-27.md)
+Full per-scenario tables, per-run logs and the history behind the **2026-10-27** session:
+[docs/perf/measurement-2026-10-27.md](docs/perf/measurement-2026-10-27.md). That archive is that
+session's record and predates every figure above — it is kept as history, not as a second opinion on
+today's numbers. The 2026-10-28 run behind this page is reproducible with the commands above; its raw
+logs are session-local and are not committed.
+
+### What the last round of changes did
+
+Seven merges landed after the 2026-10-27 measurement session (which ran 13:46–13:52, before any of
+them) and before this one — three in JSON, four in MessagePack. Each row is that change's own
+before/after A/B on this machine, taken on 2026-10-27 while the change was being made: "before" is a
+second worktree at the parent commit, measured in the same sitting, not a number remembered from an
+older README. "After" is therefore that sitting's figure, not the one in the table above — the table
+above is this session's three rounds at `1ba8f32`, and the two differ by cross-session drift as well
+as by the change itself (e.g. `LargeString 1KB — Deserialize` measured 0.261 µs in its own A/B and
+0.329 µs here).
+
+| Change (commit that landed it) | Scenario | Before | After | Numbers from |
+|---|---|---|---|---|
+| **JSON read: a property name resolved through an exact-match index** instead of a case-folding `Eq` chain per property (`5169116`) | JIT `LargeFlat 50-fields — Deserialize` | 6.120 / 6.132 µs — **2.82× / 2.97×** | 3.095 / 3.184 µs — **1.47× / 1.42×** (−49%) | `.superpowers/sdd/perf-p01/report.md` §5.1 |
+| **JSON write: property names written from compiled UTF-8 constants**, `ConvertName` kept only when a naming policy is set (`583b551`) | JIT `LargeFlat 50-fields — Serialize` | median **2.244 µs** of 2.340 / 2.147 — 2.06× | median **1.874 µs** of 1.849 / 1.874 / 1.893 (−16.5%) | `.superpowers/sdd/perf-p02/report.md` §5.1 |
+| **JSON strings: SIMD scan, long strings kept zero-copy** (`4c5d107`) | JIT `LargeString 1KB — Deserialize` | 1.472 / 1.660 / 1.743 µs — **3.70×–5.71×** | 0.260 / 0.261 / 0.267 µs — **0.91×–1.07×** (−84%) | `.superpowers/sdd/perf-p03/report.md` §0 |
+| **MessagePack: `timestamp64` read the spec's bit layout backwards** (`9e13e78`) | reading a `timestamp64` extension | `2023-11-14T22:15:23.1234567Z` decoded as **`1973-11-29T21:33:10.7000001Z`** | decoded correctly; wire and speed unchanged — a correctness fix, not a speed claim | `.superpowers/sdd/mp-ts64/report.md` §0 |
+| **MessagePack: the writer owns a span** instead of calling `GetSpan`/`Advance` per token (`56d86e5`) | JIT `Collection — Serialize` | 0.474 µs — **2.06×** | 0.300 µs — **1.28×** (−37%) | `.superpowers/sdd/perf-mp-span/report.md` §5.2 |
+| **MessagePack: strings encoded straight into that span**, no `byte[]` per key (`0a45e16`) | 15-string model, allocation per serialize | **600 B/op** (15 × a 40-byte array) | **0 B/op**; CPU **0.687×** (median of three paired runs) | `.superpowers/sdd/perf-mp-str/report.md` §4.1, §5.1 |
+| **MessagePack: `DateTime` written as the spec's timestamp extension** (`d4da7cc`) | JIT `Metrics — Deserialize` | 0.518 µs — **4.16×**; payload **53 B** | 0.156 µs — **1.30×**; payload **30 B** | `.superpowers/sdd/perf-mp-ts/report.md` §5 |
+
+The three MessagePack pairs were taken with `PICOBENCH_MAX_OTHER_CPU=100`: only the system-wide CPU
+gate was relaxed, while the drift, spread and dispersion criteria stayed in force — each of those
+reports says so in its own measurement section. The JSON pairs ran under the default 35% gate. Each
+pair is one sitting, so it is evidence of direction and rough magnitude; the table above is what this
+page stands behind. The `.superpowers/` report paths are session-local and gitignored, exactly like
+the raw benchmark logs; the commit hashes in the first column are the durable, checkable artefact.
+
+This session's tables carry the check. The rows those changes touched now read: JSON JIT
+`LargeFlat 50-fields — Deserialize` **2.701 µs / 1.40×**, `LargeFlat 50-fields — Serialize`
+**1.628 µs / 1.79×**, `LargeString 1KB — Deserialize` **0.329 µs / 0.98×**; MessagePack JIT
+`Collection — Serialize` **0.224 µs / 1.18×**, `Complex — Serialize` **0.166 µs / 0.95×**,
+`Nested — Serialize` **0.100 µs / 0.47×**; MessagePack AOT `Metrics — Deserialize`
+**0.206 µs / 1.51×** and `Metrics — Serialize` **0.062 µs / 0.56×**.
 
 ---
 
