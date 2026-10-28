@@ -99,6 +99,130 @@ public static class MsgPackFusedTokenDump
         return drain;
     }
 
+    /// <summary>
+    /// Which input entry a dual walk drives (spec §5.3 "流式分块" row, plan §3.6 D-5 — this matrix
+    /// belongs to T6, because T6 is the first task whose member has a fast path of its own to
+    /// compare). The fused read is span-only, so the two sequence entries are also the guard that
+    /// the fused member really does forward to the reference semantics there instead of taking a
+    /// span-shaped shortcut.
+    /// </summary>
+    public enum DumpEntry
+    {
+        /// <summary>Span mode, final block: every non-streaming deserialize.</summary>
+        Span = 0,
+
+        /// <summary>Span mode, non-final block: the block boundary must report <c>NeedsMoreData</c>.</summary>
+        SpanNonFinal = 1,
+
+        /// <summary>Single-segment sequence, final block: the streaming state machine.</summary>
+        Sequence = 2,
+
+        /// <summary>Single-segment sequence, non-final block.</summary>
+        SequenceNonFinal = 3,
+    }
+
+    /// <summary>
+    /// The reference arm over the entry the caller asked for. <see cref="DumpEntry"/> has no
+    /// <c>Chunked</c> value on purpose: a chunked walk needs a chunk size, so it goes through
+    /// <see cref="DrainReferenceChunked"/>.
+    /// </summary>
+    public static FusedDrain DrainReference(
+        byte[] payload,
+        DumpEntry entry,
+        IntAccessor ints = IntAccessor.Int32
+    ) =>
+        entry switch
+        {
+            DumpEntry.Span => DrainReference(payload, isFinalBlock: true, ints),
+            DumpEntry.SpanNonFinal => DrainReference(payload, isFinalBlock: false, ints),
+            DumpEntry.Sequence => DrainReferenceSequence(payload, isFinalBlock: true, ints),
+            DumpEntry.SequenceNonFinal => DrainReferenceSequence(payload, isFinalBlock: false, ints),
+            _ => throw new ArgumentOutOfRangeException(nameof(entry), entry, "chunked has its own entry point"),
+        };
+
+    /// <summary>
+    /// The reference arm over a single-segment <see cref="ReadOnlySequence{T}"/>: the shape
+    /// <see cref="MsgPackSpanTokenDump.DrainSequence"/> uses, with the fused dump's extra columns.
+    /// </summary>
+    public static FusedDrain DrainReferenceSequence(
+        byte[] payload,
+        bool isFinalBlock = true,
+        IntAccessor ints = IntAccessor.Int32
+    )
+    {
+        var lines = new List<FusedLine>();
+        var reader = new MsgPackReader(new ReadOnlySequence<byte>(payload), isFinalBlock);
+        try
+        {
+            while (reader.Read())
+                lines.Add(
+                    new FusedLine(
+                        lines.Count,
+                        MsgPackSpanTokenDump.Capture(lines.Count, ref reader),
+                        ReferenceReadResult(ref reader, ints)
+                    )
+                );
+            return new FusedDrain(WithDerivedCounts(lines), reader.NeedsMoreData, reader.Depth);
+        }
+        finally
+        {
+            reader.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The reference arm over <b>chunked streaming</b>: accumulate one chunk at a time and re-parse
+    /// the accumulated prefix from the start, exactly as
+    /// <see cref="MsgPackSpanTokenDump.DrainStreaming"/> does, until the document parses completely.
+    /// Returns that final prefix together with its dump, so the fused arm can be walked over the very
+    /// same bytes and the very same block mode.
+    /// </summary>
+    public static (FusedDrain Drain, byte[] Prefix, bool IsFinalBlock) DrainReferenceChunked(
+        byte[] payload,
+        int chunkSize,
+        IntAccessor ints = IntAccessor.Int32
+    )
+    {
+        for (int taken = Math.Min(chunkSize, payload.Length); ; taken += chunkSize)
+        {
+            var isFinalBlock = taken >= payload.Length;
+            var prefix = payload.AsSpan(0, Math.Min(taken, payload.Length)).ToArray();
+            var lines = new List<FusedLine>();
+            var reader = new MsgPackReader(new ReadOnlySequence<byte>(prefix), isFinalBlock);
+            bool complete;
+            try
+            {
+                while (reader.Read())
+                    lines.Add(
+                        new FusedLine(
+                            lines.Count,
+                            MsgPackSpanTokenDump.Capture(lines.Count, ref reader),
+                            ReferenceReadResult(ref reader, ints)
+                        )
+                    );
+                complete =
+                    !reader.NeedsMoreData
+                    && reader.Depth == 0
+                    && reader.BytesConsumed == prefix.Length;
+                if (complete)
+                    return (
+                        new FusedDrain(WithDerivedCounts(lines), reader.NeedsMoreData, reader.Depth),
+                        prefix,
+                        isFinalBlock
+                    );
+            }
+            finally
+            {
+                reader.Dispose();
+            }
+            if (isFinalBlock)
+                throw new FormatException(
+                    $"streaming never completed the {payload.Length}-byte payload "
+                        + $"(chunk {chunkSize}, {lines.Count} tokens)"
+                );
+        }
+    }
+
     /// <summary>The reference arm on a payload that may throw: the partial dump plus the exception.</summary>
     public static (FusedDrain Drain, Exception? Failure) ReferenceUntilFailure(
         byte[] payload,
