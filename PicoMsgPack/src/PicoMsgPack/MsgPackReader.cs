@@ -8,7 +8,6 @@ public struct MsgPackReaderState
     internal SequencePosition Position;
     internal int[]? ElementStack;
     internal bool[]? IsMapStack;
-    internal bool[]? ExpectKeyStack;
 }
 
 public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
@@ -30,7 +29,33 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
     private byte _tag; // for Extension tokens
     private int _depth;
     private BoolStack64 _isMapStack;
-    private BoolStack64 _expectKeyStack;
+
+    // ── Counted scope (task perf/mp-counted-scope) ──
+    // The innermost open container's element accounting lives in these two scalars
+    // instead of on the level stacks. A scope opens at the container's start token --
+    // the wire header carries its element count, so the reader already knows it -- and
+    // closes when that count runs out. Inside a scope one token costs one decrement of
+    // `_topRemaining`, in place of the read-modify-write of `_elementStack[_depth - 1]`
+    // plus the `_isMapStack`/`_expectKeyStack` double indexing (and their two stack
+    // writes) that every token used to pay; that accounting is what the attribution
+    // report priced inside `Read()` (perf-mp-collection §6.2).
+    //
+    //   _topRemaining > 0  -> this many element tokens still belong to the scope;
+    //   _topRemaining == 0 -> the scope is exhausted, so the next Read() owes its end
+    //                         token (ObjectEnd/ArrayEnd -- `_topIsMap` picks). Only
+    //                         meaningful while `_depth > 0`.
+    //
+    // The stacks stay authoritative at scope boundaries only: `_elementStack[_depth - 1]`
+    // is refreshed when a nested scope is pushed onto it and read back when that scope
+    // pops, which is what keeps any interleaving of containers behaving as before.
+    // `_isMapStack` stays a stack because each enclosing level's end-token kind is needed
+    // when it closes.
+    //
+    // The map key/value alternation is NOT tracked in a third stack: a map level's
+    // counter counts remaining key+value tokens, so it is always even at a key, and
+    // `_topRemaining`'s parity therefore *is* "a key is due". Parity replaces the flip.
+    private int _topRemaining;
+    private bool _topIsMap;
 
     // #5 (task perf/mp-collection): the integer value of the current token is
     // derived inside ReadSequential()/ReadSpan(), where the tag byte is already
@@ -69,8 +94,9 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
         _elementStack = default;
         _tag = 0;
         _isMapStack = default;
-        _expectKeyStack = default;
         _depth = 0;
+        _topRemaining = 0;
+        _topIsMap = false;
     }
 
     public MsgPackReader(ReadOnlySequence<byte> data, bool isFinalBlock = true)
@@ -88,8 +114,9 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
         _elementStack = default;
         _tag = 0;
         _isMapStack = default;
-        _expectKeyStack = default;
         _depth = 0;
+        _topRemaining = 0;
+        _topIsMap = false;
     }
 
     /// <summary>Exports parser state for later resumption.</summary>
@@ -105,12 +132,14 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
         {
             s.ElementStack = new int[_depth];
             s.IsMapStack = new bool[_depth];
-            s.ExpectKeyStack = new bool[_depth];
             for (int i = 0; i < _depth; i++)
             {
-                s.ElementStack[i] = _elementStack[i];
+                // The innermost level's counter is the live counted scope, not its stack
+                // slot (a slot is only refreshed when the level is buried under a nested
+                // one), so the export reads it from the scope. This method is `readonly`:
+                // the snapshot is adjusted, never this reader.
+                s.ElementStack[i] = i == _depth - 1 ? _topRemaining : _elementStack[i];
                 s.IsMapStack[i] = _isMapStack[i];
-                s.ExpectKeyStack[i] = _expectKeyStack[i];
             }
         }
         return s;
@@ -122,19 +151,19 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
     {
         _depth = state.Depth;
         _needsMoreData = false;
-        if (
-            _depth > 0
-            && state.ElementStack is not null
-            && state.IsMapStack is not null
-            && state.ExpectKeyStack is not null
-        )
+        _topRemaining = 0;
+        _topIsMap = false;
+        if (_depth > 0 && state.ElementStack is not null && state.IsMapStack is not null)
         {
             for (int i = 0; i < _depth; i++)
             {
                 _elementStack[i] = state.ElementStack[i];
                 _isMapStack[i] = state.IsMapStack[i];
-                _expectKeyStack[i] = state.ExpectKeyStack[i];
             }
+            // Resume re-opens the innermost scope from its saved counter; the enclosing
+            // levels' counters are already flushed into their own slots.
+            _topRemaining = _elementStack[_depth - 1];
+            _topIsMap = _isMapStack[_depth - 1];
         }
     }
 
@@ -245,24 +274,33 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
 
     // ── Element tracking (shared) ──
 
+    /// <summary>
+    /// Opens a counted scope for a container whose element count the wire header just
+    /// supplied. The enclosing scope's remaining count is flushed into its stack slot
+    /// first -- once per container, not once per token -- and is read back when this one
+    /// pops.
+    /// </summary>
     private void PushLevel(bool isMap, int count)
     {
         if (_depth >= MaxDepth)
             throw new FormatException($"Maximum depth of {MaxDepth} exceeded");
+        if (_depth > 0)
+            _elementStack[_depth - 1] = _topRemaining;
         _isMapStack[_depth] = isMap;
-        _expectKeyStack[_depth] = isMap;
-        _elementStack[_depth] = count;
         _depth++;
+        _topRemaining = count;
+        _topIsMap = isMap;
     }
 
+    /// <summary>
+    /// Spends one element of the counted scope -- the entire per-token cost of element
+    /// accounting. The map key/value flip it used to perform is gone: the parity of
+    /// <see cref="_topRemaining"/> answers "is a key due" (see <see cref="ReadStringSpan"/>).
+    /// </summary>
     private void CountElement()
     {
-        if (_depth > 0 && _elementStack[_depth - 1] > 0)
-        {
-            _elementStack[_depth - 1]--;
-            if (_isMapStack[_depth - 1])
-                _expectKeyStack[_depth - 1] = !_expectKeyStack[_depth - 1];
-        }
+        if (_topRemaining > 0)
+            _topRemaining--;
     }
 
     // ── Read ──
@@ -387,11 +425,26 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
         // types, _valueSpan contents, _tag, _depth accounting, BytesConsumed
         // and every exception (type, order and message) are unchanged.
         _needsMoreData = false;
-        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+        // The counted scope is exhausted: this read owes the end token of the level it
+        // was opened for (a container with zero elements never enters an element read,
+        // so it lands here too). The end-token kind comes from the scope itself, and the
+        // enclosing scope's counter is read back from the stack slot it was flushed into
+        // when this one was pushed.
+        if (_depth > 0 && _topRemaining == 0)
         {
+            _tokenType = _topIsMap ? TokenType.ObjectEnd : TokenType.ArrayEnd;
             _depth--;
-            _tokenType = _isMapStack[_depth] ? TokenType.ObjectEnd : TokenType.ArrayEnd;
             _intKind = 0;
+            if (_depth > 0)
+            {
+                _topRemaining = _elementStack[_depth - 1];
+                _topIsMap = _isMapStack[_depth - 1];
+            }
+            else
+            {
+                _topRemaining = 0;
+                _topIsMap = false;
+            }
             // Span mode: once the root container closes, any remaining byte
             // is trailing garbage (review P2-4). Sequence mode keeps the
             // streaming semantics untouched.
@@ -657,11 +710,26 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
     private bool ReadSequential()
     {
         _needsMoreData = false;
-        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+        // The counted scope is exhausted: this read owes the end token of the level it
+        // was opened for (a container with zero elements never enters an element read,
+        // so it lands here too). The end-token kind comes from the scope itself, and the
+        // enclosing scope's counter is read back from the stack slot it was flushed into
+        // when this one was pushed.
+        if (_depth > 0 && _topRemaining == 0)
         {
+            _tokenType = _topIsMap ? TokenType.ObjectEnd : TokenType.ArrayEnd;
             _depth--;
-            _tokenType = _isMapStack[_depth] ? TokenType.ObjectEnd : TokenType.ArrayEnd;
             _intKind = 0;
+            if (_depth > 0)
+            {
+                _topRemaining = _elementStack[_depth - 1];
+                _topIsMap = _isMapStack[_depth - 1];
+            }
+            else
+            {
+                _topRemaining = 0;
+                _topIsMap = false;
+            }
             // Span mode: once the root container closes, any remaining byte
             // is trailing garbage (review P2-4). Sequence mode keeps the
             // streaming semantics untouched.
@@ -964,7 +1032,11 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
     private bool ReadStringSpan(int len)
     {
         _valueSpan = ReadBytesSpan(len);
-        if (_depth > 0 && _isMapStack[_depth - 1] && _expectKeyStack[_depth - 1])
+        // "A key is due" is read off the counted scope instead of a flipped stack slot:
+        // a map level counts remaining key+value tokens, so a key is due exactly when
+        // that count is even (it starts at 2n and drops by one per token). Checked before
+        // CountElement(), i.e. against the count that still includes this token.
+        if (_depth > 0 && _topIsMap && (_topRemaining & 1) == 0)
             _tokenType = TokenType.PropertyName;
         else
             _tokenType = TokenType.String;
@@ -975,7 +1047,8 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
     private bool ReadString(int len)
     {
         _valueSpan = ReadBytes(len);
-        if (_depth > 0 && _isMapStack[_depth - 1] && _expectKeyStack[_depth - 1])
+        // See ReadStringSpan: parity of the counted scope, not a key/value flip.
+        if (_depth > 0 && _topIsMap && (_topRemaining & 1) == 0)
             _tokenType = TokenType.PropertyName;
         else
             _tokenType = TokenType.String;
@@ -1189,9 +1262,9 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
             return false;
         }
 
-        var level = _depth - 1;
-        var remaining = _elementStack[level];
-        count = _isMapStack[level] ? remaining / 2 : remaining;
+        // The innermost level's counter is the live counted scope (see _topRemaining); a
+        // stack slot would be stale until the level is buried under a nested container.
+        count = _topIsMap ? _topRemaining / 2 : _topRemaining;
         return true;
     }
 
@@ -1229,7 +1302,7 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
 
         // The end token the level stack owes: the container-close path (and its trailing-garbage
         // check) is never a value read, so it goes through the reference implementation verbatim.
-        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+        if (_depth > 0 && _topRemaining == 0)
             return TokenReaderFused.TryReadInt32(ref this, out value);
 
         // Both lines below are ReadSpan()'s prologue, in its order and with its result: a span-mode
@@ -1438,7 +1511,7 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
 
         // The end token the level stack owes: the container-close path (and its trailing-garbage
         // check) is never a value read, so it goes through the reference implementation verbatim.
-        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+        if (_depth > 0 && _topRemaining == 0)
             return TokenReaderFused.TryReadInt64(ref this, out value);
 
         // Both lines below are ReadSpan()'s prologue, in its order and with its result.
@@ -1606,7 +1679,7 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
         if (_isSequence)
             return TokenReaderFused.TryReadFloat64(ref this, out value);
 
-        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+        if (_depth > 0 && _topRemaining == 0)
             return TokenReaderFused.TryReadFloat64(ref this, out value);
 
         if (_position >= _data.Length)
@@ -1671,7 +1744,7 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
         if (_isSequence)
             return TokenReaderFused.TryReadBool(ref this, out value);
 
-        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+        if (_depth > 0 && _topRemaining == 0)
             return TokenReaderFused.TryReadBool(ref this, out value);
 
         if (_position >= _data.Length)
