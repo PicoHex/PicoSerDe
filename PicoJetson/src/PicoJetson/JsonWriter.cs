@@ -306,7 +306,28 @@ public ref struct JsonWriter
 
     private void WriteQuotedString(scoped ReadOnlySpan<byte> utf8Value)
     {
-        WriteByte((byte)'"');
+        // The escape work runs BEFORE the opening quote reaches the write cursor: the
+        // scan is a pure read of the payload, and keeping the writer's span cursor live
+        // across it costs ~0.4 ns/byte in JIT codegen (see
+        // .superpowers/sdd/perf-json-strscan/report.md). The output is unchanged — the
+        // quote is still written ahead of the payload, it is just not held open while
+        // deciding what to escape.
+        //
+        // The common case is a payload that needs no escaping at all, and above one vector
+        // that question is answered by one vectorized pass instead of a per-byte loop that
+        // has to count to prove the same thing. Short payloads keep the scalar loop below
+        // verbatim: below 16 bytes the vectorized scan only runs its own scalar tail, and the
+        // call would be pure overhead (measured in .superpowers/sdd/perf-json-strscan/
+        // report.md). The escaping path is byte-for-byte the scalar implementation it always
+        // was.
+        if (utf8Value.Length >= Vector128Size && !NeedsEscapingVectorized(utf8Value))
+        {
+            WriteByte((byte)'"');
+            WriteRaw(utf8Value);
+            WriteByte((byte)'"');
+            return;
+        }
+
         int escapeCount = 0;
         foreach (var b in utf8Value)
         {
@@ -314,6 +335,7 @@ public ref struct JsonWriter
                 escapeCount++;
         }
 
+        WriteByte((byte)'"');
         if (escapeCount == 0)
         {
             WriteRaw(utf8Value);
@@ -371,6 +393,25 @@ public ref struct JsonWriter
         WriteByte((byte)'"');
     }
 
+    /// <summary>
+    /// True when a payload of at least one vector contains a byte JSON must escape:
+    /// <c>"</c>, <c>\</c>, or a control byte below <c>0x20</c>. Those are exactly the three
+    /// conditions the escaping loop responds to and exactly the three the reader stops on, so
+    /// both sides of the wire agree on what "needs escaping" means.
+    /// </summary>
+    /// <remarks>
+    /// The scan is <see cref="JsonReader.IndexOfQuoteEscapeOrControl"/>, the vectorized
+    /// 64/32/16-byte helper added for the read path (P0-3): one SIMD implementation, one set
+    /// of edges. Callers gate it on <see cref="Vector128Size"/> because below that width it
+    /// would only run its own scalar tail through a call.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool NeedsEscapingVectorized(scoped ReadOnlySpan<byte> value) =>
+        JsonReader.IndexOfQuoteEscapeOrControl(value) >= 0;
+
+    /// <summary>One <see cref="System.Runtime.Intrinsics.Vector128{T}"/> of bytes.</summary>
+    private const int Vector128Size = 16;
+
     private static void HexToBytes(byte b, Span<byte> dest)
     {
         dest[0] = ToHex((b >> 4) & 0xF);
@@ -388,61 +429,73 @@ public ref struct JsonWriter
             Span<byte> buf = stackalloc byte[max];
             int w = Encoding.UTF8.GetBytes(value, buf);
             var slice = buf[..w];
-            WriteByte((byte)'"');
-            int escapeCount = 0;
-            foreach (var b in slice)
-                if (b is (byte)'"' or (byte)'\\' or < 0x20)
-                    escapeCount++;
-            if (escapeCount == 0)
+            // Same fast path as the byte overload, inlined here rather than shared: a short
+            // payload must not pay a call to be told it needs no escaping, and for a payload
+            // of a vector or more the shared scan answers it once.
+            if (w >= Vector128Size && !NeedsEscapingVectorized(slice))
             {
+                WriteByte((byte)'"');
                 WriteRaw(slice);
+                WriteByte((byte)'"');
             }
             else
             {
-                var escaped = new byte[w + escapeCount * 5];
-                int di = 0;
+                int escapeCount = 0;
                 foreach (var b in slice)
+                    if (b is (byte)'"' or (byte)'\\' or < 0x20)
+                        escapeCount++;
+                WriteByte((byte)'"');
+                if (escapeCount == 0)
                 {
-                    switch (b)
-                    {
-                        case (byte)'"':
-                            escaped[di++] = (byte)'\\';
-                            escaped[di++] = (byte)'"';
-                            break;
-                        case (byte)'\\':
-                            escaped[di++] = (byte)'\\';
-                            escaped[di++] = (byte)'\\';
-                            break;
-                        case (byte)'\n':
-                            escaped[di++] = (byte)'\\';
-                            escaped[di++] = (byte)'n';
-                            break;
-                        case (byte)'\r':
-                            escaped[di++] = (byte)'\\';
-                            escaped[di++] = (byte)'r';
-                            break;
-                        case (byte)'\t':
-                            escaped[di++] = (byte)'\\';
-                            escaped[di++] = (byte)'t';
-                            break;
-                        default:
-                            if (b < 0x20)
-                            {
-                                escaped[di++] = (byte)'\\';
-                                escaped[di++] = (byte)'u';
-                                escaped[di++] = (byte)'0';
-                                escaped[di++] = (byte)'0';
-                                HexToBytes(b, escaped.AsSpan(di));
-                                di += 2;
-                            }
-                            else
-                                escaped[di++] = b;
-                            break;
-                    }
+                    WriteRaw(slice);
                 }
-                WriteRaw(escaped.AsSpan(0, di));
+                else
+                {
+                    var escaped = new byte[w + escapeCount * 5];
+                    int di = 0;
+                    foreach (var b in slice)
+                    {
+                        switch (b)
+                        {
+                            case (byte)'"':
+                                escaped[di++] = (byte)'\\';
+                                escaped[di++] = (byte)'"';
+                                break;
+                            case (byte)'\\':
+                                escaped[di++] = (byte)'\\';
+                                escaped[di++] = (byte)'\\';
+                                break;
+                            case (byte)'\n':
+                                escaped[di++] = (byte)'\\';
+                                escaped[di++] = (byte)'n';
+                                break;
+                            case (byte)'\r':
+                                escaped[di++] = (byte)'\\';
+                                escaped[di++] = (byte)'r';
+                                break;
+                            case (byte)'\t':
+                                escaped[di++] = (byte)'\\';
+                                escaped[di++] = (byte)'t';
+                                break;
+                            default:
+                                if (b < 0x20)
+                                {
+                                    escaped[di++] = (byte)'\\';
+                                    escaped[di++] = (byte)'u';
+                                    escaped[di++] = (byte)'0';
+                                    escaped[di++] = (byte)'0';
+                                    HexToBytes(b, escaped.AsSpan(di));
+                                    di += 2;
+                                }
+                                else
+                                    escaped[di++] = b;
+                                break;
+                        }
+                    }
+                    WriteRaw(escaped.AsSpan(0, di));
+                }
+                WriteByte((byte)'"');
             }
-            WriteByte((byte)'"');
         }
         else
         {
