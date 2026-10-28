@@ -756,15 +756,99 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     }
 
     /// <summary>
-    /// Task T1b forwards this to the reference semantics (<see cref="TokenReaderFused"/>): the exact
-    /// <c>Read() &amp;&amp; TryGetX(out value)</c> combination of spec §3.2.1, written once so it cannot drift
-    /// per format. Not <c>readonly</c> — inside a <c>readonly</c> member <c>this</c> is a read-only variable and
-    /// <c>ref this</c> is <c>CS1605</c> (spec §3.1 last paragraph).
+    /// Advances one token and decodes it as an <see cref="int"/>: equivalent to
+    /// <c>Read() &amp;&amp; TryGetInt32(out value)</c> (spec §3.2), with the span-mode integer arm <b>fused</b> into
+    /// a single pass (T14; spec §3.3 marks <see cref="TryReadInt32"/> as JSON's only override).
     /// <para>
-    /// JSON optimization is task T14's: spec §3.3 marks only <see cref="TryReadInt32"/> for an override.
+    /// <b>What the fusion removes.</b> An int token costs the reference two dispatches over the same bytes:
+    /// <see cref="Read"/> classifies the number by re-parsing it up to three times inside
+    /// <see cref="ReadNumberSpan"/> (int → long → ulong via <c>Utf8Parser</c>), and then
+    /// <see cref="TryGetInt32"/> dispatches on <see cref="TokenType"/> and parses that same span once more.
+    /// <see cref="TryReadInt32Span"/> classifies <b>and</b> decodes in one accumulation pass, then writes the
+    /// state <see cref="Read"/> would have written — fusion ≠ skipping materialisation (spec §3.2.3), so
+    /// <c>_tokenType</c>, <c>_valueSpan</c> and <c>_tokenValueStart/End</c> are all set.
+    /// </para>
+    /// <para>
+    /// <b>Everything else is the reference</b> (spec §3.3's <c>default:</c> rule): the sequence path
+    /// (spec §2.2 N4), non-number tokens, floats, numbers outside int32, leading zeros, comments, chunk
+    /// boundaries and every failure path. On those inputs this member and the reference are literally the same
+    /// code, so §5's dual walk only has to prove the success branch. Not <c>readonly</c>: inside a
+    /// <c>readonly</c> member <c>this</c> is a read-only variable and <c>ref this</c> is <c>CS1605</c>
+    /// (spec §3.1 last paragraph).
     /// </para>
     /// </summary>
-    public bool TryReadInt32(out int value) => TokenReaderFused.TryReadInt32(ref this, out value);
+    public bool TryReadInt32(out int value)
+    {
+        if (!_isSequence && TryReadInt32Span(out value))
+            return true;
+
+        return TokenReaderFused.TryReadInt32(ref this, out value);
+    }
+
+    /// <summary>
+    /// The fused half of <see cref="TryReadInt32"/>: one accumulation pass that both decodes the value and
+    /// commits the token <see cref="Read"/> would have produced.
+    /// <para>
+    /// <b>It declines rather than guesses.</b> The cursor is a local and every field is written only in the
+    /// commit block at the end, so a <see langword="false"/> here leaves the reader <b>byte-for-byte
+    /// untouched</b> and the caller re-runs the reference on it. That is what keeps the failure half of the
+    /// contract the reference's own, because the cases below differ in <i>token</i>, not just in value: a
+    /// number outside int32 becomes a <see cref="TokenType.Int64"/> token and answers false (spec §5.3
+    /// "overflow" — never truncate), a leading zero throws, a float becomes a
+    /// <see cref="TokenType.Float64"/> token and answers false, and a chunk boundary sets
+    /// <c>NeedsMoreData</c>.
+    /// </para>
+    /// </summary>
+    private bool TryReadInt32Span(out int value)
+    {
+        value = 0;
+        // Read() is sticky once a chunk boundary was hit; re-deriving that here would be a second copy of
+        // the rule (_incomplete ⇒ NeedsMoreData + false), so this arm simply does not serve that state.
+        if (_incomplete)
+            return false;
+
+        var data = _data;
+        int pos = SimdHelpers.SkipWhitespace(data, _position);
+        if (pos < data.Length && data[pos] == (byte)',')
+        {
+            // The comma rules (leading comma, comma at the buffer end, comma before a closing bracket) can
+            // throw or emit an end token; either way they are the reference's business.
+            if (
+                !IsResumed
+                && _tokenType is TokenType.None or TokenType.ObjectStart or TokenType.ArrayStart
+            )
+                return false;
+            pos = SimdHelpers.SkipWhitespace(data, pos + 1);
+            if (pos >= data.Length || data[pos] is (byte)'}' or (byte)']')
+                return false;
+        }
+        if (pos >= data.Length)
+            return false; // end of buffer: Read() owns the NeedsMoreData decision
+
+        // The same scan TryReadNextInt32Span uses — one implementation of the sign rule and of the
+        // "-2147483648 is legal" boundary, so the two int arms cannot drift apart the way F-1 did (T13).
+        if (!TryAccumulateInt32(data, pos, out var end, out var decoded))
+            return false;
+
+        int firstDigit = data[pos] == (byte)'-' ? pos + 1 : pos;
+        if (end - firstDigit > 1 && data[firstDigit] == (byte)'0')
+            return false; // leading zeros: ReadNumberSpan throws
+        if (end < data.Length && data[end] is (byte)'.' or (byte)'e' or (byte)'E')
+            return false; // a float literal: Float64 token, and TryGetInt32 answers false on it
+
+        // ── Commit: exactly the state Read() + ReadNumberSpan() leave behind for an int32 token ──
+        _tokenStart = BytesConsumed; // Read(): recorded before anything moves (_position in span mode)
+        _needsMoreData = false; // ReadCore()'s first line
+        Rewound = false; // ReadCore()'s second line
+        _tokenType = TokenType.Int32;
+        _valueSpan = data[pos..end];
+        _tokenValueStart = pos;
+        _tokenValueEnd = end;
+        _position = end;
+        _tokenProduced = true; // Read(): a token was produced
+        value = decoded;
+        return true;
+    }
 
     /// <summary>See <see cref="TryReadInt32"/>; identical contract for <see cref="long"/>.</summary>
     public bool TryReadInt64(out long value) => TokenReaderFused.TryReadInt64(ref this, out value);
@@ -794,31 +878,66 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             return false;
         }
 
+        // One shared integer scan (T14): the fused read decodes ints through the same accumulation, so the
+        // sign handling and the int32 boundary exist once. On overflow the cursor stays on the digit that
+        // broke the bound, which is where the inlined loop here has always stopped.
+        bool ok = TryAccumulateInt32(_data, _position, out var stop, out v);
+        _position = stop;
+        if (!ok)
+            v = 0;
+        return ok;
+    }
+
+    /// <summary>
+    /// Scans a JSON integer literal at <paramref name="start"/> — an optional <c>-</c> then digits — and
+    /// accumulates it, giving up the moment the magnitude leaves int32 range.
+    /// <para>
+    /// <b>One pass, one place.</b> <see cref="TryReadNextInt32Span"/> and the fused
+    /// <see cref="TryReadInt32"/> both decode integers through here, so the sign rule and the
+    /// <c>-2147483648</c>-is-legal boundary cannot drift between the two arms. Only the scan runs here:
+    /// nothing is committed to the reader, no token is materialised, and nothing is thrown — the
+    /// leading-zero and float-suffix rules stay with the callers, which differ on purpose (the "next"
+    /// path is deliberately lenient, the fused read has to match <see cref="ReadNumberSpan"/>).
+    /// </para>
+    /// <para>
+    /// <paramref name="stop"/> is where the scan ended: the exclusive end of the literal on success, and on
+    /// overflow the position just past the digit that broke the bound.
+    /// </para>
+    /// </summary>
+    private static bool TryAccumulateInt32(
+        ReadOnlySpan<byte> data,
+        int start,
+        out int stop,
+        out int value
+    )
+    {
+        int pos = start;
         bool neg = false;
-        if (_data[_position] == (byte)'-')
+        if (pos < data.Length && data[pos] == (byte)'-')
         {
             neg = true;
-            _position++;
+            pos++;
         }
-        if (_position >= len || !IsDigit(_data[_position]))
-        {
-            v = 0;
-            return false;
-        }
-
-        // Overflow-checked accumulation: bail on values outside int range
-        // instead of silently wrapping.
+        int firstDigit = pos;
+        // Overflow-checked accumulation: bail on values outside int range instead of silently wrapping.
         long result = 0;
-        do
+        while (pos < data.Length && IsDigit(data[pos]))
         {
-            result = result * 10 + (_data[_position] - (byte)'0');
-            _position++;
+            result = result * 10 + (data[pos] - (byte)'0');
+            pos++;
             if (result <= int.MaxValue || (neg && result == (long)int.MaxValue + 1))
                 continue;
-            v = 0;
+            stop = pos;
+            value = 0;
             return false;
-        } while (_position < len && IsDigit(_data[_position]));
-        v = neg ? (int)-result : (int)result;
+        }
+        stop = pos;
+        if (pos == firstDigit)
+        {
+            value = 0;
+            return false;
+        }
+        value = neg ? (int)-result : (int)result;
         return true;
     }
 
