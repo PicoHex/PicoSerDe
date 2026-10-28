@@ -62,16 +62,30 @@ Measured **2026-10-28** (08:41–09:00 local) on one machine (AMD Ryzen 7 6800H,
 µs/op over **5 independent runs × ≥100k iterations each**, and every figure below is the **median of
 three rounds**. A row's ratio is `ours ÷ theirs`, computed from those two medians. AOT and JIT are
 separate processes and are never merged into one figure, one column or one ratio. The desktop was
-shared, not an idle lab box: over the session the load criteria refused **32** arm measurements, and
-9 of the 30 processes exited `1` under `PICOBENCH_STRICT=1`. Every arm a round refused was either
-already covered by three published rounds or re-measured in a supplementary round, so **no figure in
-the results table below rests on a refused arm** — and none of its rows was carried over from the
-earlier 2026-10-27 session.
+shared, not an idle lab box: over the 08:41–09:00 session the load criteria refused **32** arm
+measurements, and 9 of the 30 processes exited `1` under `PICOBENCH_STRICT=1`. Every arm a round
+refused was either already covered by three published rounds or re-measured in a supplementary round,
+so **no figure in the results table below rests on a refused arm** — and none of its rows was carried
+over from the earlier 2026-10-27 session.
+
+The **MessagePack row was re-measured after 4e** — the read-side span fast path (`d45edca` +
+`d9334ed`, merged as `340d351`) — because that change landed after the 08:41–09:00 session: eight JIT
+rounds and seven AOT rounds, one process per arm, taken 11:05–11:42 local at `18d6167` under this same
+protocol and the same 35% gate. Those supplementary rounds refused 42 arm measurements and 9 of their
+15 processes exited `1`; a round that refused more than 30% of its arms is void and feeds nothing, and
+each row still quotes the median of three rounds that published **both** of its arms — JIT
+`r1`/`r3`/`r4`, plus `r8` for the three rows `r1` had refused; AOT `r2`/`r3`/`r4` — and where a fourth
+round also qualified it is reported as a cross-check rather than swapped in, so no row's figure was
+re-picked after the fact. The last JIT round refused exactly one arm (`Simple — Serialize`, our side:
+its five runs spread 3.13×, against the 3.0× limit) and that row was already covered by three
+published rounds, so the refusal cost nothing. The MessagePack row's two columns therefore come from
+the same window as each other, and from a later window than the other four rows, which is why it has
+to be read with 4e in mind.
 
 | Format | Opponent | AOT vs AOT | JIT vs JIT | In one line |
 |---|---|---|---|---|
 | JSON | System.Text.Json | slower in **9 of 12** — **0.76×–3.56×**, median **1.43×** | slower in **10 of 12** — **0.98×–4.72×**, median **1.53×** | Slower in both modes; the rows on our side are 0.96×/0.91×/0.76× (AOT) and 0.99×/0.98× (JIT), all but the 0.76× inside the ±10% band. |
-| MessagePack | MessagePack-CSharp | split **2–2** — **0.56×–1.51×**, median **0.86×** | ahead in **5 of 8**, behind in **3 of 8** — **0.47×–1.95×**, median **0.96×** | Parity under JIT (the median is inside the band); still behind on the deserialize and collection rows. |
+| MessagePack | MessagePack-CSharp | split **3–1**, and the 0.99× in that 3 is inside the band — **0.60×–1.13×**, median **0.80×** | split **4–4** — **0.48×–1.96×**, median **0.95×** | Parity under JIT (the median is inside the band); under AOT the read side is level (`Person — Deserialize` 0.99×) and only `Metrics — Deserialize` (1.13×) is still behind. |
 | TOML | Tomlyn 2.10.1 | faster in **10 of 10** — **0.10×–0.40×**, median **0.19×** (between **2.5× and 10×** faster) | faster in **10 of 10** — **0.08×–0.42×**, median **0.20×** (between **2.4× and 12.5×** faster) | We are faster in both modes, against an opponent doing the same job in both. |
 | YAML | YamlDotNet 18.1.0 | — no AOT opponent exists | faster in **6 of 6** — **0.02×–0.06×**, median **0.04×** (**17×–50×** faster) | We are faster on CoreCLR, and only there. |
 | INI | ini-parser 2.5.3 | — no equivalent operation | — no equivalent operation | No ratio exists to divide by; absolute cost only, on a `NON-EQUIVALENT` table. |
@@ -79,12 +93,24 @@ earlier 2026-10-27 session.
 **In words.** JSON is where we are behind: slower than System.Text.Json in **9 of 12** scenarios
 under AOT and **10 of 12** under JIT, by as much as **3.56×** and **4.72×**, and 17 of those 19 losses
 are outside the ±10% band, so this is a direction and not noise. MessagePack is no longer a uniform
-loss. Under JIT we are ahead in 5 of 8 rows and behind in 3, but the median is **0.96×** — inside the
-±10% band, so that is **parity, not a win**, and it has to be read that way. Clearly ahead are the
-small shapes (`Nested — Serialize` 0.47×, `Simple — Serialize` 0.78×); clearly behind are
-`Collection — Deserialize` 1.95×, `Complex — Deserialize` 1.32× and `Collection — Serialize` 1.18×.
-Under AOT the four rows split 2–2: `Person` 0.58× and `Metrics` 0.56× on the write side, `Person`
-1.14× and `Metrics` 1.51× on the read side.
+loss. Under JIT the eight rows split 4–4, and the median is **0.95×** — inside the ±10% band, so that
+is **parity, not a win**, and it has to be read that way. Clearly ahead are the small shapes
+(`Nested — Serialize` 0.48×, `Simple — Serialize` 0.71×); clearly behind are `Collection — Deserialize`
+1.96×, `Complex — Deserialize` 1.20× and `Collection — Serialize` 1.13×, with `Complex — Serialize` at
+1.00× a dead heat. No JIT row moved by more than 10% in the re-measurement — including the read-side
+row 4e touched (`Complex — Deserialize` 1.32× → 1.20×, −9.4%, inside the band, so reported and not
+claimed). Under AOT the four rows split 3–1: `Person` 0.61× and `Metrics` 0.60× on the write side,
+`Person` 0.99× and `Metrics` 1.13× on the read side. That is 4e visible where it was aimed: the AOT
+read side went `Metrics — Deserialize` 1.51× → 1.13× and `Person — Deserialize` 1.14× → 0.99×, so
+only `Metrics — Deserialize` is still slower, by 13% — and `Person — Deserialize` at 0.99× is
+dead level, not a win.
+
+> `Person — Deserialize`'s three counted AOT rounds (`r2`/`r3`/`r4`) read 0.96 / 0.97 / 0.99 —
+> 0.128/0.134, 0.135/0.139, 0.134/0.136 µs. A fourth, supplementary round (`r7`) put the same row at
+> **0.78×**, because its competitor arm ran at 0.160 µs against 0.134 / 0.139 / 0.136 µs in the three
+> that count — a loose competitor reading, not a faster one of ours. The outlier is left standing in
+> the record rather than averaged in or deleted: the published figure stays the three-round **0.99×**,
+> and it is **parity, not a win**, for the separate reason that it sits inside the ±10% band.
 
 PicoSerDe is faster than Tomlyn 2.10.1 under JIT **and** under NativeAOT — the one format where the
 opponent does the same job (one library call, same POCO in and out) in both modes, and here both modes
@@ -182,20 +208,28 @@ as by the change itself (e.g. `LargeString 1KB — Deserialize` measured 0.261 �
 | **MessagePack: the writer owns a span** instead of calling `GetSpan`/`Advance` per token (`56d86e5`) | JIT `Collection — Serialize` | 0.474 µs — **2.06×** | 0.300 µs — **1.28×** (−37%) | `.superpowers/sdd/perf-mp-span/report.md` §5.2 |
 | **MessagePack: strings encoded straight into that span**, no `byte[]` per key (`0a45e16`) | 15-string model, allocation per serialize | **600 B/op** (15 × a 40-byte array) | **0 B/op**; CPU **0.687×** (median of three paired runs) | `.superpowers/sdd/perf-mp-str/report.md` §4.1, §5.1 |
 | **MessagePack: `DateTime` written as the spec's timestamp extension** (`d4da7cc`) | JIT `Metrics — Deserialize` | 0.518 µs — **4.16×**; payload **53 B** | 0.156 µs — **1.30×**; payload **30 B** | `.superpowers/sdd/perf-mp-ts/report.md` §5 |
+| **MessagePack: the read side gets a span fast path** — span-mode payloads tokenized without the sequence state machine, pinned by a derivation check re-run on every test run (`d45edca`, `d9334ed`; merged `340d351`) | AOT `Metrics — Deserialize`; AOT `Person — Deserialize` | 0.206 µs — **1.51×**; **1.14×** (no µs published) | 0.169 µs — **1.13×** (−25%); 0.134 µs — **0.99×** (−14%) | `.superpowers/sdd/mp-remeasure/logs/round{2,3,4}-msgpack-aot.txt` |
 
 The three MessagePack pairs were taken with `PICOBENCH_MAX_OTHER_CPU=100`: only the system-wide CPU
 gate was relaxed, while the drift, spread and dispersion criteria stayed in force — each of those
 reports says so in its own measurement section. The JSON pairs ran under the default 35% gate. Each
 pair is one sitting, so it is evidence of direction and rough magnitude; the table above is what this
-page stands behind. The `.superpowers/` report paths are session-local and gitignored, exactly like
+page stands behind. **The 4e row is the one exception**: it is not an A/B sitting but the 08:41–09:00
+session's published figures against the re-measured three rounds at `18d6167`, so its before/after
+carries cross-session drift on top of the change. The same change's JIT read-side row
+(`Complex — Deserialize`) moved 1.32× → 1.20× — −9.4%, inside the ±10% band — and is therefore not
+claimed as a gain. The `.superpowers/` report paths are session-local and gitignored, exactly like
 the raw benchmark logs; the commit hashes in the first column are the durable, checkable artefact.
 
 This session's tables carry the check. The rows those changes touched now read: JSON JIT
 `LargeFlat 50-fields — Deserialize` **2.701 µs / 1.40×**, `LargeFlat 50-fields — Serialize`
 **1.628 µs / 1.79×**, `LargeString 1KB — Deserialize` **0.329 µs / 0.98×**; MessagePack JIT
-`Collection — Serialize` **0.224 µs / 1.18×**, `Complex — Serialize` **0.166 µs / 0.95×**,
-`Nested — Serialize` **0.100 µs / 0.47×**; MessagePack AOT `Metrics — Deserialize`
-**0.206 µs / 1.51×** and `Metrics — Serialize` **0.062 µs / 0.56×**.
+`Collection — Serialize` **0.276 µs / 1.13×**, `Complex — Serialize` **0.197 µs / 1.00×**,
+`Nested — Serialize` **0.119 µs / 0.48×**; MessagePack AOT `Metrics — Deserialize`
+**0.169 µs / 1.13×**, `Metrics — Serialize` **0.076 µs / 0.60×** and `Person — Deserialize`
+**0.134 µs / 0.99×**. The MessagePack figures there are the re-measured ones (`d45edca` + `d9334ed`,
+merged `340d351`); the JSON ones are unchanged, because no JSON change landed after the 08:41
+session.
 
 ---
 
