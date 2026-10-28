@@ -1397,15 +1397,313 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
         return false;
     }
 
-    /// <summary>See <see cref="TryReadInt32"/> — forwarded to the reference semantics until T7.</summary>
-    public bool TryReadInt64(out long value) => TokenReaderFused.TryReadInt64(ref this, out value);
+    /// <summary>
+    /// See <see cref="Narrow(ulong, out int)"/> — the same range check for the <see cref="long"/> accessor:
+    /// only <c>uint64</c> above <see cref="long.MaxValue"/> is refused.
+    /// </summary>
+    private static bool Narrow(ulong wide, out long value)
+    {
+        if (wide <= long.MaxValue)
+        {
+            value = (long)wide;
+            return true;
+        }
+        value = 0;
+        return false;
+    }
 
-    /// <summary>See <see cref="TryReadInt32"/> — forwarded to the reference semantics until T8.</summary>
-    public bool TryReadFloat64(out double value) =>
-        TokenReaderFused.TryReadFloat64(ref this, out value);
+    /// <summary>
+    /// Advances one token and reads it as a <see cref="long"/> — <c>Read() &amp;&amp; TryGetInt64()</c> in one
+    /// dispatch (task T7, spec §3.3 MessagePack row, on the <c>switch</c> skeleton T6 established).
+    /// <para>
+    /// <b>Where the fast path is allowed to differ.</b> Only the <i>success</i> branch forks, exactly as in
+    /// <see cref="TryReadInt32"/>: streaming, the end-token path and every tag byte that is not an
+    /// integer family member forward to <see cref="TokenReaderFused.TryReadInt64{T}"/>, i.e. to the literal
+    /// <c>Read() &amp;&amp; TryGetInt64()</c> combination.
+    /// </para>
+    /// <para>
+    /// <b>Range.</b> Every MessagePack integer encoding fits <see cref="long"/> except <c>uint64</c> above
+    /// <see cref="long.MaxValue"/>; that token is consumed and materialised first, then refused with
+    /// <paramref name="value"/> = 0 — the answer <c>Read() &amp;&amp; TryGetInt64()</c> gives (it consumes the
+    /// token too, and <see cref="CacheUInt64"/> keeps <c>_intKind</c> = 2 for it so both accessors refuse
+    /// it), never a wrapped negative value.
+    /// </para>
+    /// <para>Not <c>readonly</c>: <c>ref this</c> in a readonly member is <c>CS1605</c>.</para>
+    /// </summary>
+    public bool TryReadInt64(out long value)
+    {
+        // Streaming keeps its own state machine untouched (spec §2.2 N4): the fused path is span-only.
+        if (_isSequence)
+            return TokenReaderFused.TryReadInt64(ref this, out value);
 
-    /// <summary>See <see cref="TryReadInt32"/> — forwarded to the reference semantics until T8.</summary>
-    public bool TryReadBool(out bool value) => TokenReaderFused.TryReadBool(ref this, out value);
+        // The end token the level stack owes: the container-close path (and its trailing-garbage
+        // check) is never a value read, so it goes through the reference implementation verbatim.
+        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+            return TokenReaderFused.TryReadInt64(ref this, out value);
+
+        // Both lines below are ReadSpan()'s prologue, in its order and with its result.
+        if (_position >= _data.Length)
+        {
+            _needsMoreData = !_isFinalBlock;
+            value = 0;
+            return false;
+        }
+
+        _needsMoreData = false;
+        // ReadSpan() resets the integer cache before its switch, so a payload that throws
+        // half-way through a token leaves the same field state on both paths.
+        _intKind = 0;
+        var b = _data[_position];
+        switch (b)
+        {
+            // Positive fixint 0x00-0x7F
+            case <= 0x7F:
+                _position++;
+                _singleByte = b;
+                _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
+                _tokenType = TokenType.Int32;
+                _intValue = b;
+                _intKind = 1;
+                CountElement();
+                value = b;
+                return true;
+            // Negative fixint 0xE0-0xFF
+            case >= 0xE0:
+                _position++;
+                _singleByte = b;
+                _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
+                _tokenType = TokenType.Int32;
+                _intValue = (sbyte)b;
+                _intKind = 1;
+                CountElement();
+                value = (sbyte)b;
+                return true;
+            default:
+                switch (b)
+                {
+                    case 0xCC: // uint8
+                    {
+                        _position++;
+                        _valueSpan = ReadBytesSpan(1);
+                        _tokenType = TokenType.UInt8;
+                        _intValue = _valueSpan[0];
+                        _intKind = 1;
+                        CountElement();
+                        value = _valueSpan[0];
+                        return true;
+                    }
+                    case 0xCD: // uint16
+                    {
+                        _position++;
+                        _valueSpan = ReadBytesSpan(2);
+                        _tokenType = TokenType.UInt16;
+                        var uv16 = BinaryPrimitives.ReadUInt16BigEndian(_valueSpan);
+                        _intValue = uv16;
+                        _intKind = 1;
+                        CountElement();
+                        value = uv16;
+                        return true;
+                    }
+                    case 0xCE: // uint32 — always fits, but decoded through the same path as uint64
+                    {
+                        _position++;
+                        _valueSpan = ReadBytesSpan(4);
+                        _tokenType = TokenType.UInt32;
+                        var uv32 = BinaryPrimitives.ReadUInt32BigEndian(_valueSpan);
+                        _intValue = uv32;
+                        _intKind = 1;
+                        CountElement();
+                        value = uv32;
+                        return true;
+                    }
+                    case 0xCF: // uint64 — materialised, then range-checked against long.MaxValue
+                    {
+                        _position++;
+                        _valueSpan = ReadBytesSpan(8);
+                        _tokenType = TokenType.UInt64;
+                        var uv64 = BinaryPrimitives.ReadUInt64BigEndian(_valueSpan);
+                        CacheUInt64(uv64);
+                        CountElement();
+                        return Narrow(uv64, out value);
+                    }
+                    case 0xD0: // int8
+                    {
+                        _position++;
+                        _valueSpan = ReadBytesSpan(1);
+                        _tokenType = TokenType.Int32;
+                        var iv8 = (sbyte)_valueSpan[0];
+                        _intValue = iv8;
+                        _intKind = 1;
+                        CountElement();
+                        value = iv8;
+                        return true;
+                    }
+                    case 0xD1: // int16
+                    {
+                        _position++;
+                        _valueSpan = ReadBytesSpan(2);
+                        _tokenType = TokenType.Int32;
+                        var iv16 = BinaryPrimitives.ReadInt16BigEndian(_valueSpan);
+                        _intValue = iv16;
+                        _intKind = 1;
+                        CountElement();
+                        value = iv16;
+                        return true;
+                    }
+                    case 0xD2: // int32
+                    {
+                        _position++;
+                        _valueSpan = ReadBytesSpan(4);
+                        _tokenType = TokenType.Int32;
+                        var iv32 = BinaryPrimitives.ReadInt32BigEndian(_valueSpan);
+                        _intValue = iv32;
+                        _intKind = 1;
+                        CountElement();
+                        value = iv32;
+                        return true;
+                    }
+                    case 0xD3: // int64 — every value of this encoding fits a long
+                    {
+                        _position++;
+                        _valueSpan = ReadBytesSpan(8);
+                        _tokenType = TokenType.Int64;
+                        var iv64 = BinaryPrimitives.ReadInt64BigEndian(_valueSpan);
+                        _intValue = iv64;
+                        _intKind = 1;
+                        CountElement();
+                        value = iv64;
+                        return true;
+                    }
+                    // Not an integer token: the reference implementation decides, unchanged.
+                    default:
+                        return TokenReaderFused.TryReadInt64(ref this, out value);
+                }
+        }
+    }
+
+    /// <summary>
+    /// Advances one token and reads it as a <see cref="double"/> — <c>Read() &amp;&amp; TryGetFloat64()</c> in one
+    /// dispatch (task T8, spec §3.3 MessagePack row).
+    /// <para>
+    /// <b>Which tokens succeed</b> is <see cref="TryGetFloat64"/>'s answer, not a decision made here:
+    /// <c>float32</c>/<c>float64</c> (<i>this</i> fast path), and — through the forwarded branch — the
+    /// <c>Int32</c>/<c>Int64</c> token family, which the reader has always served as an exact integer
+    /// value. Unsigned tokens (<c>uint8/16/32/64</c>) answer <see langword="false"/> and keep their token
+    /// current. Adding an integer arm here would give a second definition of that rule; the fast path
+    /// therefore only fuses the two encodings whose payload <i>is</i> a float.
+    /// </para>
+    /// <para>
+    /// <b>float32 → double is the same widening the reference performs</b>: both read the big-endian
+    /// <c>int32</c> bit pattern, call <see cref="BitConverter.Int32BitsToSingle(int)"/> and widen implicitly
+    /// (exact), so <c>NaN</c>, <c>±Inf</c> and <c>-0.0</c> keep their bit patterns on both arms. A float
+    /// token is <b>not</b> an integer: <c>_intKind</c> is reset to 0 for it, exactly as
+    /// <see cref="ReadSpan"/> does before its switch.
+    /// </para>
+    /// <para>Not <c>readonly</c>: <c>ref this</c> in a readonly member is <c>CS1605</c>.</para>
+    /// </summary>
+    public bool TryReadFloat64(out double value)
+    {
+        if (_isSequence)
+            return TokenReaderFused.TryReadFloat64(ref this, out value);
+
+        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+            return TokenReaderFused.TryReadFloat64(ref this, out value);
+
+        if (_position >= _data.Length)
+        {
+            _needsMoreData = !_isFinalBlock;
+            value = 0;
+            return false;
+        }
+
+        _needsMoreData = false;
+        // ReadSpan() resets the integer cache before its switch, so a payload that throws
+        // half-way through a token leaves the same field state on both paths.
+        _intKind = 0;
+        switch (_data[_position])
+        {
+            case 0xCA: // float32
+            {
+                _position++;
+                _valueSpan = ReadBytesSpan(4);
+                _tokenType = TokenType.Float32;
+                CountElement();
+                value = BitConverter.Int32BitsToSingle(
+                    BinaryPrimitives.ReadInt32BigEndian(_valueSpan)
+                );
+                return true;
+            }
+            case 0xCB: // float64
+            {
+                _position++;
+                _valueSpan = ReadBytesSpan(8);
+                _tokenType = TokenType.Float64;
+                CountElement();
+                value = BitConverter.Int64BitsToDouble(
+                    BinaryPrimitives.ReadInt64BigEndian(_valueSpan)
+                );
+                return true;
+            }
+            // Not a float token — including the integer family, whose answer the reference owns.
+            default:
+                return TokenReaderFused.TryReadFloat64(ref this, out value);
+        }
+    }
+
+    /// <summary>
+    /// Advances one token and reads it as a <see cref="bool"/> — <c>Read() &amp;&amp; TryGetBool()</c> in one
+    /// dispatch (task T8, spec §3.3 MessagePack row).
+    /// <para>
+    /// <b>Only the two bool encodings succeed</b> (<c>0xC3</c> = true, <c>0xC2</c> = false), which is
+    /// exactly <see cref="TryGetBool"/>'s rule (<c>TokenType.Bool</c> plus a one-byte value span whose
+    /// <c>0xC3</c> bit decides the answer). Every other tag — <c>nil</c>, integers, strings, containers —
+    /// forwards to the reference implementation, so "a non-bool token consumed the token and answered
+    /// false, with the token still current" is decided in one place only.
+    /// </para>
+    /// <para>
+    /// A bool token is not an integer: <c>_intKind</c> is reset to 0 for it, exactly as
+    /// <see cref="ReadSpan"/> does before its switch.
+    /// </para>
+    /// <para>Not <c>readonly</c>: <c>ref this</c> in a readonly member is <c>CS1605</c>.</para>
+    /// </summary>
+    public bool TryReadBool(out bool value)
+    {
+        if (_isSequence)
+            return TokenReaderFused.TryReadBool(ref this, out value);
+
+        if (_depth > 0 && _elementStack[_depth - 1] == 0)
+            return TokenReaderFused.TryReadBool(ref this, out value);
+
+        if (_position >= _data.Length)
+        {
+            _needsMoreData = !_isFinalBlock;
+            value = false;
+            return false;
+        }
+
+        _needsMoreData = false;
+        // ReadSpan() resets the integer cache before its switch, so a payload that throws
+        // half-way through a token leaves the same field state on both paths.
+        _intKind = 0;
+        switch (_data[_position])
+        {
+            // 0xC3 = true, 0xC2 = false — the value span is the tag byte itself, as ReadSpan stores it.
+            case 0xC3:
+            case 0xC2:
+            {
+                var b = _data[_position];
+                _position++;
+                _singleByte = b;
+                _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
+                _tokenType = TokenType.Bool;
+                CountElement();
+                value = b == 0xC3;
+                return true;
+            }
+            default:
+                return TokenReaderFused.TryReadBool(ref this, out value);
+        }
+    }
 
     public bool TryGetFloat64(out double v)
     {
