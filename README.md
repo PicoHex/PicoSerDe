@@ -57,105 +57,134 @@ Every module has its own suite, cross-validated against a competitor implementat
 **above 1.00 means PicoSerDe is slower** and **below 1.00 means PicoSerDe is faster**. No reciprocal
 is ever taken: the direction above is the only one printed.
 
-Measured **2026-10-28** on one machine (AMD Ryzen 7 6800H, Windows 11, .NET SDK 10.0.401, runtime
-10.0.12), in **two windows**: 08:41–09:00 local, which still backs the TOML, YAML and INI rows, and
-**21:45–21:53 local**, which backs the **JSON and MessagePack rows** — both were re-measured after ten
-performance commits landed behind them (see
-[What the last round of changes did](#what-the-last-round-of-changes-did)), so those two rows come from
-a later window than the other three and from the same window as each other. The other three were
-not re-measured because nothing on their hot paths changed in between: the only commit to touch
-those readers after 09:00 adds six members their generated code never calls — the fused contract,
-forwarding to the reference implementation — and none of their generators was touched. Should that
-stop being true, those rows get re-measured the same way. A **round** is one whole
+Measured **2026-10-28/29** on one machine (AMD Ryzen 7 6800H, Windows 11, .NET SDK 10.0.401, runtime
+10.0.12), in **one window: 23:17 on the 28th to 00:03 on the 29th local**. All five rows — JSON,
+MessagePack, TOML, YAML and INI, in each execution mode where an opponent exists — were re-measured
+inside it, so no row on this page is older than the row beside it and none was carried over from an
+earlier session. They were re-measured because three performance commits had landed behind the previous
+figures — one on the JSON write path, one on the JSON read path, one on MessagePack's collection read
+(`8fc1db4`, `9fd79a8`, `588db56`; see
+[What the last round of changes did](#what-the-last-round-of-changes-did)). TOML, YAML and INI were
+re-measured rather than argued about: nothing on their hot paths moved, and that is what their rows
+show — every ratio in those three is where the previous window left it, or inside the ±10 %
+cross-session band, with the three or four cells that do cross the band explained by the opponent's own
+arm and by two-decimal rounding at 0.02×–0.36×, not by our code. A **round** is one whole
 process; each round prints, per arm, the median µs/op over **5 independent runs × ≥100k iterations
 each**, and every figure below is the **median of three rounds**. A row's ratio is `ours ÷ theirs`,
 computed from those two medians. AOT and JIT are separate processes and are never merged into one
-figure, one column or one ratio. The desktop was shared, not an idle lab box: over the 08:41–09:00
-session the load criteria refused **32** arm measurements and 9 of the 30 processes exited `1` under
-`PICOBENCH_STRICT=1`; over the 21:45–21:53 session they refused **7** of its 304 arms and 4 of its 17
-processes exited `1`. Every arm a round refused was either already covered by three published rounds or
+figure, one column or one ratio. The desktop was shared, not an idle lab box: over this window the load
+criteria refused **232 of the 1066** arm measurements taken, and 18 of its 48 processes exited `1` under
+`PICOBENCH_STRICT=1`. Every arm a round refused was either already covered by three kept rounds or
 re-measured in a supplementary round, so **no figure in the results table below rests on a refused
-arm** — and none of its rows was carried over from the earlier 2026-10-27 session.
+arm** — only two arms were refused inside a kept round, and both of those rows are filled from the
+supplementary rounds (19 and 20) that followed. No row comes from an earlier session.
 
-The **21:45–21:53 window** is five rounds of four one-process arms each (JSON JIT, JSON AOT,
-MessagePack JIT, MessagePack AOT), plus a sixth process for the one arm set that still lacked a third
-clean round, taken at `a4c0773` under this same protocol and the same 35% gate. Its pre-round load
-reading (the project's own check, median of ten 1 s samples) was 18.5 / 13.5 / 12.0 / 9.5 / 9.5 % —
-i.e. cleared to start, not guaranteed quiet, which is what the harness's own per-arm reading is for.
-The refusals were all load, and all in three of the seventeen processes: JSON AOT `Simple POCO —
-Serialize` and `Simple POCO — Deserialize` (our side; 35.6 % during the idle check and 50.0 % during
-the measured action), JSON JIT `Complex POCO — Deserialize` (the System.Text.Json side; 21.9 % drift),
-and MessagePack JIT `Nested — Serialize` twice, `Collection — Serialize` and `Collection — Deserialize`
-(36.4 % / 45.9 % during idle checks, 52.4 % drift). **No round was void** — the worst refused 3 of 16
-arms, 18.8 %, against the 30 % limit — so every arm set stands on rounds that published, and every row
-quotes the median of the **three earliest rounds that published both of its arms** (a fourth clean round
-is a cross-check, never swapped in). Six rows needed a stand-in round for exactly that reason:
-`Simple POCO — Serialize` and `Simple POCO — Deserialize` (AOT) use `r1`/`r3`/`r4`, JSON JIT
-`Complex POCO — Deserialize` uses `r1`/`r2`/`r4`, MessagePack JIT `Nested — Serialize` uses
-`r1`/`r4`/`r5`, and `Collection — Serialize` / `Collection — Deserialize` use `r1`/`r2`/`r4`. The
-MessagePack row therefore no longer comes from the 11:05–11:42 re-run that 4e needed and that this page
-used to publish: that window's figures are superseded rather than kept alongside, and the 4e row in
-[What the last round of changes did](#what-the-last-round-of-changes-did) now quotes this window's
-numbers for the same scenario.
+The **23:17–00:03 window** is **48 processes**, strictly serial, one arm set per process: rounds 1–4
+ran all eight arm sets as batches, rounds 5–20 ran a single arm set each, and every round was preceded
+by its own load check (the project's own precheck, median of ten 1 s samples). **26 rounds were kept**
+(574 arms published, 2 refused) and **22 were void**, i.e. more than 30 % of their arms refused:
+batches 2 and 4 as a whole (72 of 182 arms, 39.6 %; and 68 of 182, 37.4 %) and nine single rounds
+(`jetson-jit` r3 and r13, `jetson-aot` r3 and r6, `yaml-jit` r3, `ini-jit` r1, plus the ones inside
+the two void batches). A void round's log is renamed `.refused.txt` and feeds nothing at all; six of
+those processes had in fact published every arm they ran, and they went with their batches rather than
+being cherry-picked out of a round that was void as a whole. The refusals were all load, not code: the
+box carried a shared desktop whose background tooling kept saturating the machine for tens of seconds
+at a time — the per-arm CPU and drift criteria caught it, which is what they are for. Two prechecks
+had to be repeated (rounds 13 and 14 read BUSY first), and round 3's check read a 28 % median but a
+100 % maximum: a burst began inside the check, and that round's two JSON arm sets and its YAML arm set
+were refused accordingly. Every row quotes the median of the **three earliest rounds that published
+both of its arms** (a fourth or fifth kept round is a cross-check, never swapped in): JSON JIT uses
+`r1`/`r14`/`r15`, JSON AOT `r1`/`r7`/`r8`, MessagePack JIT `r1`/`r3`/`r11`, MessagePack AOT
+`r1`/`r3`/`r5`, TOML JIT `r1`/`r3`/`r18`, TOML AOT `r1`/`r3`/`r12`, YAML JIT `r1`/`r16`/`r17` and INI
+JIT `r3`/`r9`/`r10`. Two rows are one round short of that: `Simple — SerializeToString` (YAML) lost the
+YamlDotNet arm in r16 and `Medium — Serialize` (INI) lost the ini-parser arm in r9, so those two rows
+take r19 and r20 respectively — the supplementary rounds run for exactly that reason. Nothing on this
+page is quoted from the 08:41–09:00 session, from the 21:45–21:53 session or from the 2026-10-27
+session: those windows are superseded rather than kept alongside, and the rows in
+[What the last round of changes did](#what-the-last-round-of-changes-did) now quote this window's
+numbers for the same scenarios.
 
 | Format | Opponent | AOT vs AOT | JIT vs JIT | In one line |
 |---|---|---|---|---|
-| JSON | System.Text.Json | slower in **8 of 12** — **0.60×–1.46×**, median **1.15×** | slower in **7 of 12** — **0.67×–1.66×**, median **1.10×** | Slower in both modes, but by far less than before: no row is worse than 1.66×. Six cells lead by more than the ±10% band — `Collection POCO — Deserialize` 0.60×/0.67×, `Collection POCO — Serialize` 0.80× (JIT), `Nested POCO — Deserialize` 0.88× (AOT) and `LargeString 1KB — Deserialize` 0.82×/0.84×. |
-| MessagePack | MessagePack-CSharp | split **3–1**, and the 1.04× in that 1 is inside the band — **0.54×–1.04×**, median **0.70×** | split **4–4**, and two of the four losses are 1.01× dead heats — **0.57×–1.56×**, median **0.96×** | Parity under JIT (the median is inside the band); under AOT we are ahead on both write rows and on the `Person` read row, and level on `Metrics — Deserialize` (1.04×). |
-| TOML | Tomlyn 2.10.1 | faster in **10 of 10** — **0.10×–0.40×**, median **0.19×** (between **2.5× and 10×** faster) | faster in **10 of 10** — **0.08×–0.42×**, median **0.20×** (between **2.4× and 12.5×** faster) | We are faster in both modes, against an opponent doing the same job in both. |
-| YAML | YamlDotNet 18.1.0 | — no AOT opponent exists | faster in **6 of 6** — **0.02×–0.06×**, median **0.04×** (**17×–50×** faster) | We are faster on CoreCLR, and only there. |
+| JSON | System.Text.Json | slower in **6 of 12** — **0.59×–1.32×**, median **1.00×** | slower in **6 of 12** — **0.65×–1.70×**, median **0.99×** | Still slower in both modes, but no longer by what it was: the median is level, and only three of the twelve cells under AOT and five under JIT are losses beyond the ±10 % band. The worst are `Complex POCO — Deserialize` 1.32×/1.70× and `LargeString 1KB — Serialize` 1.29×/1.59×; the biggest leads are `Collection POCO — Deserialize` 0.59×/0.65× and JIT `Simple POCO — Serialize` 0.72×. |
+| MessagePack | MessagePack-CSharp | ahead in **4 of 4** — **0.59×–0.79×**, median **0.66×** (every cell beyond the band) | split **5–3** — **0.48×–1.37×**, median **0.96×** | Ahead on every AOT row, read side included. Under JIT the median is parity and the three losses are `Collection — Deserialize` 1.37×, `Collection — Serialize` 1.29× and `Complex — Deserialize` 1.12×. |
+| TOML | Tomlyn 2.10.1 | faster in **10 of 10** — **0.10×–0.40×**, median **0.18×** (between **2.5× and 10×** faster) | faster in **10 of 10** — **0.09×–0.42×**, median **0.20×** (between **2.4× and 11×** faster) | We are faster in both modes, against an opponent doing the same job in both. |
+| YAML | YamlDotNet 18.1.0 | — no AOT opponent exists | faster in **6 of 6** — **0.02×–0.07×**, median **0.04×** (**14×–50×** faster) | We are faster on CoreCLR, and only there. |
 | INI | ini-parser 2.5.3 | — no equivalent operation | — no equivalent operation | No ratio exists to divide by; absolute cost only, on a `NON-EQUIVALENT` table. |
 
-**In words.** JSON is still where we are behind, but not by what it used to be: slower than
-System.Text.Json in **8 of 12** scenarios under AOT and **7 of 12** under JIT, and where we are behind
-it is by **1.27×–1.46×** (AOT) and **1.07×–1.66×** (JIT), no longer by 3.56× and 4.72×. Six of those
-eight AOT losses and six of those seven JIT losses are outside the ±10% band, so they are directions and
-not noise; only AOT `Simple POCO — Serialize` 1.03×, AOT `LargeFlat 50-fields — Deserialize` 1.01× and
-JIT `Simple POCO — Deserialize` 1.07× sit inside it. The cells we lead by more than the band are the two
-`Collection POCO — Deserialize` cells (0.60× AOT, 0.67× JIT), JIT `Collection POCO — Serialize` (0.80×),
-AOT `Nested POCO — Deserialize` (0.88×) and the two `LargeString 1KB — Deserialize` cells (0.82× /
-0.84×); the other three cells below 1.00× — JIT `Simple POCO — Serialize` 0.94×, JIT `Nested POCO —
-Deserialize` 0.97× and AOT `Simple POCO — Deserialize` 0.98× — are ahead but inside the band, so they
-are not direction claims either.
+**In words.** JSON is still the row that keeps us honest, but it is no longer a loss story: we are
+slower than System.Text.Json in **6 of 12** scenarios under AOT and **6 of 12** under JIT, and the
+median of the twelve ratios is **1.00×** (AOT) and **0.99×** (JIT) — level. Where we are behind, it is
+by **1.03×–1.32×** (AOT) and **1.01×–1.70×** (JIT), not by 3.56× and 4.72×, and the six losses are
+named here rather than left to the table: under AOT `Complex POCO — Deserialize` 1.32×, `Collection
+POCO — Serialize` 1.31×, `LargeString 1KB — Serialize` 1.29×, `Complex POCO — Serialize` 1.09×, `Nested
+POCO — Serialize` 1.07× and `LargeFlat 50-fields — Serialize` 1.03×; under JIT `Complex POCO —
+Deserialize` 1.70×, `LargeString 1KB — Serialize` 1.59×, `LargeFlat 50-fields — Deserialize` 1.36×,
+`Complex POCO — Serialize` 1.20×, `LargeFlat 50-fields — Serialize` 1.13× and `Simple POCO — Serialize`
+1.01×. **Three** of the six AOT losses and **five** of the six JIT losses are beyond the ±10% band, so
+they are directions and not noise; the remaining four — AOT 1.03×, 1.07× and 1.09×, and JIT `Simple
+POCO — Deserialize` 1.01× — are inside it, i.e. level. On the other side of 1.00× the leads beyond
+the band are AOT `Collection POCO — Deserialize` 0.59×, `LargeString 1KB — Deserialize` 0.75×, `Nested
+POCO — Deserialize` 0.82×, `Simple POCO — Serialize` 0.83× and `Simple POCO — Deserialize` 0.86×, plus
+JIT `Collection POCO — Deserialize` 0.65×, `Simple POCO — Serialize` 0.72×, `Nested POCO — Serialize`
+0.81× and `Collection POCO — Serialize` 0.82× — nine cells, four of them on write shapes this round's
+JSON change touched. AOT `LargeFlat 50-fields — Deserialize` 0.97×, JIT `Nested POCO — Deserialize`
+0.96× and JIT `LargeString 1KB — Deserialize` 0.98× are ahead but inside the band, so they are not
+direction claims either.
 
-What is new is how many rows moved: **fifteen of the 24 cells are beyond the ±10% band against the
-window this page published before, and every one of them moved towards us** — `LargeString 1KB —
-Serialize` 4.72× → 1.66× (JIT) and 3.56× → 1.38× (AOT), `Collection POCO — Serialize` 1.66× → 0.80× and
-2.17× → 1.32×, `Collection POCO — Deserialize` 1.51× → 0.67× and 1.19× → 0.60×, `Nested POCO —
-Serialize` 1.55× → 1.12× and 1.99× → 1.46×. The read side is the exception and says so: of the twelve
-`Deserialize` cells only three left the band — the two `Collection POCO` cells and JIT `LargeString 1KB`
-(−15%) — which is the honest footprint of a change aimed at integers *inside* collections.
+What moved, and which side moved it: **eleven of the 24 cells left the ±10% band against the window
+this page published before, nine of them towards us** — the write side, where our own arm got 20 %–35 %
+faster (`Simple POCO — Serialize` 0.109 → 0.076 µs and `Nested POCO — Serialize` 0.373 → 0.253 µs under
+JIT; 0.180 → 0.129 and 0.679 → 0.471 µs under AOT) while the opponent's own arms drifted **2 %–13 %**
+faster as well, so the ratios understate those changes. The two cells that crossed the band *against*
+us are both read rows, and in both of them it is the opponent that moved: JIT `Complex POCO —
+Deserialize` 1.54× → 1.70× with **our** arm 0.894 → 0.831 µs (−7.0 %) against a System.Text.Json arm
+that read 0.581 → 0.490 µs; and JIT `LargeString 1KB — Deserialize` 0.84× → 0.98× with our arm
+0.273 → 0.251 µs (−8.1 %) against theirs 0.326 → 0.256 µs (−21.5 %). That second one is the honest way
+to lose a lead: we did not get slower, the opponent got 21 % faster. The rest of the read side stayed
+where it was, which is what a change aimed at one `PeekByte` per token and two fused reads should look
+like.
 
-MessagePack is no longer a uniform loss, and under JIT it is not a win either. The eight rows split
-4–4 and the median is **0.96×** — inside the ±10% band, so **parity, not a win**, and it has to be read
-that way. Clearly ahead are the small shapes (`Nested — Serialize` 0.57×, `Simple — Serialize` 0.68×,
-`Nested — Deserialize` 0.87×); clearly behind is `Collection — Deserialize` 1.56×, still the worst row
-on the page but down from 1.96×, then `Collection — Serialize` 1.31×, and `Complex` at 1.01× on both
-sides — two dead heats inside the band, so two of the four "losses" are not direction claims at all.
-Where a ratio did move against us, check which side moved: `Collection — Serialize` reads 1.31×
-(was 1.13×) because **the opponent's arm read faster** — 0.199 µs against 0.244 µs last window — while
-ours also got faster, 0.276 → 0.261 µs; and `Nested — Serialize` 0.48× → 0.57× is our side unchanged at
-0.119 µs against a competitor that read 0.208 µs instead of 0.249 µs. Under AOT the four rows split
-3–1: `Metrics — Serialize` 0.54×, `Person — Serialize` 0.61× and `Person — Deserialize` 0.80× ahead,
-`Metrics — Deserialize` 1.04× behind by 4% — inside the band, so **level, not a loss**. The read side
-is where this round of MessagePack work landed: `Metrics — Deserialize` 1.13× → 1.04× and
-`Person — Deserialize` 0.99× → 0.80× (0.134 → 0.112 µs).
+MessagePack is now ahead on every AOT row and level under JIT. Under AOT the four rows are **4 of 4**
+ahead — `Person — Serialize` 0.59×, `Metrics — Serialize` 0.60×, `Person — Deserialize` 0.72× and
+`Metrics — Deserialize` 0.79× — every one of them beyond the band, and for the first time no AOT row is
+a loss. Under JIT the eight rows split **5–3** and the median is **0.96×**, inside the ±10% band, so
+**parity, not a win**, and it has to be read that way. Ahead are `Nested — Serialize` 0.48×, `Simple —
+Deserialize` 0.78× and `Nested — Deserialize` 0.80× beyond the band, with `Simple — Serialize` 0.93×
+and `Complex — Serialize` 0.98× level. Behind are `Collection — Deserialize` 1.37×, `Collection —
+Serialize` 1.29× and `Complex — Deserialize` 1.12×. The collection read row is where this round's
+MessagePack change landed, and it shows: our arm **1.078 → 0.853 µs (−20.9 %)**, 1.56× → 1.37× — still
+behind, because the MessagePack-CSharp arm also got 9.9 % cheaper (0.690 → 0.622 µs).
 
-> Where a row's own three rounds disagree, the outlier stays in the record rather than being averaged
-> away. MessagePack JIT `Complex — Deserialize` reads 1.22 / 0.97 / 0.69 across its three rounds,
-> because the competitor arm read 0.278 / 0.313 / **0.456** µs — a loose third reading, not a faster
-> one of ours. The published figure is the median of those three (0.316 / 0.313 = **1.01×**), and it is
-> quoted as a dead heat, not as the 16% gain the raw ratio delta would suggest. JSON AOT
-> `LargeString 1KB — Deserialize` is the other loose row: its three rounds read 0.559 / 0.388 / 0.455 µs
-> on our side — 1.44× across rounds — so that row is published at 0.82× and read as level.
+> Where a row's own three rounds disagree, the spread stays in the record rather than being averaged
+> away. MessagePack JIT `Simple — Serialize` is the widest: our three rounds read 0.046 / 0.055 /
+> 0.061 µs and the opponent's 0.054 / 0.059 / 0.071 µs, so the row is 0.93× as the ratio of the two
+> medians (the published definition) but 0.85× as the median of the three printed ratios. At 0.05 µs
+> there is no fourth significant figure, and the row is quoted as level rather than as the 37 % swing
+> against us that the move from 0.68× would suggest. MessagePack AOT `Metrics — Deserialize` is the
+> other one worth naming: its three rounds are tight (0.103 / 0.103 / 0.104 µs on our side, 0.131 /
+> 0.116 / 0.131 µs on theirs), so the move from 0.137 µs in the previous window to 0.103 µs here is a
+> difference between windows, not noise inside this one — and no commit in this window touches that read
+> path, so it is recorded as drift and **not** credited to any change in the table below.
 
 PicoSerDe is faster than Tomlyn 2.10.1 under JIT **and** under NativeAOT — the one format where the
 opponent does the same job (one library call, same POCO in and out) in both modes, and here both modes
-were measured in the same three rounds instead of being split across sessions. It is faster than
-YamlDotNet's typed mapper on CoreCLR only: under NativeAOT that layer does not work at all (typed
-`Deserialize<T>` throws `MissingMethodException`, typed `Serialize` silently emits `{}`), so there is
-no AOT opponent to quote and none is invented. INI gets no ratio because ini-parser exposes no typed
-API in any execution mode — a caller-written DOM walk is not the same job as one library call.
+were re-measured in the same window, three rounds each, on the same machine state. Those ratios did not
+move: **0.09×–0.42×** under JIT and **0.10×–0.40×** under AOT, against 0.08×–0.42× and 0.10×–0.40× in
+the window this one replaces. Ten of the twenty cells are identical to two decimal places and seven more
+moved by less than the band; the three that crossed it are JIT cells (0.08× → 0.09×, 0.26× → 0.29×,
+0.31× → 0.36×), and in each of them our own arm moved −5 % to +4 % while **the Tomlyn arm** read 7 %–12 %
+faster — plus two-decimal rounding, which at 0.09× cannot resolve a 6 % step at all. That is the point
+of re-measuring a hot path nobody touched: it shows the size of cross-window drift instead of assuming
+it. YamlDotNet's typed mapper is beaten on CoreCLR only: under NativeAOT that layer does not work at all
+(typed `Deserialize<T>` throws `MissingMethodException`, typed `Serialize` silently emits `{}`), so
+there is no AOT opponent to quote and none is invented; the YAML row was re-measured for the same
+reason as TOML and reads 0.02×–0.07× (median 0.04×) against 0.02×–0.06× (median 0.04×) — the two cells
+that print differently (0.03× → 0.04×, 0.06× → 0.07×) are that rounding again. INI gets no ratio
+because ini-parser exposes no typed API in any execution mode — a caller-written DOM walk is not the
+same job as one library call — so only its absolute cost is quoted, on a `NON-EQUIVALENT` table, and
+that cost did not move either (0.079 → 0.087 µs on the smallest write row, 2.299 → 2.251 µs on the
+largest read row).
 
 ### What a published number requires
 
@@ -233,16 +262,17 @@ being made: "before" is a second worktree at the parent commit, measured in the 
 number remembered from an older README. "After" there is that sitting's figure, not the one in the
 table above — the table above is a three-round median, and the two differ by cross-session drift as
 well as by the change itself (e.g. `LargeString 1KB — Deserialize` measured 0.261 µs in its own A/B
-and 0.329 µs in the 08:41 window). The last seven rows are **cross-session** instead: "before" is the
-figure this page published for the scenario the change touches when it last published it — the 08:41
-window for the JSON rows, the 11:05–11:42 re-run for the MessagePack rows, and for the 4e row the
-08:41 figure that change was measured against, which is why that one row spans both earlier windows —
-and "after" is the figure the 21:45–21:53 window publishes, i.e. the same number the table above
-prints.
-That comparison carries cross-session drift on top of the change — in the JSON arm set the opponent's
-own arms read **−3 % to +15 %** (median ≈ +9 %) against the earlier window, which is machine drift and
-not their regression — so those rows understate the changes they name; the changes' own paired A/Bs
-are quoted under the table.
+and 0.329 µs in the 08:41 window). The rows below them are **cross-session** instead: "before" is the
+figure this page published for the scenario the change touches when it last published it — the
+21:45–21:53 window for the three newest rows (the JSON write change, the JSON read change and the
+MessagePack collection change, all of which landed after that window was taken), and, for the older
+cross-session rows, the 08:41 window for JSON and the 11:05–11:42 re-run for MessagePack — and "after"
+is the figure the 23:17–00:03 window publishes, i.e. the same number the table above prints.
+That comparison carries cross-session drift on top of the change — against the window this one
+replaces, the JSON opponent's own arms read **2 % to 22 % faster** (median ≈ 9 %, so in their favour)
+and the MessagePack-CSharp arms 3 % to 15 % faster (median ≈ 7 %) — which is machine drift, not their
+regression, and it is why the ratios below understate changes that are larger in µs; the changes' own
+paired A/Bs are quoted under the table.
 Several of these changes touch overlapping code, so a single row is the change's footprint on the
 scenario it aimed at, not an isolated attribution.
 
@@ -255,22 +285,28 @@ scenario it aimed at, not an isolated attribution.
 | **MessagePack: the writer owns a span** instead of calling `GetSpan`/`Advance` per token (`56d86e5`) | JIT `Collection — Serialize` | 0.474 µs — **2.06×** | 0.300 µs — **1.28×** (−37%) | `.superpowers/sdd/perf-mp-span/report.md` §5.2 |
 | **MessagePack: strings encoded straight into that span**, no `byte[]` per key (`0a45e16`) | 15-string model, allocation per serialize | **600 B/op** (15 × a 40-byte array) | **0 B/op**; CPU **0.687×** (median of three paired runs) | `.superpowers/sdd/perf-mp-str/report.md` §4.1, §5.1 |
 | **MessagePack: `DateTime` written as the spec's timestamp extension** (`d4da7cc`) | JIT `Metrics — Deserialize` | 0.518 µs — **4.16×**; payload **53 B** | 0.156 µs — **1.30×**; payload **30 B** | `.superpowers/sdd/perf-mp-ts/report.md` §5 |
-| **MessagePack: the read side gets a span fast path** — span-mode payloads tokenized without the sequence state machine, pinned by a derivation check re-run on every test run (`d45edca`, `d9334ed`; merged `340d351`) | AOT `Metrics — Deserialize`; AOT `Person — Deserialize` | 0.206 µs — **1.51×**; **1.14×** (no µs published) | 0.137 µs — **1.04×** (−33.5% µs); 0.112 µs — **0.80×** (1.14× → 0.80×) | `.superpowers/sdd/remeasure-2/logs/round{1,2,3}-msgpack-aot.txt` |
+| **MessagePack: the read side gets a span fast path** — span-mode payloads tokenized without the sequence state machine, pinned by a derivation check re-run on every test run (`d45edca`, `d9334ed`; merged `340d351`) | AOT `Metrics — Deserialize`; AOT `Person — Deserialize` | 0.206 µs — **1.51×** (08:41 window); **1.14×** (no µs published) | 0.103 µs — **0.79×** (−50 % µs); 0.091 µs — **0.72×** (1.14× → 0.72×) — read with the caveat below | `.superpowers/sdd/remeasure-3/logs/round{1,3,5}-msgpack-aot.txt` |
 | **JSON write: the writer owns a span** instead of calling `GetSpan`/`Advance` per token (`2310b36`) | JIT `LargeFlat 50-fields — Serialize` | 1.628 µs — **1.79×** | 1.319 µs — **1.30×** (−19.0% µs) | `.superpowers/sdd/remeasure-2/logs/round{1,2,3}-json-jit.txt` |
 | **JSON strings: "does this need escaping" answered in one vectorized pass**, and the escape count taken before the quote reaches the write cursor (`58f3c9f`) | JIT `LargeString 1KB — Serialize` | 1.020 µs — **4.72×** | 0.389 µs — **1.66×** (−61.9% µs) | `.superpowers/sdd/remeasure-2/logs/round{1,2,3}-json-jit.txt` |
 | **JSON read: `TryReadInt32` fused into one pass**, and the generated element loops call the fused read (`886f1b9`, `bbceb67`) | JIT `Collection POCO — Deserialize` | 4.694 µs — **1.51×** | 2.255 µs — **0.67×** (−52.0% µs) | `.superpowers/sdd/remeasure-2/logs/round{1,2,3}-json-jit.txt` |
 | **MessagePack: the integer value derived while the tag is in hand**, so `TryGetInt32`/`TryGetInt64` stop re-deriving it (`1eba0fb`) | JIT `Collection — Deserialize` | 1.432 µs — **1.96×** | 1.078 µs — **1.56×** (−24.7% µs) | `.superpowers/sdd/remeasure-2/logs/round{1,2,4}-msgpack-jit.txt` |
 | **MessagePack: `TryReadInt32`/`Int64`/`Float64`/`Bool` fused** — advance, classify, decode and materialise in one dispatch (`a3faf4d`, `f5a59e6`) | AOT `Person — Deserialize` | 0.134 µs — **0.99×** | 0.112 µs — **0.80×** (−16.4% µs) | `.superpowers/sdd/remeasure-2/logs/round{1,2,3}-msgpack-aot.txt` |
 | **MessagePack: a collection with a known length iterates that count** instead of probing for an end token per element (`491e731`) | JIT `Nested — Deserialize` | 0.363 µs — **0.89×** | 0.324 µs — **0.87×** (−10.7% µs) | `.superpowers/sdd/remeasure-2/logs/round{1,2,3}-msgpack-jit.txt` |
+| **JSON write: a property name is staged and emitted as one write** — the opening quote, the name and the colon leave as one span write instead of four (`8fc1db4`, merged `8d59010`) | JIT `Nested POCO — Serialize`; AOT `Nested POCO — Serialize` | 0.373 µs — **1.12×**; 0.679 µs — **1.46×** | 0.253 µs — **0.81×** (−32.2 % µs); 0.471 µs — **1.07×** (−30.6 % µs) | `.superpowers/sdd/remeasure-3/logs/round{1,14,15}-jetson-jit.txt`, `round{1,7,8}-jetson-aot.txt` |
+| **JSON read: one `PeekByte` per token, with `int64` and `bool` decoded in the same dispatch as the tag** (`9fd79a8`, merged `bc2255e`) | JIT `Complex POCO — Deserialize`; AOT `Complex POCO — Deserialize` | 0.894 µs — **1.54×**; 1.280 µs — **1.38×** | 0.831 µs — **1.70×** (−7.0 % µs; the ratio rises because the System.Text.Json arm read 0.581 → 0.490 µs); 1.148 µs — **1.32×** (−10.3 % µs) | `.superpowers/sdd/remeasure-3/logs/round{1,14,15}-jetson-jit.txt`, `round{1,7,8}-jetson-aot.txt` |
+| **MessagePack: a collection's elements are accounted in a counted scope** instead of per token on the level stacks (`588db56`, merged `f94fb8d`) | JIT `Collection — Deserialize` | 1.078 µs — **1.56×** | 0.853 µs — **1.37×** (−20.9 % µs) | `.superpowers/sdd/remeasure-3/logs/round{1,3,11}-msgpack-jit.txt` |
 
 The three MessagePack A/B pairs at the top of the table (`56d86e5`, `0a45e16`, `d4da7cc`) were taken
 with `PICOBENCH_MAX_OTHER_CPU=100`: only the system-wide CPU gate was relaxed, while the drift, spread
 and dispersion criteria stayed in force — each of those reports says so in its own measurement section.
-The JSON pairs ran under the default 35% gate, and so did every cross-session row here, in both
-windows: the 35 % ceiling is what refused the seven arms this window had to re-measure. Each
-pair is one sitting, so it is evidence of direction and rough magnitude; the table above is what this
-page stands behind. The cross-session rows (4e and the six below it) are not A/B sittings: their
-before is the 08:41 window and their after is the 21:45–21:53 window, so drift is in both numbers.
+The JSON pairs ran under the default 35% gate, and so did every cross-session row here: the 35 % ceiling
+is what refused the 232 arms this window had to throw away. Each pair is one sitting, so it is evidence
+of direction and rough magnitude; the table above is what this page stands behind. The cross-session
+rows (4e and the nine below it) are not A/B sittings: their before is an earlier published figure and
+their after is this window's, so drift sits in both numbers — and for the 4e row in particular, part of
+the move from 0.137 µs (21:45–21:53) to 0.103 µs (this window) is drift on a path no commit here
+touches, which is why that row is quoted as the published metric rather than as that change's own
+effect.
 Where a change has its own paired A/B, it reads: JSON write span cache — JIT `LargeFlat 50-fields —
 Serialize` **3.045 → 1.671 µs (−45.1%)**, AOT **3.046 → 2.052 µs (−32.6%)**
 (`.superpowers/sdd/perf-json-span/report.md` §0); JSON escape vectorisation — JIT `LargeString 1KB —
@@ -288,16 +324,17 @@ gitignored, exactly like the raw benchmark logs; the commit hashes in the first 
 checkable artefact.
 
 This window's tables carry the check. The rows those changes touched now read: JSON JIT
-`LargeFlat 50-fields — Serialize` **1.319 µs / 1.30×**, `LargeString 1KB — Serialize`
-**0.389 µs / 1.66×**, `Collection POCO — Deserialize` **2.255 µs / 0.67×** and `LargeFlat 50-fields —
-Deserialize` **2.853 µs / 1.34×**; JSON AOT `LargeFlat 50-fields — Serialize` **2.292 µs / 1.43×**,
-`Collection POCO — Deserialize` **3.428 µs / 0.60×** and `LargeString 1KB — Serialize`
-**0.620 µs / 1.38×**; MessagePack JIT `Collection — Deserialize` **1.078 µs / 1.56×**, `Nested —
-Deserialize` **0.324 µs / 0.87×**, `Collection — Serialize` **0.261 µs / 1.31×**, `Complex — Serialize`
-**0.176 µs / 1.01×** and `Nested — Serialize` **0.119 µs / 0.57×**; MessagePack AOT
-`Metrics — Deserialize` **0.137 µs / 1.04×**, `Person — Deserialize` **0.112 µs / 0.80×** and
-`Metrics — Serialize` **0.065 µs / 0.54×**. Every one of those is tonight's window; the JSON read side
-outside the collections did not move, and the page says so rather than dressing it as a gain.
+`LargeFlat 50-fields — Serialize` **1.008 µs / 1.13×**, `LargeString 1KB — Serialize`
+**0.346 µs / 1.59×**, `Collection POCO — Deserialize` **2.017 µs / 0.65×** and `LargeFlat 50-fields —
+Deserialize` **2.602 µs / 1.36×**; JSON AOT `LargeFlat 50-fields — Serialize` **1.496 µs / 1.03×**,
+`Collection POCO — Deserialize` **3.018 µs / 0.59×** and `LargeString 1KB — Serialize`
+**0.536 µs / 1.29×**; MessagePack JIT `Collection — Deserialize` **0.853 µs / 1.37×**, `Nested —
+Deserialize` **0.276 µs / 0.80×**, `Collection — Serialize` **0.240 µs / 1.29×**, `Complex — Serialize`
+**0.165 µs / 0.98×** and `Nested — Serialize` **0.097 µs / 0.48×**; MessagePack AOT
+`Metrics — Deserialize` **0.103 µs / 0.79×**, `Person — Deserialize` **0.091 µs / 0.72×** and
+`Metrics — Serialize` **0.061 µs / 0.60×**. Every one of those is this window; the JSON read side
+outside the collections did not move — two of its cells crossed the band against us only because the
+opponent's arm read faster — and the page says so rather than dressing it as a gain.
 
 ---
 
