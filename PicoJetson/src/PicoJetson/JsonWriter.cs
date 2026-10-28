@@ -11,10 +11,32 @@ public ref struct JsonWriter
     private ulong _needsComma;
     private bool _afterPropertyName;
 
+    /// <summary>Bytes handed out by <see cref="_buffer"/> and not yet committed.</summary>
+    private Span<byte> _span;
+
+    /// <summary>Write cursor inside <see cref="_span"/>.</summary>
+    private int _spanPos;
+
+    /// <summary>Minimum span the writer asks for, so short tokens amortise one fetch.</summary>
+    private const int MinSpanSize = 256;
+
     public long BytesWritten => _bytesWritten;
 
     /// <summary>Exposes the underlying buffer for converter support in nested helpers.</summary>
-    public IBufferWriter<byte> Buffer => _buffer;
+    /// <remarks>
+    /// Reading this commits the pending span first: a converter or a custom serializer
+    /// writes into the same buffer and would otherwise land <em>ahead</em> of the bytes
+    /// still sitting in the cache. The span is dropped, so the next write fetches a
+    /// fresh one after the hand-off.
+    /// </remarks>
+    public IBufferWriter<byte> Buffer
+    {
+        get
+        {
+            Flush();
+            return _buffer;
+        }
+    }
 
     /// <summary>
     /// Declares that a complete value was written straight into <see cref="Buffer"/>
@@ -56,6 +78,8 @@ public ref struct JsonWriter
         _depth = 0;
         _needsComma = 0UL;
         _afterPropertyName = false;
+        _span = default;
+        _spanPos = 0;
     }
 
     public void WriteNull()
@@ -73,82 +97,91 @@ public ref struct JsonWriter
     public void WriteNumber(int value)
     {
         BeforeWriteValue();
-        Span<byte> buf = stackalloc byte[16];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(16);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     public void WriteNumber(short value)
     {
         BeforeWriteValue();
-        Span<byte> buf = stackalloc byte[8];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(8);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     public void WriteNumber(ushort value)
     {
         BeforeWriteValue();
-        Span<byte> buf = stackalloc byte[8];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(8);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     public void WriteNumber(sbyte value)
     {
         BeforeWriteValue();
-        Span<byte> buf = stackalloc byte[8];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(8);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     public void WriteNumber(byte value)
     {
         BeforeWriteValue();
-        Span<byte> buf = stackalloc byte[8];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(8);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     public void WriteNumber(uint value)
     {
         BeforeWriteValue();
-        Span<byte> buf = stackalloc byte[16];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(16);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     public void WriteNumber(ulong value)
     {
         BeforeWriteValue();
-        Span<byte> buf = stackalloc byte[32];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(32);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     public void WriteNumber(long value)
     {
         BeforeWriteValue();
-        Span<byte> buf = stackalloc byte[32];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(32);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     public void WriteNumber(decimal value)
     {
         BeforeWriteValue();
-        Span<byte> buf = stackalloc byte[32];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(32);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     /// <summary>
@@ -192,10 +225,11 @@ public ref struct JsonWriter
                 nameof(value)
             );
         }
-        Span<byte> buf = stackalloc byte[32];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(32);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     public void WriteNumber(double value)
@@ -231,10 +265,11 @@ public ref struct JsonWriter
                 nameof(value)
             );
         }
-        Span<byte> buf = stackalloc byte[32];
-        value.TryFormat(buf, out var w, default, CultureInfo.InvariantCulture);
-        _buffer.Write(buf[..w]);
+        Ensure(32);
+        value.TryFormat(_span[_spanPos..], out var w, default, CultureInfo.InvariantCulture);
+        _spanPos += w;
         _bytesWritten += w;
+        CommitBare();
     }
 
     /// <summary>
@@ -331,8 +366,7 @@ public ref struct JsonWriter
                         break;
                 }
             }
-            _buffer.Write(escaped.AsSpan(0, di));
-            _bytesWritten += di;
+            WriteRaw(escaped.AsSpan(0, di));
         }
         WriteByte((byte)'"');
     }
@@ -361,8 +395,7 @@ public ref struct JsonWriter
                     escapeCount++;
             if (escapeCount == 0)
             {
-                _buffer.Write(slice);
-                _bytesWritten += w;
+                WriteRaw(slice);
             }
             else
             {
@@ -407,8 +440,7 @@ public ref struct JsonWriter
                             break;
                     }
                 }
-                _buffer.Write(escaped.AsSpan(0, di));
-                _bytesWritten += di;
+                WriteRaw(escaped.AsSpan(0, di));
             }
             WriteByte((byte)'"');
         }
@@ -471,6 +503,8 @@ public ref struct JsonWriter
         if (_indented)
             WriteIndent();
         WriteByte((byte)'}');
+        if (_depth == 0)
+            Flush();
     }
 
     public void WriteStartArray()
@@ -490,6 +524,8 @@ public ref struct JsonWriter
         if (_indented)
             WriteIndent();
         WriteByte((byte)']');
+        if (_depth == 0)
+            Flush();
     }
 
     /// <summary>
@@ -519,18 +555,86 @@ public ref struct JsonWriter
         _needsComma |= (1UL << _depth);
     }
 
+    /// <summary>
+    /// Makes room for <paramref name="n"/> more bytes in <see cref="_span"/>. Together with
+    /// <see cref="Flush"/> this is the only place that touches the underlying buffer while a
+    /// value is being written, so a run of tokens costs two interface calls per <em>chunk</em>
+    /// instead of two per token.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void Ensure(int n)
+    {
+        if (_span.Length - _spanPos < n)
+        {
+            Flush();
+            _span = _buffer.GetSpan(n < MinSpanSize ? MinSpanSize : n);
+        }
+    }
+
+    /// <summary>Commits the bytes sitting in <see cref="_span"/> and drops the span.</summary>
+    /// <remarks>
+    /// Dropping it is not optional: the buffer owns those bytes now, so keeping the span
+    /// would let the next write land in memory that has already been committed — a double
+    /// commit, i.e. duplicated bytes. An empty span never fits <see cref="Ensure"/>, so the
+    /// next write refetches; that is also why <c>Ensure(n)</c> with <c>n &gt;= 1</c> cannot
+    /// spin.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void Flush()
+    {
+        if (_spanPos > 0)
+        {
+            _buffer.Advance(_spanPos);
+            _spanPos = 0;
+        }
+        _span = default;
+    }
+
+    /// <summary>Commits immediately when no container is open.</summary>
+    /// <remarks>
+    /// Caching only pays off inside a container, and a container is the only thing that is
+    /// guaranteed to close — <see cref="WriteEndObject"/> / <see cref="WriteEndArray"/>
+    /// commit the tail when the outermost one closes. A bare scalar or string (a converter
+    /// writing <c>"2026-01-01"</c>, a <c>JsonWriter</c> driven by hand, a top-level
+    /// <c>null</c>) never closes anything, so its bytes must reach the buffer before the
+    /// caller can read it. Depth 0 therefore behaves exactly like the writer without a
+    /// cache: one commit per token, nothing left pending.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void CommitBare()
+    {
+        if (_depth == 0)
+            Flush();
+    }
+
     private void WriteRaw(scoped ReadOnlySpan<byte> utf8)
     {
-        _buffer.Write(utf8);
+        if (utf8.Length > _span.Length - _spanPos)
+        {
+            Flush();
+            if (utf8.Length >= MinSpanSize)
+            {
+                // Too long to be worth copying into a cache slot we would hand straight
+                // back: write it through the buffer in one call.
+                _buffer.Write(utf8);
+                _bytesWritten += utf8.Length;
+                CommitBare();
+                return;
+            }
+            _span = _buffer.GetSpan(MinSpanSize);
+        }
+        utf8.CopyTo(_span[_spanPos..]);
+        _spanPos += utf8.Length;
         _bytesWritten += utf8.Length;
+        CommitBare();
     }
 
     private void WriteByte(byte value)
     {
-        var s = _buffer.GetSpan(1);
-        s[0] = value;
-        _buffer.Advance(1);
+        Ensure(1);
+        _span[_spanPos++] = value;
         _bytesWritten++;
+        CommitBare();
     }
 
     private void WriteIndent()
