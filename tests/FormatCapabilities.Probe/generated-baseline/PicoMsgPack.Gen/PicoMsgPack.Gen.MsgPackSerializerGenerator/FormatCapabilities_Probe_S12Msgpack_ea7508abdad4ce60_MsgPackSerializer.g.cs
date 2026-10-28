@@ -39,14 +39,28 @@ file static class S12MsgpackMsgPackDeserializer {
                 case 0:
                 obj.V ??= new List<string?>(16);
                 if (reader.TokenType == TokenType.ArrayStart) {
-                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
-                        if (reader.TokenType == TokenType.Null)
-                        obj.V.Add(default!);
-                        else {
-                            if (reader.TokenType != TokenType.String) throw new System.FormatException($"Expected a string element at offset {reader.BytesConsumed}");
-                            obj.V.Add(Encoding.UTF8.GetString(reader.GetStringRaw()));
+                    if (reader.TryGetCollectionCount(out var __cn0)) {
+                        for (var __ci0 = 0; __ci0 < __cn0; __ci0++) {
+                            if (!reader.Read()) break;
+                            if (reader.TokenType == TokenType.Null)
+                            obj.V.Add(default!);
+                            else {
+                                if (reader.TokenType != TokenType.String) throw new System.FormatException($"Expected a string element at offset {reader.BytesConsumed}");
+                                obj.V.Add(Encoding.UTF8.GetString(reader.GetStringRaw()));
+                            }
                         }
-                    } }
+                        reader.Read();
+                    } else {
+                        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                            if (reader.TokenType == TokenType.Null)
+                            obj.V.Add(default!);
+                            else {
+                                if (reader.TokenType != TokenType.String) throw new System.FormatException($"Expected a string element at offset {reader.BytesConsumed}");
+                                obj.V.Add(Encoding.UTF8.GetString(reader.GetStringRaw()));
+                            }
+                        }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
@@ -77,14 +91,28 @@ file static class S12MsgpackMsgPackStreaming {
                 case 0:
                 obj.V ??= new List<string?>(16);
                 if (reader.TokenType == TokenType.ArrayStart) {
-                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
-                        if (reader.TokenType == TokenType.Null)
-                        obj.V.Add(default!);
-                        else {
-                            if (reader.TokenType != TokenType.String) throw new System.FormatException($"Expected a string element at offset {reader.BytesConsumed}");
-                            obj.V.Add(Encoding.UTF8.GetString(reader.GetStringRaw()));
+                    if (reader.TryGetCollectionCount(out var __cn1)) {
+                        for (var __ci1 = 0; __ci1 < __cn1; __ci1++) {
+                            if (!reader.Read()) break;
+                            if (reader.TokenType == TokenType.Null)
+                            obj.V.Add(default!);
+                            else {
+                                if (reader.TokenType != TokenType.String) throw new System.FormatException($"Expected a string element at offset {reader.BytesConsumed}");
+                                obj.V.Add(Encoding.UTF8.GetString(reader.GetStringRaw()));
+                            }
                         }
-                    } }
+                        reader.Read();
+                    } else {
+                        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                            if (reader.TokenType == TokenType.Null)
+                            obj.V.Add(default!);
+                            else {
+                                if (reader.TokenType != TokenType.String) throw new System.FormatException($"Expected a string element at offset {reader.BytesConsumed}");
+                                obj.V.Add(Encoding.UTF8.GetString(reader.GetStringRaw()));
+                            }
+                        }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;

@@ -1386,12 +1386,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.Append("        var __list = new List<");
         s.Append(elemTypeName);
         s.AppendLine(">(16);");
-        s.AppendLine("        if (reader.TokenType == TokenType.ArrayStart) {");
-        s.AppendLine(
-            "            while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
-        );
-        ReadDeserElem(s, elemP, "__list", ".Add", "                ", ref c);
-        s.AppendLine("            } }");
+        EmitCollectionElements(s, elemP, "__list", ".Add", "        ", ref c);
         s.AppendLine("        return __list;");
         s.AppendLine("    } }");
         s.AppendLine();
@@ -2922,15 +2917,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(" = new List<");
                 s.Append(extElemType);
                 s.AppendLine(">(16);");
-                s.Append(ind);
-                s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
-                s.Append(ind);
-                s.AppendLine(
-                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
-                );
-                ReadDeserElem(s, p, extList, ".Add", ind + "        ", ref c);
-                s.Append(ind);
-                s.AppendLine("    } }");
+                EmitCollectionElements(s, p, extList, ".Add", ind, ref c);
                 PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
                     s,
                     p.TypeKind!,
@@ -2966,15 +2953,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(" ??= new List<");
                 s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName);
                 s.AppendLine(">(16);");
-                s.Append(ind);
-                s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
-                s.Append(ind);
-                s.AppendLine(
-                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
-                );
-                ReadDeserElem(s, p, t, ".Add", ind + "        ", ref c);
-                s.Append(ind);
-                s.AppendLine("    } }");
+                EmitCollectionElements(s, p, t, ".Add", ind, ref c);
                 if (p.IsNullableReference)
                 {
                     ind = ind.Substring(4);
@@ -2998,15 +2977,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append("var __l = new List<");
                 s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName);
                 s.AppendLine(">(16);");
-                s.Append(ind);
-                s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
-                s.Append(ind);
-                s.AppendLine(
-                    "    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
-                );
-                ReadDeserElem(s, p, "__l", ".Add", ind + "        ", ref c);
-                s.Append(ind);
-                s.AppendLine("    } }");
+                EmitCollectionElements(s, p, "__l", ".Add", ind, ref c);
                 s.Append(ind);
                 s.Append(t);
                 s.AppendLine(" = __l.ToArray();");
@@ -3153,6 +3124,129 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             "datetime" => $"{wv}.WriteDateTime({vv});",
             _ => $"{wv}.WriteString({vv}.ToString());",
         };
+
+    /// <summary>
+    /// Element kinds <see cref="ReadDeserElemCore"/> reads with a single <c>TryGetX()</c> and no nested
+    /// container — the only sites spec §3.4.1 lets rule <b>E-1</b> cover in T9. Objects, lists/arrays,
+    /// dictionaries, extended collections and <c>any</c>/polymorphism keep the end-token loop.
+    /// </summary>
+    static bool IsScalarElementKind(string? kind) =>
+        kind
+            is "string"
+                or "int32"
+                or "int64"
+                or "int16"
+                or "uint16"
+                or "sbyte"
+                or "byte"
+                or "uint32"
+                or "uint64"
+                or "float32"
+                or "float64"
+                or "boolean"
+                or "decimal"
+                or "datetime"
+                or "timespan"
+                or "dateonly"
+                or "timeonly"
+                or "guid"
+                or "enum"
+                or "bytes"
+                or "extension";
+
+    /// <summary>
+    /// Emits one collection read loop: rule <b>E-1</b> (spec §3.4.1) where it applies, the old end-token
+    /// loop (<b>E-2</b>) everywhere else. MessagePack stores the element count in every array header, so
+    /// <c>reader.TryGetCollectionCount(out n)</c> right after the start token returns exactly the number
+    /// the reader itself uses to decide when the collection ends (spec §3.1 contract, spec §6 S1).
+    /// <para>
+    /// <b>The explicit trailing <c>Read()</c> is the whole point.</b> Counting the elements does not
+    /// close the collection: after <c>count</c> elements the level counter is 0 and the <i>next</i>
+    /// <c>Read()</c> produces the end token. The <c>while</c> form performed that read as its own exit
+    /// condition, so the counted loop has to do it explicitly — otherwise the token stream shifts by one
+    /// and the parent's next member is decoded from the end token.
+    /// </para>
+    /// <para>
+    /// <b>The element read keeps the <c>while</c> form's failure path.</b> <c>Read()</c> returns
+    /// <c>false</c> when the payload ends inside the collection and leaves the previous token in place,
+    /// so <c>if (!reader.Read()) break;</c> reproduces the old behaviour exactly (a truncated root
+    /// <c>List&lt;T&gt;</c> yields the elements that were there instead of re-reading a stale value span
+    /// and reporting the last element twice). On a well-formed payload the branch is never taken and the
+    /// token count is the <c>while</c> form's <c>count + 1</c>.
+    /// </para>
+    /// <para>
+    /// <b>Static, not probed.</b> This generator only ever emits for <see cref="MsgPackReader"/>
+    /// (<c>HasCountedCollections == true</c>, spec §6 S1), so the counted shape is emitted
+    /// unconditionally — no generated <c>HasCountedCollections</c> test. The call is made on the
+    /// concrete reader type, never through a token-reader interface (spec §3.4.3: the ban is enforced by
+    /// <c>GeneratedCodeConcreteReaderGuardTests</c>, which greps this file for the interface name — so it
+    /// may not even be written here in prose). See <see cref="IsScalarElementKind"/> for the element
+    /// scope.
+    /// </para>
+    /// </summary>
+    static void EmitCollectionElements(
+        StringBuilder s,
+        PropertyInfo element,
+        string target,
+        string op,
+        string ind,
+        ref int c
+    )
+    {
+        s.Append(ind);
+        s.AppendLine("if (reader.TokenType == TokenType.ArrayStart) {");
+        var counted = IsScalarElementKind(element.ElementTypeKind);
+        var bodyInd = ind + (counted ? "            " : "        ");
+        if (counted)
+        {
+            // The count and the end decision are the same number (spec §3.1), so one `for` iteration is
+            // one element — no end-token test per element. `id` keeps the two loop locals unique across
+            // every site in one generated file.
+            var id = c++;
+            s.Append(ind);
+            s.Append("    if (reader.TryGetCollectionCount(out var __cn");
+            s.Append(id);
+            s.AppendLine(")) {");
+            s.Append(ind);
+            s.Append("        for (var __ci");
+            s.Append(id);
+            s.Append(" = 0; __ci");
+            s.Append(id);
+            s.Append(" < __cn");
+            s.Append(id);
+            s.Append("; __ci");
+            s.Append(id);
+            s.AppendLine("++) {");
+            s.Append(ind);
+            s.AppendLine("            if (!reader.Read()) break;");
+            ReadDeserElem(s, element, target, op, bodyInd, ref c);
+            s.Append(ind);
+            s.AppendLine("        }");
+            s.Append(ind);
+            s.AppendLine("        reader.Read();");
+            s.Append(ind);
+            s.AppendLine("    } else {");
+            s.Append(ind);
+            s.AppendLine(
+                "        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {"
+            );
+            ReadDeserElem(s, element, target, op, bodyInd, ref c);
+            s.Append(ind);
+            s.AppendLine("        }");
+            s.Append(ind);
+            s.AppendLine("    }");
+        }
+        else
+        {
+            s.Append(ind);
+            s.AppendLine("    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {");
+            ReadDeserElem(s, element, target, op, bodyInd, ref c);
+            s.Append(ind);
+            s.AppendLine("    }");
+        }
+        s.Append(ind);
+        s.AppendLine("}");
+    }
 
     static void ReadDeserElem(
         StringBuilder s,

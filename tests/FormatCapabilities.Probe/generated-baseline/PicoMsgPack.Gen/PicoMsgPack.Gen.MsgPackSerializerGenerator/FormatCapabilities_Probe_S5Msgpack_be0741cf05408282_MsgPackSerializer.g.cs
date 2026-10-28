@@ -39,15 +39,30 @@ file static class S5MsgpackMsgPackDeserializer {
                 case 0:
                 obj.V ??= new List<int?>(16);
                 if (reader.TokenType == TokenType.ArrayStart) {
-                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
-                        if (reader.TokenType == TokenType.Null)
-                        obj.V.Add(default!);
-                        else {
-                            if (!reader.TryGetInt32(out var __ev0))
-                                throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
-                            obj.V.Add(__ev0);
+                    if (reader.TryGetCollectionCount(out var __cn0)) {
+                        for (var __ci0 = 0; __ci0 < __cn0; __ci0++) {
+                            if (!reader.Read()) break;
+                            if (reader.TokenType == TokenType.Null)
+                            obj.V.Add(default!);
+                            else {
+                                if (!reader.TryGetInt32(out var __ev1))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                obj.V.Add(__ev1);
+                            }
                         }
-                    } }
+                        reader.Read();
+                    } else {
+                        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                            if (reader.TokenType == TokenType.Null)
+                            obj.V.Add(default!);
+                            else {
+                                if (!reader.TryGetInt32(out var __ev2))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                obj.V.Add(__ev2);
+                            }
+                        }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
@@ -78,15 +93,30 @@ file static class S5MsgpackMsgPackStreaming {
                 case 0:
                 obj.V ??= new List<int?>(16);
                 if (reader.TokenType == TokenType.ArrayStart) {
-                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
-                        if (reader.TokenType == TokenType.Null)
-                        obj.V.Add(default!);
-                        else {
-                            if (!reader.TryGetInt32(out var __ev1))
-                                throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
-                            obj.V.Add(__ev1);
+                    if (reader.TryGetCollectionCount(out var __cn3)) {
+                        for (var __ci3 = 0; __ci3 < __cn3; __ci3++) {
+                            if (!reader.Read()) break;
+                            if (reader.TokenType == TokenType.Null)
+                            obj.V.Add(default!);
+                            else {
+                                if (!reader.TryGetInt32(out var __ev4))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                obj.V.Add(__ev4);
+                            }
                         }
-                    } }
+                        reader.Read();
+                    } else {
+                        while (reader.Read() && reader.TokenType != TokenType.ArrayEnd) {
+                            if (reader.TokenType == TokenType.Null)
+                            obj.V.Add(default!);
+                            else {
+                                if (!reader.TryGetInt32(out var __ev5))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                obj.V.Add(__ev5);
+                            }
+                        }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;

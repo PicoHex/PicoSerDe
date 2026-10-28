@@ -56,7 +56,8 @@ file static class S6MsgpackMsgPackDeserializer {
                                 }
                             } }
                         obj.V.Add(__nl1);
-                    } }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
@@ -100,7 +101,8 @@ file static class S6MsgpackMsgPackStreaming {
                                 }
                             } }
                         obj.V.Add(__nl3);
-                    } }
+                    }
+                }
                     break;
                 default: if (__isMap) reader.TrySkip(); break; }
             __pos++;
