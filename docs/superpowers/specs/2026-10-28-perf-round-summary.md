@@ -30,6 +30,7 @@
 | 8 | 修复 flaky ①：迭代数夹取逻辑抽成**纯函数**，测试改用合成成本 | 测试测量的是机器，不是逻辑 | `4fb9773` | 修复前全量 **1/26** 概率失败 | `.superpowers/sdd/flaky/report.md`、`fix.md` |
 | 9 | 修复 flaky ②：预热超时测试改为断言**协议事实** | 断言吞吐量（预算里能跑几个 burst） | `854bcdd` | 4× 超订时原断言 **7/10 失败** | `.superpowers/sdd/flaky2/report.md`、`fix.md` |
 | 10 | README 性能章节**全部重测** | 数字过时比空缺更危险 | `dc8e177` | 见 §7 | `README.md` Performance |
+| 11 | MsgPack 读侧：span 模式走独立 tokenizer（`Read()` 分流 → `ReadSpan`，seq 原体逐字搬入 `ReadSequential`） | P1-1（读侧 `Read()` 每 token 9–11 ns） | `d45edca` + `d9334ed` | `DES MTenInts` **0.87×**、`DES MThirty` **0.91×**、`DES MMetrics` **0.87×**、tokenize **0.78–0.83×**（CONTROL 0.97–0.99× 证明收益来自新函数体）；**远低于归因预估的 2.33× → 1.5×** | `.superpowers/sdd/perf-mp-readspan/report.md` §5.2 |
 
 ## 3. 数字可追溯表
 
@@ -97,7 +98,7 @@
 
 | 项 | 状态 |
 |---|---|
-| Task 4e（MsgPack 读侧纯 span 快路径） | **未做**。收益**不小**：归因测得 tokenize 占 `MTenInts` 反序列化的 **57%**，同批 token 裸 span 只需 **7%**，保守估计 `DES MTenInts` 2.33× → ≈1.5×、`DES MThirty` 1.52× → ≈1.25×。排最后的原因是**风险**（`Read()` 是核心状态机，流式 `NeedsMoreData` / `PeekTokenLength` / 尾随垃圾校验都必须保持，归因自标「风险中-高」），不是收益小 |
+| Task 4e（MsgPack 读侧纯 span 快路径） | **已做**（`d45edca` + 防漂移补强 `d9334ed`）。**实测 0.87×–0.92×（DES 行，8–13%），而非归因预估的 2.33× → 1.5×**；CONTROL 0.97–0.99× 证明收益来自新函数体。**归因错在把状态机的成本记到了模式分支头上** —— 手写裸 span 解码 28 ns vs 读器 334 ns，要追平需换 token 化架构（P2 级重写） |
 | 其它语言 README 同步 | **未同步**（本轮只改英文主文件） |
 | 第三次 flaky | 40 次单跑**未复现**；仅在再现时再猎捕 |
 | JSON 继续拉近 System.Text.Json | **未做**，需要新的归因 |
@@ -115,3 +116,5 @@
 | `api/*.public.txt` 是"上次发布的面"，新增进**台账**而不是改基线 | 4b / 4c / 4d 连续三次撞同一面墙 |
 | 生成代码基线必须由**生成器重新生成**，不手工合并 | 4d 与 4c 的合并冲突 |
 | 数字**没有来源就不写**，没测到写"未测" | README 重测 |
+| 重复代码只允许以"**被检查的副本**"形式存在 | 4e：同样 200 行状态机存在两份，代价靠三件事抵消 —— 派生脚本入仓、每次测试重新派生并断言一致、token 家族清单 |
+| 护栏要**验证它抓得住**，不能只看它绿 | 4e：故意把 `ReadSpan` 内一个常量改错，确认守卫变红而构建仍绿 |
