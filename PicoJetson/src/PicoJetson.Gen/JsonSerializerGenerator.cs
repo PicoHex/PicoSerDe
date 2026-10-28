@@ -2597,6 +2597,256 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("}");
     }
 
+    // ── Scalar reads without a string round trip ────────────────────────────────────────
+    //
+    // JsonWriter puts a DateTime on the wire as its ISO-8601 'O' form ("T.fffffffZ" for Utc,
+    // "T.fffffff" for Unspecified, an offset for Local) and an enum as its number. Reading them
+    // back through Encoding.UTF8.GetString + DateTime.TryParse/Enum.TryParse therefore paid for a
+    // string allocation and a full culture-aware parse on every document. Both helpers below answer
+    // the shape we actually write with Utf8Parser in one span parse and keep the *reference* parser
+    // — the same overloads, on a char span, same options, same culture — for everything else. The
+    // equivalence is not assumed: each guard says exactly which inputs the fast arm may answer, and
+    // the fallback is the old code path with the allocation taken out.
+
+    /// <summary>
+    /// Char-span read buffer for the scalar fallbacks: at most this many <b>bytes</b> are transcoded
+    /// onto the stack. <c>charCount &lt;= byteCount</c> for UTF-8 (1–4 bytes encode one char, and an
+    /// invalid byte decodes to one U+FFFD), so 64 bytes never need more than 64 chars. Longer
+    /// payloads keep the old string path — that is a pathological DateTime, not a document we write.
+    /// </summary>
+    private const int ScalarCharStackBuffer = 64;
+
+    /// <summary>
+    /// Emits the <c>DateTime</c> read for a value already in <c>__rawBytes</c>: the fast arm, the
+    /// char-span fallback and the failure throw.
+    /// <para>
+    /// <b>The fast arm's guard is two lengths, and both are load-bearing.</b> <c>'O'</c> is 27 chars
+    /// without a zone designator and 28 with a trailing <c>Z</c>; only those two shapes are answered
+    /// exactly like <c>DateTime.TryParse(…, RoundtripKind)</c>. An explicit <c>±HH:mm</c> offset
+    /// (33 chars) is <i>not</i>: <c>Utf8Parser</c> clamps at <c>DateTime.Min/MaxValue</c> where the
+    /// reference parser fails outright, so an offset payload must fall through. The
+    /// <c>Used == Length</c> check then makes the shape exact rather than approximate.
+    /// </para>
+    /// </summary>
+    private static void EmitDateTimeReadNoString(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string indent,
+        string valueVar,
+        string nameSuffix,
+        string expected
+    )
+    {
+        sb.Append(indent);
+        sb.Append("System.DateTime ");
+        sb.Append(valueVar);
+        sb.AppendLine(";");
+        sb.Append(indent);
+        sb.Append("bool __dtOk");
+        sb.Append(nameSuffix);
+        sb.AppendLine(";");
+        sb.Append(indent);
+        sb.AppendLine(
+            "if ((__rawBytes.Length == 27 || (__rawBytes.Length == 28 && __rawBytes[27] == (byte)'Z'))"
+        );
+        sb.Append(indent);
+        sb.Append("    && System.Buffers.Text.Utf8Parser.TryParse(__rawBytes, out ");
+        sb.Append(valueVar);
+        sb.Append(", out var __dtUsed");
+        sb.Append(nameSuffix);
+        sb.AppendLine(", 'O')");
+        sb.Append(indent);
+        sb.Append("    && __dtUsed");
+        sb.Append(nameSuffix);
+        sb.AppendLine(" == __rawBytes.Length)");
+        sb.Append(indent);
+        sb.Append("    __dtOk");
+        sb.Append(nameSuffix);
+        sb.AppendLine(" = true;");
+        sb.Append(indent);
+        sb.Append("else if (__rawBytes.Length <= ");
+        sb.Append(ScalarCharStackBuffer);
+        sb.AppendLine(")");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        sb.Append(indent);
+        sb.Append("    System.Span<char> __dtChars");
+        sb.Append(nameSuffix);
+        sb.Append(" = stackalloc char[");
+        sb.Append(ScalarCharStackBuffer);
+        sb.AppendLine("];");
+        sb.Append(indent);
+        sb.Append("    var __dtLen");
+        sb.Append(nameSuffix);
+        sb.Append(" = Encoding.UTF8.GetChars(__rawBytes, __dtChars");
+        sb.Append(nameSuffix);
+        sb.AppendLine(");");
+        sb.Append(indent);
+        sb.Append("    __dtOk");
+        sb.Append(nameSuffix);
+        sb.Append(" = System.DateTime.TryParse(__dtChars");
+        sb.Append(nameSuffix);
+        sb.Append("[..__dtLen");
+        sb.Append(nameSuffix);
+        sb.AppendLine(
+            "], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out "
+                + valueVar
+                + ");"
+        );
+        sb.Append(indent);
+        sb.AppendLine("}");
+        sb.Append(indent);
+        sb.AppendLine("else");
+        sb.Append(indent);
+        sb.Append("    __dtOk");
+        sb.Append(nameSuffix);
+        sb.AppendLine(
+            " = System.DateTime.TryParse(Encoding.UTF8.GetString(__rawBytes), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out "
+                + valueVar
+                + ");"
+        );
+        sb.Append(indent);
+        sb.Append("if (!__dtOk");
+        sb.Append(nameSuffix);
+        sb.AppendLine(")");
+        EmitThrowInvalidValue(sb, indent + "    ", prop, expected);
+    }
+
+    /// <summary>
+    /// Emits the <c>enum</c> read for a value already in <c>__rawBytes</c>: numeric fast arm,
+    /// <c>Enum.TryParse</c> fallback, failure throw.
+    /// <para>
+    /// <b>The numeric arm's guard is the enum's own width, expressed without knowing it.</b> The
+    /// parsed number is cast to the member's enum type and cast back; if anything was lost the
+    /// reference parser would have rejected the value too, so the read declines and the fallback
+    /// answers. A leading <c>'-'</c> always declines: for a <c>ulong</c>-backed enum the round trip
+    /// through <c>long</c> would otherwise turn <c>-1</c> into <c>18446744073709551615</c>, which is
+    /// exactly the value <c>Enum.TryParse</c> refuses.
+    /// </para>
+    /// <para>
+    /// The fallback is <c>Enum.TryParse&lt;T&gt;(ReadOnlySpan&lt;char&gt;)</c>, the same parser the
+    /// string overload runs — so a legacy string payload (<c>"Friday"</c>), a padded number
+    /// (<c>" 5"</c>), a combined name (<c>"Friday,Tuesday"</c>) and an unknown name all answer what
+    /// they answered before.
+    /// </para>
+    /// </summary>
+    private static void EmitEnumReadNoString(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string indent,
+        string enumType,
+        string valueVar,
+        string nameSuffix
+    )
+    {
+        sb.Append(indent);
+        sb.Append(enumType);
+        sb.Append(' ');
+        sb.Append(valueVar);
+        sb.AppendLine(" = default;");
+        sb.Append(indent);
+        sb.Append("bool __enumOk");
+        sb.Append(nameSuffix);
+        sb.AppendLine(";");
+        sb.Append(indent);
+        sb.AppendLine("if (__rawBytes.Length > 0 && __rawBytes[0] != (byte)'-'");
+        sb.Append(indent);
+        // Explicit `long`: the TryParse<byte>/<sbyte>/<bool>/… overloads make `out var` ambiguous.
+        sb.Append(
+            "    && System.Buffers.Text.Utf8Parser.TryParse(__rawBytes, out long __enumNumber, out var __enumUsed"
+        );
+        sb.Append(nameSuffix);
+        sb.AppendLine(")");
+        sb.Append(indent);
+        sb.Append("    && __enumUsed");
+        sb.Append(nameSuffix);
+        sb.AppendLine(" == __rawBytes.Length)");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        sb.Append(indent);
+        sb.Append("    var __enumCast");
+        sb.Append(nameSuffix);
+        sb.Append(" = unchecked((");
+        sb.Append(enumType);
+        sb.Append(")__enumNumber)");
+        sb.AppendLine(";");
+        sb.Append(indent);
+        sb.Append("    __enumOk");
+        sb.Append(nameSuffix);
+        sb.Append(" = unchecked((long)__enumCast");
+        sb.Append(nameSuffix);
+        sb.AppendLine(") == __enumNumber;");
+        sb.Append(indent);
+        sb.Append("    ");
+        sb.Append(valueVar);
+        sb.Append(" = __enumCast");
+        sb.Append(nameSuffix);
+        sb.AppendLine(";");
+        sb.Append(indent);
+        sb.AppendLine("}");
+        sb.Append(indent);
+        sb.AppendLine("else");
+        sb.Append(indent);
+        sb.Append("    __enumOk");
+        sb.Append(nameSuffix);
+        sb.AppendLine(" = false;");
+        sb.Append(indent);
+        sb.Append("if (!__enumOk");
+        sb.Append(nameSuffix);
+        sb.AppendLine(")");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        sb.Append(indent);
+        sb.Append("    if (__rawBytes.Length <= ");
+        sb.Append(ScalarCharStackBuffer);
+        sb.AppendLine(")");
+        sb.Append(indent);
+        sb.AppendLine("    {");
+        sb.Append(indent);
+        sb.Append("        System.Span<char> __enumChars");
+        sb.Append(nameSuffix);
+        sb.Append(" = stackalloc char[");
+        sb.Append(ScalarCharStackBuffer);
+        sb.AppendLine("];");
+        sb.Append(indent);
+        sb.Append("        var __enumLen");
+        sb.Append(nameSuffix);
+        sb.Append(" = Encoding.UTF8.GetChars(__rawBytes, __enumChars");
+        sb.Append(nameSuffix);
+        sb.AppendLine(");");
+        sb.Append(indent);
+        sb.Append("        __enumOk");
+        sb.Append(nameSuffix);
+        sb.Append(" = System.Enum.TryParse<");
+        sb.Append(enumType);
+        sb.Append(">(__enumChars");
+        sb.Append(nameSuffix);
+        sb.Append("[..__enumLen");
+        sb.Append(nameSuffix);
+        sb.Append("], out ");
+        sb.Append(valueVar);
+        sb.AppendLine(");");
+        sb.Append(indent);
+        sb.AppendLine("    }");
+        sb.Append(indent);
+        sb.AppendLine("    else");
+        sb.Append(indent);
+        sb.Append("        __enumOk");
+        sb.Append(nameSuffix);
+        sb.Append(" = System.Enum.TryParse<");
+        sb.Append(enumType);
+        sb.Append(">(Encoding.UTF8.GetString(__rawBytes), out ");
+        sb.Append(valueVar);
+        sb.AppendLine(");");
+        sb.Append(indent);
+        sb.AppendLine("}");
+        sb.Append(indent);
+        sb.Append("if (!__enumOk");
+        sb.Append(nameSuffix);
+        sb.AppendLine(")");
+        EmitThrowInvalidValue(sb, indent + "    ", prop, "an enum value");
+    }
+
     // ── Deserializer emission ──
 
     private static void EmitDeserializer(StringBuilder sb, TypeInfo type)
@@ -3023,14 +3273,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "enum":
                 EmitStringOrNumberCheck(sb, indent, prop);
                 sb.Append(indent);
-                sb.AppendLine(
-                    "var __rawStr = System.Text.Encoding.UTF8.GetString(reader.GetStringRaw());"
+                sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
+                EmitEnumReadNoString(
+                    sb,
+                    prop,
+                    indent,
+                    PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(cp.TypeFullName),
+                    "__ev",
+                    "_" + prop.Name + "_ctor"
                 );
-                sb.Append(indent);
-                sb.Append("if (!System.Enum.TryParse<");
-                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(cp.TypeFullName));
-                sb.AppendLine(">(__rawStr, out var __ev))");
-                EmitThrowInvalidValue(sb, indent + "    ", prop, "an enum value");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __ev;");
@@ -3039,13 +3290,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
-                sb.Append(indent);
-                sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
-                sb.Append(indent);
-                sb.AppendLine(
-                    "if (!System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt))"
+                EmitDateTimeReadNoString(
+                    sb,
+                    prop,
+                    indent,
+                    "__dt",
+                    "_" + prop.Name + "_ctor",
+                    "a DateTime"
                 );
-                EmitThrowInvalidValue(sb, indent + "    ", prop, "a DateTime");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.AppendLine(" = __dt;");
@@ -3484,11 +3736,24 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 EmitTokenCheck(sb, indent, prop, "String");
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
-                sb.Append(indent);
-                sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
-                sb.Append(indent);
-                if (prop.DateTimeFormat is not null)
+                if (prop.DateTimeFormat is null)
                 {
+                    EmitDateTimeReadNoString(
+                        sb,
+                        prop,
+                        indent,
+                        "__dt_" + prop.Name,
+                        "_" + prop.Name,
+                        "a DateTime"
+                    );
+                }
+                else
+                {
+                    // A declared format is the caller asking for a different shape, so the
+                    // round-trip fast path does not apply: keep TryParseExact, string and all.
+                    sb.Append(indent);
+                    sb.AppendLine("var __strValue = Encoding.UTF8.GetString(__rawBytes);");
+                    sb.Append(indent);
                     sb.Append("if (!System.DateTime.TryParseExact(__strValue, \"");
                     sb.Append(prop.DateTimeFormat);
                     sb.Append(
@@ -3496,16 +3761,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     );
                     sb.Append(prop.Name);
                     sb.AppendLine("))");
+                    EmitThrowInvalidValue(sb, indent + "    ", prop, "a DateTime");
                 }
-                else
-                {
-                    sb.Append(
-                        "if (!System.DateTime.TryParse(__strValue, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var __dt_"
-                    );
-                    sb.Append(prop.Name);
-                    sb.AppendLine("))");
-                }
-                EmitThrowInvalidValue(sb, indent + "    ", prop, "a DateTime");
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
@@ -3597,13 +3854,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 EmitStringOrNumberCheck(sb, indent, prop);
                 sb.Append(indent);
                 sb.AppendLine("var __rawBytes = reader.GetStringRaw();");
-                sb.Append(indent);
-                sb.AppendLine("var __strValue = System.Text.Encoding.UTF8.GetString(__rawBytes);");
-                sb.Append(indent);
-                sb.Append("if (!System.Enum.TryParse<");
-                sb.Append(PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.TypeFullName));
-                sb.AppendLine(">(__strValue, out var __enumValue))");
-                EmitThrowInvalidValue(sb, indent + "    ", prop, "an enum value");
+                EmitEnumReadNoString(
+                    sb,
+                    prop,
+                    indent,
+                    PicoSerDe.Gen.GenInfrastructure.MapEnumReadType(prop.TypeFullName),
+                    "__enumValue",
+                    "_" + prop.Name
+                );
                 sb.Append(indent);
                 sb.Append(target);
                 sb.Append(".");
