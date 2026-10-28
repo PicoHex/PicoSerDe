@@ -11,7 +11,7 @@ public struct MsgPackReaderState
     internal bool[]? ExpectKeyStack;
 }
 
-public ref struct MsgPackReader : ITokenReader
+public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
 {
     // Span mode
     private ReadOnlySpan<byte> _data;
@@ -1149,6 +1149,70 @@ public ref struct MsgPackReader : ITokenReader
         data = _valueSpan;
         return true;
     }
+
+    /// <summary>
+    /// MessagePack carries the element count in every array/map header (fixarray/fixmap
+    /// <c>0x90-0x9F</c>/<c>0x80-0x8F</c>, array16/32 <c>0xDC</c>/<c>0xDD</c>, map16/32
+    /// <c>0xDE</c>/<c>0xDF</c>), so the count is always known right after a start token — the reader
+    /// already stores it on its own level stack for the end-token decision.
+    /// </summary>
+    public readonly bool HasCountedCollections => true;
+
+    /// <summary>
+    /// How many element iterations the collection opened by the current token will still yield, read
+    /// from the level stack the reader itself uses for its end-token decision — so a counted loop and a
+    /// <see cref="Read"/>-driven loop produce the same token sequence.
+    /// <para>
+    /// <b>A map level counts key-value pairs, not tokens</b> (spec §3.1 contract, §3.3 MessagePack row):
+    /// MessagePack stores <c>2n</c> elements for <c>n</c> pairs, so the level counter is halved — one
+    /// <c>for</c> iteration is one pair. Reporting the raw counter would make the generated loop emit
+    /// <c>2n</c> iterations over <c>n</c> pairs (spec RK-3). Map32's clamp
+    /// (<c>Math.Min(len, int.MaxValue / 2) * 2</c>) is inherited, never re-derived here.
+    /// </para>
+    /// <para>
+    /// <b>Only a start token answers.</b> No collection token was produced yet (<c>_depth == 0</c>), or the
+    /// current token is a scalar or an end token ⇒ <c>false</c> with <paramref name="count"/> = 0. That is
+    /// why the "odd level counter" state is not reachable here: right after a start token the level
+    /// <c>_depth - 1</c> names has just been pushed, an array with <c>n</c> and a map with <c>2n</c>.
+    /// </para>
+    /// <para>
+    /// <b>Never changes observable state</b> (spec §3.1): no position move, no change to
+    /// <see cref="TokenType"/>/<see cref="Depth"/>/<see cref="NeedsMoreData"/>, no span invalidation.
+    /// A truncated collection is not an error here — this is a query, not a read.
+    /// </para>
+    /// </summary>
+    public readonly bool TryGetCollectionCount(out int count)
+    {
+        if (_depth == 0 || _tokenType is not (TokenType.ArrayStart or TokenType.ObjectStart))
+        {
+            count = 0;
+            return false;
+        }
+
+        var level = _depth - 1;
+        var remaining = _elementStack[level];
+        count = _isMapStack[level] ? remaining / 2 : remaining;
+        return true;
+    }
+
+    /// <summary>
+    /// Task T5 forwards the four fused reads to the reference semantics
+    /// (<see cref="TokenReaderFused"/>); T6–T8 replace them with span fast paths. Forwarding, not
+    /// re-deriving: a second hand-written <c>Read() + TryGetX()</c> is how the F-1…F-4 defects appeared
+    /// (spec §3.1 last paragraph, RK-8 ③). Not <c>readonly</c>: <c>ref this</c> in a readonly member is
+    /// <c>CS1605</c>.
+    /// </summary>
+    public bool TryReadInt32(out int value) => TokenReaderFused.TryReadInt32(ref this, out value);
+
+    /// <summary>See <see cref="TryReadInt32"/> — forwarded to the reference semantics until T7.</summary>
+    public bool TryReadInt64(out long value) => TokenReaderFused.TryReadInt64(ref this, out value);
+
+    /// <summary>See <see cref="TryReadInt32"/> — forwarded to the reference semantics until T8.</summary>
+    public bool TryReadFloat64(out double value) =>
+        TokenReaderFused.TryReadFloat64(ref this, out value);
+
+    /// <summary>See <see cref="TryReadInt32"/> — forwarded to the reference semantics until T8.</summary>
+    public bool TryReadBool(out bool value) => TokenReaderFused.TryReadBool(ref this, out value);
 
     public bool TryGetFloat64(out double v)
     {
