@@ -105,17 +105,21 @@ file static class S1JsonStreaming
                 result.V = new System.Collections.Generic.List<int>();
                 if (reader.TokenType == TokenType.ArrayStart)
                 {
-                    while (reader.Read() && reader.TokenType != TokenType.ArrayEnd)
+                    while (true)
                     {
-                        if (reader.TokenType == TokenType.Null)
-                            throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
-                        if (!reader.TryGetInt32(out var __elementValue))
+                        if (reader.TryReadInt32(out var __elementValue))
                         {
-                            if (!reader.TryGetInt64(out var __lev))
-                                throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
-                            __elementValue = checked((int)__lev);
+                            result.V.Add(__elementValue);
+                            continue;
                         }
-                        result.V.Add(__elementValue);
+                        // rule E-3 (spec §3.4.1): the three ways the fused read can answer false
+                        if (reader.TokenType == TokenType.ArrayEnd) break;
+                        if (reader.NeedsMoreData) break;
+                        if (reader.ValueSpan.IsEmpty
+                            && reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.ArrayStart) break;
+                        if (!reader.TryGetInt64(out var __lev))
+                            throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                        result.V.Add(checked((int)__lev));
                     }
                 }
             }
