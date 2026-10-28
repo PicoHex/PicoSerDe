@@ -89,7 +89,7 @@ seg-bom-split-2/Sequence/opts=default/final=1/seg=2 => 1:ArrayStart@4/1/0--1--1/
             if (line.Length == 0)
                 continue;
             int at = line.IndexOf(" => ", StringComparison.Ordinal);
-            map[line[..at]] = line[(at + 4)..];
+            map[line[..at]] = line[(at + 4)..].TrimEnd('\r'); // this file is CRLF on Windows and LF elsewhere; the pinned value must not carry the \r
         }
         return map;
     }
