@@ -97,7 +97,7 @@
 
 | 项 | 状态 |
 |---|---|
-| Task 4e（MsgPack 读侧纯 span 快路径） | **未做**（P1，收益小于已做项） |
+| Task 4e（MsgPack 读侧纯 span 快路径） | **未做**。收益**不小**：归因测得 tokenize 占 `MTenInts` 反序列化的 **57%**，同批 token 裸 span 只需 **7%**，保守估计 `DES MTenInts` 2.33× → ≈1.5×、`DES MThirty` 1.52× → ≈1.25×。排最后的原因是**风险**（`Read()` 是核心状态机，流式 `NeedsMoreData` / `PeekTokenLength` / 尾随垃圾校验都必须保持，归因自标「风险中-高」），不是收益小 |
 | 其它语言 README 同步 | **未同步**（本轮只改英文主文件） |
 | 第三次 flaky | 40 次单跑**未复现**；仅在再现时再猎捕 |
 | JSON 继续拉近 System.Text.Json | **未做**，需要新的归因 |
