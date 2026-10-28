@@ -48,6 +48,15 @@ public class MsgPackReaderFusedEquivalenceTests
     public static IEnumerable<MsgPackFusedTokenDump.IntAccessor> IntAccessors() =>
         [MsgPackFusedTokenDump.IntAccessor.Int32, MsgPackFusedTokenDump.IntAccessor.Int64];
 
+    /// <summary>
+    /// The four fused reads, forced on <b>every</b> token whatever its type (task T8): the main guard only
+    /// calls a member on the token family it was made for, so the cross-type answers — an integer token
+    /// read as a <c>double</c>, a float token read as an <c>int</c>, a string read as a <c>bool</c> — would
+    /// otherwise never be compared.
+    /// </summary>
+    public static IEnumerable<ForcedAccessor> ForcedAccessors() =>
+        [ForcedAccessor.Int32, ForcedAccessor.Int64, ForcedAccessor.Float64, ForcedAccessor.Bool];
+
     public static IEnumerable<FusedFault> Faults() =>
         [
             FusedFault.WrongInt32Value,
@@ -387,6 +396,87 @@ public class MsgPackReaderFusedEquivalenceTests
             .Because($"{fault}: the first difference the guard reported");
     }
 
+    /// <summary>
+    /// <b>T8's semantic corners</b> (spec §5.3 "结果" row — 类型不符 must answer false and keep the token
+    /// current): every fused read is forced onto every token, on both block modes, over the whole corpus,
+    /// and compared with the literal <c>Read() &amp;&amp; TryGetX()</c> pair — answer, complete state, terminal
+    /// state and exceptions.
+    /// <para>
+    /// <b>What it pins that the main guard cannot.</b> <c>TryGetFloat64</c> serves the <c>Int32</c>/
+    /// <c>Int64</c> token family with the exact integer value, so <c>TryReadFloat64</c> must succeed on
+    /// integer tokens and fail on <c>uint8/16/32/64</c>; <c>TryGetBool</c> serves only <c>0xC2</c>/<c>0xC3</c>,
+    /// so <c>TryReadBool</c> must answer false (with the token consumed and current) on every other token;
+    /// <c>TryGetInt32</c> refuses float tokens. Those rules live in the reader's <c>TryGetX</c> family, and
+    /// the fused members may only <i>reuse</i> them — this test is what makes a re-derivation visible.
+    /// </para>
+    /// <para>
+    /// The tallies are asserted too: a corpus that never produced an integer token, a float token or a
+    /// non-bool token would make the corresponding comparison vacuous.
+    /// </para>
+    /// </summary>
+    [Test]
+    [MethodDataSource(nameof(ForcedAccessors))]
+    public async Task CrossTypeFused_MatchesReadPlusTryGet(ForcedAccessor accessor)
+    {
+        var tally = new CrossTypeTally();
+        string firstDifference = "";
+        var walks = 0;
+        foreach (
+            var (name, payload) in MsgPackSpanTokenDump
+                .Payloads()
+                .Concat(MsgPackSpanTokenDump.RandomPayloads())
+        )
+        {
+            foreach (var isFinalBlock in new[] { true, false })
+            {
+                var difference = FirstCrossTypeDifference(payload, accessor, isFinalBlock, tally);
+                if (difference is not null && firstDifference.Length == 0)
+                    firstDifference = name + " (final=" + isFinalBlock + "): " + difference;
+                walks++;
+            }
+        }
+
+        await Assert
+            .That(firstDifference)
+            .IsEmpty()
+            .Because($"{accessor}: forced on every token, both block modes, the whole corpus");
+        await Assert
+            .That(walks)
+            .IsEqualTo(2 * (MsgPackSpanTokenDump.Payloads().Count() + 2000))
+            .Because($"{accessor}: the whole corpus was walked in both block modes");
+
+        if (accessor == ForcedAccessor.Float64)
+        {
+            await Assert
+                .That(tally.FloatServed)
+                .IsGreaterThan(100)
+                .Because("float tokens must reach the float fast path");
+            await Assert
+                .That(tally.IntServedAsFloat)
+                .IsGreaterThan(100)
+                .Because("TryGetFloat64 serves Int32/Int64 tokens: the fused member must too");
+            await Assert
+                .That(tally.UnsignedRejectedAsFloat)
+                .IsGreaterThan(10)
+                .Because("TryGetFloat64 refuses unsigned tokens: the fused member must too");
+        }
+        else if (accessor == ForcedAccessor.Int32)
+        {
+            await Assert
+                .That(tally.FloatRejectedAsInt)
+                .IsGreaterThan(2)
+                .Because("a float token is not an int");
+        }
+        else if (accessor == ForcedAccessor.Bool)
+        {
+            await Assert.That(tally.BoolServed).IsGreaterThan(2).Because("bool tokens");
+            await Assert
+                .That(tally.NonBoolRejectedAsBool)
+                .IsGreaterThan(100)
+                .Because("only 0xC2/0xC3 are bools");
+        }
+    }
+
     // ── helpers ──
 
     private static MsgPackFusedTokenDump.FusedDrain DrainOnStandIn(
@@ -459,18 +549,14 @@ public class MsgPackReaderFusedEquivalenceTests
         MsgPackFusedTokenDump.DumpEntry entry
     ) =>
         entry
-        is MsgPackFusedTokenDump.DumpEntry.Sequence
-            or MsgPackFusedTokenDump.DumpEntry.SequenceNonFinal
+            is MsgPackFusedTokenDump.DumpEntry.Sequence
+                or MsgPackFusedTokenDump.DumpEntry.SequenceNonFinal
             ? DrainOnRealReaderSequence(
                 payload,
                 reference,
                 entry == MsgPackFusedTokenDump.DumpEntry.Sequence
             )
-            : DrainOnRealReader(
-                payload,
-                reference,
-                entry == MsgPackFusedTokenDump.DumpEntry.Span
-            );
+            : DrainOnRealReader(payload, reference, entry == MsgPackFusedTokenDump.DumpEntry.Span);
 
     /// <summary>The fused arm over a single-segment sequence: the streaming entry.</summary>
     private static MsgPackFusedTokenDump.FusedDrain DrainOnRealReaderSequence(
@@ -491,6 +577,205 @@ public class MsgPackReaderFusedEquivalenceTests
         finally
         {
             reader.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// One lockstep walk of two readers over the same bytes: the reference arm issues
+    /// <c>Read()</c> then the <c>TryGetX</c> the accessor names, the fused arm issues one forced fused call.
+    /// Returns the first difference (or null), and tallies the cross-type answers so the caller can prove
+    /// the corpus reached them.
+    /// </summary>
+    private static string? FirstCrossTypeDifference(
+        byte[] payload,
+        ForcedAccessor accessor,
+        bool isFinalBlock,
+        CrossTypeTally tally
+    )
+    {
+        var reference = new MsgPackReader(payload.AsSpan(), isFinalBlock);
+        var fused = new MsgPackReader(payload.AsSpan(), isFinalBlock);
+        try
+        {
+            for (var i = 0; ; i++)
+            {
+                bool refAdvanced;
+                var refAnswer = "<none>";
+                Exception? refFailure = null;
+                try
+                {
+                    refAdvanced = reference.Read();
+                    if (refAdvanced)
+                    {
+                        refAnswer = AccessorAnswer(accessor, ref reference);
+                        var type = reference.TokenType;
+                        if (accessor == ForcedAccessor.Float64)
+                        {
+                            if (MsgPackFusedTokenDump.IsFloatFamily(type))
+                                tally.FloatServed++;
+                            else if (MsgPackFusedTokenDump.IsIntFamily(type))
+                            {
+                                if (
+                                    type
+                                    is TokenType.UInt8
+                                        or TokenType.UInt16
+                                        or TokenType.UInt32
+                                        or TokenType.UInt64
+                                )
+                                    tally.UnsignedRejectedAsFloat++;
+                                else
+                                    tally.IntServedAsFloat++;
+                            }
+                        }
+                        else if (accessor == ForcedAccessor.Int32)
+                        {
+                            if (
+                                MsgPackFusedTokenDump.IsFloatFamily(type)
+                                && refAnswer == "<no i32>"
+                            )
+                                tally.FloatRejectedAsInt++;
+                        }
+                        else if (accessor == ForcedAccessor.Bool)
+                        {
+                            if (type == TokenType.Bool)
+                                tally.BoolServed++;
+                            else if (refAnswer == "<no bool>")
+                                tally.NonBoolRejectedAsBool++;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    refAdvanced = false;
+                    refFailure = ex;
+                }
+
+                var fusedAdvanced = false;
+                var fusedAnswer = "<none>";
+                Exception? fusedFailure = null;
+                try
+                {
+                    fusedAdvanced = FusedAccessorCall(accessor, ref fused, out fusedAnswer);
+                }
+                catch (Exception ex)
+                {
+                    fusedFailure = ex;
+                }
+
+                if (refFailure is not null)
+                {
+                    var want = Describe(refFailure);
+                    var got = Describe(fusedFailure);
+                    return want == got
+                        ? null
+                        : "token " + i + ": failure <" + want + "> vs <" + got + ">";
+                }
+
+                if (fusedFailure is not null)
+                    return "token "
+                        + i
+                        + ": the fused read threw <"
+                        + Describe(fusedFailure)
+                        + "> where the reference pair did not";
+
+                // A fused read answers false both at a chunk boundary and on a token it cannot decode,
+                // so "returned false" is not an end-of-input signal here: the reference loop decides
+                // where the walk ends, and the fused call at that point is the extra one that must not
+                // advance.
+                if (!refAdvanced)
+                {
+                    if (fusedAdvanced)
+                        return "token " + i + ": the fused read advanced past the end of input";
+                    break;
+                }
+
+                if (refAnswer != fusedAnswer)
+                    return "token " + i + ": answer <" + refAnswer + "> vs <" + fusedAnswer + ">";
+
+                var refSnapshot = MsgPackSpanTokenDump.Capture(i, ref reference);
+                var fusedSnapshot = MsgPackSpanTokenDump.Capture(i, ref fused);
+                if (refSnapshot.ToString() != fusedSnapshot.ToString())
+                    return "token "
+                        + i
+                        + ": state <"
+                        + refSnapshot
+                        + "> vs <"
+                        + fusedSnapshot
+                        + ">";
+            }
+
+            if (reference.NeedsMoreData != fused.NeedsMoreData)
+                return "NeedsMoreData " + reference.NeedsMoreData + " vs " + fused.NeedsMoreData;
+            if (reference.Depth != fused.Depth)
+                return "Depth " + reference.Depth + " vs " + fused.Depth;
+            if (reference.BytesConsumed != fused.BytesConsumed)
+                return "BytesConsumed " + reference.BytesConsumed + " vs " + fused.BytesConsumed;
+            return null;
+        }
+        finally
+        {
+            reference.Dispose();
+            fused.Dispose();
+        }
+    }
+
+    private static string Describe(Exception? failure) =>
+        failure is null ? "<no throw>" : failure.GetType().Name + ": " + failure.Message;
+
+    /// <summary>The reference arm's answer for the current token, through the <c>TryGetX</c> family only.</summary>
+    private static string AccessorAnswer(ForcedAccessor accessor, ref MsgPackReader reader) =>
+        accessor switch
+        {
+            ForcedAccessor.Int32 => reader.TryGetInt32(out var i32)
+                ? "i32=" + i32.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : "<no i32>",
+            ForcedAccessor.Int64 => reader.TryGetInt64(out var i64)
+                ? "i64=" + i64.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : "<no i64>",
+            ForcedAccessor.Float64 => reader.TryGetFloat64(out var f64)
+                ? "f64="
+                    + BitConverter
+                        .DoubleToInt64Bits(f64)
+                        .ToString("X16", System.Globalization.CultureInfo.InvariantCulture)
+                : "<no f64>",
+            _ => reader.TryGetBool(out var b) ? "bool=" + (b ? "1" : "0") : "<no bool>",
+        };
+
+    /// <summary>The fused arm's answer, as one forced call (spec §3.2: advance <i>and</i> decode).</summary>
+    private static bool FusedAccessorCall(
+        ForcedAccessor accessor,
+        ref MsgPackReader reader,
+        out string answer
+    )
+    {
+        bool ok;
+        switch (accessor)
+        {
+            case ForcedAccessor.Int32:
+                ok = reader.TryReadInt32(out var i32);
+                answer = ok
+                    ? "i32=" + i32.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : "<no i32>";
+                return ok;
+            case ForcedAccessor.Int64:
+                ok = reader.TryReadInt64(out var i64);
+                answer = ok
+                    ? "i64=" + i64.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : "<no i64>";
+                return ok;
+            case ForcedAccessor.Float64:
+                ok = reader.TryReadFloat64(out var f64);
+                answer = ok
+                    ? "f64="
+                        + BitConverter
+                            .DoubleToInt64Bits(f64)
+                            .ToString("X16", System.Globalization.CultureInfo.InvariantCulture)
+                    : "<no f64>";
+                return ok;
+            default:
+                ok = reader.TryReadBool(out var b);
+                answer = ok ? "bool=" + (b ? "1" : "0") : "<no bool>";
+                return ok;
         }
     }
 
@@ -638,6 +923,44 @@ public static class FusedFaultExtensions
             FusedFault.WrongBoolValue => line.Read.StartsWith("bool=", StringComparison.Ordinal),
             _ => false,
         };
+}
+
+/// <summary>Which fused read the cross-type guard forces onto every token (task T8).</summary>
+public enum ForcedAccessor
+{
+    /// <summary><c>TryReadInt32</c> — must refuse float tokens.</summary>
+    Int32 = 0,
+
+    /// <summary><c>TryReadInt64</c> — must refuse only <c>uint64</c> above <c>long.MaxValue</c>.</summary>
+    Int64 = 1,
+
+    /// <summary><c>TryReadFloat64</c> — must serve <c>float32/64</c> and the signed integer family.</summary>
+    Float64 = 2,
+
+    /// <summary><c>TryReadBool</c> — must serve only <c>0xC2</c>/<c>0xC3</c>.</summary>
+    Bool = 3,
+}
+
+/// <summary>Cross-type answers the forced walk counts, so a vacuous corpus cannot pass.</summary>
+public sealed class CrossTypeTally
+{
+    /// <summary><c>float32</c>/<c>float64</c> tokens served.</summary>
+    public int FloatServed;
+
+    /// <summary><c>Int32</c>/<c>Int64</c> tokens served as a <c>double</c>.</summary>
+    public int IntServedAsFloat;
+
+    /// <summary><c>uint8/16/32/64</c> tokens refused as a <c>double</c>.</summary>
+    public int UnsignedRejectedAsFloat;
+
+    /// <summary><c>float32/64</c> tokens refused as an <c>int</c>.</summary>
+    public int FloatRejectedAsInt;
+
+    /// <summary>Bool tokens served.</summary>
+    public int BoolServed;
+
+    /// <summary>Non-bool tokens refused as a <c>bool</c>.</summary>
+    public int NonBoolRejectedAsBool;
 }
 
 /// <summary>
