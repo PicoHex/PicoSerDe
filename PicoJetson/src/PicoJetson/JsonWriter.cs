@@ -424,6 +424,10 @@ public ref struct JsonWriter
     {
         BeforeWriteValue();
         int max = Encoding.UTF8.GetMaxByteCount(value.Length);
+        // Long payloads (>256 bytes of worst case) encode straight into the writer's own span;
+        // see TryWriteLongString for why that is the interesting case and what it costs.
+        if (max > 256 && TryWriteLongString(value, max))
+            return;
         if (max <= 256)
         {
             Span<byte> buf = stackalloc byte[max];
@@ -508,6 +512,50 @@ public ref struct JsonWriter
             // "expected value".
             WriteQuotedString(bytes);
         }
+    }
+
+    /// <summary>
+    /// Long-payload fast path: encodes the UTF-8 bytes straight into the writer's own span —
+    /// quotes included — so a payload whose worst case does not fit the 256-byte stack buffer
+    /// costs neither the intermediate <c>char[]</c> of <c>value.ToArray()</c> nor the
+    /// <c>byte[]</c> a full-length encode would need. This is the path a 1 KB member string
+    /// takes, and it allocates nothing at all when the payload needs no escaping.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The escape question is still answered by <see cref="NeedsEscapingVectorized"/> over the
+    /// <em>encoded UTF-8 bytes</em>, exactly as the byte overload answers it: the decision, its
+    /// input and its operator are unchanged, only the buffer the bytes live in is. When the
+    /// answer is "escapes needed" this method returns <c>false</c> <em>without moving the write
+    /// cursor</em> — the bytes staged here sit past <see cref="_spanPos"/>, are never committed,
+    /// and are overwritten by the buffered path the caller falls back to. The escaping path
+    /// therefore keeps its previous implementation and its previous output.
+    /// </para>
+    /// <para>
+    /// The span is requested at the worst case (<c>GetMaxByteCount(length) + 2</c>), which is
+    /// what makes encoding into it safe before the byte count is known — the same reservation
+    /// MemoryPack's <c>GetSpanReference((len + 1) * 3 + 8)</c> makes. One <see cref="Ensure"/>,
+    /// one <see cref="CommitBare"/>, no copy through a heap array.
+    /// </para>
+    /// </remarks>
+    private bool TryWriteLongString(scoped ReadOnlySpan<char> value, int maxBytes)
+    {
+        // Opening quote + worst-case payload + closing quote, in the one staged region.
+        Ensure(maxBytes + 2);
+        var start = _spanPos;
+        _span[start] = (byte)'"';
+        var w = Encoding.UTF8.GetBytes(value, _span[(start + 1)..]);
+        if (w >= Vector128Size && !NeedsEscapingVectorized(_span.Slice(start + 1, w)))
+        {
+            _span[start + 1 + w] = (byte)'"';
+            _spanPos = start + w + 2;
+            _bytesWritten += w + 2;
+            CommitBare();
+            return true;
+        }
+        // Escapes needed (or a payload below one vector, which this path cannot reach): leave the
+        // cursor where it was, so what was staged above is never committed.
+        return false;
     }
 
     /// <summary>
