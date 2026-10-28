@@ -147,6 +147,11 @@ public static class JsonSpanTokenDump
         yield return ("unfinished-unicode-escape", U8("{\"a\":\"\\u00\"}"), true);
         yield return ("bad-literal-tru", U8("tru"), true);
         yield return ("bad-literal-nul", U8("nul"), true);
+        // A literal whose first byte is right and whose tail is not, placed AFTER a token has been read:
+        // only a reader that compares every byte (rather than the opening one) rejects these, and the
+        // token before it is what lets the fused arm be walked up to the failure instead of not at all.
+        yield return ("bad-literal-after-value", U8("[1,tXue]"), true);
+        yield return ("bad-literal-f-after-value", U8("[1,falsx]"), true);
         // A bare 0x01 inside a string is invalid JSON (RFC 8259 §7) but this reader tolerates it, so
         // the entry is recorded as "no throw" — the guard dumps the token either way.
         yield return ("raw-control-char-in-string", U8("{\"a\":\"x\u0001y\"}"), false);
