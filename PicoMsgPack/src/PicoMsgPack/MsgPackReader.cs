@@ -32,6 +32,21 @@ public ref struct MsgPackReader : ITokenReader
     private BoolStack64 _isMapStack;
     private BoolStack64 _expectKeyStack;
 
+    // #5 (task perf/mp-collection): the integer value of the current token is
+    // derived inside ReadSequential()/ReadSpan(), where the tag byte is already
+    // in hand, so TryGetInt32/TryGetInt64 do not have to re-derive it from
+    // TokenType *and* _valueSpan.Length (two switches plus a call). _intKind:
+    // 0 = the token reported by the last successful Read() is not an integer (or
+    // no token has been read yet), 1 = _intValue holds its exact value,
+    // 2 = it is an integer whose value does not fit a long (UInt64 above
+    // long.MaxValue: both int accessors must report failure). The cache is
+    // invalidated wherever _tokenType is set, so it can never describe a
+    // different token than TokenType does -- including after a failed Read(),
+    // where both keep describing the last returned token, as before. Both fields
+    // are auto-defaulted by the struct constructors, like _singleByte.
+    private long _intValue;
+    private byte _intKind;
+
     private const int MaxDepth = 64;
     private readonly bool _isFinalBlock;
     private bool _needsMoreData;
@@ -376,6 +391,7 @@ public ref struct MsgPackReader : ITokenReader
         {
             _depth--;
             _tokenType = _isMapStack[_depth] ? TokenType.ObjectEnd : TokenType.ArrayEnd;
+            _intKind = 0;
             // Span mode: once the root container closes, any remaining byte
             // is trailing garbage (review P2-4). Sequence mode keeps the
             // streaming semantics untouched.
@@ -389,6 +405,9 @@ public ref struct MsgPackReader : ITokenReader
             return false;
         }
 
+        // #5: the token about to be produced is an integer only if one of the
+        // integer arms below says so.
+        _intKind = 0;
         var b = _data[_position];
         _position++; // consume tag byte
 
@@ -399,6 +418,8 @@ public ref struct MsgPackReader : ITokenReader
                 _singleByte = b;
                 _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
                 _tokenType = TokenType.Int32;
+                _intValue = b;
+                _intKind = 1;
                 CountElement();
                 return true;
             // Fixmap 0x80-0x8F
@@ -421,6 +442,8 @@ public ref struct MsgPackReader : ITokenReader
                 _singleByte = b;
                 _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
                 _tokenType = TokenType.Int32;
+                _intValue = (sbyte)b;
+                _intKind = 1;
                 CountElement();
                 return true;
             default:
@@ -440,41 +463,56 @@ public ref struct MsgPackReader : ITokenReader
                     case 0xCC:
                         _valueSpan = ReadBytesSpan(1);
                         _tokenType = TokenType.UInt8;
+                        _intValue = _valueSpan[0];
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xCD:
                         _valueSpan = ReadBytesSpan(2);
                         _tokenType = TokenType.UInt16;
+                        _intValue = BinaryPrimitives.ReadUInt16BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xCE:
                         _valueSpan = ReadBytesSpan(4);
                         _tokenType = TokenType.UInt32;
+                        _intValue = BinaryPrimitives.ReadUInt32BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xCF:
                         _valueSpan = ReadBytesSpan(8);
                         _tokenType = TokenType.UInt64;
+                        CacheUInt64(BinaryPrimitives.ReadUInt64BigEndian(_valueSpan));
                         CountElement();
                         return true;
                     case 0xD0:
                         _valueSpan = ReadBytesSpan(1);
                         _tokenType = TokenType.Int32;
+                        _intValue = (sbyte)_valueSpan[0];
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xD1:
                         _valueSpan = ReadBytesSpan(2);
                         _tokenType = TokenType.Int32;
+                        _intValue = BinaryPrimitives.ReadInt16BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xD2:
                         _valueSpan = ReadBytesSpan(4);
                         _tokenType = TokenType.Int32;
+                        _intValue = BinaryPrimitives.ReadInt32BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xD3:
                         _valueSpan = ReadBytesSpan(8);
                         _tokenType = TokenType.Int64;
+                        _intValue = BinaryPrimitives.ReadInt64BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xCA:
@@ -623,6 +661,7 @@ public ref struct MsgPackReader : ITokenReader
         {
             _depth--;
             _tokenType = _isMapStack[_depth] ? TokenType.ObjectEnd : TokenType.ArrayEnd;
+            _intKind = 0;
             // Span mode: once the root container closes, any remaining byte
             // is trailing garbage (review P2-4). Sequence mode keeps the
             // streaming semantics untouched.
@@ -650,6 +689,9 @@ public ref struct MsgPackReader : ITokenReader
             }
         }
 
+        // #5: the token about to be produced is an integer only if one of the
+        // integer arms below says so.
+        _intKind = 0;
         var b = PeekByte();
         AdvanceByte(); // consume tag byte
 
@@ -660,6 +702,8 @@ public ref struct MsgPackReader : ITokenReader
                 _singleByte = b;
                 _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
                 _tokenType = TokenType.Int32;
+                _intValue = b;
+                _intKind = 1;
                 CountElement();
                 return true;
             // Fixmap 0x80-0x8F
@@ -682,6 +726,8 @@ public ref struct MsgPackReader : ITokenReader
                 _singleByte = b;
                 _valueSpan = MemoryMarshal.CreateSpan(ref _singleByte, 1);
                 _tokenType = TokenType.Int32;
+                _intValue = (sbyte)b;
+                _intKind = 1;
                 CountElement();
                 return true;
             default:
@@ -701,41 +747,56 @@ public ref struct MsgPackReader : ITokenReader
                     case 0xCC:
                         _valueSpan = ReadBytes(1);
                         _tokenType = TokenType.UInt8;
+                        _intValue = _valueSpan[0];
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xCD:
                         _valueSpan = ReadBytes(2);
                         _tokenType = TokenType.UInt16;
+                        _intValue = BinaryPrimitives.ReadUInt16BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xCE:
                         _valueSpan = ReadBytes(4);
                         _tokenType = TokenType.UInt32;
+                        _intValue = BinaryPrimitives.ReadUInt32BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xCF:
                         _valueSpan = ReadBytes(8);
                         _tokenType = TokenType.UInt64;
+                        CacheUInt64(BinaryPrimitives.ReadUInt64BigEndian(_valueSpan));
                         CountElement();
                         return true;
                     case 0xD0:
                         _valueSpan = ReadBytes(1);
                         _tokenType = TokenType.Int32;
+                        _intValue = (sbyte)_valueSpan[0];
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xD1:
                         _valueSpan = ReadBytes(2);
                         _tokenType = TokenType.Int32;
+                        _intValue = BinaryPrimitives.ReadInt16BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xD2:
                         _valueSpan = ReadBytes(4);
                         _tokenType = TokenType.Int32;
+                        _intValue = BinaryPrimitives.ReadInt32BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xD3:
                         _valueSpan = ReadBytes(8);
                         _tokenType = TokenType.Int64;
+                        _intValue = BinaryPrimitives.ReadInt64BigEndian(_valueSpan);
+                        _intKind = 1;
                         CountElement();
                         return true;
                     case 0xCA:
@@ -924,137 +985,57 @@ public ref struct MsgPackReader : ITokenReader
 
     // ── Typed accessors ──
 
+    /// <summary>
+    /// Reads the current token as an <see cref="int"/>. The value was derived by
+    /// <see cref="Read"/> already, so this is a range check on the cached value;
+    /// a token that is not an integer, or a value outside the int range, still
+    /// reports false exactly as the previous re-derivation did.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetInt32(out int v)
     {
-        v = 0;
-        if (_valueSpan.IsEmpty)
+        if (_intKind == 1)
         {
-            return false;
-        }
-        if (
-            _tokenType
-            is TokenType.Int32
-                or TokenType.UInt8
-                or TokenType.UInt16
-                or TokenType.UInt32
-                or TokenType.Int64
-                or TokenType.UInt64
-        )
-        {
-            switch (_valueSpan.Length)
+            long lv = _intValue;
+            if (lv >= int.MinValue && lv <= int.MaxValue)
             {
-                case 1:
-                    v =
-                        _tokenType == TokenType.UInt8
-                            ? _valueSpan[0]
-                            : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]);
-                    return true;
-                case 2:
-                    v =
-                        _tokenType == TokenType.UInt16
-                            ? BinaryPrimitives.ReadUInt16BigEndian(_valueSpan)
-                            : BinaryPrimitives.ReadInt16BigEndian(_valueSpan);
-                    return true;
-                case 4 when _tokenType == TokenType.UInt32:
-                {
-                    uint uv = BinaryPrimitives.ReadUInt32BigEndian(_valueSpan);
-                    if (uv > int.MaxValue)
-                        return false;
-                    v = (int)uv;
-                    return true;
-                }
-                case 4:
-                    v = BinaryPrimitives.ReadInt32BigEndian(_valueSpan);
-                    return true;
-                case 8 when _tokenType == TokenType.UInt64:
-                {
-                    ulong uv = BinaryPrimitives.ReadUInt64BigEndian(_valueSpan);
-                    if (uv > int.MaxValue)
-                        return false;
-                    v = (int)uv;
-                    return true;
-                }
-                case 8:
-                {
-                    long lv = BinaryPrimitives.ReadInt64BigEndian(_valueSpan);
-                    if (lv < int.MinValue || lv > int.MaxValue)
-                        return false;
-                    v = (int)lv;
-                    return true;
-                }
-                default:
-                    v = 0;
-                    return false;
+                v = (int)lv;
+                return true;
             }
         }
         v = 0;
         return false;
     }
 
+    /// <summary>See <see cref="TryGetInt32"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetInt64(out long v)
     {
-        if (_valueSpan.IsEmpty)
+        if (_intKind == 1)
         {
-            v = 0;
-            return false;
-        }
-        if (
-            _tokenType
-            is TokenType.Int32
-                or TokenType.UInt8
-                or TokenType.UInt16
-                or TokenType.UInt32
-                or TokenType.Int64
-                or TokenType.UInt64
-        )
-        {
-            switch (_valueSpan.Length)
-            {
-                case 1:
-                    v =
-                        _tokenType == TokenType.UInt8
-                            ? _valueSpan[0]
-                            : (_valueSpan[0] < 0x80 ? _valueSpan[0] : (sbyte)_valueSpan[0]);
-                    return true;
-                case 2:
-                    v =
-                        _tokenType == TokenType.UInt16
-                            ? BinaryPrimitives.ReadUInt16BigEndian(_valueSpan)
-                            : BinaryPrimitives.ReadInt16BigEndian(_valueSpan);
-                    return true;
-                case 4:
-                    if (_tokenType == TokenType.UInt32)
-                    {
-                        uint uv32 = BinaryPrimitives.ReadUInt32BigEndian(_valueSpan);
-                        v = uv32;
-                        return true;
-                    }
-                    v = BinaryPrimitives.ReadInt32BigEndian(_valueSpan);
-                    return true;
-                case 8:
-                    // A uint64 above long.MaxValue does not fit a long target:
-                    // report failure so the caller raises FormatException
-                    // instead of silently wrapping to a negative value.
-                    if (_tokenType == TokenType.UInt64)
-                    {
-                        ulong uv64 = BinaryPrimitives.ReadUInt64BigEndian(_valueSpan);
-                        if (uv64 > long.MaxValue)
-                        {
-                            v = 0;
-                            return false;
-                        }
-                        v = (long)uv64;
-                        return true;
-                    }
-                    v = BinaryPrimitives.ReadInt64BigEndian(_valueSpan);
-                    return true;
-                default:
-                    v = 0;
-                    return false;
-            }
+            v = _intValue;
+            return true;
         }
         v = 0;
         return false;
+    }
+
+    /// <summary>
+    /// Caches a <c>uint64</c> token. A value above <see cref="long.MaxValue"/> does
+    /// not fit a <c>long</c> (so it fits an <c>int</c> even less), and both accessors
+    /// must report failure for it: the caller then raises FormatException instead of
+    /// silently wrapping to a negative value. <see cref="TryGetUInt64"/> keeps
+    /// reading the raw bytes, so the unsigned accessor still returns it in full.
+    /// </summary>
+    private void CacheUInt64(ulong uv)
+    {
+        if (uv > long.MaxValue)
+        {
+            _intKind = 2;
+            return;
+        }
+        _intValue = (long)uv;
+        _intKind = 1;
     }
 
     public bool TryGetUInt64(out ulong v)
