@@ -580,10 +580,7 @@ public class JsonWriterSpanCacheTests
         var scanned = 0;
         foreach (var file in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
         {
-            if (
-                file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
-            )
+            if (IsOutsideTheWorkingTree(root, file))
                 continue;
             scanned++;
             var lines = File.ReadAllLines(file);
@@ -634,5 +631,31 @@ public class JsonWriterSpanCacheTests
         throw new InvalidOperationException(
             $"Could not find PicoSerDe.slnx above '{AppContext.BaseDirectory}'."
         );
+    }
+
+    /// <summary>
+    /// True for files that are not this working tree's own source: build output, other
+    /// worktrees checked out under <c>.worktrees/</c>, the scratch area, and the VCS
+    /// metadata. The scan covers the repository, so without this a stale worktree left
+    /// behind by any branch - which contains an older copy of this very file - fails the
+    /// suite on code nobody is working on.
+    /// </summary>
+    private static bool IsOutsideTheWorkingTree(string root, string file)
+    {
+        var relative = Path.GetRelativePath(root, file);
+        var separator = Path.DirectorySeparatorChar;
+        foreach (var part in relative.Split(separator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (
+                part.Equals("bin", StringComparison.OrdinalIgnoreCase)
+                || part.Equals("obj", StringComparison.OrdinalIgnoreCase)
+                || part.Equals("artifacts", StringComparison.OrdinalIgnoreCase)
+                || part.Equals("node_modules", StringComparison.OrdinalIgnoreCase)
+                || part.StartsWith(".", StringComparison.Ordinal)
+            )
+                return true;
+        }
+
+        return false;
     }
 }
