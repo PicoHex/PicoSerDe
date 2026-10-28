@@ -653,9 +653,23 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         }
     }
 
+    /// <summary>
+    /// Reads the next comma-separated JSON integer without materialising it as the current token (the shape the
+    /// fast array/scalar paths want).
+    /// <para>
+    /// <b>Two modes, one semantics</b> (spec §4.3 <b>F-1</b>): the span arm is the original scan
+    /// (<see cref="TryReadNextInt32Span"/>, kept verbatim); the sequence arm is <b>not</b> a second scan any
+    /// more — it is the reference fused read (<see cref="TokenReaderFused.TryReadInt32"/> = <c>Read()</c> then
+    /// <c>TryGetInt32()</c>). The sequence scan this replaced dropped the minus sign and answered
+    /// <see langword="false"/> at <see cref="int.MinValue"/>, so it was deleted rather than repaired: one
+    /// implementation cannot drift from itself, and the fused read already carries the sign.
+    /// </para>
+    /// </summary>
     public bool TryReadNextInt32(out int v)
     {
-        return _isSequence ? TryReadNextInt32Seq(out v) : TryReadNextInt32Span(out v);
+        return _isSequence
+            ? TokenReaderFused.TryReadInt32(ref this, out v)
+            : TryReadNextInt32Span(out v);
     }
 
     public bool TryGetInt64(out long v)
@@ -806,42 +820,6 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         } while (_position < len && IsDigit(_data[_position]));
         v = neg ? (int)-result : (int)result;
         return true;
-    }
-
-    private bool TryReadNextInt32Seq(out int v)
-    {
-        SkipWhitespaceSeq();
-        if (_seqReader.End)
-        {
-            v = 0;
-            return false;
-        }
-        if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)',')
-        {
-            _seqReader.Advance(1);
-            SkipWhitespaceSeq();
-        }
-        if (_seqReader.End)
-        {
-            v = 0;
-            return false;
-        }
-        if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'-')
-            _seqReader.Advance(1);
-        var buf = ArrayPool<byte>.Shared.Rent(16);
-        TrackBuffer(buf);
-        int di = 0;
-        while (!_seqReader.End && IsDigit(_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex]))
-        {
-            if (di >= buf.Length)
-            {
-                v = 0;
-                return false;
-            }
-            buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
-            _seqReader.Advance(1);
-        }
-        return Utf8Parser.TryParse(buf.AsSpan(0, di), out v, out _);
     }
 
     // ── Mode-agnostic helpers ──
