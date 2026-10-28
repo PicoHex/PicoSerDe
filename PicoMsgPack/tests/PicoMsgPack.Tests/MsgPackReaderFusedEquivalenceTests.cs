@@ -85,6 +85,100 @@ public class MsgPackReaderFusedEquivalenceTests
         }
     }
 
+    /// <summary>The four entries of spec §5.3's "流式分块" row that need no chunk size (plan §3.6 D-5).</summary>
+    public static IEnumerable<(string Label, MsgPackFusedTokenDump.DumpEntry Entry)> EntryCases() =>
+        [
+            ("SPAN", MsgPackFusedTokenDump.DumpEntry.Span),
+            ("SPAN-NONFINAL", MsgPackFusedTokenDump.DumpEntry.SpanNonFinal),
+            ("SEQ", MsgPackFusedTokenDump.DumpEntry.Sequence),
+            ("SEQ-NONFINAL", MsgPackFusedTokenDump.DumpEntry.SequenceNonFinal),
+        ];
+
+    /// <summary>Chunk widths of spec §5.3's "流式分块" row.</summary>
+    public static IEnumerable<int> ChunkSizes() => [1, 2, 3, 5, 7];
+
+    /// <summary>
+    /// The <b>entry matrix</b> (task T6, spec §5.3, plan §3.6 D-5): the same dual walk over span and
+    /// sequence input, in both block modes, on the named corpus and the 2000-payload random corpus.
+    /// <para>
+    /// The sequence entries are not decoration. <see cref="MsgPackReader.TryReadInt32"/> takes its own
+    /// shortcut only in span mode; on a sequence it must forward to the reference semantics. If it ever
+    /// took the span path there, <c>_data</c> would be empty while <c>_position</c> advanced, and this
+    /// test is what notices — the token stream would stop matching the reference at the first token.
+    /// </para>
+    /// </summary>
+    [Test]
+    [MethodDataSource(nameof(EntryCases))]
+    public async Task EveryEntry_ReferenceAndFusedDumpsAreIdentical(
+        string label,
+        MsgPackFusedTokenDump.DumpEntry entry
+    )
+    {
+        var payloads = 0;
+        var tokens = 0;
+        string firstDifference = "";
+        var corpus = MsgPackSpanTokenDump.Payloads().Concat(MsgPackSpanTokenDump.RandomPayloads());
+        foreach (var (name, payload) in corpus)
+        {
+            var reference = MsgPackFusedTokenDump.DrainReference(payload, entry);
+            var real = DrainOnRealReaderEntry(payload, reference, entry);
+            var difference = FirstDifference(reference, real);
+            if (difference is not null && firstDifference.Length == 0)
+                firstDifference = $"{name}: {difference}";
+            payloads++;
+            tokens += reference.Lines.Count;
+        }
+
+        await Assert
+            .That(firstDifference)
+            .IsEmpty()
+            .Because($"{label}: every payload must dump identically on both arms");
+        await Assert
+            .That(payloads)
+            .IsEqualTo(MsgPackSpanTokenDump.Payloads().Count() + 2000)
+            .Because($"{label}: the whole corpus was walked");
+        await Assert.That(tokens).IsGreaterThan(20000).Because($"{label}: not degenerate");
+    }
+
+    /// <summary>
+    /// The <b>chunked entries</b> (task T6, spec §5.3 "chunk = 1/2/3/5/7"): every payload of at most
+    /// 512 bytes is streamed in chunks, the document is re-parsed from the accumulated prefix until it
+    /// completes (the shape <c>MsgPackSerializer.DeserializeStreamingCore</c> uses), and the fused arm
+    /// walks the completing prefix with the completing block mode. A token consumed at a block boundary
+    /// — or a <c>NeedsMoreData</c> that one arm reports and the other does not — shows up here.
+    /// </summary>
+    [Test]
+    [MethodDataSource(nameof(ChunkSizes))]
+    public async Task ChunkedEntry_ReferenceAndFusedDumpsAreIdentical(int chunk)
+    {
+        var payloads = 0;
+        var tokens = 0;
+        string firstDifference = "";
+        foreach (var (name, payload) in MsgPackSpanTokenDump.SmallPayloads())
+        {
+            var (reference, prefix, isFinalBlock) = MsgPackFusedTokenDump.DrainReferenceChunked(
+                payload,
+                chunk
+            );
+            var real = DrainOnRealReaderSequence(prefix, reference, isFinalBlock);
+            var difference = FirstDifference(reference, real);
+            if (difference is not null && firstDifference.Length == 0)
+                firstDifference = $"{name}: {difference}";
+            payloads++;
+            tokens += reference.Lines.Count;
+        }
+
+        await Assert
+            .That(firstDifference)
+            .IsEmpty()
+            .Because($"chunk {chunk}: streaming in {chunk}-byte blocks must dump identically");
+        await Assert
+            .That(payloads)
+            .IsEqualTo(MsgPackSpanTokenDump.SmallPayloads().Count())
+            .Because($"chunk {chunk}: every small payload was streamed");
+        await Assert.That(tokens).IsGreaterThan(100).Because($"chunk {chunk}: not degenerate");
+    }
+
     /// <summary>
     /// The guard across the deterministic random corpus: the part that reaches token combinations the
     /// named matrix does not enumerate.
@@ -345,6 +439,53 @@ public class MsgPackReaderFusedEquivalenceTests
                 MsgPackFusedTokenDump.ScriptOf(reference),
                 default,
                 ints
+            );
+        }
+        finally
+        {
+            reader.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The fused arm over the input entry the caller asked for (span or sequence, final or non-final).
+    /// A sequence reader is a different state machine, so this is the only way to prove the fused member
+    /// forwards there instead of assuming span-shaped state (spec §2.2 N4) — with an empty <c>_data</c>,
+    /// a span-shaped fast path would walk off the end of the buffer at the first token.
+    /// </summary>
+    private static MsgPackFusedTokenDump.FusedDrain DrainOnRealReaderEntry(
+        byte[] payload,
+        MsgPackFusedTokenDump.FusedDrain reference,
+        MsgPackFusedTokenDump.DumpEntry entry
+    ) =>
+        entry
+        is MsgPackFusedTokenDump.DumpEntry.Sequence
+            or MsgPackFusedTokenDump.DumpEntry.SequenceNonFinal
+            ? DrainOnRealReaderSequence(
+                payload,
+                reference,
+                entry == MsgPackFusedTokenDump.DumpEntry.Sequence
+            )
+            : DrainOnRealReader(
+                payload,
+                reference,
+                entry == MsgPackFusedTokenDump.DumpEntry.Span
+            );
+
+    /// <summary>The fused arm over a single-segment sequence: the streaming entry.</summary>
+    private static MsgPackFusedTokenDump.FusedDrain DrainOnRealReaderSequence(
+        byte[] payload,
+        MsgPackFusedTokenDump.FusedDrain reference,
+        bool isFinalBlock
+    )
+    {
+        var reader = new MsgPackReader(new ReadOnlySequence<byte>(payload), isFinalBlock);
+        try
+        {
+            return MsgPackFusedTokenDump.DrainFused<MsgPackReader, RealReaderCapture>(
+                ref reader,
+                MsgPackFusedTokenDump.ScriptOf(reference),
+                default
             );
         }
         finally
