@@ -1021,16 +1021,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     private static void EmitDictInnerKey(StringBuilder sb, PropertyInfo dp, string indent)
     {
+        // The key goes out through the writer's char overload, which encodes into a stack
+        // buffer below 256 bytes: Encoding.UTF8.GetBytes allocated a byte[] for every key of
+        // every dictionary (64 B/op for the two-entry benchmark model) to hand the writer
+        // bytes it then copies into its own span anyway.
+        sb.Append(indent);
         if (dp.KeyTypeKind == "string")
-        {
-            sb.Append(indent);
-            sb.AppendLine("jw.WritePropertyName(Encoding.UTF8.GetBytes(__kvp.Key));");
-        }
+            sb.AppendLine("jw.WritePropertyName(__kvp.Key);");
         else
-        {
-            sb.Append(indent);
-            sb.AppendLine("jw.WritePropertyName(Encoding.UTF8.GetBytes(__kvp.Key.ToString()));");
-        }
+            sb.AppendLine("jw.WritePropertyName(__kvp.Key.ToString());");
     }
 
     private static void EmitDictInnerValueSerialize(
@@ -1569,7 +1568,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("            jw.WriteStartObject();");
         sb.AppendLine("            foreach (var __kvp in __nd)");
         sb.AppendLine("            {");
-        sb.AppendLine("                jw.WritePropertyName(Encoding.UTF8.GetBytes(__kvp.Key));");
+        // Char overload: it encodes into a stack buffer below 256 bytes, so a dictionary key
+        // costs no byte[] (the byte overload the generator used to pick allocated one per key).
+        sb.AppendLine("                jw.WritePropertyName(__kvp.Key);");
         sb.AppendLine("                SerializeValue(ref jw, __kvp.Value);");
         sb.AppendLine("            }");
         sb.AppendLine("            jw.WriteEndObject();");
@@ -2043,53 +2044,33 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(");");
                 break;
             case "datetime":
+                // A custom [DateTimeFormat] keeps the ToString path verbatim: the attribute
+                // accepts any pattern, and a long one could outgrow the helper's stack buffer.
+                // The default ("O") goes through TypeIo.WriteFormattable, which formats the
+                // ISO text straight into UTF-8 instead of allocating it first.
                 sb.Append(indent);
-                sb.Append("var __iso_");
-                sb.Append(prop.Name);
-                sb.Append(" = ");
-                sb.Append(effectiveAccessor);
                 if (prop.DateTimeFormat is not null)
                 {
+                    sb.Append("jw.WriteString(");
+                    sb.Append(effectiveAccessor);
                     sb.Append(".ToString(\"");
                     sb.Append(prop.DateTimeFormat);
-                    sb.AppendLine("\");");
+                    sb.AppendLine("\"));");
                 }
                 else
-                    sb.AppendLine(".ToString(\"O\");");
-                sb.Append(indent);
-                sb.Append("jw.WriteString(__iso_");
-                sb.Append(prop.Name);
-                sb.AppendLine(");");
+                    EmitFormattableWrite(sb, effectiveAccessor, "O");
                 break;
             case "dateonly":
-                sb.Append(indent);
-                sb.Append("var __d = ");
-                sb.Append(effectiveAccessor);
-                sb.AppendLine(".ToString(\"O\");");
-                sb.Append(indent);
-                sb.AppendLine("jw.WriteString(__d);");
+                EmitFormattableWrite(sb, effectiveAccessor, "O", indent);
                 break;
             case "timeonly":
-                sb.Append(indent);
-                sb.Append("var __t = ");
-                sb.Append(effectiveAccessor);
-                sb.AppendLine(".ToString(\"O\");");
-                sb.Append(indent);
-                sb.AppendLine("jw.WriteString(__t);");
+                EmitFormattableWrite(sb, effectiveAccessor, "O", indent);
                 break;
             case "timespan":
-                sb.Append(indent);
-                sb.Append("var __ts = ");
-                sb.Append(effectiveAccessor);
-                sb.AppendLine(".ToString();");
-                sb.Append(indent);
-                sb.AppendLine("jw.WriteString(__ts);");
+                EmitFormattableWrite(sb, effectiveAccessor, "c", indent);
                 break;
             case "guid":
-                sb.Append(indent);
-                sb.Append("jw.WriteString(");
-                sb.Append(effectiveAccessor);
-                sb.AppendLine(".ToString());");
+                EmitFormattableWrite(sb, effectiveAccessor, "D", indent);
                 break;
             case "enum":
                 sb.Append(indent);
@@ -2175,11 +2156,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("{");
                 sb.Append(indent);
-                sb.Append("    jw.WritePropertyName(Encoding.UTF8.GetBytes(__kvp.Key");
+                // Char overload (see EmitDictInnerKey): no byte[] per key, and the writer
+                // encodes into its own stack buffer below 256 bytes.
+                sb.Append("    jw.WritePropertyName(__kvp.Key");
                 if (prop.KeyTypeKind == "string")
-                    sb.AppendLine("));");
+                    sb.AppendLine(");");
                 else
-                    sb.AppendLine(".ToString()));");
+                    sb.AppendLine(".ToString());");
                 EmitSerializeElement(sb, prop, "__kvp.Value", indent + "    ");
                 sb.Append(indent);
                 sb.AppendLine("}");
@@ -2628,6 +2611,26 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     /// <c>Used == Length</c> check then makes the shape exact rather than approximate.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Emits a scalar string write that formats straight into UTF-8 — no intermediate
+    /// <c>string</c>. Equal to <c>value.ToString(format)</c> followed by
+    /// <c>jw.WriteString(string)</c>, byte for byte (test: TypeIoFormattingTests).
+    /// </summary>
+    private static void EmitFormattableWrite(
+        StringBuilder sb,
+        string accessor,
+        string format,
+        string indent = ""
+    )
+    {
+        sb.Append(indent);
+        sb.Append("global::PicoJetson.TypeIo.WriteFormattable(ref jw, ");
+        sb.Append(accessor);
+        sb.Append(", \"");
+        sb.Append(format);
+        sb.AppendLine("\");");
+    }
+
     private static void EmitDateTimeReadNoString(
         StringBuilder sb,
         PropertyInfo prop,
