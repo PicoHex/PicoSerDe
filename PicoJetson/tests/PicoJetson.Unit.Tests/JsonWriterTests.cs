@@ -2,8 +2,14 @@ namespace PicoJetson.Tests;
 
 public class JsonWriterTests
 {
-    private static string GetWrittenString(JsonWriter writer, ArrayBufferWriter<byte> buf)
+    // By ref, and reading through writer.Buffer: the writer now caches a span, so the
+    // bytes of an unfinished document are only on the wire after the hand-off. Passing a
+    // JsonWriter *by value* would commit the copy's cursor and leave the caller's writer
+    // pointing into memory it already committed -- the copy below would then corrupt the
+    // output of anything written afterwards. Hence `ref`.
+    private static string GetWrittenString(ref JsonWriter writer, ArrayBufferWriter<byte> buf)
     {
+        _ = writer.Buffer; // documented hand-off point: commits the pending span
         return Encoding.UTF8.GetString(buf.WrittenSpan);
     }
 
@@ -13,7 +19,7 @@ public class JsonWriterTests
         var b = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(b);
         w.WriteNull();
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("null");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("null");
     }
 
     [Test]
@@ -22,7 +28,7 @@ public class JsonWriterTests
         var b = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(b);
         w.WriteBoolean(true);
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("true");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("true");
     }
 
     [Test]
@@ -31,7 +37,7 @@ public class JsonWriterTests
         var b = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(b);
         w.WriteBoolean(false);
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("false");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("false");
     }
 
     [Test]
@@ -40,7 +46,7 @@ public class JsonWriterTests
         var b = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(b);
         w.WriteNumber(42);
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("42");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("42");
     }
 
     [Test]
@@ -49,7 +55,7 @@ public class JsonWriterTests
         var b = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(b);
         w.WriteNumber(1234567890123L);
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("1234567890123");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("1234567890123");
     }
 
     [Test]
@@ -58,7 +64,7 @@ public class JsonWriterTests
         var b = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(b);
         w.WriteNumber(3.14);
-        await Assert.That(GetWrittenString(w, b)).Contains("3.14");
+        await Assert.That(GetWrittenString(ref w, b)).Contains("3.14");
     }
 
     [Test]
@@ -67,7 +73,7 @@ public class JsonWriterTests
         var b = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(b);
         w.WriteString("hello"u8);
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("\"hello\"");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("\"hello\"");
     }
 
     [Test]
@@ -77,7 +83,7 @@ public class JsonWriterTests
         var w = new JsonWriter(b);
         w.WriteStartObject();
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("{}");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("{}");
     }
 
     [Test]
@@ -89,7 +95,7 @@ public class JsonWriterTests
         w.WritePropertyName("name"u8);
         w.WriteString("alice"u8);
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("{\"name\":\"alice\"}");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("{\"name\":\"alice\"}");
     }
 
     [Test]
@@ -99,7 +105,7 @@ public class JsonWriterTests
         var w = new JsonWriter(b);
         w.WriteStartArray();
         w.WriteEndArray();
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("[]");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("[]");
     }
 
     [Test]
@@ -112,7 +118,7 @@ public class JsonWriterTests
         w.WriteNumber(2);
         w.WriteNumber(3);
         w.WriteEndArray();
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("[1,2,3]");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("[1,2,3]");
     }
 
     [Test]
@@ -127,7 +133,7 @@ public class JsonWriterTests
         w.WriteNumber(1);
         w.WriteEndObject();
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("{\"inner\":{\"x\":1}}");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("{\"inner\":{\"x\":1}}");
     }
 
     [Test]
@@ -148,7 +154,7 @@ public class JsonWriterTests
         w.WritePropertyName("a"u8);
         w.WriteNumber(1);
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, b)).IsEqualTo("{\n  \"a\": 1\n}");
+        await Assert.That(GetWrittenString(ref w, b)).IsEqualTo("{\n  \"a\": 1\n}");
     }
 
     // === P0-1: String Escaping Tests ===
@@ -159,7 +165,7 @@ public class JsonWriterTests
         var buf = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(buf);
         w.WriteString("he\"llo"u8); // contains embedded quote
-        var json = GetWrittenString(w, buf);
+        var json = GetWrittenString(ref w, buf);
         await Assert.That(json).IsEqualTo("\"he\\\"llo\"");
     }
 
@@ -169,7 +175,7 @@ public class JsonWriterTests
         var buf = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(buf);
         w.WriteString("a\\b"u8);
-        var json = GetWrittenString(w, buf);
+        var json = GetWrittenString(ref w, buf);
         await Assert.That(json).IsEqualTo("\"a\\\\b\"");
     }
 
@@ -179,7 +185,7 @@ public class JsonWriterTests
         var buf = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(buf);
         w.WriteString("line1\nline2"u8);
-        var json = GetWrittenString(w, buf);
+        var json = GetWrittenString(ref w, buf);
         await Assert.That(json).IsEqualTo("\"line1\\nline2\"");
     }
 
@@ -194,7 +200,7 @@ public class JsonWriterTests
         var w = new JsonWriter(buf);
         var value = new string('a', 200) + "\"\\\n\u0000" + new string('b', 200); // >256 UTF-8 bytes, needs escaping
         w.WriteString(value);
-        var json = GetWrittenString(w, buf);
+        var json = GetWrittenString(ref w, buf);
         await Assert.That(json.StartsWith("\"")).IsTrue(); // starts with quote, not ','
         await Assert.That(json).DoesNotContain(",\"");
         // strict round-trip
@@ -273,7 +279,7 @@ public class JsonWriterTests
         for (int i = 0; i < 8; i++)
             w.WriteEndArray();
 
-        var result = GetWrittenString(w, buf);
+        var result = GetWrittenString(ref w, buf);
         await Assert.That(result).IsEqualTo("[[[[[[[[42]]]]]]]]");
     }
 
@@ -288,7 +294,7 @@ public class JsonWriterTests
         w.WriteNumber(1);
         w.WriteEndObject();
 
-        var result = GetWrittenString(w, buf);
+        var result = GetWrittenString(ref w, buf);
         await Assert.That(result).IsEqualTo("{\"a\":1}");
     }
 
@@ -303,7 +309,7 @@ public class JsonWriterTests
         w.WritePropertyName("he\"llo"u8);
         w.WriteNull();
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"he\\\"llo\":null}");
+        await Assert.That(GetWrittenString(ref w, buf)).IsEqualTo("{\"he\\\"llo\":null}");
     }
 
     [Test]
@@ -315,7 +321,7 @@ public class JsonWriterTests
         w.WritePropertyName("a\\b"u8);
         w.WriteNull();
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"a\\\\b\":null}");
+        await Assert.That(GetWrittenString(ref w, buf)).IsEqualTo("{\"a\\\\b\":null}");
     }
 
     [Test]
@@ -327,7 +333,7 @@ public class JsonWriterTests
         w.WritePropertyName("a\nb"u8);
         w.WriteNull();
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"a\\nb\":null}");
+        await Assert.That(GetWrittenString(ref w, buf)).IsEqualTo("{\"a\\nb\":null}");
     }
 
     // === Code review: control char escaping (#2) ===
@@ -338,7 +344,7 @@ public class JsonWriterTests
         var buf = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(buf);
         w.WriteString(new byte[] { (byte)'a', 0x00, (byte)'b' });
-        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("\"a\\u0000b\"");
+        await Assert.That(GetWrittenString(ref w, buf)).IsEqualTo("\"a\\u0000b\"");
     }
 
     [Test]
@@ -347,7 +353,7 @@ public class JsonWriterTests
         var buf = new ArrayBufferWriter<byte>(128);
         var w = new JsonWriter(buf);
         w.WriteString(new byte[] { (byte)'x', 0x1B, (byte)'y' });
-        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("\"x\\u001By\"");
+        await Assert.That(GetWrittenString(ref w, buf)).IsEqualTo("\"x\\u001By\"");
     }
 
     // === F1: closing a container while a property name is pending ===
@@ -377,12 +383,12 @@ public class JsonWriterTests
         }
 
         // The failed close wrote no '}'.
-        var afterFailedClose = GetWrittenString(w, buf);
+        var afterFailedClose = GetWrittenString(ref w, buf);
         // _depth is untouched, so writing the value now still yields a
         // well-formed object instead of a half-closed one.
         w.WriteNumber(1);
         w.WriteEndObject();
-        var afterValue = GetWrittenString(w, buf);
+        var afterValue = GetWrittenString(ref w, buf);
 
         await Assert.That(caught).IsNotNull();
         await Assert.That(caught!.Message).Contains("property name");
@@ -409,10 +415,10 @@ public class JsonWriterTests
             caught = ex;
         }
 
-        var afterFailedClose = GetWrittenString(w, buf);
+        var afterFailedClose = GetWrittenString(ref w, buf);
         w.WriteNumber(1); // _depth unchanged -> still inside the array
         w.WriteEndArray();
-        var afterValue = GetWrittenString(w, buf);
+        var afterValue = GetWrittenString(ref w, buf);
 
         await Assert.That(caught).IsNotNull();
         await Assert.That(caught!.Message).Contains("property name");
@@ -428,7 +434,7 @@ public class JsonWriterTests
         var w = new JsonWriter(buf);
         w.WriteStartObject();
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{}");
+        await Assert.That(GetWrittenString(ref w, buf)).IsEqualTo("{}");
     }
 
     [Test]
@@ -440,7 +446,7 @@ public class JsonWriterTests
         w.WritePropertyName("a"u8);
         w.WriteNumber(1);
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"a\":1}");
+        await Assert.That(GetWrittenString(ref w, buf)).IsEqualTo("{\"a\":1}");
     }
 
     [Test]
@@ -472,7 +478,7 @@ public class JsonWriterTests
         w.WriteNumber(2);
         w.WriteEndObject();
         w.WriteEndArray();
-        var json = GetWrittenString(w, buf);
+        var json = GetWrittenString(ref w, buf);
 
         await Assert.That(threw).IsTrue();
         await Assert.That(json).IsEqualTo("[{\"a\":1},{\"b\":2}]");
@@ -496,10 +502,10 @@ public class JsonWriterTests
             threw = true;
         }
 
-        var afterFailedClose = GetWrittenString(w, buf);
+        var afterFailedClose = GetWrittenString(ref w, buf);
         w.WriteNumber(1);
         w.WriteEndObject();
-        var afterValue = GetWrittenString(w, buf);
+        var afterValue = GetWrittenString(ref w, buf);
 
         await Assert.That(threw).IsTrue();
         await Assert.That(afterFailedClose).IsEqualTo("{\n  \"a\": ");
@@ -524,7 +530,7 @@ public class JsonWriterTests
         w.Buffer.Write("\"2024-06-15\""u8); // converter-style direct buffer write
         w.NotifyRawValueWritten();
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"a\":\"2024-06-15\"}");
+        await Assert.That(GetWrittenString(ref w, buf)).IsEqualTo("{\"a\":\"2024-06-15\"}");
     }
 
     [Test]
@@ -545,7 +551,9 @@ public class JsonWriterTests
         w.WritePropertyName("B"u8);
         w.WriteNumber(1);
         w.WriteEndObject();
-        await Assert.That(GetWrittenString(w, buf)).IsEqualTo("{\"A\":\"2024-06-15\"},{\"B\":1}");
+        await Assert
+            .That(GetWrittenString(ref w, buf))
+            .IsEqualTo("{\"A\":\"2024-06-15\"},{\"B\":1}");
     }
 
     [Test]
@@ -560,7 +568,7 @@ public class JsonWriterTests
         w.NotifyRawValueWritten();
         var bytesAfterNotify = w.BytesWritten;
         w.WriteEndArray();
-        var json = GetWrittenString(w, buf);
+        var json = GetWrittenString(ref w, buf);
 
         await Assert.That(bytesAfterNotify).IsEqualTo(bytesBeforeNotify);
         await Assert.That(json).IsEqualTo("[1]");
