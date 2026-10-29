@@ -796,8 +796,61 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.AppendLine("MsgPackStreaming.DeserializeStreaming);");
         }
         s.AppendLine("    } }");
-        return s.ToString();
+
+        // The bulk int32 list reader is emitted only into the files that use it (a `file static`
+        // class is scoped to its own file, so each generated file that needs one gets its own).
+        var code = s.ToString();
+        if (code.Contains("__PicoMsgPackBulk.", StringComparison.Ordinal))
+            code += BulkIntListHelper;
+        return code;
     }
+
+    /// <summary>
+    /// The generated helper behind the counted int32 list loop: read the whole array into the
+    /// list's own storage with one <c>TryReadInt32Array</c> call.
+    /// <para>
+    /// <b>Why the reader's contract makes this exactly equivalent.</b> The array's header has
+    /// already been consumed as a token by <c>Read()</c> and <c>TryGetCollectionCount</c> has
+    /// already reported how many elements are owed, so the bulk call is standing where the
+    /// per-element loop's first iteration stands. <c>TryReadInt32Array</c> spends the counted
+    /// scope element by element — the state <c>n</c> × <c>Read()</c> would leave — which is why
+    /// the trailing <c>Read()</c> that closes the collection still produces the end token. A
+    /// sequence-mode reader, a truncated array, a non-int32 encoding or an empty array makes it
+    /// return false <i>without consuming a byte</i> and without touching the list, and the
+    /// caller's per-element loop then runs verbatim, exceptions included.
+    /// </para>
+    /// <para>
+    /// <b>No storage is pre-allocated from an unvalidated header.</b> An int32 element occupies
+    /// at least one byte, so a count larger than what the payload has left cannot describe a
+    /// readable array: that case declines instead of reserving `count * 4` bytes.
+    /// </para>
+    /// </summary>
+    const string BulkIntListHelper = """
+file static class __PicoMsgPackBulk {
+    internal static bool TryReadInt32List(ref MsgPackReader reader, List<int> list, int count) {
+        if (count <= 0) return false;
+        if (count > reader.RawBuffer.Length - reader.RawPos) return false;
+        int __old = list.Count;
+        list.EnsureCapacity(__old + count);
+        global::System.Runtime.InteropServices.CollectionsMarshal.SetCount(list, __old + count);
+        int __n = reader.TryReadInt32Array(global::System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list).Slice(__old));
+        if (__n == count) return true;
+        global::System.Runtime.InteropServices.CollectionsMarshal.SetCount(list, __old);
+        return false;
+    } }
+
+""";
+
+    /// <summary>
+    /// True when the counted element loop may be replaced by the bulk int32 read: the element is a
+    /// non-nullable <c>int</c> and the target is a <c>List<int></c> (every call site of the counted
+    /// loop passes a List and <c>.Add</c>).
+    /// </summary>
+    static bool BulkIntListApplies(PropertyInfo element, string op) =>
+        op == ".Add"
+        && element.ElementTypeKind == "int32"
+        && !element.ElementIsNullableValue
+        && !element.ElementIsNullableReference;
 
     /// <summary>Inner helper for nested Dictionary types.</summary>
     static string GenDictInner(string cleanName, string shortName, PropertyInfo dp)
@@ -1406,7 +1459,10 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         s.AppendLine("MsgPackDeserializer.Deserialize);");
         s.AppendLine("    } }");
 
-        return s.ToString();
+        var topCode = s.ToString();
+        if (topCode.Contains("__PicoMsgPackBulk.", StringComparison.Ordinal))
+            topCode += BulkIntListHelper;
+        return topCode;
     }
 
     /// <summary>
@@ -3207,8 +3263,24 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.Append("    if (reader.TryGetCollectionCount(out var __cn");
             s.Append(id);
             s.AppendLine(")) {");
+            // The bulk form: one call consumes the whole int array straight into the list's own
+            // storage, instead of one `Read()` + one `TryGetInt32()` per element. It declines
+            // (false, consuming nothing) whenever the payload is not a flat run of int32
+            // encodings — a sequence-mode reader, a truncated array, an int64 or a nested value —
+            // and the per-element loop below then runs exactly as it always did.
+            if (BulkIntListApplies(element, op))
+            {
+                s.Append(ind);
+                s.Append("        if (!__PicoMsgPackBulk.TryReadInt32List(ref reader, ");
+                s.Append(target);
+                s.Append(", __cn");
+                s.Append(id);
+                s.AppendLine(")) {");
+            }
+            var open = BulkIntListApplies(element, op) ? "            " : "        ";
             s.Append(ind);
-            s.Append("        for (var __ci");
+            s.Append(open);
+            s.Append("for (var __ci");
             s.Append(id);
             s.Append(" = 0; __ci");
             s.Append(id);
@@ -3218,10 +3290,17 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             s.Append(id);
             s.AppendLine("++) {");
             s.Append(ind);
-            s.AppendLine("            if (!reader.Read()) break;");
-            ReadDeserElem(s, element, target, op, bodyInd, ref c);
+            s.Append(open);
+            s.AppendLine("    if (!reader.Read()) break;");
+            ReadDeserElem(s, element, target, op, ind + open + "    ", ref c);
             s.Append(ind);
-            s.AppendLine("        }");
+            s.Append(open);
+            s.AppendLine("}");
+            if (BulkIntListApplies(element, op))
+            {
+                s.Append(ind);
+                s.AppendLine("        }");
+            }
             s.Append(ind);
             s.AppendLine("        reader.Read();");
             s.Append(ind);

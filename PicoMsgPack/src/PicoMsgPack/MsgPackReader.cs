@@ -1900,13 +1900,45 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
         }
     }
 
-    /// <summary>Fast path: read int32 array directly from buffer. Returns count read, or 0 to fallback.</summary>
+    /// <summary>
+    /// Fast path: read int32 array directly from buffer. Returns count read, or 0 to fallback.
+    /// <para>
+    /// <b>Two entry positions, one contract.</b> The method is the bulk form of
+    /// <c>Read() &amp;&amp; TryGetInt32()</c> per element, and it accepts both places a generated
+    /// collection loop can be standing in:
+    /// <list type="number">
+    /// <item>on the array's <i>header</i> — the header and every element are consumed, and the
+    /// counted scope is left exactly as it was (the shape a caller that never materialised the
+    /// start token needs);</item>
+    /// <item><b>on the first element of an array whose header was already read as a token</b>
+    /// (current token <see cref="TokenType.ArrayStart"/>, counted scope open). The elements still
+    /// owed are read and the counted scope is spent element by element — the same state
+    /// <c>n</c> × <see cref="Read"/> would leave — so the caller's end-token read is unchanged.</item>
+    /// </list>
+    /// Case 2 used to report 0 (fallback). Anything that is not a flat run of int32 encodings
+    /// still reports 0 <b>without consuming a byte</b>, so every caller keeps its own slow path
+    /// and its own exception text.
+    /// </para>
+    /// </summary>
     public int TryReadInt32Array(Span<int> dest)
     {
         if (_isSequence)
             return 0;
         var p = _position;
         var len = _data.Length;
+        // Case 2: the header already came through Read() (so the level stack is already right);
+        // only the elements are owed, and _topRemaining is exactly how many.
+        if (_depth > 0 && !_topIsMap && _tokenType == TokenType.ArrayStart)
+        {
+            int owed = Math.Min(_topRemaining, dest.Length);
+            if (owed <= 0)
+                return 0;
+            if (!TryDecodeInt32Run(dest, owed, ref p, len))
+                return 0;
+            _position = p;
+            _topRemaining -= owed;
+            return owed;
+        }
         if (p >= len)
             return 0;
         byte hdr = _data[p++];
@@ -1929,18 +1961,47 @@ public ref struct MsgPackReader : ITokenReader, IFusedTokenReader
         }
         if (count > dest.Length)
             return 0;
+        if (!TryDecodeInt32Run(dest, count, ref p, len))
+            return 0;
+        _position = p;
+        return count;
+    }
+
+    /// <summary>
+    /// Decodes exactly <paramref name="count"/> int32 elements starting at <paramref name="p"/>
+    /// into <paramref name="dest"/>, advancing <paramref name="p"/> only on success. The two
+    /// fixint ranges — what a real payload is made of — are tested first and need no bounds
+    /// check beyond the loop guard; every other encoding goes through
+    /// <see cref="TryDecodeInt32"/>, so the set of tokens accepted and refused is unchanged.
+    /// Returns false without moving <paramref name="p"/> past anything the caller cannot undo.
+    /// </summary>
+    private bool TryDecodeInt32Run(Span<int> dest, int count, ref int p, int len)
+    {
         for (int i = 0; i < count; i++)
         {
             if (p >= len)
-                return 0;
-            if (p < len && _data[p] == 0xD3)
-                return 0;
+                return false;
+            byte b = _data[p];
+            if (b <= 0x7F)
+            {
+                dest[i] = b;
+                p++;
+                continue;
+            }
+            if (b >= 0xE0)
+            {
+                dest[i] = b - 256;
+                p++;
+                continue;
+            }
+            // int64 is not int32: refuse the whole array and let the caller fall back.
+            if (b == 0xD3)
+                return false;
             if (!TryDecodeInt32(ref p, out var iv))
-                return 0;
+                return false;
             dest[i] = iv;
         }
-        _position = p;
-        return count;
+        return true;
     }
 
     /// <summary>Fast path: read int64 array directly from buffer.</summary>
