@@ -146,47 +146,42 @@ file static class S15JsonStreaming
             var propNameSpan = reader.GetStringRaw();
             if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
             int __mi = -1;
-            if (propNameSpan.Length >= 3)
+            switch (propNameSpan.Length)
             {
-                int __nk = (propNameSpan[0] << 16) | (propNameSpan[1] << 8) | propNameSpan[2];
-                switch (__nk)
-                {
-                    case 0x446179:
-                        if (propNameSpan.Length == 3)
-                            __mi = 5;
-                        break;
-                    case 0x537061:
-                        if (propNameSpan.SequenceEqual("Span"u8))
-                            __mi = 3;
-                        break;
-                    case 0x576865:
-                        if (propNameSpan.SequenceEqual("When"u8))
-                            __mi = 2;
-                        break;
-                }
-            }
-            else
-            {
-                switch (propNameSpan.Length)
-                {
-                    case 1:
-                        switch (propNameSpan[0])
-                        {
-                            case (byte)'F':
-                                if (propNameSpan.SequenceEqual("F"u8))
-                                    __mi = 0;
-                                break;
-                            case (byte)'D':
-                                if (propNameSpan.SequenceEqual("D"u8))
-                                    __mi = 1;
-                                break;
-                        }
-                        break;
-                    case 2:
-                        if (propNameSpan.SequenceEqual("Id"u8))
-                            __mi = 4;
-                        break;
-                }
+                case 1:
+                    switch (propNameSpan[0])
+                    {
+                        case (byte)'F':
+                            if (propNameSpan.SequenceEqual("F"u8))
+                                __mi = 0;
+                            break;
+                        case (byte)'D':
+                            if (propNameSpan.SequenceEqual("D"u8))
+                                __mi = 1;
+                            break;
+                    }
+                    break;
+                case 2:
+                    if (propNameSpan.SequenceEqual("Id"u8))
+                        __mi = 4;
+                    break;
+                case 3:
+                    if (propNameSpan.SequenceEqual("Day"u8))
+                        __mi = 5;
+                    break;
+                case 4:
+                    switch (propNameSpan[0])
+                    {
+                        case (byte)'W':
+                            if (propNameSpan.SequenceEqual("When"u8))
+                                __mi = 2;
+                            break;
+                        case (byte)'S':
+                            if (propNameSpan.SequenceEqual("Span"u8))
+                                __mi = 3;
+                            break;
+                    }
+                    break;
             }
             if (__mi < 0 && __ci)
             {

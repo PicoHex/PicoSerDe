@@ -47,26 +47,16 @@ internal static class FormatCapabilities_Probe_S11bJson_21a646aabfc47923JsonInne
             var __n = reader.GetStringRaw();
             if (!reader.Read() && reader.NeedsMoreData) break;
             int __mi = -1;
-            if (__n.Length >= 3)
+            switch (__n.Length)
             {
-                int __nk = (__n[0] << 16) | (__n[1] << 8) | __n[2];
-                switch (__nk)
-                {
-                    case 0x4E616D:
-                        if (__n.SequenceEqual("Name"u8))
-                            __mi = 0;
-                        break;
-                }
-            }
-            else
-            {
-                switch (__n.Length)
-                {
-                    case 1:
-                        if (__n.SequenceEqual("B"u8))
-                            __mi = 1;
-                        break;
-                }
+                case 1:
+                    if (__n.SequenceEqual("B"u8))
+                        __mi = 1;
+                    break;
+                case 4:
+                    if (__n.SequenceEqual("Name"u8))
+                        __mi = 0;
+                    break;
             }
             if (__mi < 0 && __ci)
             {

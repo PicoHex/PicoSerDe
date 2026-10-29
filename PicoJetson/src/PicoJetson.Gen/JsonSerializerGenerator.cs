@@ -4183,88 +4183,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var inner = indent + "    ";
         var inner2 = indent + "        ";
 
-        // 1. Exact-match fast path. Names of three bytes or more are resolved by ONE packed
-        //    24-bit key (the first three bytes) in a single switch; shorter names keep the
-        //    per-length switch, because they cannot fill a three-byte key.
-        var candidates = NameCandidates(props);
-        var packedNames = candidates.Where(c => c.Length >= 3).ToList();
-        var shortNames = candidates.Where(c => c.Length < 3).ToList();
-
+        // 1. Exact-match fast path: bucketed by UTF-8 name length, so the span compare only ever
+        //    runs against names that can possibly be equal.
         sb.Append(indent);
         sb.Append("int ");
         sb.Append(indexVar);
         sb.AppendLine(" = -1;");
-
-        if (packedNames.Count > 0)
-        {
-            // Guard: the key is only three bytes, so it pins the name only when the name is
-            // exactly three bytes long. `Length == 3` says that directly (and a longer name that
-            // shares those three bytes then reaches the case-insensitive fallback instead of
-            // binding its prefix's property); `Length >= 3` is enough when some compiled names are
-            // longer, because each of those is confirmed by SequenceEqual over its whole name.
-            var allExactlyThree = packedNames.All(c => c.Length == 3);
-            sb.Append(indent);
-            sb.Append("if (");
-            sb.Append(nameVar);
-            sb.AppendLine(allExactlyThree ? ".Length == 3)" : ".Length >= 3)");
-            sb.Append(indent);
-            sb.AppendLine("{");
-            sb.Append(inner);
-            sb.Append("int __nk = (");
-            sb.Append(nameVar);
-            sb.Append("[0] << 16) | (");
-            sb.Append(nameVar);
-            sb.Append("[1] << 8) | ");
-            sb.Append(nameVar);
-            sb.AppendLine("[2];");
-            sb.Append(inner);
-            sb.AppendLine("switch (__nk)");
-            sb.Append(inner);
-            sb.AppendLine("{");
-            foreach (var bucket in PackedBuckets(packedNames))
-            {
-                sb.Append(inner2);
-                sb.Append("case ");
-                sb.Append(PackedKeyLiteral(bucket.Key));
-                sb.AppendLine(":");
-                // Inside `Length == 3` the key IS the whole name, so a lone three-byte candidate
-                // needs no compare at all. Everything else is confirmed over its whole name.
-                if (allExactlyThree && bucket.Value.Count == 1)
-                {
-                    sb.Append(inner2);
-                    sb.Append("    ");
-                    sb.Append(indexVar);
-                    sb.Append(" = ");
-                    sb.Append(bucket.Value[0].Index);
-                    sb.AppendLine(";");
-                }
-                else
-                {
-                    EmitPackedCandidates(sb, bucket.Value, nameVar, indexVar, inner2 + "    ");
-                }
-                sb.Append(inner2);
-                sb.AppendLine("    break;");
-            }
-            sb.Append(inner);
-            sb.AppendLine("}");
-            sb.Append(indent);
-            sb.AppendLine("}");
-
-            if (shortNames.Count > 0)
-            {
-                sb.Append(indent);
-                sb.AppendLine("else");
-                sb.Append(indent);
-                sb.AppendLine("{");
-                EmitLengthBucketSwitch(sb, shortNames, nameVar, indexVar, inner);
-                sb.Append(indent);
-                sb.AppendLine("}");
-            }
-        }
-        else
-        {
-            EmitLengthBucketSwitch(sb, shortNames, nameVar, indexVar, indent);
-        }
+        EmitLengthBucketSwitch(sb, NameCandidates(props), nameVar, indexVar, indent);
 
         // 2. Fallback: the pre-P0-1 chain, now reached only by a name that differs from a
         //    compiled one by case, and only while case-insensitivity is on.
@@ -4383,87 +4308,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         for (var i = 0; i < props.Count; i++)
             list.Add((i, props[i], Encoding.UTF8.GetByteCount(props[i].JsonName)));
         return list;
-    }
-
-    /// <summary>
-    /// The packed 24-bit key of a compiled name: its first three UTF-8 bytes, most significant first.
-    /// Every byte is <c>&lt;= 0xFF</c>, so the value always fits a positive <c>int</c>.
-    /// </summary>
-    private static int PackedKey(string name)
-    {
-        var bytes = Encoding.UTF8.GetBytes(name);
-        return (bytes[0] << 16) | (bytes[1] << 8) | bytes[2];
-    }
-
-    /// <summary>A <c>switch</c> label for one packed key: <c>0x463031</c> is <c>"F01"</c>.</summary>
-    private static string PackedKeyLiteral(int key) => $"0x{key:X6}";
-
-    /// <summary>
-    /// Groups names of three bytes or more by <see cref="PackedKey"/> \u2014 ascending by key,
-    /// declaration-ordered inside a bucket, i.e. a deterministic order so the generated file and the
-    /// checked-in baseline stay stable. A bucket can hold several candidates: they share their first
-    /// three bytes ("Alpha"/"Alpine"/"Alps", or "\u00dcber"/"\u00dcbel"), and the chain inside the case
-    /// decides between them.
-    /// </summary>
-    private static IEnumerable<
-        KeyValuePair<int, List<(int Index, PropertyInfo Prop, int Length)>>
-    > PackedBuckets(List<(int Index, PropertyInfo Prop, int Length)> candidates)
-    {
-        var buckets = new Dictionary<int, List<(int Index, PropertyInfo Prop, int Length)>>();
-        foreach (var candidate in candidates)
-        {
-            var key = PackedKey(candidate.Prop.JsonName);
-            if (!buckets.TryGetValue(key, out var bucket))
-                buckets[key] = bucket = new List<(int Index, PropertyInfo Prop, int Length)>();
-            bucket.Add(candidate);
-        }
-        foreach (var key in buckets.Keys.OrderBy(k => k))
-            yield return new KeyValuePair<int, List<(int Index, PropertyInfo Prop, int Length)>>(
-                key,
-                buckets[key]
-            );
-    }
-
-    /// <summary>
-    /// Confirms one packed-key bucket, candidate by candidate. A candidate of exactly three bytes is
-    /// confirmed by <c>Length == 3</c> (its three bytes are already known to be right, so the length
-    /// is the only thing left to check); a longer candidate is confirmed by <c>SequenceEqual</c> over
-    /// the whole name, which is what keeps a name that merely shares the first three bytes from
-    /// binding this property.
-    /// </summary>
-    private static void EmitPackedCandidates(
-        StringBuilder sb,
-        List<(int Index, PropertyInfo Prop, int Length)> candidates,
-        string nameVar,
-        string indexVar,
-        string indent
-    )
-    {
-        var first = true;
-        foreach (var (index, prop, length) in candidates)
-        {
-            sb.Append(indent);
-            sb.Append(first ? "if (" : "else if (");
-            sb.Append(nameVar);
-            if (length == 3)
-            {
-                sb.Append(".Length == 3");
-            }
-            else
-            {
-                sb.Append(".SequenceEqual(\"");
-                sb.Append(EscapeCSharpString(prop.JsonName));
-                sb.Append("\"u8)");
-            }
-            sb.AppendLine(")");
-            sb.Append(indent);
-            sb.Append("    ");
-            sb.Append(indexVar);
-            sb.Append(" = ");
-            sb.Append(index);
-            sb.AppendLine(";");
-            first = false;
-        }
     }
 
     /// <summary>

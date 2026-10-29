@@ -50,43 +50,38 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
             var __n = reader.GetStringRaw();
             if (!reader.Read() && reader.NeedsMoreData) break;
             int __mi = -1;
-            if (__n.Length >= 3)
+            switch (__n.Length)
             {
-                int __nk = (__n[0] << 16) | (__n[1] << 8) | __n[2];
-                switch (__nk)
-                {
-                    case 0x4E616D:
-                        if (__n.SequenceEqual("Name"u8))
-                            __mi = 0;
-                        break;
-                    case 0x576865:
-                        if (__n.SequenceEqual("When"u8))
-                            __mi = 4;
-                        break;
-                }
-            }
-            else
-            {
-                switch (__n.Length)
-                {
-                    case 1:
-                        switch (__n[0])
-                        {
-                            case (byte)'N':
-                                if (__n.SequenceEqual("N"u8))
-                                    __mi = 1;
-                                break;
-                            case (byte)'F':
-                                if (__n.SequenceEqual("F"u8))
-                                    __mi = 2;
-                                break;
-                            case (byte)'D':
-                                if (__n.SequenceEqual("D"u8))
-                                    __mi = 3;
-                                break;
-                        }
-                        break;
-                }
+                case 1:
+                    switch (__n[0])
+                    {
+                        case (byte)'N':
+                            if (__n.SequenceEqual("N"u8))
+                                __mi = 1;
+                            break;
+                        case (byte)'F':
+                            if (__n.SequenceEqual("F"u8))
+                                __mi = 2;
+                            break;
+                        case (byte)'D':
+                            if (__n.SequenceEqual("D"u8))
+                                __mi = 3;
+                            break;
+                    }
+                    break;
+                case 4:
+                    switch (__n[0])
+                    {
+                        case (byte)'N':
+                            if (__n.SequenceEqual("Name"u8))
+                                __mi = 0;
+                            break;
+                        case (byte)'W':
+                            if (__n.SequenceEqual("When"u8))
+                                __mi = 4;
+                            break;
+                    }
+                    break;
             }
             if (__mi < 0 && __ci)
             {

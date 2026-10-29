@@ -109,26 +109,16 @@ file static class S11bJsonStreaming
             var propNameSpan = reader.GetStringRaw();
             if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
             int __mi = -1;
-            if (propNameSpan.Length >= 3)
+            switch (propNameSpan.Length)
             {
-                int __nk = (propNameSpan[0] << 16) | (propNameSpan[1] << 8) | propNameSpan[2];
-                switch (__nk)
-                {
-                    case 0x4E616D:
-                        if (propNameSpan.SequenceEqual("Name"u8))
-                            __mi = 0;
-                        break;
-                }
-            }
-            else
-            {
-                switch (propNameSpan.Length)
-                {
-                    case 1:
-                        if (propNameSpan.SequenceEqual("B"u8))
-                            __mi = 1;
-                        break;
-                }
+                case 1:
+                    if (propNameSpan.SequenceEqual("B"u8))
+                        __mi = 1;
+                    break;
+                case 4:
+                    if (propNameSpan.SequenceEqual("Name"u8))
+                        __mi = 0;
+                    break;
             }
             if (__mi < 0 && __ci)
             {

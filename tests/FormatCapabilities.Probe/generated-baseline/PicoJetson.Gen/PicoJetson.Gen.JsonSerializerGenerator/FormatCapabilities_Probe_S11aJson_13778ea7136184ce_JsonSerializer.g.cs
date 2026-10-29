@@ -113,20 +113,21 @@ file static class S11aJsonStreaming
             var propNameSpan = reader.GetStringRaw();
             if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : ReadStatus.EndOfInput;
             int __mi = -1;
-            if (propNameSpan.Length >= 3)
+            switch (propNameSpan.Length)
             {
-                int __nk = (propNameSpan[0] << 16) | (propNameSpan[1] << 8) | propNameSpan[2];
-                switch (__nk)
-                {
-                    case 0x436869:
-                        if (propNameSpan.SequenceEqual("Child"u8))
-                            __mi = 1;
-                        break;
-                    case 0x56616C:
-                        if (propNameSpan.SequenceEqual("Value"u8))
-                            __mi = 0;
-                        break;
-                }
+                case 5:
+                    switch (propNameSpan[0])
+                    {
+                        case (byte)'V':
+                            if (propNameSpan.SequenceEqual("Value"u8))
+                                __mi = 0;
+                            break;
+                        case (byte)'C':
+                            if (propNameSpan.SequenceEqual("Child"u8))
+                                __mi = 1;
+                            break;
+                    }
+                    break;
             }
             if (__mi < 0 && __ci)
             {

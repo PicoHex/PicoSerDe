@@ -455,10 +455,8 @@ public class NameDispatchShapeTests
 
     private static async Task AssertFallbackIsKept(string generatedFile, string nameVar)
     {
-        // Fast path: one packed 24-bit key switch over the first three bytes of the name
-        // (json-gen3 #1; it used to be a switch on the length plus one on the first byte), with
-        // every candidate still confirmed over its whole name.
-        await Assert.That(generatedFile).Contains("switch (__nk)");
+        // Fast path: a length switch dispatching exact span compares.
+        await Assert.That(generatedFile).Contains($"switch ({nameVar}.Length)");
         await Assert.That(generatedFile).Contains($"{nameVar}.SequenceEqual(");
 
         // Fallback: the pre-P0-1 chain, still guarded by the case-insensitivity option — now the

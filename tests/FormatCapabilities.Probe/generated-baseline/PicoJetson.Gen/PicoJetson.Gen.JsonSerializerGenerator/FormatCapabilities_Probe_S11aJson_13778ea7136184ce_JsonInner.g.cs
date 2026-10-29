@@ -51,20 +51,21 @@ internal static class FormatCapabilities_Probe_S11aJson_13778ea7136184ceJsonInne
             var __n = reader.GetStringRaw();
             if (!reader.Read() && reader.NeedsMoreData) break;
             int __mi = -1;
-            if (__n.Length >= 3)
+            switch (__n.Length)
             {
-                int __nk = (__n[0] << 16) | (__n[1] << 8) | __n[2];
-                switch (__nk)
-                {
-                    case 0x436869:
-                        if (__n.SequenceEqual("Child"u8))
-                            __mi = 1;
-                        break;
-                    case 0x56616C:
-                        if (__n.SequenceEqual("Value"u8))
-                            __mi = 0;
-                        break;
-                }
+                case 5:
+                    switch (__n[0])
+                    {
+                        case (byte)'V':
+                            if (__n.SequenceEqual("Value"u8))
+                                __mi = 0;
+                            break;
+                        case (byte)'C':
+                            if (__n.SequenceEqual("Child"u8))
+                                __mi = 1;
+                            break;
+                    }
+                    break;
             }
             if (__mi < 0 && __ci)
             {
