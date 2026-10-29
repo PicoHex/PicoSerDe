@@ -843,14 +843,117 @@ file static class __PicoMsgPackBulk {
 
     /// <summary>
     /// True when the counted element loop may be replaced by the bulk int32 read: the element is a
-    /// non-nullable <c>int</c> and the target is a <c>List<int></c> (every call site of the counted
-    /// loop passes a List and <c>.Add</c>).
+    /// non-nullable <c>int</c> and the <b>target expression's declared type</b> is a
+    /// <c>List<int></c>.
+    /// <para>
+    /// <b>The declared type is a parameter, not a guess.</b> The bulk read writes into the
+    /// destination list's own backing array, so the destination must be a <c>List<int></c> at
+    /// compile time. Every caller of <see cref="EmitCollectionElements"/> passes
+    /// <c>targetIsList: true</c> only where the target is a <c>List&lt;int&gt;</c> by construction
+    /// (a fresh <c>var __l = new List&lt;T&gt;(16)</c> local) or by declaration
+    /// (<see cref="IsDeclaredList"/> on the member) - never as an assumption about the object the
+    /// target happens to hold. There is deliberately no default: a new call site has to say which
+    /// of the two it is.
+    /// </para>
     /// </summary>
-    static bool BulkIntListApplies(PropertyInfo element, string op) =>
-        op == ".Add"
+    static bool BulkIntListApplies(PropertyInfo element, string op, bool targetIsList) =>
+        targetIsList
+        && op == ".Add"
         && element.ElementTypeKind == "int32"
         && !element.ElementIsNullableValue
         && !element.ElementIsNullableReference;
+
+    /// <summary>
+    /// True when the declared collection type is a <c>List&lt;T&gt;</c>.
+    /// <para>
+    /// <b>Why both bulk paths need this.</b> Each one touches the list's own storage - the reader
+    /// through <c>CollectionsMarshal.SetCount</c>, the writer through
+    /// <c>CollectionsMarshal.AsSpan</c> - so the destination has to be a <c>List&lt;int&gt;</c> at
+    /// compile time. A member declared as <c>IList&lt;int&gt;</c> / <c>ICollection&lt;int&gt;</c> /
+    /// <c>IEnumerable&lt;int&gt;</c> resolves to the same "list" kind but binds to the interface: the
+    /// read would not compile, and the write would have to probe the object's runtime type - which
+    /// is exactly what a <c>TryGetInt32Span</c> helper did: one useless call and one dead fallback
+    /// arm in every generated file, with the path taken depending on the object instead of on the
+    /// code. Those members keep the per-element loop on both sides, which is what they had before
+    /// the bulk paths existed.
+    /// </para>
+    /// </summary>
+    static bool IsDeclaredList(PropertyInfo p) => IsDeclaredListName(p.TypeFullName);
+
+    /// <summary>True when <paramref name="typeFullName"/> names <c>List&lt;T&gt;</c> itself.</summary>
+    static bool IsDeclaredListName(string? typeFullName)
+    {
+        // A pattern, not `string.IsNullOrEmpty`, so the compiler narrows `tn` on netstandard2.0 -
+        // where that helper carries no [NotNullWhen(false)].
+        if (typeFullName is not { Length: > 0 } tn)
+            return false;
+        if (tn.EndsWith("?", StringComparison.Ordinal))
+            tn = tn.Substring(0, tn.Length - 1);
+        if (tn.StartsWith("global::", StringComparison.Ordinal))
+            tn = tn.Substring("global::".Length);
+        return tn.StartsWith("System.Collections.Generic.List<", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The argument a bulk int32 write can take for the declared target <paramref name="a"/>, or
+    /// <c>null</c> when the target's <b>declared</b> type cannot be shown to have a span.
+    /// <para>
+    /// Two shapes qualify, and both are decided from the declaration alone: <c>int[]</c> converts
+    /// to <c>ReadOnlySpan&lt;int&gt;</c> implicitly, and <c>List&lt;int&gt;</c> hands over its
+    /// backing array through <c>CollectionsMarshal.AsSpan</c>. Nothing else does:
+    /// <c>IList&lt;int&gt;</c>, <c>ICollection&lt;int&gt;</c>, <c>IReadOnlyList&lt;int&gt;</c> and
+    /// every extended collection kind (HashSet/Queue/Stack/LinkedList/ImmutableArray/Memory) keep
+    /// the per-element loop, as do a nullable element (<c>List&lt;int?&gt;</c>), a nested sequence
+    /// (<c>List&lt;List&lt;int&gt;&gt;</c>) and any other element type.
+    /// </para>
+    /// </summary>
+    static string? Int32RunArgument(PropertyInfo p, string a)
+    {
+        if (
+            p.ElementTypeKind != "int32"
+            || p.ElementIsNullableValue
+            || p.ElementIsNullableReference
+        )
+            return null;
+        if (p.TypeKind == "array")
+            return a;
+        if (IsDeclaredList(p))
+            return "global::System.Runtime.InteropServices.CollectionsMarshal.AsSpan(" + a + ")";
+        return null;
+    }
+
+    /// <summary>
+    /// Emits the element loop of a sequence member: the bulk int32 run <b>when the declared
+    /// container has a span to hand over</b>, otherwise the per-element loop. No other container
+    /// gets a bulk arm, so the generated code carries no runtime type probe and no fallback branch
+    /// that cannot be taken: the emitted shape follows the declared type, which is the same thing
+    /// the compiler binds.
+    /// </summary>
+    static void EmitSequenceBody(
+        StringBuilder s,
+        PropertyInfo sequence,
+        PropertyInfo element,
+        string a,
+        string ind,
+        ref int c
+    )
+    {
+        if (Int32RunArgument(sequence, a) is { } run)
+        {
+            s.Append(ind);
+            s.Append("mw.WriteInt32Array(");
+            s.Append(run);
+            s.AppendLine(");");
+            return;
+        }
+        s.Append(ind);
+        s.Append("foreach (var __i in ");
+        s.Append(PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(sequence.TypeKind, a));
+        s.AppendLine(") {");
+        WriteSerElem(s, element, "__i", ind + "    ", ref c);
+        s.Append(ind);
+        s.AppendLine("}");
+    }
 
     /// <summary>Inner helper for nested Dictionary types.</summary>
     static string GenDictInner(string cleanName, string shortName, PropertyInfo dp)
@@ -1401,7 +1504,6 @@ file static class __PicoMsgPackBulk {
             "        var mw = new MsgPackWriter(writer, options: ((global::PicoMsgPack.MsgPackOptions?)options));"
         );
         s.AppendLine("        mw.WriteStartArray(value.Count);");
-        s.AppendLine("        foreach (var __item in value) {");
         // Create a synthetic PropertyInfo for element serialization
         var elemP = new PropertyInfo(
             Name: "__item",
@@ -1418,8 +1520,23 @@ file static class __PicoMsgPackBulk {
                 : type.ArrayElementNestedProps,
             ConverterTypeFullName: null
         );
-        WriteSerElem(s, elemP, "__item", "            ", ref c);
-        s.AppendLine("        }");
+        // The root entry point has exactly one container - the parameter, whose declared type is
+        // `listFqn` - so this is the same declared-type gate the member path uses.
+        if (
+            Int32RunArgument(elemP with { TypeKind = "list", TypeFullName = listFqn }, "value") is
+            { } run
+        )
+        {
+            s.Append("        mw.WriteInt32Array(");
+            s.Append(run);
+            s.AppendLine(");");
+        }
+        else
+        {
+            s.AppendLine("        foreach (var __item in value) {");
+            WriteSerElem(s, elemP, "__item", "            ", ref c);
+            s.AppendLine("        }");
+        }
         s.AppendLine("        mw.WriteEndArray();");
         s.AppendLine("        _ = mw.Buffer;");
         s.AppendLine("    } }");
@@ -1439,7 +1556,7 @@ file static class __PicoMsgPackBulk {
         s.Append("        var __list = new List<");
         s.Append(elemTypeName);
         s.AppendLine(">(16);");
-        EmitCollectionElements(s, elemP, "__list", ".Add", "        ", ref c);
+        EmitCollectionElements(s, elemP, "__list", ".Add", "        ", ref c, targetIsList: true);
         s.AppendLine("        return __list;");
         s.AppendLine("    } }");
         s.AppendLine();
@@ -1773,13 +1890,7 @@ file static class __PicoMsgPackBulk {
                 s.Append("mw.WriteStartArray(");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.SequenceCountExpression(p.TypeKind, a));
                 s.AppendLine(");");
-                s.Append(ind);
-                s.Append("foreach (var __i in ");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(p.TypeKind, a));
-                s.AppendLine(") {");
-                WriteSerElem(s, p, "__i", ind + "    ", ref c);
-                s.Append(ind);
-                s.AppendLine("}");
+                EmitSequenceBody(s, p, p, a, ind, ref c);
                 s.Append(ind);
                 s.AppendLine("mw.WriteEndArray();");
                 break;
@@ -2973,7 +3084,9 @@ file static class __PicoMsgPackBulk {
                 s.Append(" = new List<");
                 s.Append(extElemType);
                 s.AppendLine(">(16);");
-                EmitCollectionElements(s, p, extList, ".Add", ind, ref c);
+                // The target is a fresh `var __extN = new List<T>(16)` local: a List by
+                // construction, so the bulk read's CollectionsMarshal call type-checks.
+                EmitCollectionElements(s, p, extList, ".Add", ind, ref c, targetIsList: true);
                 PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
                     s,
                     p.TypeKind!,
@@ -3009,7 +3122,8 @@ file static class __PicoMsgPackBulk {
                 s.Append(" ??= new List<");
                 s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName);
                 s.AppendLine(">(16);");
-                EmitCollectionElements(s, p, t, ".Add", ind, ref c);
+                // The target is the member itself: its declared type decides.
+                EmitCollectionElements(s, p, t, ".Add", ind, ref c, IsDeclaredList(p));
                 if (p.IsNullableReference)
                 {
                     ind = ind.Substring(4);
@@ -3033,7 +3147,7 @@ file static class __PicoMsgPackBulk {
                 s.Append("var __l = new List<");
                 s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName);
                 s.AppendLine(">(16);");
-                EmitCollectionElements(s, p, "__l", ".Add", ind, ref c);
+                EmitCollectionElements(s, p, "__l", ".Add", ind, ref c, targetIsList: true);
                 s.Append(ind);
                 s.Append(t);
                 s.AppendLine(" = __l.ToArray();");
@@ -3246,7 +3360,8 @@ file static class __PicoMsgPackBulk {
         string target,
         string op,
         string ind,
-        ref int c
+        ref int c,
+        bool targetIsList
     )
     {
         s.Append(ind);
@@ -3268,7 +3383,7 @@ file static class __PicoMsgPackBulk {
             // (false, consuming nothing) whenever the payload is not a flat run of int32
             // encodings — a sequence-mode reader, a truncated array, an int64 or a nested value —
             // and the per-element loop below then runs exactly as it always did.
-            if (BulkIntListApplies(element, op))
+            if (BulkIntListApplies(element, op, targetIsList))
             {
                 s.Append(ind);
                 s.Append("        if (!__PicoMsgPackBulk.TryReadInt32List(ref reader, ");
@@ -3277,7 +3392,7 @@ file static class __PicoMsgPackBulk {
                 s.Append(id);
                 s.AppendLine(")) {");
             }
-            var open = BulkIntListApplies(element, op) ? "            " : "        ";
+            var open = BulkIntListApplies(element, op, targetIsList) ? "            " : "        ";
             s.Append(ind);
             s.Append(open);
             s.Append("for (var __ci");
@@ -3296,7 +3411,7 @@ file static class __PicoMsgPackBulk {
             s.Append(ind);
             s.Append(open);
             s.AppendLine("}");
-            if (BulkIntListApplies(element, op))
+            if (BulkIntListApplies(element, op, targetIsList))
             {
                 s.Append(ind);
                 s.AppendLine("        }");

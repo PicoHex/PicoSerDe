@@ -31,6 +31,7 @@ only one in the library that cannot talk to its own ecosystem.
 
 | 5 | PicoSerDe.Core | `T:IFusedTokenReader` (+ `P:HasCountedCollections`, `M:TryGetCollectionCount`, `M:TryReadInt32`, `M:TryReadInt64`, `M:TryReadFloat64`, `M:TryReadBool`) | R-3 | The token contract asks for two steps per value - `Read()` classifies the byte and `TryGetX` decodes it - which is measurable: 13.4 ns per token against the competitor's 6.8 on the same 107-token payload. A derived interface lets a format fuse the two steps where its wire allows it. The members are abstract rather than defaulted because a `ref struct` must implement every interface member itself (CS9245, measured), and because an override is only trustworthy when the thing it must equal is written down somewhere. |
 | 6 | PicoSerDe.Core | `T:TokenReaderFused` (+ the same six `M:` methods, static) | R-3 | The reference those overrides must equal: the literal composition of `Read()` plus `TryGetX()`, existing exactly once. Readers that do not optimize a member forward to it, so "the fast path is equivalent to the slow path" is testable against a single source of truth rather than against each implementer's memory of one. |
+| 7 | PicoMsgPack | `M:MsgPackWriter.WriteInt32Array(System.ReadOnlySpan\`1<int> values)` | **R-4** | A flat `List<int>` / `int[]` row is the one place where the per-element *call* is the whole cost, not the encoding: measured on the Collection row, 100 elements cost 2.1 ns each through `WriteInt32` (inlined by dynamic PGO, so this is not a call-overhead story any more) against 0.57 ns for MessagePack-CSharp's equivalent loop, and 0.5 ns for the same encoding run as a tight loop inside this type. Writing the run in one call removes the per-element `Ensure` and the per-element method boundary while emitting **byte-identical** output - the non-fixint values are still handed to `WriteInt32` itself, so no value takes an encoding the loop would not have chosen. `api/*.public.txt` is untouched, as the note above requires. |
 
 ## Notes
 
@@ -40,3 +41,12 @@ only one in the library that cannot talk to its own ecosystem.
 - R-3 is additive in the plain sense: a new interface and a new static class. No existing member
   changed signature, and `ITokenReader` itself is untouched, so readers that do not want the fused
   path never see it.
+
+### R-4: `MsgPackWriter.WriteInt32Array`
+
+Generated serializers live in the consumer assembly, so a bulk write path can only reach them through a
+public member - the same reason `WriteString(ReadOnlySpan<char>)` and `WriteDateTime` were accepted.
+The alternatives were measured rather than waved away: keeping the per-element call costs 2.1 ns per
+element on the Collection row against 0.57 ns for the competitor, and no existing public member writes
+a length-prefixed run of values. Output is byte-identical to the element loop because non-fixint values
+still go through `WriteInt32`. `api/*.public.txt` stays untouched, as the note above requires.
