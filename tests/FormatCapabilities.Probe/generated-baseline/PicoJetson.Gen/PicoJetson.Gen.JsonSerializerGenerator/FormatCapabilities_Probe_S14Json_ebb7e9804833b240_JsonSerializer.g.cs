@@ -50,10 +50,10 @@ namespace FormatCapabilities.Probe;
                 S14Json? result;
                 var __status = S14JsonStreaming.DeserializeStreaming(ref reader, null, out result);
                 if (__status == ReadStatus.EndOfInput)
-                    throw new System.FormatException($"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.");
+                    throw __PicoJsonCold.Err("Expected a JSON object at offset ", reader.BytesConsumed, " but found " + reader.TokenType + ".");
                 if (__status == ReadStatus.NeedMoreData)
                     throw new System.FormatException("Unexpected end of stream while parsing.");
-                if (reader.Read()) throw new System.FormatException($"Unexpected data after the document at offset {reader.BytesConsumed}");
+                if (reader.Read()) throw __PicoJsonCold.Err("Unexpected data after the document at offset ", reader.BytesConsumed);
                 return result!;
             }
             finally
@@ -87,9 +87,10 @@ file static class S14JsonStreaming
         {
             if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;
             if (reader.TokenType == TokenType.Null) { result = null; return ReadStatus.Success; }
-            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.");
+            if (reader.TokenType != TokenType.ObjectStart) throw __PicoJsonCold.Err("Expected a JSON object at offset ", reader.BytesConsumed, " but found " + reader.TokenType + ".");
         }
 
+        bool __ci = reader.Options?.PropertyNameCaseInsensitive ?? true;
         while (true)
         {
             long __snap = reader.BytesConsumed;
@@ -105,7 +106,7 @@ file static class S14JsonStreaming
                         __mi = 0;
                     break;
             }
-            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            if (__mi < 0 && __ci)
             {
                 if (TextHelpers.Eq(propNameSpan, "V"u8))
                     __mi = 0;
@@ -126,10 +127,20 @@ file static class S14JsonStreaming
                 }
             }
             else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)
-                throw new System.FormatException($"Unexpected property '{Encoding.UTF8.GetString(propNameSpan)}' at offset {reader.BytesConsumed}");
+                throw __PicoJsonCold.Err("Unexpected property '" + Encoding.UTF8.GetString(propNameSpan) + "' at offset ", reader.BytesConsumed);
             else reader.TrySkip();
             if (reader.NeedsMoreData) { reader.RewindTo(__snap); return ReadStatus.NeedMoreData; }
         }
         return ReadStatus.Success;
     }
+}
+file static class __PicoJsonCold
+{
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset) =>
+        new System.FormatException(prefix + offset.ToString());
+
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset, string suffix) =>
+        new System.FormatException(prefix + offset.ToString() + suffix);
 }

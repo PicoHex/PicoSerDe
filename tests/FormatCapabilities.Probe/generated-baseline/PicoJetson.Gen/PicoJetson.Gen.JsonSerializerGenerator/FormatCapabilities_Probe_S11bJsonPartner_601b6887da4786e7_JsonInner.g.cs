@@ -44,7 +44,8 @@ internal static class FormatCapabilities_Probe_S11bJsonPartner_601b6887da4786e7J
     internal static FormatCapabilities.Probe.S11bJsonPartner Deserialize(ref JsonReader reader)
     {
         var obj = new FormatCapabilities.Probe.S11bJsonPartner();
-        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.");
+        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw __PicoJsonCold.Err("Expected a JSON object at offset ", reader.BytesConsumed, " but found " + reader.TokenType + ".");
+        bool __ci = reader.Options?.PropertyNameCaseInsensitive ?? true;
         while (reader.Read() && reader.TokenType == TokenType.PropertyName)
         {
             var __n = reader.GetStringRaw();
@@ -66,7 +67,7 @@ internal static class FormatCapabilities_Probe_S11bJsonPartner_601b6887da4786e7J
                     }
                     break;
             }
-            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            if (__mi < 0 && __ci)
             {
                 if (TextHelpers.Eq(__n, "N"u8))
                     __mi = 0;
@@ -78,7 +79,7 @@ internal static class FormatCapabilities_Probe_S11bJsonPartner_601b6887da4786e7J
                 if (!reader.TryGetInt32(out var __intValue))
                 {
                     if (!reader.TryGetInt64(out var __lv))
-                        throw new System.FormatException($"Expected an integer value for property \"N\" at offset {reader.BytesConsumed}");
+                        throw __PicoJsonCold.Err("Expected an integer value for property \"N\" at offset ", reader.BytesConsumed);
                     __intValue = checked((int)__lv);
                 }
                 obj.N = __intValue;
@@ -91,9 +92,19 @@ internal static class FormatCapabilities_Probe_S11bJsonPartner_601b6887da4786e7J
                     obj.A = __PicoSerDe_FormatCapabilities_Probe.FormatCapabilities_Probe_S11bJson_21a646aabfc47923JsonInner.Deserialize(ref reader);
             }
             else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)
-                throw new System.FormatException($"Unexpected property '{Encoding.UTF8.GetString(__n)}' at offset {reader.BytesConsumed}");
+                throw __PicoJsonCold.Err("Unexpected property '" + Encoding.UTF8.GetString(__n) + "' at offset ", reader.BytesConsumed);
             else reader.TrySkip();
         }
         return obj;
     }
+}
+file static class __PicoJsonCold
+{
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset) =>
+        new System.FormatException(prefix + offset.ToString());
+
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset, string suffix) =>
+        new System.FormatException(prefix + offset.ToString() + suffix);
 }

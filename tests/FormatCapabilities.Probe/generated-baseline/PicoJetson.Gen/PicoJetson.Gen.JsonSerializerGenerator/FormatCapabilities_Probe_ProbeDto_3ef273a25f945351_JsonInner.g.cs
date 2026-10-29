@@ -35,8 +35,7 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
             || value.When != default)
         {
         jw.WritePropertyName("When"u8);
-        var __iso_When = value.When.ToString("O");
-        jw.WriteString(__iso_When);
+        global::PicoJetson.TypeIo.WriteFormattable(ref jw, value.When, "O");
         }
         jw.WriteEndObject();
     }
@@ -44,7 +43,8 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
     internal static FormatCapabilities.Probe.ProbeDto Deserialize(ref JsonReader reader)
     {
         var obj = new FormatCapabilities.Probe.ProbeDto();
-        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.");
+        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw __PicoJsonCold.Err("Expected a JSON object at offset ", reader.BytesConsumed, " but found " + reader.TokenType + ".");
+        bool __ci = reader.Options?.PropertyNameCaseInsensitive ?? true;
         while (reader.Read() && reader.TokenType == TokenType.PropertyName)
         {
             var __n = reader.GetStringRaw();
@@ -83,7 +83,7 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
                     }
                     break;
             }
-            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            if (__mi < 0 && __ci)
             {
                 if (TextHelpers.Eq(__n, "Name"u8))
                     __mi = 0;
@@ -100,7 +100,7 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
             {
                 if (reader.TokenType != TokenType.String)
                 {
-                    throw new System.FormatException($"Expected String value for property \"Name\" at offset {reader.BytesConsumed}");
+                    throw __PicoJsonCold.Err("Expected String value for property \"Name\" at offset ", reader.BytesConsumed);
                 }
                 obj.Name = Encoding.UTF8.GetString(reader.GetStringRaw());
             }
@@ -109,7 +109,7 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
                 if (!reader.TryGetInt32(out var __intValue))
                 {
                     if (!reader.TryGetInt64(out var __lv))
-                        throw new System.FormatException($"Expected an integer value for property \"N\" at offset {reader.BytesConsumed}");
+                        throw __PicoJsonCold.Err("Expected an integer value for property \"N\" at offset ", reader.BytesConsumed);
                     __intValue = checked((int)__lv);
                 }
                 obj.N = __intValue;
@@ -117,25 +117,25 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
             else if (__mi == 2)
             {
                 if (!reader.TryGetFloat64(out var __doubleValue))
-                    throw new System.FormatException($"Expected a floating-point number value for property \"F\" at offset {reader.BytesConsumed}");
+                    throw __PicoJsonCold.Err("Expected a floating-point number value for property \"F\" at offset ", reader.BytesConsumed);
                 obj.F = __doubleValue;
             }
             else if (__mi == 3)
             {
                 if (reader.TokenType is not (TokenType.String or TokenType.Int32 or TokenType.Int64 or TokenType.Float32 or TokenType.Float64))
                 {
-                    throw new System.FormatException($"Expected a string or number value for property \"D\" at offset {reader.BytesConsumed}");
+                    throw __PicoJsonCold.Err("Expected a string or number value for property \"D\" at offset ", reader.BytesConsumed);
                 }
                 var __rawBytes = reader.GetStringRaw();
                 if (!decimal.TryParse(__rawBytes, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var __decimalValue))
-                    throw new System.FormatException($"Expected a decimal number value for property \"D\" at offset {reader.BytesConsumed}");
+                    throw __PicoJsonCold.Err("Expected a decimal number value for property \"D\" at offset ", reader.BytesConsumed);
                 obj.D = __decimalValue;
             }
             else if (__mi == 4)
             {
                 if (reader.TokenType != TokenType.String)
                 {
-                    throw new System.FormatException($"Expected String value for property \"When\" at offset {reader.BytesConsumed}");
+                    throw __PicoJsonCold.Err("Expected String value for property \"When\" at offset ", reader.BytesConsumed);
                 }
                 var __rawBytes = reader.GetStringRaw();
                 System.DateTime __dt_When;
@@ -153,13 +153,23 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
                 else
                     __dtOk_When = System.DateTime.TryParse(Encoding.UTF8.GetString(__rawBytes), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out __dt_When);
                 if (!__dtOk_When)
-                    throw new System.FormatException($"Expected a DateTime value for property \"When\" at offset {reader.BytesConsumed}");
+                    throw __PicoJsonCold.Err("Expected a DateTime value for property \"When\" at offset ", reader.BytesConsumed);
                 obj.When = __dt_When;
             }
             else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)
-                throw new System.FormatException($"Unexpected property '{Encoding.UTF8.GetString(__n)}' at offset {reader.BytesConsumed}");
+                throw __PicoJsonCold.Err("Unexpected property '" + Encoding.UTF8.GetString(__n) + "' at offset ", reader.BytesConsumed);
             else reader.TrySkip();
         }
         return obj;
     }
+}
+file static class __PicoJsonCold
+{
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset) =>
+        new System.FormatException(prefix + offset.ToString());
+
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset, string suffix) =>
+        new System.FormatException(prefix + offset.ToString() + suffix);
 }

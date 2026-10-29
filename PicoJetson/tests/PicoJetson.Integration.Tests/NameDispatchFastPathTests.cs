@@ -459,11 +459,13 @@ public class NameDispatchShapeTests
         await Assert.That(generatedFile).Contains($"switch ({nameVar}.Length)");
         await Assert.That(generatedFile).Contains($"{nameVar}.SequenceEqual(");
 
-        // Fallback: the pre-P0-1 chain, still guarded by the case-insensitivity option.
+        // Fallback: the pre-P0-1 chain, still guarded by the case-insensitivity option — now the
+        // once-per-document local json-gen3 #4 hoists above the property loop.
         await Assert.That(generatedFile).Contains("TextHelpers.Eq(");
         await Assert
             .That(generatedFile)
-            .Contains("if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))");
+            .Contains("bool __ci = reader.Options?.PropertyNameCaseInsensitive ?? true;");
+        await Assert.That(generatedFile).Contains("if (__mi < 0 && __ci)");
     }
 
     private static string[] RunGenerator(string source)
