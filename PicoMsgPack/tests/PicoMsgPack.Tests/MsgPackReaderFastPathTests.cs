@@ -145,4 +145,106 @@ public class MsgPackReaderFastPathTests
         var n = reader.TryReadInt32Array(__dest);
         await Assert.That(n).IsEqualTo(0); // fallback — caller should use reader loop
     }
+
+    // ── the second entry position: the header already came through Read() ──
+
+    /// <summary>
+    /// A generated counted loop reads the start token first (<c>Read()</c>), asks the count with
+    /// <c>TryGetCollectionCount</c>, and only then hands the elements to the bulk read. That call
+    /// must consume exactly the owed elements, spend the counted scope so the caller's end-token
+    /// <c>Read()</c> still produces <see cref="TokenType.ArrayEnd"/>, and leave the position where
+    /// <c>count</c> × <see cref="MsgPackReader.Read"/> would have left it.
+    /// </summary>
+    [Test]
+    public async Task TryReadInt32Array_AfterTheHeaderToken_ReadsTheOwedElementsOnly()
+    {
+        // fixarray(3) + [1, 2, 3] as the whole document (a root array may not be followed by
+        // anything: that is trailing garbage, see the span reader's own rule).
+        var data = new byte[] { 0x93, 0x01, 0x02, 0x03 };
+        var reader = new MsgPackReader(data);
+        bool started = reader.Read();
+        var startedType = reader.TokenType;
+        bool counted = reader.TryGetCollectionCount(out var count);
+        var dest = new int[3];
+        int n = reader.TryReadInt32Array(dest);
+        long consumedAfterBulk = reader.BytesConsumed;
+        bool ended = reader.Read();
+        var endedType = reader.TokenType;
+        int depthAfterEnd = reader.Depth;
+        long consumedAfterEnd = reader.BytesConsumed;
+
+        await Assert.That(started).IsTrue();
+        await Assert.That(startedType).IsEqualTo(TokenType.ArrayStart);
+        await Assert.That(counted).IsTrue();
+        await Assert.That(count).IsEqualTo(3);
+        await Assert.That(n).IsEqualTo(3);
+        await Assert.That(dest).IsEquivalentTo(new[] { 1, 2, 3 });
+        await Assert.That(consumedAfterBulk).IsEqualTo(4L);
+        // The level counter is spent, so the next Read() owes the end token — not the next element.
+        await Assert.That(ended).IsTrue();
+        await Assert.That(endedType).IsEqualTo(TokenType.ArrayEnd);
+        await Assert.That(depthAfterEnd).IsEqualTo(0);
+        await Assert.That(consumedAfterEnd).IsEqualTo(4L);
+    }
+
+    /// <summary>A destination smaller than the array reads what fits and leaves the rest owed.</summary>
+    [Test]
+    public async Task TryReadInt32Array_ShortDestination_ReadsWhatFits()
+    {
+        var data = new byte[] { 0x93, 0x01, 0x02, 0x03 };
+        var reader = new MsgPackReader(data);
+        reader.Read();
+        var dest = new int[2];
+        int n = reader.TryReadInt32Array(dest);
+        bool more = reader.Read();
+        var moreType = reader.TokenType;
+        bool got = reader.TryGetInt32(out var last);
+
+        await Assert.That(n).IsEqualTo(2);
+        await Assert.That(dest).IsEquivalentTo(new[] { 1, 2 });
+        await Assert.That(more).IsTrue();
+        await Assert.That(moreType).IsEqualTo(TokenType.Int32);
+        await Assert.That(got).IsTrue();
+        await Assert.That(last).IsEqualTo(3);
+    }
+
+    /// <summary>
+    /// A non-int32 element refuses the whole run and consumes <b>nothing</b>: the caller's loop then
+    /// reports the failure from the same offset, with its own message.
+    /// </summary>
+    [Test]
+    public async Task TryReadInt32Array_AfterTheHeaderToken_NonIntegerElement_ConsumesNothing()
+    {
+        // fixarray(2) + [7, "ab"]
+        var data = new byte[] { 0x92, 0x07, 0xA2, 0x61, 0x62 };
+        var reader = new MsgPackReader(data);
+        reader.Read();
+        long consumedBefore = reader.BytesConsumed;
+        int n = reader.TryReadInt32Array(new int[2]);
+        long consumedAfter = reader.BytesConsumed;
+        // …and the per-element loop still decodes element 7 and then lands on the string.
+        bool first = reader.Read();
+        bool got = reader.TryGetInt32(out var v);
+        bool second = reader.Read();
+        var secondType = reader.TokenType;
+
+        await Assert.That(n).IsEqualTo(0);
+        await Assert.That(consumedAfter).IsEqualTo(consumedBefore);
+        await Assert.That(first).IsTrue();
+        await Assert.That(got).IsTrue();
+        await Assert.That(v).IsEqualTo(7);
+        await Assert.That(second).IsTrue();
+        await Assert.That(secondType).IsEqualTo(TokenType.String);
+    }
+
+    /// <summary>Sequence-mode readers never take the bulk path (they keep their own state machine).</summary>
+    [Test]
+    public async Task TryReadInt32Array_SequenceMode_StillReturnsZero()
+    {
+        var data = new byte[] { 0x93, 0x01, 0x02, 0x03 };
+        var reader = new MsgPackReader(new System.Buffers.ReadOnlySequence<byte>(data));
+        reader.Read();
+        int n = reader.TryReadInt32Array(new int[3]);
+        await Assert.That(n).IsEqualTo(0);
+    }
 }
