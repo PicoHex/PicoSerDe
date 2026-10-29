@@ -215,7 +215,7 @@ public class ColdThrowMessageTests
     public async Task ColdThrowMessages_AreFrozen()
     {
         var actual = string.Join("\n", Cases.Select(c => $"{c.Name}: {Outcome(c.Doc, c.Opts)}"));
-        await Assert.That(actual).IsEqualTo(Expected);
+        await Assert.That(actual).IsEqualTo(Expected.ReplaceLineEndings("\n"));
     }
 
     private static string Outcome(byte[] doc, JsonOptions? opts)
