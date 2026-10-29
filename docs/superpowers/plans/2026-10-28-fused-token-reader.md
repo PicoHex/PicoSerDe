@@ -761,13 +761,43 @@ G-0（并行冲突闸门，§2）
 
 每个任务完成后必须追加：任务编号、commit hash、`git diff --stat` 摘要、验证命令的**原始输出尾部**、性能数字（若适用，标「三轮中位 / 单轮 / 噪声内」）、是否触发停止规则、欠账清单。**性能数字只许写实测值**（spec §2.2 N6）。
 
-## 7. 最终处置（2026-10-29）
+## 7. 最终处置（2026-10-29；2026-10-29 收尾按「状态 + 证据指针」重写）
 
-| 任务 | 处置 | 依据（不是"没时间"） |
+**这张表的规则（本轮新增，因为本轮违反过一次）**：**每个任务占一行**，三列固定
+`任务 | 状态 | 一行证据`。
+
+- 状态只有三个值：**已做** / **未做** / **已回退**。**不许**用「已合并」「基本完成」这类合并词把多个任务
+  并进一格 —— 上一版正是这么写的（`T1、T1b、T2、T3、T5、T6、T7+T8、T9、T10、T12、T13、T14、T15 | 已合并`），
+  而 **T11 从未执行**：它被那句话吸收掉了，全文没有一行说它没做。
+- 证据必须是**可 grep 的判据**（命令 + 期望值）加 文件/commit。**「完成了」不是证据**。
+- **「成员正确」不等于「成员被用」**：`MsgPackReaderFusedEquivalenceTests` 那 135 条护栏证明的是前者。
+  所以 T6/T7/T8 的状态写的是**「已实现但当前无调用方」**，而不是「已做」—— 那才是事实。
+- **自动护栏**：`tests/PicoSerDe.Integration.Tests/FusedMemberEmissionGuardTests.cs` 断言
+  「`IFusedTokenReader` 上声明的每个成员，要么在该格式的生成基线里被**调用**，要么在
+  `docs/fused-emission-registry.md` 里**登记**为 `不用` + 理由」。新增一个融合成员而既不发射也不登记 ⇒ 测试红。
+  换言之：**「实现了但没人调用、且没人说」这种状态从此不可能静默存在。**
+
+| 任务 | 状态 | 一行证据（可 grep 的判据 + 文件/commit） |
 |---|---|---|
-| T1、T1b、T2、T3、T5、T6、T7+T8、T9、T10、T12、T13、T14、T15 | **已合并** | 见各 commit |
-| **T4** per-token 微基准闸门 | **已补做**（2026-10-29） | 工具入库：`PicoMsgPack/tools/pertoken/`（入库、**不进** `PicoSerDe.slnx`）。跑法见 §7.1。实测：`Collection` 形状下 `TryReadInt32` 相对 `Read()+TryGetInt32` 回收 **+10.0 %…+12.3 %（AOT）/ +10.2 %…+11.4 %（JIT, TC=0）/ −7.6 %…−7.7 %（JIT, 出厂分层编译）** ⇒ **RK-6 停止规则触发**（< 15 %，每种配置都触发） |
-| **T16–T18** TOML 三任务 | **不做** | 计划把它们标为**条件任务**，条件是"TOML 也落在慢的行上"。事实不成立：TOML 当前 **10/10 快于 Tomlyn**（中位 **0.19×**，见 README）。在已经领先 5 倍的格式上做融合读，收益无法进入噪声带以外 |
+| T1 契约 `IFusedTokenReader` + `TokenReaderFused` 参考正本 | **已做** | `grep -c "public interface IFusedTokenReader" PicoSerDe.Core/src/ITokenReader.cs` = 1，同文件的 `public static class TokenReaderFused` = 1；`52ba221`（merge `a3b201e`） |
+| T1b 五个 reader 实现契约（不优化处一行转发） | **已做** | `grep -c "TokenReaderFused.TryRead"` 逐文件：`JsonReader.cs` 6 / `TomlReader.cs` 4 / `YamlReader.cs` 4 / `IniReader.cs` 4 / `MsgPackReader.cs` 14；`799f2ab`（merge `9c35bb8`） |
+| T2 `api/PENDING-CHANGES.md` 登记 R-3 | **已做** | `grep -c "R-3" api/PENDING-CHANGES.md` = 3；`f9c6ec5` |
+| T3 MsgPack「参考 vs 融合」双走 dump 护栏 | **已做** | `MsgPackReaderFusedEquivalenceTests.cs` 的 `NamedPayloads_ReferenceAndFusedDumpsAreIdentical` / `EveryEntry_…` / `ChunkedEntry_…` 在 `dotnet test` 里被收集并绿；`ca07715` + `0f95029`（merge `32be123`） |
+| **T4** per-token 微基准闸门 | **已做**（数字待复核，见 §7.3） | `PicoMsgPack/tools/pertoken/Program.cs` 存在；`grep -c pertoken PicoSerDe.slnx` = **0**（入库但不进解决方案）；`7d7a9b9`（merge `a3528cc`）；实测见 §7.1 |
+| T5 `HasCountedCollections` + `TryGetCollectionCount` | **已做** | `MsgPackReader.cs` 里 `HasCountedCollections => true`（:1232）与 `TryGetCollectionCount`（:1257）各 1 处；`4b4fdf6`（merge `d8df674`） |
+| **T6** MsgPack `TryReadInt32` 覆写 | **已实现但当前无调用方** | 成员：`grep -c "TokenReaderFused.TryReadInt32" PicoMsgPack/src/PicoMsgPack/MsgPackReader.cs` = 4；发射：MsgPack 生成基线里 `TryReadInt32(` = **0**；`0b5e16e`（merge `a3faf4d`） |
+| **T7** MsgPack `TryReadInt64` 覆写 | **已实现但当前无调用方** | 成员：`grep -c "TokenReaderFused.TryReadInt64"` 同一文件 = 4；MsgPack 生成基线里 `TryReadInt64(` = **0**；`76378fd`（merge `f5a59e6`） |
+| **T8** MsgPack `TryReadFloat64` / `TryReadBool` 覆写 | **已实现但当前无调用方** | 成员：`TokenReaderFused.TryReadFloat64` = 3、`TokenReaderFused.TryReadBool` = 3（同一文件）；MsgPack 生成基线里 `TryReadFloat64(` / `TryReadBool(` = **0**；`76378fd`（merge `f5a59e6`） |
+| T9 生成器 **E-1** 计数循环 | **已做** | MsgPack 生成基线里 `TryGetCollectionCount(` = **8**（生成代码真的走计数循环，不是「写了没接」）；`9ab02c5`（merge `491e731`） |
+| T10 生成器护栏（产物零 `ITokenReader`） | **已做** | `PicoMsgPack/tests/PicoMsgPack.Tests/GeneratedCodeConcreteReaderGuardTests.cs` 在测试集里绿（基线 + 发射器源码两个面都查）；`9ab02c5` |
+| **T11** 生成器 **E-3** 融合元素读（MsgPack） | **未做**（两次实验判定无收益，见 §7.2） | **MsgPack 生成基线里 `TryReadInt32(` 计数 = 0**，`MsgPackSerializerGenerator.cs` 没有 E-3 发射点（只有既有的 `TryReadInt32Array/List` bulk 助手）；判据 = 属性站点融合实验 `feat/mp-prop-fused`（`d1b3337` → 回退 `1196365`）在**真实发射**上**无改善、AOT 慢 4–6 %** ⇒ 不做。两轮数字与判定过程见 **§7.2** |
+| T12 JSON「参考 vs 融合」双走 dump 护栏 | **已做** | `PicoJetson/tests/PicoJetson.Unit.Tests/JsonSpanTokenDump.cs` + `JsonReaderFusedEquivalenceTests.cs` 在测试集里绿；`c90f98d` + `2374328`（merge `eb8a815`） |
+| T13 删除 JSON `TryReadNextInt32Seq`（F-1） | **已做** | `grep -rn "TryReadNextInt32Seq" PicoJetson/src/` = **0** 行；`7c82481`（merge `75492de`） |
+| T14 JSON `TryReadInt32` 覆写 | **已做** | `grep -n "public bool TryReadInt32" PicoJetson/src/PicoJetson/JsonReader.cs` = 1 行（:792）；`825adc4`（merge `886f1b9`） |
+| T15 JSON **E-3** 发射 | **已做** | JSON 生成基线里 `TryReadInt32(` = **7**（7 个文件的元素循环，全仓库唯一真的在生成代码里调融合读的地方）；`727f2ef`（merge `bbceb67`） |
+| **T16–T18** TOML 三任务 | **未做** | 计划里它们是**条件任务**，条件是「TOML 也落在慢的行上」，而事实是 TOML **10/10 快于 Tomlyn**（中位 **0.19×**，见 README 的 Performance 表）；`PicoToml.Gen` 基线 `TryReadInt32(` = **0** |
+
+**这张表把「已实现」与「被发射」分开写，是这一轮最重要的教训** —— 展开见 §7.2 的最后一条。
 
 ### 收益的诚实汇总
 
@@ -837,3 +867,63 @@ dotnet publish PicoMsgPack/tools/pertoken/PerToken.csproj -c Release -r win-x64 
 
 > 结论：**契约工程的价值主要在"结构"而非"数字"** —— 五个格式现在共享一个可对拍、可负控、可逐格式优化的读契约，
 > 并且在这个过程中修掉了 JSON 负数流式缺陷（T13）。性能上只有整数密集的 JSON 路径拿到显著收益。
+
+### 7.2 T11 为什么没做：两次实验互相矛盾，最终判否（2026-10-29）
+
+T11 是 MsgPack 侧的 **E-3 发射**（生成器把标量元素循环里的 `Read()` + `TryGetX()` 换成 `TryReadX()`）。
+它**从未执行**，而上一版 §7 的写法让人以为它做完了（见本节最后一条）。补查之后做了**两轮实验**，
+两轮结论**方向相反**，最终判否。这一节把两轮都留下来 —— 只留第二轮，就等于"从来没测出过 −18.6 %"。
+
+| 轮 | 台架 | 身份 | 关键数字 | 判定 |
+|---|---|---|---|---|
+| 1 | `exp/fused-vs-twostage`（合成 A/B，三环境、每行一进程、三道闸门） | 派生形状：把读搬进 `case`，手写构造；CONTROL = 同码不同名 | `MTenInts DES` **0.8145（−18.6 %，默认，3 进程）**、`0.8374（−16.3 %，TC=0）`、`0.9592（−4.1 %，AOT）`；**元素循环 `Collection DES`（bulk 拒，T11 唯一能改的面积）= 1.0065 / 0.9937 / 0.9942（三个环境都是无差）**；归因：只搬家不融合 `+6.9 %`，每站点一次 `[NoInlining]` 调用的负控 `+6.3 %`，同位置调参考正本 `≈ −2 %` 且 4 次未过闸 | 元素循环**不值得做**（建议 A：不做 T11）；但属性站点融合的 −18.6 % 留了下来，"如果真有 18 %，发射器值得改" |
+| 2 | `feat/mp-prop-fused`（**真实发射**：`gs` 真生成器产出两条臂，A = `a3528cc` 的发射、B = `d1b3337` 的发射、C = A 的逐字节副本） | 实现 + 回退两个提交，树与 `a3528cc` 逐字节相同；等价性：504 292 行双走 dump 逐行相同、8 551 个（模型 × 畸形 payload）观测逐字相同、3620 测试绿、`api/` 零 diff | 默认口径下**没有任何一行改善超出噪声**（最好的 `Complex` = 0.9919，方向还反）；唯一超出噪声的是 `MTenInts DES` **1.068 / 1.045 / 1.084（3 进程同号，慢 4.5–8.4 %）**，其 CONTROL 1.001–1.006；同码行 `Collection SER` 读 0.986 / 0.910 / 1.002 = **台架地板**；AOT `MTenInts` **1.054 / 1.038 / 1.054**，角色互换 `0.971 / 0.963 / 0.966（3/3 过闸）` ⇒ 两段式便宜 3–4 % | **两条合并门槛全否 ⇒ `git revert d1b3337`（`1196365`）** |
+
+**为什么两轮相反 —— 三条，都有实测**：
+
+1. **合成台架 vs 真实发射。** 第一轮那个"属性融合"形状是**手写派生**的，不是发射器能直接产出的东西；
+   它赢的时候，它自己对标的基线副本在那些进程里正好站得不好 —— 报告自己记了：同一段两段式正文跨进程读到
+   **110 / 124 / 135 / 140 ns/call**（差 27 %），而融合版稳定在 111–115 ns。第二轮的 CONTROL 是
+   **逐字节副本**，只读到 1.00 ± 0.6 %，符号就翻过来了。⇒ **"融合更快"的结论必须由真生成器的两条臂产生。**
+2. **`if (__isMap)` 的形状成本 ≈ 5 %。** 真实发射里，一个 `switch` 同时服务 map 形式与位置编码的数组形式，
+   于是每个站点都多付一次 `if (__isMap)` + 冷路径重试。把判别**彻底拿掉**的极限版（`MTenInts HOISTED`，
+   手写 map 专用循环）读出 **1.0141**（CONTROL 1.001/1.012/1.011）⇒ 这笔钱 ≈ 5 %（10 个站点）。
+   **以后任何"把读搬进 case"的发射提案，都要先扣掉它。**
+3. **`TryReadInt32` 的正文比内联的 `TryGetInt32` 更贵。** 即使一分形状成本都不付（HOISTED），融合也只是**不赔**
+   （相对 CONTROL ≈ +0.3 %）：`TryReadInt32` 是 ~200 行 out-of-line 的 switch，每 token 付一次 prologue，
+   而两段式的 `TryGetInt32` 只是读一个 `[MethodImpl(AggressiveInlining)]` 的 `_intKind` 缓存字段。
+   方向与 T4 微基准一致（`Read()` 4.96 ns/token vs `TryReadInt32` 5.65 ns/token）——
+   **这也是"T4 的 −7.6 %"与"属性融合 +18.6 %"不可能同时为真的原因。**
+
+**处置**
+
+- **T11：不做。** 状态写在上表"未做"，判据 = MsgPack 生成基线里 `TryReadInt32(` 计数 = 0 + 本轮实验判否。
+- **T6 / T7 / T8：保留，状态"已实现但当前无调用方"。** 回退它们对任何一行 E2E 的影响**恰好是 0**
+  （今天没有发射点引用它们），代价是把契约和 135 条护栏一起删掉。它们在
+  `docs/fused-emission-registry.md` 里登记为 `不用`，理由就是本节。
+- **护栏**：如果以后有人真的做了 E-3，登记表那几行的状态必须从 `不用` 改成 `已发射`（或删掉那一行），
+  否则 `FusedMemberEmissionGuardTests` 会红 —— 这是**故意的**：改状态是一次必须写下来的动作。
+
+**记录缺陷本身（这一节存在的原因）**
+
+T11 之所以能静默缺席，是因为"任务完成"只活在对话里，没有落在文件里；而 135 条护栏证明的是
+"成员**正确**"，没有一条证明"成员**被用**"。于是本轮做了两件事：§7 改成"状态 + 证据指针"（状态落到文件），
+并加一条**使用护栏** `FusedMemberEmissionGuardTests`（"实现了但没人调用、且没人说"从此是红的）。
+
+**证据指针**：`fused-vs-twostage` 与 `mp-prop-fused` 两份原始报告 + 台架源码在 worktree 清理时被抄到
+`.superpowers/sdd/closeout/evidence/`（原位置随 worktree 删除）；两轮报告的完整数字表见
+`evidence/fused-vs-twostage-report.md` §3、`evidence/mp-prop-fused-report.md` §4。
+
+### 7.3 待决：T4 台架有一次**未合并**的公平性修正（`feat/t4-pertoken-harden`）
+
+`feat/t4-pertoken-harden`（`3a752d5`，单提交，基点 `a3528cc`）改了 `PicoMsgPack/tools/pertoken/Program.cs`
+（+356 / −…）：每轮切成 **16 块**、逐块轮换臂序、把口径从"中位之比"改成"**每轮比值的中位**"、加**协议闸门**
+（三臂必须消费同一 token 流）与 **publishable** 门槛（cpu share ≥ 0.95、|CONTROL − 1| ≤ 0.03、臂集可比），
+并让"不可引用的一轮"以**退出码 3** 结束。它同时改写 §7.1 与本轮总结 §8 的 T4 行。
+
+它主张：§7.1 那两行 **−7.6 % / −7.7 %** 是**测量顺序**的效应（第一版把一条臂一口气测完），加固后同一台架读出
+**−1.40 % / −1.44 % / −1.73 %**（出厂分层）、**+9.05 % … +9.50 %**（`TC=0`）、**+8.41 % … +9.49 %**（AOT）。
+
+**本轮没有合并它，也没有删它**：内容是"台架公平性 + 数字更正"，属于"谁的数字算"的判断，不是记录缺陷的收尾范围；
+删掉它会丢掉未合并的有价值工作。分支原样保留，等 controller 定。**它不影响 §7.2 的任何判定**：
+两轮实验里 per-token 回收都远低于 15 % 的停止阈值，T11 的"不做"在两套数字下都成立。
