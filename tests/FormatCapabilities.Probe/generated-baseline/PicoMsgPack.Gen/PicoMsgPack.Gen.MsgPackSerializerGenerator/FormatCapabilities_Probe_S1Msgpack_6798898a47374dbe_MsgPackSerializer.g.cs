@@ -10,9 +10,7 @@ file static class S1MsgpackMsgPackSerializer {
         mw.WriteStartObject(1);
         mw.WriteInt32(0);
         mw.WriteStartArray(value.V.Count);
-        foreach (var __i in value.V) {
-            mw.WriteInt32(__i);
-        }
+        mw.WriteInt32Array(global::System.Runtime.InteropServices.CollectionsMarshal.AsSpan(value.V));
         mw.WriteEndArray();
         mw.WriteEndObject(); _ = mw.Buffer; } }
 
