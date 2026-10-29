@@ -7,9 +7,6 @@ namespace FormatCapabilities.Probe;
 
     file static class S11aJsonJsonSer
     {
-        private static global::System.ReadOnlySpan<byte> PropName_Value => "Value"u8;
-        private static global::System.ReadOnlySpan<byte> PropName_Child => "Child"u8;
-
         public static void Serialize(IBufferWriter<byte> writer, S11aJson value, global::PicoSerDe.Core.SerOptions? options)
         {
             var __opts = (global::PicoJetson.JsonOptions?)options;
@@ -20,7 +17,7 @@ namespace FormatCapabilities.Probe;
                 || value.Value != default)
             {
             if (__policy is null)
-                jw.WritePropertyName(PropName_Value);
+                jw.WritePropertyName("Value"u8);
             else
                 jw.WritePropertyName(__policy.ConvertName("Value") ?? "Value");
             jw.WriteNumber(value.Value);
@@ -32,7 +29,7 @@ namespace FormatCapabilities.Probe;
                 : true)
             {
             if (__policy is null)
-                jw.WritePropertyName(PropName_Child);
+                jw.WritePropertyName("Child"u8);
             else
                 jw.WritePropertyName(__policy.ConvertName("Child") ?? "Child");
             if (value.Child != null)

@@ -14,11 +14,9 @@ namespace PicoJetson.Tests;
 // P0-2 emits the compiled UTF-8 form instead and only takes the ConvertName detour when a
 // naming policy is actually configured:
 //
-//     private static global::System.ReadOnlySpan<byte> PropName_Name => "Name"u8;
-//     …
 //     var __policy = jw.Options?.PropertyNamingPolicy;
 //     if (__policy is null)
-//         jw.WritePropertyName(PropName_Name);                                 // no transcode at all
+//         jw.WritePropertyName("Name"u8);                                       // no transcode at all
 //     else
 //         jw.WritePropertyName(__policy.ConvertName("Name") ?? "Name");        // the old path, verbatim
 //
@@ -256,24 +254,19 @@ public class PropertyNameShapeTests
             f.Contains("class P02ShapeJsonSer") && f.Contains("public static void Serialize(")
         );
 
-        // The compiled UTF-8 constant, named after the property.
-        await Assert
-            .That(serializer)
-            .Contains(
-                """private static global::System.ReadOnlySpan<byte> PropName_Name => "Name"u8;"""
-            );
-        await Assert
-            .That(serializer)
-            .Contains(
-                """private static global::System.ReadOnlySpan<byte> PropName_Age => "Age"u8;"""
-            );
+        // The compiled UTF-8 literal goes straight to the writer: no per-name getter, whose call
+        // the hot serializer paid once per property (measured: 3 % of the LargeFlat Serialize row,
+        // `.superpowers/sdd/json-jit-gap/report.md`).
+        await Assert.That(serializer).Contains("""jw.WritePropertyName("Name"u8);""");
+        await Assert.That(serializer).Contains("""jw.WritePropertyName("Age"u8);""");
+        await Assert.That(serializer).DoesNotContain("PropName_");
 
         // The policy is read once per document, not once per property.
         await Assert.That(serializer).Contains("var __policy = jw.Options?.PropertyNamingPolicy;");
 
-        // Fast half: the compiled span, no transcode.
+        // Fast half: the compiled literal, no transcode.
         await Assert.That(serializer).Contains("if (__policy is null)");
-        await Assert.That(serializer).Contains("jw.WritePropertyName(PropName_Name);");
+        await Assert.That(serializer).Contains("""jw.WritePropertyName("Name"u8);""");
 
         // Fallback half: the pre-P0-2 ConvertName call, `?? name` included.
         await Assert

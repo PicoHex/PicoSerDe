@@ -38,6 +38,10 @@ public class JsonWriterEscapeEquivalenceTests
         127,
         128,
         129,
+        // 254 is the last length the single-pass ASCII string path takes; 255 and up are
+        // produced by the encoding route, so the boundary itself has to be pinned.
+        253,
+        254,
         255,
         256,
         257,
