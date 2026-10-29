@@ -7,8 +7,6 @@ namespace FormatCapabilities.Probe;
 
     file static class S2JsonJsonSer
     {
-        private static global::System.ReadOnlySpan<byte> PropName_V => "V"u8;
-
         public static void Serialize(IBufferWriter<byte> writer, S2Json value, global::PicoSerDe.Core.SerOptions? options)
         {
             var __opts = (global::PicoJetson.JsonOptions?)options;
@@ -16,7 +14,7 @@ namespace FormatCapabilities.Probe;
             jw.WriteStartObject();
             var __policy = jw.Options?.PropertyNamingPolicy;
             if (__policy is null)
-                jw.WritePropertyName(PropName_V);
+                jw.WritePropertyName("V"u8);
             else
                 jw.WritePropertyName(__policy.ConvertName("V") ?? "V");
             jw.WriteStartArray();

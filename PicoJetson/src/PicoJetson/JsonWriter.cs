@@ -395,9 +395,58 @@ public ref struct JsonWriter
 
     private static byte ToHex(int n) => (byte)(n < 10 ? '0' + n : 'A' + n - 10);
 
+    /// <summary>Longest payload the single-pass ASCII string path takes.</summary>
+    /// <remarks>
+    /// Bounded so the reservation it makes is one ordinary span fetch; above it the payload is
+    /// left to the encoding route, which already has a long-string route of its own
+    /// (<see cref="TryWriteLongString"/>).
+    /// </remarks>
+    private const int AsciiFastPathMaxChars = 254;
+
+    /// <summary>
+    /// Writes a short all-ASCII, escape-free string in one pass: quote, bytes, quote.
+    /// </summary>
+    /// <returns>
+    /// False when the payload holds a non-ASCII char, a quote, a backslash or a control
+    /// character, or when it did not fit. Nothing is committed in that case and the cursor has
+    /// not moved, so the caller falls through to the route that already produces those bytes.
+    /// </returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool TryWriteShortAsciiString(scoped ReadOnlySpan<char> value)
+    {
+        Ensure(value.Length + 2);
+        // Ensure may have replaced the span, so read it after the reservation and keep the
+        // cursor in a local: a payload that turns out to need escaping must leave _spanPos
+        // exactly where it was, or the bytes already written here would be committed twice.
+        var span = _span;
+        var pos = _spanPos;
+        var start = pos;
+        span[pos++] = (byte)'"';
+        foreach (var c in value)
+        {
+            if (c >= 0x80 || c == '"' || c == '\\' || c < 0x20)
+                return false;
+            span[pos++] = (byte)c;
+        }
+        span[pos++] = (byte)'"';
+        _spanPos = pos;
+        _bytesWritten += pos - start;
+        CommitBare();
+        return true;
+    }
+
     public void WriteString(scoped ReadOnlySpan<char> value)
     {
         BeforeWriteValue();
+        // ASCII fast path: one pass over the chars, one reservation, no Encoding call. The
+        // stackalloc + GetBytes route below pays a GetMaxByteCount call, a GetBytes call and then
+        // a third pass looking for escapable bytes even for a plain "value-01"; for a short
+        // pure-ASCII payload - the overwhelmingly common case in a document - those three passes
+        // collapse into one. Anything non-ASCII, escapable, or above the length limit bails out
+        // before a single byte is committed, so those payloads are still produced by exactly the
+        // code that produced them before.
+        if (value.Length <= AsciiFastPathMaxChars && TryWriteShortAsciiString(value))
+            return;
         int max = Encoding.UTF8.GetMaxByteCount(value.Length);
         // Long payloads (>256 bytes of worst case) encode straight into the writer's own span;
         // see TryWriteLongString for why that is the interesting case and what it costs.

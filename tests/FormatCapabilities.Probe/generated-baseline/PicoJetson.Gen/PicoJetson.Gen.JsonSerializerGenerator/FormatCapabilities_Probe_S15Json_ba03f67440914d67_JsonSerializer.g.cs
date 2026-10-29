@@ -7,13 +7,6 @@ namespace FormatCapabilities.Probe;
 
     file static class S15JsonJsonSer
     {
-        private static global::System.ReadOnlySpan<byte> PropName_F => "F"u8;
-        private static global::System.ReadOnlySpan<byte> PropName_D => "D"u8;
-        private static global::System.ReadOnlySpan<byte> PropName_When => "When"u8;
-        private static global::System.ReadOnlySpan<byte> PropName_Span => "Span"u8;
-        private static global::System.ReadOnlySpan<byte> PropName_Id => "Id"u8;
-        private static global::System.ReadOnlySpan<byte> PropName_Day => "Day"u8;
-
         public static void Serialize(IBufferWriter<byte> writer, S15Json value, global::PicoSerDe.Core.SerOptions? options)
         {
             var __opts = (global::PicoJetson.JsonOptions?)options;
@@ -24,7 +17,7 @@ namespace FormatCapabilities.Probe;
                 || value.F != default)
             {
             if (__policy is null)
-                jw.WritePropertyName(PropName_F);
+                jw.WritePropertyName("F"u8);
             else
                 jw.WritePropertyName(__policy.ConvertName("F") ?? "F");
             jw.WriteNumber(value.F);
@@ -33,7 +26,7 @@ namespace FormatCapabilities.Probe;
                 || value.D != default)
             {
             if (__policy is null)
-                jw.WritePropertyName(PropName_D);
+                jw.WritePropertyName("D"u8);
             else
                 jw.WritePropertyName(__policy.ConvertName("D") ?? "D");
             jw.WriteNumber(value.D);
@@ -42,7 +35,7 @@ namespace FormatCapabilities.Probe;
                 || value.When != default)
             {
             if (__policy is null)
-                jw.WritePropertyName(PropName_When);
+                jw.WritePropertyName("When"u8);
             else
                 jw.WritePropertyName(__policy.ConvertName("When") ?? "When");
             global::PicoJetson.TypeIo.WriteFormattable(ref jw, value.When, "O");
@@ -51,7 +44,7 @@ namespace FormatCapabilities.Probe;
                 || value.Span != default)
             {
             if (__policy is null)
-                jw.WritePropertyName(PropName_Span);
+                jw.WritePropertyName("Span"u8);
             else
                 jw.WritePropertyName(__policy.ConvertName("Span") ?? "Span");
             global::PicoJetson.TypeIo.WriteFormattable(ref jw, value.Span, "c");
@@ -60,7 +53,7 @@ namespace FormatCapabilities.Probe;
                 || value.Id != default)
             {
             if (__policy is null)
-                jw.WritePropertyName(PropName_Id);
+                jw.WritePropertyName("Id"u8);
             else
                 jw.WritePropertyName(__policy.ConvertName("Id") ?? "Id");
             global::PicoJetson.TypeIo.WriteFormattable(ref jw, value.Id, "D");
@@ -72,7 +65,7 @@ namespace FormatCapabilities.Probe;
                 : true)
             {
             if (__policy is null)
-                jw.WritePropertyName(PropName_Day);
+                jw.WritePropertyName("Day"u8);
             else
                 jw.WritePropertyName(__policy.ConvertName("Day") ?? "Day");
             if (value.Day.HasValue)
