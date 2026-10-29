@@ -37,11 +37,13 @@ file static class S7MsgpackMsgPackDeserializer {
                 var __ext0 = new List<int>(16);
                 if (reader.TokenType == TokenType.ArrayStart) {
                     if (reader.TryGetCollectionCount(out var __cn1)) {
-                        for (var __ci1 = 0; __ci1 < __cn1; __ci1++) {
-                            if (!reader.Read()) break;
-                            if (!reader.TryGetInt32(out var __ev2))
-                                throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
-                            __ext0.Add(__ev2);
+                        if (!__PicoMsgPackBulk.TryReadInt32List(ref reader, __ext0, __cn1)) {
+                            for (var __ci1 = 0; __ci1 < __cn1; __ci1++) {
+                                if (!reader.Read()) break;
+                                if (!reader.TryGetInt32(out var __ev2))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                __ext0.Add(__ev2);
+                            }
                         }
                         reader.Read();
                     } else {
@@ -84,11 +86,13 @@ file static class S7MsgpackMsgPackStreaming {
                 var __ext4 = new List<int>(16);
                 if (reader.TokenType == TokenType.ArrayStart) {
                     if (reader.TryGetCollectionCount(out var __cn5)) {
-                        for (var __ci5 = 0; __ci5 < __cn5; __ci5++) {
-                            if (!reader.Read()) break;
-                            if (!reader.TryGetInt32(out var __ev6))
-                                throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
-                            __ext4.Add(__ev6);
+                        if (!__PicoMsgPackBulk.TryReadInt32List(ref reader, __ext4, __cn5)) {
+                            for (var __ci5 = 0; __ci5 < __cn5; __ci5++) {
+                                if (!reader.Read()) break;
+                                if (!reader.TryGetInt32(out var __ev6))
+                                    throw new System.FormatException($"Expected an integer element at offset {reader.BytesConsumed}");
+                                __ext4.Add(__ev6);
+                            }
                         }
                         reader.Read();
                     } else {
@@ -115,4 +119,16 @@ file static class S7Msgpack__Reg {
     [ModuleInitializer] internal static void Register() {
         MsgPackSerializer.Register<S7Msgpack>(S7MsgpackMsgPackSerializer.Serialize, S7MsgpackMsgPackDeserializer.Deserialize);
         MsgPackSerializer.RegisterStreaming<S7Msgpack>(S7MsgpackMsgPackStreaming.DeserializeStreaming);
+    } }
+file static class __PicoMsgPackBulk {
+    internal static bool TryReadInt32List(ref MsgPackReader reader, List<int> list, int count) {
+        if (count <= 0) return false;
+        if (count > reader.RawBuffer.Length - reader.RawPos) return false;
+        int __old = list.Count;
+        list.EnsureCapacity(__old + count);
+        global::System.Runtime.InteropServices.CollectionsMarshal.SetCount(list, __old + count);
+        int __n = reader.TryReadInt32Array(global::System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list).Slice(__old));
+        if (__n == count) return true;
+        global::System.Runtime.InteropServices.CollectionsMarshal.SetCount(list, __old);
+        return false;
     } }
