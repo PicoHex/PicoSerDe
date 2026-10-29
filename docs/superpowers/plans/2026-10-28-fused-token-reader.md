@@ -152,7 +152,7 @@ T3 交付 `ca07715`（转储设施）+ `0f95029`（护栏与负控），并提�
 | T1b | 五个 reader 实现 `IFusedTokenReader`（不优化处 = 一行转发）+ 一致性断言 | §6 **S0**、§3.1 末段 | T1 | ~120 | — |
 | T2 | `api/PENDING-CHANGES.md` 登记 **R-3**（新接口 + 新静态类） | §4.2 | T1 | ~10 | — |
 | T3 | MsgPack「参考 vs 融合」双走 dump 护栏（先证明护栏有效） | §6 **S0**、§5.2 | T1b | ~190 | G-0t |
-| T4 | per-token 微基准闸门（10⁶ 次，settles §9 U2 方向） | §9 U2 | T1b | ~120 | — |
+| T4 | per-token 微基准闸门（10⁶ 次，settles §9 U2 方向）— **已补做，见 §7.1** | §9 U2 | T1b | ~120 | — |
 | T5 | MsgPack `HasCountedCollections` + `TryGetCollectionCount` | §6 **S1** | T3 | ~90 | G-0 |
 | T6 | MsgPack `TryReadInt32` 覆写 | §6 **S1** | T5 | ~150 | G-0 |
 | T7 | MsgPack `TryReadInt64` 覆写 | §6 **S1** | T6 | ~90 | G-0 |
@@ -766,18 +766,74 @@ G-0（并行冲突闸门，§2）
 | 任务 | 处置 | 依据（不是"没时间"） |
 |---|---|---|
 | T1、T1b、T2、T3、T5、T6、T7+T8、T9、T10、T12、T13、T14、T15 | **已合并** | 见各 commit |
-| **T4** per-token 微基准闸门 | **不建** | 计划引用的 `PicoMsgPack/tools/pertoken` **在仓库里不存在**（T6 报告 F-2 实测）。T3 的双走 dump 已能给出 per-token 级判定，再建一套闸门是重复投入 |
+| **T4** per-token 微基准闸门 | **已补做**（2026-10-29） | 工具入库：`PicoMsgPack/tools/pertoken/`（入库、**不进** `PicoSerDe.slnx`）。跑法见 §7.1。实测：`Collection` 形状下 `TryReadInt32` 相对 `Read()+TryGetInt32` 回收 **+10.0 %…+12.3 %（AOT）/ +10.2 %…+11.4 %（JIT, TC=0）/ −7.6 %…−7.7 %（JIT, 出厂分层编译）** ⇒ **RK-6 停止规则触发**（< 15 %，每种配置都触发） |
 | **T16–T18** TOML 三任务 | **不做** | 计划把它们标为**条件任务**，条件是"TOML 也落在慢的行上"。事实不成立：TOML 当前 **10/10 快于 Tomlyn**（中位 **0.19×**，见 README）。在已经领先 5 倍的格式上做融合读，收益无法进入噪声带以外 |
 
 ### 收益的诚实汇总
 
 | 任务 | 实测 | 备注 |
 |---|---|---|
-| T6（int32 融合，MsgPack） | per-token **10%**、`Collection DES` **~5%** | 大幅低于归因的 22%，因为 mp-collection 已先做了整数缓存 |
+| T6（int32 融合，MsgPack） | per-token **10%**（TC=0/AOT）、`Collection DES` **~5%** | 大幅低于归因的 22%，因为 mp-collection 已先做了整数缓存。**T4 补做后测得：出厂分层编译下同一对比是 −7.6 %…−7.7 %（融合更慢）**，见 §7.1 |
 | T7+T8（int64/float/bool） | **噪声内** | 同上 |
 | T9（计数循环） | **无分辨变化** | 协议拒绝了大部分臂 |
 | T14（int32 融合，JSON） | `TenInts` **0.702×（−30%/token）** | 整数密集路径真实受益；`LargeFlat` 无变化（成本在名字/字符串） |
 | T15（E-3 发射） | 见报告 | 让生成代码用上 T14 的融合读 |
+
+### 7.1 T4 补做的实测与一次记录缺陷的更正（2026-10-29）
+
+**先认账：§7 原来那一行是循环论证。** 原文写「不建 —— 计划引用的
+`PicoMsgPack/tools/pertoken` 在仓库里不存在（T6 报告 F-2 实测）」，而 T6 之所以只能在
+`.superpowers/` 下自建台架（F-2），正是**因为 T4 没做**。用"工具不存在"去证明"不需要这个工具"，
+等于用缺工证明不缺工。计划自己在 T4 里就警告过这一点：`.gitignore:415` 会吃掉 `.superpowers/` 下的
+一切，**测点工具放那里等于下一个人拿不到** —— 后来发生的正是这件事：所有 per-token 数字都来自临时台架，
+**不可复现**。本轮把工具补进版本管理并重测。
+
+**工具**：`PicoMsgPack/tools/pertoken/`（`PerToken` 独立 console 工程 + `README.md`）。
+入库，**不进** `PicoSerDe.slnx`（T4 验收标准第 3 条；先例 `PicoMsgPack/tools/readspan` 与
+`tests/FormatCapabilities.Probe`）。三组臂：`Read()` 单独 / `Read()+TryGetInt32()` / `TryReadInt32()`，
+每臂每轮 ≈10⁶ 次 token 操作（定长 pass，不是 `while (Read())`、也不是 `while (TryReadInt32())`，
+所以**循环形状的差不算进融合臂**）；中位 + 极差；**CONTROL** = 同一臂每轮再测一次、逐轮交替先后；
+两个 payload：spec §1.2 的 `Collection` 形状（110 token / 102 个 int token）与 T6 用的
+`fixarray16(1000)` 全 int 形状（1002 token）。
+
+```bash
+dotnet run -c Release --project PicoMsgPack/tools/pertoken                      # JIT，出厂分层编译
+DOTNET_TieredCompilation=0 dotnet run -c Release --project PicoMsgPack/tools/pertoken   # T6 协议
+dotnet publish PicoMsgPack/tools/pertoken/PerToken.csproj -c Release -r win-x64 -p:PublishAot=true -o out/pertoken-aot
+```
+
+**实测（21 轮中位，每种配置两轮独立进程；ns/token）**：
+
+| 配置 | 轮 | `Read()` | `Read()+TryGetInt32()` | `TryReadInt32()` | 回收 | CONTROL |
+|---|---:|---:|---:|---:|---:|---:|
+| JIT 分层（出厂默认） | 1 | 4.800 | 5.068 | 5.459 | **−7.7 %** | 0.995 |
+| JIT 分层（出厂默认） | 2 | 4.964 | 5.254 | 5.651 | **−7.6 %** | 1.000 |
+| JIT `TC=0`（T6 协议） | 1 | 5.434 | 5.917 | 5.314 | **+10.2 %** | 1.015 |
+| JIT `TC=0`（T6 协议） | 2 | 5.685 | 6.373 | 5.646 | **+11.4 %** | 0.964 |
+| NativeAOT | 1 | 5.526 | 6.145 | 5.529 | **+10.0 %** | 0.997 |
+| NativeAOT | 2 | 7.189 | 8.179 | 7.174 | **+12.3 %** | 1.000 |
+
+（同台架、`fixints1000` 全 int 形状：JIT 分层 −0.3 % / +0.6 %；TC=0 +16.5 % / +14.7 %；AOT +15.3 % / +15.5 %。）
+
+**判读**：
+
+1. **停止规则（RK-6，阈值 15 %）：触发。** `Collection` 形状在任何配置下都没到 15 %；AOT/TC=0 下
+   是 **10.0 %–12.3 %**，出厂分层编译下是 **负的**。
+2. **T6 的 10.0 % 是可复现的，但它属于 TC=0/AOT 这一格**：本轮 AOT 第 1 轮正好 10.0 %，
+   TC=0 两轮 10.2 % / 11.4 %。差别不在台架对错，在**编译配置**：分层 PGO 会把
+   `Read()+TryGetInt32` 里的 `TryGetInt32` 内联进循环（它只是读 `_intKind` 缓存），
+   而 `TryReadInt32` 是 ~200 行、无法内联的方法，还要每 token 付一次 prologue —— 省下的只有一次调用。
+3. **全 int 形状掩盖了回退成本**：100 % int token 时回收 ≈15 %，`Collection`（102/110）只有 ≈10 %。
+   差在融合成员**帮不上**的那 8 个非 int token：`default:` 先 switch 一次再走完整 `Read()`。
+4. **spec §1.2 的 13.4 ns/token 与实测 5.1–5.4 ns/token 差 2.5 倍** —— 两者不是同一个量：§1.2 把**完整反序列化**
+   （含 `List<int>` 扩容与字典插入）除以 token 数，而 `Read()+TryGetInt32` 只是读侧。**不据此判定 §1.2 算错**；
+   它说明 `Collection — Deserialize` 的 ~60 % 不在 token 读上。
+5. **顺带修正 §1.2 的 token 账本**：§1.2 的 107 是**值** token 数，不含三个容器结束 token（`ArrayEnd` +
+   两个 `ObjectEnd`）⇒ 真正的分母是 **110**；且 `[MsgPackKey(n)]` 让 map key 走**整数**（不是 §1.2 写的字符串），
+   payload 是 124 字节、int token 102 个（不是 100）。对结论影响 < 3 %，但账本要与字节一致。
+
+**证据**：`.superpowers/sdd/t4-pertoken/`（report + 六份原始日志）。**未做**：E-3 循环形状的那部分收益
+（每元素少一次 `TokenType != ArrayEnd`，T6 实测 3.7 %）不在这个工具里，它属于 T11。
 
 > 结论：**契约工程的价值主要在"结构"而非"数字"** —— 五个格式现在共享一个可对拍、可负控、可逐格式优化的读契约，
 > 并且在这个过程中修掉了 JSON 负数流式缺陷（T13）。性能上只有整数密集的 JSON 路径拿到显著收益。

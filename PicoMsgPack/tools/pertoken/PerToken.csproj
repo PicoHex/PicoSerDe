@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PerToken</AssemblyName>
+    <RootNamespace>PicoMsgPack.Tools.PerToken</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!--
+      JIT by default, on purpose. <PublishAot>true</PublishAot> (which
+      Directory.Build.props would otherwise supply) also injects
+      System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported=false into
+      runtimeconfig.json, so a *framework-dependent* build then LIES about its own mode —
+      this tool reads that switch to label the table JIT/AOT. AOT is opt-in at publish time:
+        dotnet run -c Release                       -> JIT measurement
+        dotnet publish -c Release -r win-x64 -p:PublishAot=true
+                                                    -> NativeAOT binary, run it directly
+    -->
+    <PublishAot>false</PublishAot>
+    <!--
+      Task T4 measurement harness — see README.md in this directory.
+
+      NOT part of PicoSerDe.slnx on purpose (same precedent as
+      PicoMsgPack/tools/readspan and tests/FormatCapabilities.Probe): it exists so a
+      published per-token number can be re-derived, not so CI builds it. Nothing in
+      src/ or tests/ references it.
+
+      PublishAot is inherited from Directory.Build.props (minimal tier), so
+        dotnet run       -> JIT
+        dotnet publish   -> NativeAOT binary (the second mode T4 asks for)
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PicoMsgPack\PicoMsgPack.csproj" />
+    <ProjectReference
+      Include="..\..\src\PicoMsgPack.Gen\PicoMsgPack.Gen.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false"
+    />
+  </ItemGroup>
+</Project>
