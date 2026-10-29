@@ -783,7 +783,7 @@ G-0（并行冲突闸门，§2）
 | T1b 五个 reader 实现契约（不优化处一行转发） | **已做** | `grep -c "TokenReaderFused.TryRead"` 逐文件：`JsonReader.cs` 6 / `TomlReader.cs` 4 / `YamlReader.cs` 4 / `IniReader.cs` 4 / `MsgPackReader.cs` 14；`799f2ab`（merge `9c35bb8`） |
 | T2 `api/PENDING-CHANGES.md` 登记 R-3 | **已做** | `grep -c "R-3" api/PENDING-CHANGES.md` = 3；`f9c6ec5` |
 | T3 MsgPack「参考 vs 融合」双走 dump 护栏 | **已做** | `MsgPackReaderFusedEquivalenceTests.cs` 的 `NamedPayloads_ReferenceAndFusedDumpsAreIdentical` / `EveryEntry_…` / `ChunkedEntry_…` 在 `dotnet test` 里被收集并绿；`ca07715` + `0f95029`（merge `32be123`） |
-| **T4** per-token 微基准闸门 | **已做**（数字待复核，见 §7.3） | `PicoMsgPack/tools/pertoken/Program.cs` 存在；`grep -c pertoken PicoSerDe.slnx` = **0**（入库但不进解决方案）；`7d7a9b9`（merge `a3528cc`）；实测见 §7.1 |
+| **T4** per-token 微基准闸门 | **已做**（数字已由修正后的台架重测，见 §7.1） | `PicoMsgPack/tools/pertoken/Program.cs` 存在；`grep -c pertoken PicoSerDe.slnx` = **0**（入库但不进解决方案）；`7d7a9b9`（merge `a3528cc`）+ 台架公平性修正 `3a752d5`（已并入 `merge/t4-harden`，见 §7.3）；权威数字：默认 **−1.90 %** / `TC=0` **+9.12 %** / AOT **+8.53 %**，各 3–4 次独立运行、只采 publishable 的，见 §7.1 |
 | T5 `HasCountedCollections` + `TryGetCollectionCount` | **已做** | `MsgPackReader.cs` 里 `HasCountedCollections => true`（:1232）与 `TryGetCollectionCount`（:1257）各 1 处；`4b4fdf6`（merge `d8df674`） |
 | **T6** MsgPack `TryReadInt32` 覆写 | **已实现但当前无调用方** | 成员：`grep -c "TokenReaderFused.TryReadInt32" PicoMsgPack/src/PicoMsgPack/MsgPackReader.cs` = 4；发射：MsgPack 生成基线里 `TryReadInt32(` = **0**；`0b5e16e`（merge `a3faf4d`） |
 | **T7** MsgPack `TryReadInt64` 覆写 | **已实现但当前无调用方** | 成员：`grep -c "TokenReaderFused.TryReadInt64"` 同一文件 = 4；MsgPack 生成基线里 `TryReadInt64(` = **0**；`76378fd`（merge `f5a59e6`） |
@@ -803,7 +803,7 @@ G-0（并行冲突闸门，§2）
 
 | 任务 | 实测 | 备注 |
 |---|---|---|
-| T6（int32 融合，MsgPack） | per-token **10%**（TC=0/AOT）、`Collection DES` **~5%** | 大幅低于归因的 22%，因为 mp-collection 已先做了整数缓存。**T4 补做后测得：出厂分层编译下同一对比是 −7.6 %…−7.7 %（融合更慢）**，见 §7.1 |
+| T6（int32 融合，MsgPack） | per-token **10%**（TC=0/AOT）、`Collection DES` **~5%** | 大幅低于归因的 22%，因为 mp-collection 已先做了整数缓存。**T4 补做后测得：同量级的 +8.4 %…+9.5 %（AOT/TC=0），而出厂分层编译下两臂打平（−1.6 %…−2.2 %）**（合并后复测的权威值：AOT **+8.53 %**、`TC=0` **+9.12 %**、默认 **−1.90 %**），见 §7.1 |
 | T7+T8（int64/float/bool） | **噪声内** | 同上 |
 | T9（计数循环） | **无分辨变化** | 协议拒绝了大部分臂 |
 | T14（int32 融合，JSON） | `TenInts` **0.702×（−30%/token）** | 整数密集路径真实受益；`LargeFlat` 无变化（成本在名字/字符串） |
@@ -832,38 +832,74 @@ DOTNET_TieredCompilation=0 dotnet run -c Release --project PicoMsgPack/tools/per
 dotnet publish PicoMsgPack/tools/pertoken/PerToken.csproj -c Release -r win-x64 -p:PublishAot=true -o out/pertoken-aot
 ```
 
-**实测（21 轮中位，每种配置两轮独立进程；ns/token）**：
+**实测（合并后复测：`merge/t4-harden`，2026-10-29，21 轮 × 16 块逐块轮换臂序；ns/token；回收 = 每轮比值的中位）**
 
-| 配置 | 轮 | `Read()` | `Read()+TryGetInt32()` | `TryReadInt32()` | 回收 | CONTROL |
-|---|---:|---:|---:|---:|---:|---:|
-| JIT 分层（出厂默认） | 1 | 4.800 | 5.068 | 5.459 | **−7.7 %** | 0.995 |
-| JIT 分层（出厂默认） | 2 | 4.964 | 5.254 | 5.651 | **−7.6 %** | 1.000 |
-| JIT `TC=0`（T6 协议） | 1 | 5.434 | 5.917 | 5.314 | **+10.2 %** | 1.015 |
-| JIT `TC=0`（T6 协议） | 2 | 5.685 | 6.373 | 5.646 | **+11.4 %** | 0.964 |
-| NativeAOT | 1 | 5.526 | 6.145 | 5.529 | **+10.0 %** | 0.997 |
-| NativeAOT | 2 | 7.189 | 8.179 | 7.174 | **+12.3 %** | 1.000 |
+台架就是本仓库的 `PicoMsgPack/tools/pertoken/`，**含 `feat/t4-pertoken-harden` 的公平性修正**（与 §7.3 的合并同批）。
+**每个环境 ≥3 次独立运行**（各自独立进程，每次重新启动运行时），逐次贴绝对值；**只有 `publishable=yes`（退出码 0）的
+运行进入中位**，退出码 3 的运行点名留档、不进中位。
 
-（同台架、`fixints1000` 全 int 形状：JIT 分层 −0.3 % / +0.6 %；TC=0 +16.5 % / +14.7 %；AOT +15.3 % / +15.5 %。）
+| 环境 | 运行 | `Read()` | `Read()+TryGetInt32()` | `TryReadInt32()` | 回收 | CONTROL | cpu share | publishable / 退出码 |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| 默认（分层 JIT，**发布口径**） | 1 | 4.861 | 5.392 | 5.469 | **−1.69 %** | 0.999 | 1.01 | yes / 0 |
+| 默认（分层 JIT，**发布口径**） | 2 | 5.243 | 5.805 | 5.848 | **−2.11 %** | 0.993 | 1.03 | yes / 0 |
+| 默认（分层 JIT，**发布口径**） | 3 | 4.951 | 5.500 | 5.631 | **−2.18 %** | 1.002 | 1.02 | yes / 0 |
+| 默认（分层 JIT，**发布口径**） | 4 | 4.996 | 5.531 | 5.615 | **−1.59 %** | 1.000 | 0.99 | yes / 0 |
+| `DOTNET_TieredCompilation=0` | 1 | 5.599 | 5.844 | 5.320 | ~~+9.66 %~~ | 0.992 | 1.01 | **no / 3 — 不采（见下）** |
+| `DOTNET_TieredCompilation=0` | 1b | 5.464 | 5.676 | 5.163 | ~~+8.72 %~~ | 0.996 | 0.99 | **no / 3 — 不采** |
+| `DOTNET_TieredCompilation=0` | 1c | 5.505 | 5.746 | 5.192 | **+9.53 %** | 0.998 | 0.98 | yes / 0 |
+| `DOTNET_TieredCompilation=0` | 2 | 5.467 | 5.717 | 5.180 | **+9.12 %** | 0.997 | 0.99 | yes / 0 |
+| `DOTNET_TieredCompilation=0` | 3 | 5.485 | 5.749 | 5.193 | **+9.11 %** | 1.000 | 0.99 | yes / 0 |
+| NativeAOT | 1 | 5.276 | 5.806 | 5.285 | **+8.55 %** | 1.002 | 1.01 | yes / 0 |
+| NativeAOT | 2 | 5.249 | 5.788 | 5.278 | **+8.53 %** | 1.001 | 1.01 | yes / 0 |
+| NativeAOT | 3 | 5.201 | 5.723 | 5.248 | **+8.39 %** | 1.006 | 1.01 | yes / 0 |
+
+**权威数字**（`Collection` 形状；各环境 = 该环境**全部 publishable 运行**的中位）：
+
+| 环境 | 有效运行 | `Read()` | `Read()+TryGetInt32()` | `TryReadInt32()` | 回收（中位） | 与加固前公布值的关系 |
+|---|---|---:|---:|---:|---:|---|
+| 默认（发布口径） | 4 | 4.974 | 5.516 | 5.623 | **−1.90 %** | 旧值 −7.6 / −7.7 % 是**测量顺序**的效应；方向不变（融合略慢），量级小 4 倍 |
+| `DOTNET_TieredCompilation=0` | 3 | 5.485 | 5.746 | 5.192 | **+9.12 %** | 与 `feat/t4-pertoken-harden` 的 +9.05 … +9.50 % 一致 |
+| NativeAOT | 3 | 5.249 | 5.788 | 5.278 | **+8.53 %** | 与它的 +8.41 … +9.49 % 一致（本轮略低，见判读 5） |
+
+**两次退出码 3（点名，不进中位）**：`TC=0` 的第 1 次与第 1b 次都是**第二个 payload**（`fixints1000`）的
+cpu share 跌破门槛（**0.94**、**0.92** < 0.95）⇒ 该轮 `publishable=no`、进程以 **3** 退出。按台架的规则
+**退出码 3 = 这组数字不可引用**，所以这两轮**连它们已经 publishable 的 `Collection` 行（+9.66 %、+8.72 %）也一并作废** ——
+这正是"整轮一个判据"的意图：不许从被判废的运行里挑好看的那一行。第 **1c** 次是补跑（cpu share 0.98 / 1.00，退出码 0）。
+两次判废都不是代码问题：`fixints1000` 每轮只有 ~5 ms，机器上一次抢占就足以把 cpu share 拉到 0.95 以下。
+
+（同台架、`fixints1000` 全 int 形状，只列 publishable 的运行：默认 **+5.47 / +5.53 / +5.37 / +4.96 %**；
+`TC=0` **+15.61 / +15.46 / +15.66 %**；AOT **+15.91 / +15.52 / +15.28 %**。全 int 形状仍是 ≈15 %，
+`Collection`（102/110）只有 ≈9 % —— 见判读 3。）
 
 **判读**：
 
-1. **停止规则（RK-6，阈值 15 %）：触发。** `Collection` 形状在任何配置下都没到 15 %；AOT/TC=0 下
-   是 **10.0 %–12.3 %**，出厂分层编译下是 **负的**。
-2. **T6 的 10.0 % 是可复现的，但它属于 TC=0/AOT 这一格**：本轮 AOT 第 1 轮正好 10.0 %，
-   TC=0 两轮 10.2 % / 11.4 %。差别不在台架对错，在**编译配置**：分层 PGO 会把
-   `Read()+TryGetInt32` 里的 `TryGetInt32` 内联进循环（它只是读 `_intKind` 缓存），
+1. **停止规则（RK-6，阈值 15 %）：触发。** `Collection` 形状在任何配置下都没到 15 %：
+   AOT **8.39 %–8.55 %**、`TC=0` **9.11 %–9.53 %**，出厂分层编译下是 **−1.59 % … −2.18 %**（两臂打平，融合略慢）。
+2. **T6 的 10 % 属于 `TC=0`/AOT 这一格，本轮实测 8.4 %–9.5 %**，与它同量级。差别不在台架对错，
+   在**编译配置**：分层 PGO 会把 `Read()+TryGetInt32` 里的 `TryGetInt32` 内联进循环（它只读 `_intKind` 缓存），
    而 `TryReadInt32` 是 ~200 行、无法内联的方法，还要每 token 付一次 prologue —— 省下的只有一次调用。
-3. **全 int 形状掩盖了回退成本**：100 % int token 时回收 ≈15 %，`Collection`（102/110）只有 ≈10 %。
+3. **全 int 形状掩盖了回退成本**：100 % int token 时回收 ≈15.3–15.9 %，`Collection`（102/110）只有 ≈9 %。
    差在融合成员**帮不上**的那 8 个非 int token：`default:` 先 switch 一次再走完整 `Read()`。
-4. **spec §1.2 的 13.4 ns/token 与实测 5.1–5.4 ns/token 差 2.5 倍** —— 两者不是同一个量：§1.2 把**完整反序列化**
+4. **spec §1.2 的 13.4 ns/token 与实测 5.4–5.8 ns/token 差 ~2.3–2.5 倍** —— 两者不是同一个量：§1.2 把**完整反序列化**
    （含 `List<int>` 扩容与字典插入）除以 token 数，而 `Read()+TryGetInt32` 只是读侧。**不据此判定 §1.2 算错**；
-   它说明 `Collection — Deserialize` 的 ~60 % 不在 token 读上。
-5. **顺带修正 §1.2 的 token 账本**：§1.2 的 107 是**值** token 数，不含三个容器结束 token（`ArrayEnd` +
-   两个 `ObjectEnd`）⇒ 真正的分母是 **110**；且 `[MsgPackKey(n)]` 让 map key 走**整数**（不是 §1.2 写的字符串），
-   payload 是 124 字节、int token 102 个（不是 100）。对结论影响 < 3 %，但账本要与字节一致。
+   它说明 `Collection — Deserialize` 的约一半不在 token 读上。
+5. **绝对值的跨小时漂移仍在（比值稳、绝对量不稳）。** 同一环境、同一二进制，本轮 `Read()` 从 4.861 读到 5.243；
+   AOT 的 `Read()` 本轮三轮 5.201–5.276，而 `feat/t4-pertoken-harden` 那一轮读到 6.809 —— 机器状态不同。
+   所以**跨环境的绝对值不可比、跨会话的绝对值更不可比；可引用的只有同一轮内的比值**。
+   两个 payload 的 spread 也说明这一点：默认第 2 轮的 `Collection` 出现一次 522 % 的尖峰（前几轮被抢占）。
+   `publishable` 门槛（cpu share、|CONTROL−1|、臂集可比）**并不约束单臂 spread 的幅度**，它只约束比值可信度 ——
+   这是这个门槛已知的边角，写在这里以免下一个人把 spread 当保证。
+6. **台架本身改过一次，改的是公平性**：第一版把每条臂一口气测完，同一二进制在安静机器上读 **−7.7 %**、
+   二十分钟后（机器变忙）读 **+33 %** —— 那是**测量顺序**的效应，不是代码。现在每轮切成 16 个块、
+   逐块轮换臂序，并改用「每轮比值的中位」而不是「中位之比」，另加 **publishable** 门槛
+   （cpu share ≥ 0.95、|CONTROL−1| ≤ 0.03、臂集可比）与退出码 3 = "这组数字不可引用"。
+   上表是**合并后**的复测；加固前那一版公布的 −7.7 % 属于顺序效应，已按实测更正。
+   方向上的独立交叉印证：加固后的默认口径 **−1.9 %** 与 §7.2 那条结论（「`TryReadInt32` 的正文比内联的
+   `TryGetInt32` 更贵」）同号，且两条来自不同台架。
 
-**证据**：`.superpowers/sdd/t4-pertoken/`（report + 六份原始日志）。**未做**：E-3 循环形状的那部分收益
-（每元素少一次 `TokenType != ArrayEnd`，T6 实测 3.7 %）不在这个工具里，它属于 T11。
+**证据**：`.superpowers/sdd/merge-harden/evidence/`（12 份原始 stdout：`default-1…4`、`tc0-1/1b/1c/2/3`、`aot-1…3`，
+每份含四臂逐轮 ns/token、cpu share、CONTROL 比值与 `publishable` 行）+ `.superpowers/sdd/merge-harden/report.md`。
+**未做**：E-3 循环形状的那部分收益（每元素少一次 `TokenType != ArrayEnd`，T6 实测 3.7 %）不在这个工具里，它属于 T11。
 
 > 结论：**契约工程的价值主要在"结构"而非"数字"** —— 五个格式现在共享一个可对拍、可负控、可逐格式优化的读契约，
 > 并且在这个过程中修掉了 JSON 负数流式缺陷（T13）。性能上只有整数密集的 JSON 路径拿到显著收益。
@@ -892,8 +928,9 @@ T11 是 MsgPack 侧的 **E-3 发射**（生成器把标量元素循环里的 `Re
 3. **`TryReadInt32` 的正文比内联的 `TryGetInt32` 更贵。** 即使一分形状成本都不付（HOISTED），融合也只是**不赔**
    （相对 CONTROL ≈ +0.3 %）：`TryReadInt32` 是 ~200 行 out-of-line 的 switch，每 token 付一次 prologue，
    而两段式的 `TryGetInt32` 只是读一个 `[MethodImpl(AggressiveInlining)]` 的 `_intKind` 缓存字段。
-   方向与 T4 微基准一致（`Read()` 4.96 ns/token vs `TryReadInt32` 5.65 ns/token）——
-   **这也是"T4 的 −7.6 %"与"属性融合 +18.6 %"不可能同时为真的原因。**
+   方向与 T4 微基准一致（默认口径 `Read()` 4.974 ns/token vs `TryReadInt32` 5.623 ns/token，回收 **−1.90 %**；
+   §7.1 的合并后复测）—— **这也是"T4 的回收为正"与"属性融合 +18.6 %"不可能同时为真的原因**：
+   T4 在出厂分层口径下读出的是**融合更慢**，不是更快。
 
 **处置**
 
@@ -914,16 +951,34 @@ T11 之所以能静默缺席，是因为"任务完成"只活在对话里，没�
 `.superpowers/sdd/closeout/evidence/`（原位置随 worktree 删除）；两轮报告的完整数字表见
 `evidence/fused-vs-twostage-report.md` §3、`evidence/mp-prop-fused-report.md` §4。
 
-### 7.3 待决：T4 台架有一次**未合并**的公平性修正（`feat/t4-pertoken-harden`）
+### 7.3 T4 台架的公平性修正（`feat/t4-pertoken-harden`）：曾经待决，**已合并**（`merge/t4-harden`）
 
-`feat/t4-pertoken-harden`（`3a752d5`，单提交，基点 `a3528cc`）改了 `PicoMsgPack/tools/pertoken/Program.cs`
-（+356 / −…）：每轮切成 **16 块**、逐块轮换臂序、把口径从"中位之比"改成"**每轮比值的中位**"、加**协议闸门**
-（三臂必须消费同一 token 流）与 **publishable** 门槛（cpu share ≥ 0.95、|CONTROL − 1| ≤ 0.03、臂集可比），
-并让"不可引用的一轮"以**退出码 3** 结束。它同时改写 §7.1 与本轮总结 §8 的 T4 行。
+**这一节保留两段历史**：它先被记成"待决"，然后被合并 —— 只写后半段等于假装从来没有人扣过它。
 
-它主张：§7.1 那两行 **−7.6 % / −7.7 %** 是**测量顺序**的效应（第一版把一条臂一口气测完），加固后同一台架读出
-**−1.40 % / −1.44 % / −1.73 %**（出厂分层）、**+9.05 % … +9.50 %**（`TC=0`）、**+8.41 % … +9.49 %**（AOT）。
+**第一段（2026-10-29 收尾时，原样保留的判定）**：`feat/t4-pertoken-harden`（`3a752d5`，单提交，基点 `a3528cc`）
+改了 `PicoMsgPack/tools/pertoken/Program.cs`（+356 行）：每轮切成 **16 块**、逐块轮换臂序、把口径从"中位之比"
+改成"**每轮比值的中位**"、加**协议闸门**（三臂必须消费同一 token 流、解码出同一批整数）与 **publishable** 门槛
+（cpu share ≥ 0.95、|CONTROL − 1| ≤ 0.03、臂集可比），并让"不可引用的一轮"以**退出码 3** 结束。
+它同时改写本计划 §7.1 与总结 §8 的 T4 行。它主张 §7.1 原来的 **−7.6 % / −7.7 %** 是**测量顺序**的效应
+（第一版把一条臂一口气测完），加固后同一台架读出 **−1.40 / −1.44 / −1.73 %**（出厂分层）、
+**+9.05 … +9.50 %**（`TC=0`）、**+8.41 … +9.49 %**（AOT）。
+当时的处置是**没有合并、也没有删**：内容是"台架公平性 + 数字更正"，属于"谁的数字算"的判断，
+不在记录缺陷的收尾范围里；删掉它会丢掉未合并的有价值工作。分支原样保留，等 controller 定。
 
-**本轮没有合并它，也没有删它**：内容是"台架公平性 + 数字更正"，属于"谁的数字算"的判断，不是记录缺陷的收尾范围；
-删掉它会丢掉未合并的有价值工作。分支原样保留，等 controller 定。**它不影响 §7.2 的任何判定**：
-两轮实验里 per-token 回收都远低于 15 % 的停止阈值，T11 的"不做"在两套数字下都成立。
+**第二段（`merge/t4-harden`，2026-10-29）**：controller 判定**合并**，并把"谁的数字算"用**重跑**回答，
+而不是在两套数字里选一套 ——
+
+| 项 | 内容 |
+|---|---|
+| 合并 | `feat/t4-pertoken-harden`（`3a752d5`）→ `merge/t4-harden`（从 `00a68e8` 起），只碰 `tools/pertoken/**` + 两份文档 |
+| 冲突 | 本计划（§7 表：main 侧改写成"状态 + 证据指针"，harden 侧还是旧合并词表）与总结 §8 —— **两边都保留**：main 的 §7.2/§7.3 表 + harden 的 §7.1 数字表 |
+| 重跑 | 合并后的 `PicoMsgPack/tools/pertoken/`，三环境 × 三臂，**每环境 3–4 次独立运行**，只采 `publishable=yes`（退出码 0） |
+| 权威数字 | 默认（发布口径）**−1.90 %**、`TC=0` **+9.12 %**、AOT **+8.53 %**（`Collection` 形状，逐次绝对值见 §7.1） |
+| 作废 | **2 次退出码 3**（都是 `TC=0`、都是第二个 payload `fixints1000` 的 cpu share 0.94/0.92 跌破门槛），已点名、不进中位 |
+| 对 §7.2 的影响 | **零**：两套数字下 per-token 回收都远低于 15 % 停止阈值，T11 的"不做"不变 |
+| 零生产代码 | `PicoMsgPack/src/**`、`PicoJetson/src/**`、`PicoSerDe.Core/**`、`api/**` 一行未动；`git diff 00a68e8..HEAD --stat` = `tools/pertoken/**` + 两份文档 |
+
+**结论**：harden 关于"原数字是顺序效应"的判断**成立**，且它自己的数字也可复现 —— 重跑给出同号、同量级
+（AOT 8.39–8.55 % vs 8.41–9.49 %；`TC=0` 9.11–9.53 % vs 9.05–9.50 %；默认 −1.59…−2.18 % vs −1.40…−1.73 %）。
+唯一需要更正的叙述是**AOT 的上界**：harden 那三轮里有一轮读到 6.809 ns/token 的 `Read()`（机器变慢），
+所以它的 +9.49 % 上界偏乐观；本轮三轮 8.39–8.55 % 更收敛。

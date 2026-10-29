@@ -8,40 +8,39 @@ namespace PicoMsgPack.Tools.PerToken;
 /// Task T4 — the per-token micro-benchmark gate (spec §9 U2/U3, plan §5 T4).
 /// <para>
 /// <b>Why this exists.</b> Spec §1.2's "13.4 ns/token" is <i>arithmetic</i> (a published µs divided by a
-/// hand-enumerated token count), and §9 U2 names the way to replace it with a measurement: "one reader,
-/// 10⁶ calls of <c>Read()</c> + <c>TryGetInt32</c>". The §1 stopping rule (RK-6: stop when the gain is under
-/// half of the expected 30 %) cannot be executed on an arithmetic figure, so the three numbers this program
-/// prints are what the rule is actually decided on.
+/// hand-enumerated token count), and §9 U2 names the way to replace it with a measurement: "one reader, 10⁶ calls
+/// of <c>Read()</c> + <c>TryGetInt32</c>". The §1 stopping rule (RK-6: stop when the gain is under half of the
+/// expected 30 %) cannot be executed on an arithmetic figure, so the three numbers this program prints are what the
+/// rule is actually decided on.
 /// </para>
 /// <para>
-/// <b>The three arms</b> (identical payload, identical pass loop, identical division; only the inner call
-/// differs):
+/// <b>The three arms</b> (identical payload, identical pass count, identical division; only the inner call differs):
 /// <list type="number">
 /// <item><c>Read()</c> alone — classify + materialise one token;</item>
-/// <item><c>Read() + TryGetInt32()</c> — the two-stage shape generated code emits today, and the exact pair
-/// §9 U2 asks for;</item>
+/// <item><c>Read() + TryGetInt32()</c> — the two-stage shape generated code emits today, and the exact pair §9 U2
+/// asks for;</item>
 /// <item><c>TryReadInt32()</c> — the fused shape (T6): one dispatch per token.</item>
 /// </list>
-/// Both loops issue the <i>same</i> token operations (a fixed-length pass, not <c>while (Read())</c> and not
-/// <c>while (TryReadInt32())</c>), so no loop-shape gain can leak into the "fused is faster" column:
-/// <c>TryReadInt32</c> returns <c>false</c> for every non-int token, so a <c>while</c> loop would stop at the
-/// first map header and measure nothing.
+/// All three loops issue the <i>same</i> token operations — a fixed-length pass, not <c>while (Read())</c> and not
+/// <c>while (TryReadInt32())</c> (the latter returns <c>false</c> for every non-int token, so it would stop at the
+/// first map header and measure nothing). No loop-shape gain can therefore leak into the "fused is faster" column.
 /// </para>
 /// <para>
-/// <b>CONTROL</b>: arm 2's method is measured <i>twice per round</i>, alternating which run goes first, so an
-/// order effect, a tiering step or a drift inside the round shows up as a disagreement between two runs of
-/// the same code. Signal smaller than the control's own disagreement is not signal.
+/// <b>Block interleaving, and why it is not optional.</b> A round is not "run arm 1 for 20 ms, then arm 2 for
+/// 20 ms": each round cuts the work into blocks and rotates the arm order block by block, so background load, a
+/// frequency ramp or a GC pause lands on every arm instead of on whichever arm happened to be running. The first
+/// version of this file timed each arm to completion in turn — it reported <b>−7.7 %</b> recovery on a quiet machine
+/// and <b>+33 %</b> on the same binary twenty minutes later, purely because the box got busy between two arms. A
+/// harness that can produce that spread is worse than none, because the number will be quoted.
 /// </para>
 /// <para>
-/// <b>Two payload shapes</b>: the mandated <c>Collection</c> shape (spec §1.2's ledger, the row that ships)
-/// and the all-integer <c>FixInts1000</c> array that T6's now-deleted harness measured its 10 % on. Reporting
-/// both is what separates "the fused member is worthless" from "the fused member is worthless <i>on a mixed
-/// payload</i>": the second shape isolates the fallback cost the mixed shape pays on its 8 non-int tokens.
+/// <b>CONTROL</b> is arm 1 measured a second time, in its own rotating slot: the disagreement between two runs of the
+/// same code is this harness's noise floor, and a recovery figure smaller than it is not a figure.
 /// </para>
 /// <para>
 /// <b>What it does not do</b>: it never asserts a throughput. Every check here is a <i>protocol</i> fact (token
-/// count, int count, int sum, ledger); timings are printed as observations. That split is why these numbers can
-/// be quoted while the test suite stays non-flaky.
+/// count, int count, int sum, ledger); timings are printed as observations. That split is why these numbers can be
+/// quoted while the test suite stays non-flaky.
 /// </para>
 /// </summary>
 internal static class Program
@@ -52,6 +51,9 @@ internal static class Program
     /// <summary>Odd, so the median is a measured value rather than an interpolated one.</summary>
     private const int DefaultRounds = 21;
 
+    /// <summary>Timing blocks per round per arm. Larger = finer interleaving, smaller = more Stopwatch overhead.</summary>
+    private const int DefaultBlocks = 16;
+
     /// <summary>Spec §9 U1's floor is 30 % recovery; §1's stopping rule (RK-6) stops at half of it.</summary>
     private const double Threshold = 15.0;
 
@@ -61,9 +63,15 @@ internal static class Program
     /// <summary>Accumulated every decoded value: the JIT cannot elide a loop whose result escapes.</summary>
     private static long _sink;
 
+    /// <summary>What the last arm call saw — read by <see cref="Gate"/> so the arms cannot diverge silently.</summary>
+    private static long _lastTokens;
+    private static long _lastIntTokens;
+    private static long _lastIntSum;
+
     private static int Main(string[] args)
     {
         var rounds = DefaultRounds;
+        var blocks = DefaultBlocks;
         var dump = false;
 
         for (var i = 0; i < args.Length; i++)
@@ -73,12 +81,15 @@ internal static class Program
                 case "--rounds" when i + 1 < args.Length:
                     rounds = int.Parse(args[++i], CultureInfo.InvariantCulture);
                     break;
+                case "--blocks" when i + 1 < args.Length:
+                    blocks = int.Parse(args[++i], CultureInfo.InvariantCulture);
+                    break;
                 case "--dump":
                     dump = true;
                     break;
                 case "--help":
                 case "-h":
-                    Console.WriteLine("usage: PerToken [--rounds N] [--dump]");
+                    Console.WriteLine("usage: PerToken [--rounds N] [--blocks N] [--dump]");
                     return 0;
                 default:
                     Console.Error.WriteLine($"unknown argument: {args[i]}");
@@ -86,36 +97,34 @@ internal static class Program
             }
         }
 
-        if (rounds <= 0 || rounds % 2 == 0)
+        if (rounds <= 0 || rounds % 2 == 0 || blocks <= 0)
         {
-            Console.Error.WriteLine("--rounds must be odd and > 0");
+            Console.Error.WriteLine("--rounds must be odd and > 0, --blocks must be > 0");
             return 64;
         }
 
         Console.WriteLine("PicoMsgPack per-token micro-benchmark (task T4, spec §9 U2/U3)");
-        Console.WriteLine(new string('=', 92));
+        Console.WriteLine(new string('=', 96));
         Console.WriteLine($"mode    : {Mode()}");
         Console.WriteLine($"runtime : {Environment.Version}   os: {Environment.OSVersion}");
         Console.WriteLine(
-            "target  : "
-                + $"{TargetTokenOps:N0} token operations per arm per round "
-                + "(passes = round(target / tokens-per-pass))"
+            $"target  : ~{TargetTokenOps:N0} token operations per arm per round, split into {blocks} interleaved "
+                + "blocks so load hits every arm"
         );
         Console.WriteLine(
-            $"rounds  : {rounds} measured (median) after an untimed warm-up that ends when two consecutive "
-                + "rounds agree within 3 %"
+            $"rounds  : {rounds} measured (median of per-round ratios), after untimed warm-up rounds that end when "
+                + "two consecutive rounds agree within 3 %"
         );
-        Console.WriteLine(new string('=', 92));
+        Console.WriteLine(new string('=', 96));
 
-        // One number for the whole run: what a fresh reader costs per pass. Every arm builds exactly one per
-        // pass, so it cancels in the arm-to-arm difference and dilutes every per-token figure.
+        // One number for the whole run: what a fresh reader costs per pass. Every arm builds exactly one per pass, so
+        // it cancels in the arm-to-arm difference and dilutes every per-token figure.
         var constructShape = Shapes.Collection;
         var constructPasses = PassesFor(constructShape.Tokens);
-        WarmUp(constructShape, constructPasses);
         var constructPerPass = Median(
             Enumerable
                 .Range(0, rounds)
-                .Select(_ => ArmConstructOnly(constructShape.Bytes, constructPasses))
+                .Select(_ => ArmConstructNs(constructShape.Bytes, constructPasses) / constructPasses)
                 .ToArray()
         );
         var constructPerToken = constructPerPass / constructShape.Tokens;
@@ -126,23 +135,26 @@ internal static class Program
                 + $"{constructPerToken:F3} ns/token — paid by all three arms, cancels in their difference"
         );
 
-        double? collectionRecovery = null;
+        var collectionRecovery = double.NaN;
+        var allPublishable = true;
 
         foreach (var shape in Shapes.All)
         {
             if (dump)
             {
                 Console.WriteLine();
-                Console.WriteLine($"── token stream, {shape.Key} ──");
+                Console.WriteLine($"-- token stream, {shape.Key} --");
                 Payload.Dump(shape.Bytes);
             }
 
             var passes = PassesFor(shape.Tokens);
             var histogram = Payload.Verify(shape);
-            var results = Measure(shape, passes, rounds, out var warmUpRounds, out var cpuShare);
+            Gate(shape);
+
+            var results = Measure(shape, passes, blocks, rounds, out var warmUpRounds, out var cpuShare);
 
             Console.WriteLine();
-            Console.WriteLine(new string('-', 92));
+            Console.WriteLine(new string('-', 96));
             Console.WriteLine($"shape: {shape.Key} — {shape.Origin}");
             Console.WriteLine(
                 $"       {shape.Bytes.Length} bytes, {shape.Tokens} tokens, {shape.IntTokens} int tokens "
@@ -151,45 +163,55 @@ internal static class Program
             );
             Console.WriteLine(
                 $"       load  : cpu share {cpuShare:F2} of one core over the measured rounds "
-                    + "(1.00 = never preempted; lower means the wall-clock rows below are inflated)"
+                    + "(1.00 = never preempted; lower means the absolute ns are inflated)"
             );
             Console.WriteLine(
                 "       ledger: "
                     + string.Join(
                         ", ",
-                        histogram.Select(kv =>
-                            $"{kv.Key}×{kv.Value.ToString(CultureInfo.InvariantCulture)}"
-                        )
+                        histogram.Select(kv => $"{kv.Key}x{kv.Value.ToString(CultureInfo.InvariantCulture)}")
                     )
             );
-            Console.WriteLine(new string('-', 92));
+            Console.WriteLine(new string('-', 96));
 
             var read = results.Select(r => r.Read).ToArray();
             var readGet = results.Select(r => r.ReadGet).ToArray();
             var fused = results.Select(r => r.Fused).ToArray();
             var control = results.Select(r => r.Control).ToArray();
 
-            PrintRows([
-                ("Read()", read),
-                ("Read() + TryGetInt32()", readGet),
-                ("TryReadInt32()", fused),
-                ("Read() [CONTROL]", control),
-            ]);
+            PrintRows(
+                [
+                    ("Read()", read),
+                    ("Read() + TryGetInt32()", readGet),
+                    ("TryReadInt32()", fused),
+                    ("Read() [CONTROL]", control),
+                ]
+            );
 
+            // Median of the per-round RATIOS, not the ratio of the per-round medians: every round measured all three
+            // arms in the same interleaved blocks, so a round's ratio is the load-insensitive quantity. Two medians
+            // taken from different halves of a drifting machine are not.
+            var perRoundRecovery = results.Select(r => (r.ReadGet - r.Fused) / r.ReadGet * 100).ToArray();
+            var perRoundControl = results.Select(r => r.Control / r.Read).ToArray();
+
+            var readMedian = Median(read);
             var readGetMedian = Median(readGet);
             var fusedMedian = Median(fused);
-            var delta = readGetMedian - fusedMedian;
-            var raw = delta / readGetMedian * 100;
-            var corrected = delta / (readGetMedian - constructPerToken) * 100;
+            var raw = Median(perRoundRecovery);
+
+            // Construction cancels in the arm-to-arm difference but sits in the readGet denominator; correcting for it
+            // can only ever raise the percentage, so it is the favourable reading, printed next to the raw one.
+            var corrected = raw * readGetMedian / (readGetMedian - constructPerToken);
 
             Console.WriteLine(
-                $"  CONTROL  Read() vs Read()            : ratio {Median(control) / Median(read):F4}"
-                    + $" ({(Median(control) / Median(read) - 1) * 100:+0.0;-0.0;0.0} %) "
-                    + "— the harness's own noise floor"
+                $"  CONTROL  Read() vs Read()            : ratio {Median(perRoundControl):F4}"
+                    + $" ({(Median(perRoundControl) - 1) * 100:+0.0;-0.0;0.0} %; per-round "
+                    + $"{perRoundControl.Min():F3}...{perRoundControl.Max():F3}) — the harness's own noise floor"
             );
             Console.WriteLine(
-                $"  RECOVERY TryReadInt32 vs Read()+TryGetInt32: {readGetMedian:F3} → {fusedMedian:F3} ns/token"
-                    + $" = {delta:F3} ns/token ({raw:F1} %; {corrected:F1} % with construction removed)"
+                $"  RECOVERY TryReadInt32 vs Read()+TryGetInt32: {readGetMedian:F3} -> {fusedMedian:F3} ns/token"
+                    + $" = {readGetMedian - fusedMedian:F3} ns/token => {raw:F1} % median-of-rounds "
+                    + $"(per-round {perRoundRecovery.Min():F1}...{perRoundRecovery.Max():F1} %)"
             );
 
             var triggered = raw < Threshold;
@@ -204,72 +226,144 @@ internal static class Program
                     + "(difference only — the two figures measure different things, see README)"
             );
 
-            collectionRecovery ??= raw;
+            // The fused member can legitimately come out a little cheaper than Read() alone (its integer path has a
+            // shorter prologue than ReadSpan's), but not a quarter cheaper: the same token stream is still being
+            // classified and materialised. Beyond that the two arms were measured in different JIT states.
+            var comparable = fusedMedian >= readMedian * 0.75;
+            if (!comparable)
+                Console.WriteLine(
+                    $"  !! ARMS NOT COMPARABLE: fused {fusedMedian:F3} < 0.75 x Read() {readMedian:F3}. No "
+                        + "implementation can classify the same tokens a quarter cheaper than the reader it contains — "
+                        + "the arms were measured in different JIT states. Discard this run."
+                );
+
+            // A number measured while the box was busy is not a measurement. Both conditions are printed, so a
+            // rejected run still documents why it was rejected instead of being silently dropped.
+            var publishable = cpuShare >= 0.95 && Math.Abs(Median(perRoundControl) - 1) <= 0.03 && comparable;
+            allPublishable &= publishable;
+            Console.WriteLine(
+                $"  PUBLISHABLE: {(publishable ? "yes" : "NO")} (requires cpu share >= 0.95, |CONTROL - 1| <= 0.03 "
+                    + $"and a comparable arm set; got {cpuShare:F2}, {Median(perRoundControl) - 1:+0.000;-0.000;0.000}"
+                    + $", {(comparable ? "comparable" : "NOT comparable")})"
+            );
+
+            if (double.IsNaN(collectionRecovery))
+                collectionRecovery = raw;
 
             Console.WriteLine(
                 $"SUMMARY shape={shape.Key} mode={ModeTag()} tokens={shape.Tokens} bytes={shape.Bytes.Length}"
-                    + $" passes={passes} token_ops={passes * shape.Tokens} rounds={rounds}"
-                    + $" read={Median(read):F3} read_get={readGetMedian:F3} fused={fusedMedian:F3}"
-                    + $" control={Median(control):F3} cpu_share={cpuShare:F2} spread_read_pct={Spread(read):F1}"
-                    + $" spread_read_get_pct={Spread(readGet):F1} spread_fused_pct={Spread(fused):F1}"
-                    + $" recovery_pct={raw:F2} recovery_ex_construct_pct={corrected:F2}"
-                    + $" trigger_15pct={(triggered ? "yes" : "no")}"
+                    + $" passes={passes} blocks={blocks} token_ops={passes * shape.Tokens} rounds={rounds}"
+                    + $" read={readMedian:F3} read_get={readGetMedian:F3} fused={fusedMedian:F3}"
+                    + $" control={Median(control):F3} cpu_share={cpuShare:F2}"
+                    + $" spread_read_pct={Spread(read):F1} spread_read_get_pct={Spread(readGet):F1}"
+                    + $" spread_fused_pct={Spread(fused):F1} recovery_pct={raw:F2}"
+                    + $" recovery_min_pct={perRoundRecovery.Min():F2}"
+                    + $" recovery_max_pct={perRoundRecovery.Max():F2}"
+                    + $" control_ratio={Median(perRoundControl):F3}"
+                    + $" recovery_ex_construct_pct={corrected:F2} trigger_15pct={(triggered ? "yes" : "no")}"
+                    + $" comparable={(comparable ? "yes" : "no")} publishable={(publishable ? "yes" : "no")}"
             );
         }
 
         Console.WriteLine();
-        Console.WriteLine(new string('=', 92));
+        Console.WriteLine(new string('=', 96));
         Console.WriteLine(
             "VERDICT "
                 + $"Collection_shape_recovery_pct={collectionRecovery:F2} "
                 + $"threshold_pct={Threshold:F0} "
-                + $"stopping_rule={(collectionRecovery < Threshold ? "TRIGGERED" : "NOT TRIGGERED")}"
+                + $"stopping_rule={(collectionRecovery < Threshold ? "TRIGGERED" : "NOT TRIGGERED")} "
+                + $"publishable={(allPublishable ? "yes" : "no")}"
         );
 
         GC.KeepAlive(_sink);
-        return 0;
-    }
 
-    /// <summary>One round of every arm on one shape. The only place the arm order is decided.</summary>
-    private static RoundResult MeasureRound(
-        byte[] payload,
-        int tokens,
-        int passes,
-        bool controlFirst
-    )
-    {
-        var control = controlFirst ? ArmRead(payload, tokens, passes) : double.NaN;
-
-        var read = ArmRead(payload, tokens, passes);
-        var readGet = ArmReadThenGetInt32(payload, tokens, passes);
-        var fused = ArmFusedReadInt32(payload, tokens, passes);
-
-        if (!controlFirst)
-            control = ArmRead(payload, tokens, passes);
-
-        return new RoundResult(read, readGet, fused, control);
+        // Exit 3 = "the timing is not quotable". A run cannot fail on a busy machine by accident and then be quoted
+        // by mistake: whoever pipes the output into a report sees the status.
+        return allPublishable ? 0 : 3;
     }
 
     /// <summary>
-    /// Untimed rounds until the machine has settled: two consecutive rounds whose four arms all agree within
-    /// 3 %. Without this the first rounds carry tier-0 code and a tiered-JIT run reports a 30 ns/token median
-    /// disguised as a 5 ns/token one.
+    /// Protocol gate, run before any timing: the three arms must see the same token stream. A fused read that
+    /// consumed a different number of tokens, or decoded different integers, would make every ns/token figure below
+    /// compare two different workloads.
     /// </summary>
-    private static void WarmUp(Shape shape, int passes)
+    private static void Gate(Shape shape)
     {
-        RoundResult? previous = null;
-        for (var w = 0; w < 12; w++)
+        const int passes = 1;
+
+        _ = ArmReadNs(shape.Bytes, shape.Tokens, passes);
+        if (_lastTokens != shape.Tokens)
+            throw new InvalidOperationException(
+                $"gate: Read() consumed {_lastTokens} tokens, the ledger says {shape.Tokens}"
+            );
+
+        _ = ArmReadThenGetNs(shape.Bytes, shape.Tokens, passes);
+        var twoStageInts = _lastIntTokens;
+        var twoStageSum = _lastIntSum;
+        if (twoStageInts != shape.IntTokens || twoStageSum != shape.IntSum)
+            throw new InvalidOperationException(
+                $"gate: Read()+TryGetInt32() decoded {twoStageInts} int tokens summing {twoStageSum}; the ledger "
+                    + $"says {shape.IntTokens} summing {shape.IntSum}"
+            );
+
+        _ = ArmFusedNs(shape.Bytes, shape.Tokens, passes);
+        if (_lastIntTokens != twoStageInts || _lastIntSum != twoStageSum)
+            throw new InvalidOperationException(
+                $"gate: TryReadInt32() decoded {_lastIntTokens} int tokens summing {_lastIntSum}, the two-stage arm "
+                    + $"decoded {twoStageInts} summing {twoStageSum} — the arms are not walking the same stream"
+            );
+    }
+
+    /// <summary>
+    /// A round: <paramref name="passes"/> passes per arm, cut into <paramref name="blocks"/> blocks, with the arm
+    /// order rotated per block. Everything else in this file is reporting; this is the measurement.
+    /// </summary>
+    private static RoundResult MeasureRound(Shape shape, int passes, int blocks)
+    {
+        var blockPasses = Math.Max(1, passes / blocks);
+        var payload = shape.Bytes;
+        var tokens = shape.Tokens;
+
+        double readNs = 0,
+            readGetNs = 0,
+            fusedNs = 0,
+            controlNs = 0;
+
+        Span<int> order = stackalloc int[4];
+        for (var b = 0; b < blocks; b++)
         {
-            var current = MeasureRound(shape.Bytes, shape.Tokens, passes, controlFirst: w % 2 == 1);
-            if (previous is { } p && current.Within(p, 0.03))
-                return;
-            previous = current;
+            for (var i = 0; i < 4; i++)
+                order[i] = (b + i) % 4;
+
+            foreach (var arm in order)
+            {
+                switch (arm)
+                {
+                    case 0:
+                        readNs += ArmReadNs(payload, tokens, blockPasses);
+                        break;
+                    case 1:
+                        readGetNs += ArmReadThenGetNs(payload, tokens, blockPasses);
+                        break;
+                    case 2:
+                        fusedNs += ArmFusedNs(payload, tokens, blockPasses);
+                        break;
+                    default:
+                        // Same code as arm 0 by construction: the CONTROL must not be a second implementation.
+                        controlNs += ArmReadNs(payload, tokens, blockPasses);
+                        break;
+                }
+            }
         }
+
+        var tokenOps = blockPasses * (double)blocks * tokens;
+        return new RoundResult(readNs / tokenOps, readGetNs / tokenOps, fusedNs / tokenOps, controlNs / tokenOps);
     }
 
     private static RoundResult[] Measure(
         Shape shape,
         int passes,
+        int blocks,
         int rounds,
         out int warmUpRounds,
         out double cpuShare
@@ -279,20 +373,20 @@ internal static class Program
         warmUpRounds = 0;
         for (var w = 0; w < 12; w++)
         {
-            var current = MeasureRound(shape.Bytes, shape.Tokens, passes, controlFirst: w % 2 == 1);
+            var current = MeasureRound(shape, passes, blocks);
             warmUpRounds = w + 1;
             if (previous is { } p && current.Within(p, 0.03))
                 break;
             previous = current;
         }
 
-        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         var cpuBefore = process.TotalProcessorTime;
         var wallBefore = Stopwatch.GetTimestamp();
 
         var results = new RoundResult[rounds];
         for (var r = 0; r < rounds; r++)
-            results[r] = MeasureRound(shape.Bytes, shape.Tokens, passes, controlFirst: r % 2 == 1);
+            results[r] = MeasureRound(shape, passes, blocks);
 
         var wall = Stopwatch.GetElapsedTime(wallBefore);
         cpuShare = (process.TotalProcessorTime - cpuBefore) / wall;
@@ -303,13 +397,13 @@ internal static class Program
     private static int PassesFor(int tokensPerPass) =>
         Math.Max(1, (int)Math.Round((double)TargetTokenOps / tokensPerPass));
 
-    // ── arms ──────────────────────────────────────────────────────────────────────────────────────────
-    // Identical structure, identical pass loop, identical division by the measured token count. Only the
-    // inner call differs, so the difference between two rows is the difference between two call shapes.
+    // -- arms ------------------------------------------------------------------------------------------
+    // Identical structure, identical pass loop, identical division by the token count. Only the inner call differs,
+    // so the difference between two rows is the difference between two call shapes. Each returns elapsed ns.
 
     /// <summary>Arm 1 — <c>Read()</c> alone: classify + materialise one token.</summary>
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
-    private static double ArmRead(byte[] payload, int tokensPerPass, int passes)
+    private static double ArmReadNs(byte[] payload, int tokensPerPass, int passes)
     {
         long tokens = 0;
         var start = Stopwatch.GetTimestamp();
@@ -324,20 +418,16 @@ internal static class Program
         }
 
         var ns = ElapsedNs(start);
-        var expected = passes * (long)tokensPerPass;
-        if (tokens != expected)
-            throw new InvalidOperationException(
-                $"Read() arm consumed {tokens} tokens, expected {expected}"
-            );
-
+        _lastTokens = tokens / passes;
         _sink += tokens;
-        return ns / expected;
+        return ns;
     }
 
     /// <summary>Arm 2 — <c>Read() + TryGetInt32()</c>: the two-stage shape generated code emits today.</summary>
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
-    private static double ArmReadThenGetInt32(byte[] payload, int tokensPerPass, int passes)
+    private static double ArmReadThenGetNs(byte[] payload, int tokensPerPass, int passes)
     {
+        long tokens = 0;
         long intTokens = 0;
         long intSum = 0;
         var start = Stopwatch.GetTimestamp();
@@ -346,8 +436,8 @@ internal static class Program
             var reader = new MsgPackReader(payload);
             for (var t = 0; t < tokensPerPass; t++)
             {
-                if (!reader.Read())
-                    throw new InvalidOperationException("Read() ended early in the two-stage arm");
+                if (reader.Read())
+                    tokens++;
 
                 if (reader.TryGetInt32(out var v))
                 {
@@ -358,13 +448,16 @@ internal static class Program
         }
 
         var ns = ElapsedNs(start);
+        _lastTokens = tokens / passes;
+        _lastIntTokens = intTokens / passes;
+        _lastIntSum = intSum / passes;
         _sink += intSum;
-        return ns / (passes * (double)tokensPerPass);
+        return ns;
     }
 
     /// <summary>Arm 3 — <c>TryReadInt32()</c>: the fused shape (T6), one dispatch per token.</summary>
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
-    private static double ArmFusedReadInt32(byte[] payload, int tokensPerPass, int passes)
+    private static double ArmFusedNs(byte[] payload, int tokensPerPass, int passes)
     {
         long intTokens = 0;
         long intSum = 0;
@@ -374,8 +467,8 @@ internal static class Program
             var reader = new MsgPackReader(payload);
             for (var t = 0; t < tokensPerPass; t++)
             {
-                // Contract (IFusedTokenReader.TryReadInt32): one token is consumed whether or not it decodes as
-                // an int, so this loop issues exactly the token operations the two arms above issue.
+                // Contract (IFusedTokenReader.TryReadInt32): one token is consumed whether or not it decodes as an
+                // int, so this loop issues exactly the token operations the two arms above issue.
                 if (reader.TryReadInt32(out var v))
                 {
                     intTokens++;
@@ -385,15 +478,15 @@ internal static class Program
         }
 
         var ns = ElapsedNs(start);
+        _lastIntTokens = intTokens / passes;
+        _lastIntSum = intSum / passes;
         _sink += intSum;
-        return ns / (passes * (double)tokensPerPass);
+        return ns;
     }
 
-    /// <summary>
-    /// Diagnostic, not an arm: what one <c>new MsgPackReader(payload)</c> costs per pass.
-    /// </summary>
+    /// <summary>Diagnostic, not an arm: what one <c>new MsgPackReader(payload)</c> costs per pass.</summary>
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
-    private static double ArmConstructOnly(byte[] payload, int passes)
+    private static double ArmConstructNs(byte[] payload, int passes)
     {
         long touched = 0;
         var start = Stopwatch.GetTimestamp();
@@ -405,17 +498,12 @@ internal static class Program
 
         var ns = ElapsedNs(start);
         _sink += touched;
-        return ns / passes;
+        return ns;
     }
 
-    // ── plumbing ──────────────────────────────────────────────────────────────────────────────────────
+    // -- plumbing --------------------------------------------------------------------------------------
 
-    private readonly record struct RoundResult(
-        double Read,
-        double ReadGet,
-        double Fused,
-        double Control
-    )
+    private readonly record struct RoundResult(double Read, double ReadGet, double Fused, double Control)
     {
         public bool Within(RoundResult other, double tolerance) =>
             Relative(this.Read, other.Read) <= tolerance
@@ -443,11 +531,11 @@ internal static class Program
     }
 
     /// <summary>
-    /// The runtime configuration the numbers belong to. It is part of the result, not decoration: with tiering
-    /// and DynamicPGO on (the shipped default) the two-stage arm keeps <c>TryGetInt32</c> inlined and the fused
-    /// member does not win; with <c>DOTNET_TieredCompilation=0</c> — the setting the T6/T7/T8 reports measured
-    /// under — it does. Reporting a recovery figure without this label is how two sessions end up quoting
-    /// opposite numbers for the same code.
+    /// The runtime configuration the numbers belong to. It is part of the result, not decoration: with tiering and
+    /// DynamicPGO on (the shipped default) the two-stage arm keeps <c>TryGetInt32</c> inlinable and the fused member
+    /// does not win; with <c>DOTNET_TieredCompilation=0</c> — the setting the T6/T7/T8 reports measured under — it
+    /// does. Reporting a recovery figure without this label is how two sessions end up quoting opposite numbers for
+    /// the same code.
     /// </summary>
     private static string ModeTag() =>
         RuntimeFeature.IsDynamicCodeSupported
@@ -466,9 +554,7 @@ internal static class Program
     private static void PrintRows((string Name, double[] Values)[] rows)
     {
         Console.WriteLine();
-        Console.WriteLine(
-            $"{"arm", -26}{"median", 10}{"min", 9}{"max", 9}{"spread", 9}   per-round ns/token"
-        );
+        Console.WriteLine($"{"arm",-26}{"median",10}{"min",9}{"max",9}{"spread",9}   per-round ns/token");
         foreach (var (name, values) in rows)
         {
             var median = Median(values);
@@ -477,7 +563,7 @@ internal static class Program
                 values.Select(v => v.ToString("F2", CultureInfo.InvariantCulture))
             );
             Console.WriteLine(
-                $"{name, -26}{median, 10:F3}{values.Min(), 9:F3}{values.Max(), 9:F3}{Spread(values), 8:F1}%   {perRound}"
+                $"{name,-26}{median,10:F3}{values.Min(),9:F3}{values.Max(),9:F3}{Spread(values),8:F1}%   {perRound}"
             );
         }
     }
