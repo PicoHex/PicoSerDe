@@ -40,24 +40,35 @@ internal static class FormatCapabilities_Probe_S11bJson_21a646aabfc47923JsonInne
     internal static FormatCapabilities.Probe.S11bJson Deserialize(ref JsonReader reader)
     {
         var obj = new FormatCapabilities.Probe.S11bJson();
-        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.");
+        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw __PicoJsonCold.Err("Expected a JSON object at offset ", reader.BytesConsumed, " but found " + reader.TokenType + ".");
+        bool __ci = reader.Options?.PropertyNameCaseInsensitive ?? true;
         while (reader.Read() && reader.TokenType == TokenType.PropertyName)
         {
             var __n = reader.GetStringRaw();
             if (!reader.Read() && reader.NeedsMoreData) break;
             int __mi = -1;
-            switch (__n.Length)
+            if (__n.Length >= 3)
             {
-                case 1:
-                    if (__n.SequenceEqual("B"u8))
-                        __mi = 1;
-                    break;
-                case 4:
-                    if (__n.SequenceEqual("Name"u8))
-                        __mi = 0;
-                    break;
+                int __nk = (__n[0] << 16) | (__n[1] << 8) | __n[2];
+                switch (__nk)
+                {
+                    case 0x4E616D:
+                        if (__n.SequenceEqual("Name"u8))
+                            __mi = 0;
+                        break;
+                }
             }
-            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            else
+            {
+                switch (__n.Length)
+                {
+                    case 1:
+                        if (__n.SequenceEqual("B"u8))
+                            __mi = 1;
+                        break;
+                }
+            }
+            if (__mi < 0 && __ci)
             {
                 if (TextHelpers.Eq(__n, "Name"u8))
                     __mi = 0;
@@ -68,7 +79,7 @@ internal static class FormatCapabilities_Probe_S11bJson_21a646aabfc47923JsonInne
             {
                 if (reader.TokenType != TokenType.String)
                 {
-                    throw new System.FormatException($"Expected String value for property \"Name\" at offset {reader.BytesConsumed}");
+                    throw __PicoJsonCold.Err("Expected String value for property \"Name\" at offset ", reader.BytesConsumed);
                 }
                 obj.Name = Encoding.UTF8.GetString(reader.GetStringRaw());
             }
@@ -80,9 +91,19 @@ internal static class FormatCapabilities_Probe_S11bJson_21a646aabfc47923JsonInne
                     obj.B = __PicoSerDe_FormatCapabilities_Probe.FormatCapabilities_Probe_S11bJsonPartner_601b6887da4786e7JsonInner.Deserialize(ref reader);
             }
             else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)
-                throw new System.FormatException($"Unexpected property '{Encoding.UTF8.GetString(__n)}' at offset {reader.BytesConsumed}");
+                throw __PicoJsonCold.Err("Unexpected property '" + Encoding.UTF8.GetString(__n) + "' at offset ", reader.BytesConsumed);
             else reader.TrySkip();
         }
         return obj;
     }
+}
+file static class __PicoJsonCold
+{
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset) =>
+        new System.FormatException(prefix + offset.ToString());
+
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset, string suffix) =>
+        new System.FormatException(prefix + offset.ToString() + suffix);
 }

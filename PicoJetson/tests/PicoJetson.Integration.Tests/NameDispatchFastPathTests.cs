@@ -455,15 +455,19 @@ public class NameDispatchShapeTests
 
     private static async Task AssertFallbackIsKept(string generatedFile, string nameVar)
     {
-        // Fast path: a length switch dispatching exact span compares.
-        await Assert.That(generatedFile).Contains($"switch ({nameVar}.Length)");
+        // Fast path: one packed 24-bit key switch over the first three bytes of the name
+        // (json-gen3 #1; it used to be a switch on the length plus one on the first byte), with
+        // every candidate still confirmed over its whole name.
+        await Assert.That(generatedFile).Contains("switch (__nk)");
         await Assert.That(generatedFile).Contains($"{nameVar}.SequenceEqual(");
 
-        // Fallback: the pre-P0-1 chain, still guarded by the case-insensitivity option.
+        // Fallback: the pre-P0-1 chain, still guarded by the case-insensitivity option — now the
+        // once-per-document local json-gen3 #4 hoists above the property loop.
         await Assert.That(generatedFile).Contains("TextHelpers.Eq(");
         await Assert
             .That(generatedFile)
-            .Contains("if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))");
+            .Contains("bool __ci = reader.Options?.PropertyNameCaseInsensitive ?? true;");
+        await Assert.That(generatedFile).Contains("if (__mi < 0 && __ci)");
     }
 
     private static string[] RunGenerator(string source)

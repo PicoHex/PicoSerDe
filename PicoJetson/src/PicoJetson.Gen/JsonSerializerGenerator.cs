@@ -757,7 +757,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(poly);
         sb.AppendLine("JsonPolyDes.DeserializeCore(ref reader, reader.Options);");
         sb.AppendLine("}");
-        return sb.ToString();
+        return HoistColdThrows(sb.ToString());
     }
 
     private static string GenerateInnerHelper(
@@ -865,7 +865,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine(";");
         }
         sb.AppendLine(
-            "        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            "        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw __PicoJsonCold.Err(\"Expected a JSON object at offset \", reader.BytesConsumed, \" but found \" + reader.TokenType + \".\");"
         );
         foreach (var rp in props.Where(p => p.IsRequired))
         {
@@ -873,6 +873,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(rp.Name);
             sb.AppendLine(" = false;");
         }
+        sb.AppendLine("        " + CiLocal);
         sb.AppendLine(
             "        while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
         );
@@ -897,7 +898,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(np.Name);
                     sb.AppendLine(" = true;");
                 }
-            }
+            },
+            caseInsensitiveVar: "__ci"
         );
         if (props.Length > 0)
         {
@@ -905,7 +907,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 "            else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
             );
             sb.AppendLine(
-                "                throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(__n)}' at offset {reader.BytesConsumed}\");"
+                "                throw __PicoJsonCold.Err(\"Unexpected property '\" + Encoding.UTF8.GetString(__n) + \"' at offset \", reader.BytesConsumed);"
             );
             sb.AppendLine("            else reader.TrySkip();");
         }
@@ -923,7 +925,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        return obj;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
-        return sb.ToString();
+        return HoistColdThrows(sb.ToString());
     }
 
     /// <summary>
@@ -1016,7 +1018,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("        return obj;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
-        return sb.ToString();
+        return HoistColdThrows(sb.ToString());
     }
 
     private static void EmitDictInnerKey(StringBuilder sb, PropertyInfo dp, string indent)
@@ -1645,7 +1647,112 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
 
         sb.AppendLine("}");
+        return HoistColdThrows(sb.ToString());
+    }
+
+    /// <summary>
+    /// The hoisted option read (json-gen3 #4): one evaluation per deserializer call instead of one per
+    /// property. <c>?? true</c> is load-bearing — a reader with no options object is case-INSENSITIVE,
+    /// exactly like the inline expression it replaces.
+    /// </summary>
+    private const string CiLocal =
+        "bool __ci = reader.Options?.PropertyNameCaseInsensitive ?? true;";
+
+    /// <summary>Name of the generated file-local cold-path helper. Double-underscored so it can
+    /// never collide with a user type, and <c>file</c>-scoped so it can never leak out of the file.</summary>
+    private const string ColdHelperClass = "__PicoJsonCold";
+
+    /// <summary>
+    /// One inline throw site: <c>throw new System.FormatException($"&lt;prefix&gt;{reader.BytesConsumed}&lt;suffix&gt;")</c>
+    /// where neither prefix nor suffix contains another interpolation hole (a site that interpolates
+    /// the token type or a runtime name is written by hand — see the emit sites — because moving it
+    /// here would mean re-typing the message, and re-typing is exactly how message text drifts).
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex ColdThrowSite = new(
+        "throw new System\\.FormatException\\(\\$\"(?<prefix>(?:[^\"\\\\{\\r\\n]|\\\\.)*)"
+            + "\\{reader\\.BytesConsumed\\}"
+            + "(?<suffix>(?:[^\"\\\\{\\r\\n]|\\\\.)*)\"\\);",
+        System.Text.RegularExpressions.RegexOptions.Compiled
+    );
+
+    /// <summary>
+    /// Moves every constant-prefix/suffix throw message out of the deserializer's method body and into
+    /// one <c>[MethodImpl(NoInlining)]</c> helper:
+    /// <para>
+    /// <c>throw new FormatException($"…{reader.BytesConsumed}…")</c> becomes
+    /// <c>throw __PicoJsonCold.Err("…", reader.BytesConsumed, "…")</c>.
+    /// </para>
+    /// <para>
+    /// <b>Why:</b> an interpolated string puts its <c>DefaultInterpolatedStringHandler</c> (and the
+    /// stack buffer behind it) in the CALLER's frame. A 30-property deserializer carries 30 of them,
+    /// so the document-sized method is compiled with room for machinery that runs only on the error
+    /// path. The message itself is byte-identical: the prefix and the suffix are lifted VERBATIM from
+    /// the emitted literal, the only unescaping applied is <c>{{</c>/<c>}}</c> → <c>{</c>/<c>}</c>
+    /// (which is what the interpolation did with them), and the offset is rendered by the helper with
+    /// the same <c>long.ToString()</c> the interpolation used.
+    /// </para>
+    /// <para>
+    /// The helper class is appended once per file, and only when something in that file calls it.
+    /// </para>
+    /// </summary>
+    private static string HoistColdThrows(string text)
+    {
+        var rewritten = ColdThrowSite.Replace(
+            text,
+            m =>
+            {
+                var prefix = UnescapeInterpolationBraces(m.Groups["prefix"].Value);
+                var suffix = UnescapeInterpolationBraces(m.Groups["suffix"].Value);
+                return suffix.Length == 0
+                    ? $"throw {ColdHelperClass}.Err(\"{prefix}\", reader.BytesConsumed);"
+                    : $"throw {ColdHelperClass}.Err(\"{prefix}\", reader.BytesConsumed, \"{suffix}\");";
+            }
+        );
+        if (!rewritten.Contains(ColdHelperClass + ".Err(", StringComparison.Ordinal))
+            return rewritten;
+
+        var sb = new StringBuilder(rewritten.Length + 512);
+        sb.Append(rewritten);
+        EmitColdHelper(sb);
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The escaping an interpolated literal applies to text that must be emitted literally: a doubled
+    /// brace is one brace. Everything else (<c>\"</c>, <c>\\</c>, <c>\n</c>) is already a valid escape
+    /// in the non-interpolated literal the message moves into, so it is left exactly as it is.
+    /// </summary>
+    private static string UnescapeInterpolationBraces(string text) =>
+        text.Replace("{{", "{").Replace("}}", "}");
+
+    /// <summary>
+    /// The cold helper emitted into every generated file that throws. Both overloads are
+    /// <c>NoInlining</c>: inlining them would rebuild the stack frame this change removes.
+    /// <c>offset.ToString()</c> is culture-identical to the interpolation it replaces (both go through
+    /// <c>long.ToString(null, CurrentCulture)</c>).
+    /// </summary>
+    private static void EmitColdHelper(StringBuilder sb)
+    {
+        sb.Append("file static class ");
+        sb.Append(ColdHelperClass);
+        sb.AppendLine();
+        sb.AppendLine("{");
+        sb.AppendLine(
+            "    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]"
+        );
+        sb.AppendLine(
+            "    internal static System.FormatException Err(string prefix, long offset) =>"
+        );
+        sb.AppendLine("        new System.FormatException(prefix + offset.ToString());");
+        sb.AppendLine();
+        sb.AppendLine(
+            "    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]"
+        );
+        sb.AppendLine(
+            "    internal static System.FormatException Err(string prefix, long offset, string suffix) =>"
+        );
+        sb.AppendLine("        new System.FormatException(prefix + offset.ToString() + suffix);");
+        sb.AppendLine("}");
     }
 
     private static string GenerateTypeCode(
@@ -1715,7 +1822,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 EmitStreamingDeserializer(sb, type);
         }
 
-        return sb.ToString();
+        return HoistColdThrows(sb.ToString());
     }
 
     // ── Serializer emission ──
@@ -2888,7 +2995,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine("Streaming.DeserializeStreaming(ref reader, null, out result);");
             sb.AppendLine("                if (__status == ReadStatus.EndOfInput)");
             sb.AppendLine(
-                "                    throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+                "                    throw __PicoJsonCold.Err(\"Expected a JSON object at offset \", reader.BytesConsumed, \" but found \" + reader.TokenType + \".\");"
             );
             sb.AppendLine("                if (__status == ReadStatus.NeedMoreData)");
             sb.AppendLine(
@@ -2972,7 +3079,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             if (!type.IsValueType)
                 sb.AppendLine("            if (reader.TokenType == TokenType.Null) return null!;");
             sb.AppendLine(
-                "            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+                "            if (reader.TokenType != TokenType.ObjectStart) throw __PicoJsonCold.Err(\"Expected a JSON object at offset \", reader.BytesConsumed, \" but found \" + reader.TokenType + \".\");"
             );
             if (!hasCtor)
                 foreach (var rp in type.Properties.Where(p => p.IsRequired))
@@ -2981,6 +3088,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(rp.Name);
                     sb.AppendLine(" = false;");
                 }
+            sb.AppendLine("            " + CiLocal);
             sb.AppendLine(
                 "            while (reader.Read() && reader.TokenType == TokenType.PropertyName)"
             );
@@ -3012,7 +3120,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                             sb.AppendLine(" = true;");
                         }
                     }
-                }
+                },
+                caseInsensitiveVar: "__ci"
             );
 
             if (type.Properties.Length > 0)
@@ -3021,7 +3130,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     "                else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
                 );
                 sb.AppendLine(
-                    "                    throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(propNameSpan)}' at offset {reader.BytesConsumed}\");"
+                    "                    throw __PicoJsonCold.Err(\"Unexpected property '\" + Encoding.UTF8.GetString(propNameSpan) + \"' at offset \", reader.BytesConsumed);"
                 );
                 sb.AppendLine("                else reader.TrySkip();");
             }
@@ -4058,7 +4167,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         string nameVar,
         string indent,
         Action<PropertyInfo, string> emitBody,
-        string indexVar = "__mi"
+        string indexVar = "__mi",
+        string? caseInsensitiveVar = null
     )
     {
         if (props.Count == 0)
@@ -4073,72 +4183,104 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         var inner = indent + "    ";
         var inner2 = indent + "        ";
 
-        // 1. Exact-match fast path: bucketed by UTF-8 name length, so the span compare
-        //    only ever runs against names that can possibly be equal.
+        // 1. Exact-match fast path. Names of three bytes or more are resolved by ONE packed
+        //    24-bit key (the first three bytes) in a single switch; shorter names keep the
+        //    per-length switch, because they cannot fill a three-byte key.
+        var candidates = NameCandidates(props);
+        var packedNames = candidates.Where(c => c.Length >= 3).ToList();
+        var shortNames = candidates.Where(c => c.Length < 3).ToList();
+
         sb.Append(indent);
         sb.Append("int ");
         sb.Append(indexVar);
         sb.AppendLine(" = -1;");
-        sb.Append(indent);
-        sb.Append("switch (");
-        sb.Append(nameVar);
-        sb.AppendLine(".Length)");
-        sb.Append(indent);
-        sb.AppendLine("{");
-        foreach (var bucket in LengthBuckets(props))
-        {
-            sb.Append(inner);
-            sb.Append("case ");
-            sb.Append(bucket.Key);
-            sb.AppendLine(":");
 
-            // Several names of the same length are the common case (F01…F10, N01…N10 all
-            // have three bytes), so a plain chain inside the bucket would stay O(k). One
-            // more level — the first byte — makes each candidate set smaller, and for
-            // one-character names (A…J) the first byte IS the whole name.
-            var byFirstByte =
-                bucket.Key == 0
-                    ? null
-                    : bucket.Value.GroupBy(c => FirstUtf8Byte(c.Prop.JsonName)).ToList();
-            if (byFirstByte is null || byFirstByte.Count == 1)
-            {
-                EmitExactChain(sb, bucket.Value, nameVar, indexVar, inner2);
-            }
-            else
+        if (packedNames.Count > 0)
+        {
+            // Guard: the key is only three bytes, so it pins the name only when the name is
+            // exactly three bytes long. `Length == 3` says that directly (and a longer name that
+            // shares those three bytes then reaches the case-insensitive fallback instead of
+            // binding its prefix's property); `Length >= 3` is enough when some compiled names are
+            // longer, because each of those is confirmed by SequenceEqual over its whole name.
+            var allExactlyThree = packedNames.All(c => c.Length == 3);
+            sb.Append(indent);
+            sb.Append("if (");
+            sb.Append(nameVar);
+            sb.AppendLine(allExactlyThree ? ".Length == 3)" : ".Length >= 3)");
+            sb.Append(indent);
+            sb.AppendLine("{");
+            sb.Append(inner);
+            sb.Append("int __nk = (");
+            sb.Append(nameVar);
+            sb.Append("[0] << 16) | (");
+            sb.Append(nameVar);
+            sb.Append("[1] << 8) | ");
+            sb.Append(nameVar);
+            sb.AppendLine("[2];");
+            sb.Append(inner);
+            sb.AppendLine("switch (__nk)");
+            sb.Append(inner);
+            sb.AppendLine("{");
+            foreach (var bucket in PackedBuckets(packedNames))
             {
                 sb.Append(inner2);
-                sb.Append("switch (");
-                sb.Append(nameVar);
-                sb.AppendLine("[0])");
-                sb.Append(inner2);
-                sb.AppendLine("{");
-                foreach (var group in byFirstByte)
+                sb.Append("case ");
+                sb.Append(PackedKeyLiteral(bucket.Key));
+                sb.AppendLine(":");
+                // Inside `Length == 3` the key IS the whole name, so a lone three-byte candidate
+                // needs no compare at all. Everything else is confirmed over its whole name.
+                if (allExactlyThree && bucket.Value.Count == 1)
                 {
                     sb.Append(inner2);
                     sb.Append("    ");
-                    sb.Append("case ");
-                    sb.Append(FirstByteLiteral(group.Key));
-                    sb.AppendLine(":");
-                    EmitExactChain(sb, group, nameVar, indexVar, inner2 + "        ");
-                    sb.Append(inner2);
-                    sb.AppendLine("        break;");
+                    sb.Append(indexVar);
+                    sb.Append(" = ");
+                    sb.Append(bucket.Value[0].Index);
+                    sb.AppendLine(";");
+                }
+                else
+                {
+                    EmitPackedCandidates(sb, bucket.Value, nameVar, indexVar, inner2 + "    ");
                 }
                 sb.Append(inner2);
+                sb.AppendLine("    break;");
+            }
+            sb.Append(inner);
+            sb.AppendLine("}");
+            sb.Append(indent);
+            sb.AppendLine("}");
+
+            if (shortNames.Count > 0)
+            {
+                sb.Append(indent);
+                sb.AppendLine("else");
+                sb.Append(indent);
+                sb.AppendLine("{");
+                EmitLengthBucketSwitch(sb, shortNames, nameVar, indexVar, inner);
+                sb.Append(indent);
                 sb.AppendLine("}");
             }
-
-            sb.Append(inner2);
-            sb.AppendLine("break;");
         }
-        sb.Append(indent);
-        sb.AppendLine("}");
+        else
+        {
+            EmitLengthBucketSwitch(sb, shortNames, nameVar, indexVar, indent);
+        }
 
         // 2. Fallback: the pre-P0-1 chain, now reached only by a name that differs from a
         //    compiled one by case, and only while case-insensitivity is on.
+        // The option is a reader-wide setting, so a caller that owns a property loop evaluates it
+        // once above that loop and hands the local in (json-gen3 #4); every other caller keeps the
+        // inline expression, which is the same value.
         sb.Append(indent);
         sb.Append("if (");
         sb.Append(indexVar);
-        sb.AppendLine(" < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))");
+        sb.Append(" < 0 && ");
+        sb.Append(
+            caseInsensitiveVar is null
+                ? "(reader.Options?.PropertyNameCaseInsensitive ?? true)"
+                : caseInsensitiveVar
+        );
+        sb.AppendLine(")");
         sb.Append(indent);
         sb.AppendLine("{");
         for (var i = 0; i < props.Count; i++)
@@ -4229,28 +4371,202 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// Groups (property index, property) by the UTF-8 byte length of the compiled name —
-    /// ascending by length, declaration-ordered inside a bucket, i.e. a deterministic
-    /// order so the generated file and the checked-in baseline stay stable.
+    /// One entry per compiled property: its declaration index (the value the dispatch assigns), the
+    /// property, and the UTF-8 <b>byte</b> length of its JSON name. Byte length, not char count: the
+    /// dispatch indexes the span, and a non-ASCII name is longer in bytes than in chars.
+    /// </summary>
+    private static List<(int Index, PropertyInfo Prop, int Length)> NameCandidates(
+        IReadOnlyList<PropertyInfo> props
+    )
+    {
+        var list = new List<(int Index, PropertyInfo Prop, int Length)>(props.Count);
+        for (var i = 0; i < props.Count; i++)
+            list.Add((i, props[i], Encoding.UTF8.GetByteCount(props[i].JsonName)));
+        return list;
+    }
+
+    /// <summary>
+    /// The packed 24-bit key of a compiled name: its first three UTF-8 bytes, most significant first.
+    /// Every byte is <c>&lt;= 0xFF</c>, so the value always fits a positive <c>int</c>.
+    /// </summary>
+    private static int PackedKey(string name)
+    {
+        var bytes = Encoding.UTF8.GetBytes(name);
+        return (bytes[0] << 16) | (bytes[1] << 8) | bytes[2];
+    }
+
+    /// <summary>A <c>switch</c> label for one packed key: <c>0x463031</c> is <c>"F01"</c>.</summary>
+    private static string PackedKeyLiteral(int key) => $"0x{key:X6}";
+
+    /// <summary>
+    /// Groups names of three bytes or more by <see cref="PackedKey"/> \u2014 ascending by key,
+    /// declaration-ordered inside a bucket, i.e. a deterministic order so the generated file and the
+    /// checked-in baseline stay stable. A bucket can hold several candidates: they share their first
+    /// three bytes ("Alpha"/"Alpine"/"Alps", or "\u00dcber"/"\u00dcbel"), and the chain inside the case
+    /// decides between them.
     /// </summary>
     private static IEnumerable<
-        KeyValuePair<int, List<(int Index, PropertyInfo Prop)>>
-    > LengthBuckets(IReadOnlyList<PropertyInfo> props)
+        KeyValuePair<int, List<(int Index, PropertyInfo Prop, int Length)>>
+    > PackedBuckets(List<(int Index, PropertyInfo Prop, int Length)> candidates)
     {
-        var buckets = new Dictionary<int, List<(int Index, PropertyInfo Prop)>>();
-        for (var i = 0; i < props.Count; i++)
+        var buckets = new Dictionary<int, List<(int Index, PropertyInfo Prop, int Length)>>();
+        foreach (var candidate in candidates)
         {
-            var length = Encoding.UTF8.GetByteCount(props[i].JsonName);
-            if (!buckets.TryGetValue(length, out var bucket))
-                buckets[length] = bucket = new List<(int Index, PropertyInfo Prop)>();
-            bucket.Add((i, props[i]));
+            var key = PackedKey(candidate.Prop.JsonName);
+            if (!buckets.TryGetValue(key, out var bucket))
+                buckets[key] = bucket = new List<(int Index, PropertyInfo Prop, int Length)>();
+            bucket.Add(candidate);
+        }
+        foreach (var key in buckets.Keys.OrderBy(k => k))
+            yield return new KeyValuePair<int, List<(int Index, PropertyInfo Prop, int Length)>>(
+                key,
+                buckets[key]
+            );
+    }
+
+    /// <summary>
+    /// Confirms one packed-key bucket, candidate by candidate. A candidate of exactly three bytes is
+    /// confirmed by <c>Length == 3</c> (its three bytes are already known to be right, so the length
+    /// is the only thing left to check); a longer candidate is confirmed by <c>SequenceEqual</c> over
+    /// the whole name, which is what keeps a name that merely shares the first three bytes from
+    /// binding this property.
+    /// </summary>
+    private static void EmitPackedCandidates(
+        StringBuilder sb,
+        List<(int Index, PropertyInfo Prop, int Length)> candidates,
+        string nameVar,
+        string indexVar,
+        string indent
+    )
+    {
+        var first = true;
+        foreach (var (index, prop, length) in candidates)
+        {
+            sb.Append(indent);
+            sb.Append(first ? "if (" : "else if (");
+            sb.Append(nameVar);
+            if (length == 3)
+            {
+                sb.Append(".Length == 3");
+            }
+            else
+            {
+                sb.Append(".SequenceEqual(\"");
+                sb.Append(EscapeCSharpString(prop.JsonName));
+                sb.Append("\"u8)");
+            }
+            sb.AppendLine(")");
+            sb.Append(indent);
+            sb.Append("    ");
+            sb.Append(indexVar);
+            sb.Append(" = ");
+            sb.Append(index);
+            sb.AppendLine(";");
+            first = false;
+        }
+    }
+
+    /// <summary>
+    /// Emits the per-length switch for the names a three-byte key cannot resolve (one and two
+    /// bytes), shaped exactly as it was before the packed key existed: a bucket per length, one more
+    /// level on the first byte when a bucket holds several names, then a <c>SequenceEqual</c> chain.
+    /// </summary>
+    private static void EmitLengthBucketSwitch(
+        StringBuilder sb,
+        List<(int Index, PropertyInfo Prop, int Length)> candidates,
+        string nameVar,
+        string indexVar,
+        string indent
+    )
+    {
+        var caseIndent = indent + "    ";
+        var chainIndent = indent + "        ";
+        sb.Append(indent);
+        sb.Append("switch (");
+        sb.Append(nameVar);
+        sb.AppendLine(".Length)");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        foreach (var bucket in LengthBuckets(candidates))
+        {
+            sb.Append(caseIndent);
+            sb.Append("case ");
+            sb.Append(bucket.Key);
+            sb.AppendLine(":");
+
+            // Several names of the same length are the common case, so a plain chain inside the
+            // bucket would stay O(k). One more level \u2014 the first byte \u2014 makes each candidate set
+            // smaller, and for one-character names (A\u2026J) the first byte IS the whole name.
+            var byFirstByte =
+                bucket.Key == 0
+                    ? null
+                    : bucket.Value.GroupBy(c => FirstUtf8Byte(c.Prop.JsonName)).ToList();
+            if (byFirstByte is null || byFirstByte.Count == 1)
+            {
+                EmitExactChain(sb, ExactChainEntries(bucket.Value), nameVar, indexVar, chainIndent);
+            }
+            else
+            {
+                sb.Append(chainIndent);
+                sb.Append("switch (");
+                sb.Append(nameVar);
+                sb.AppendLine("[0])");
+                sb.Append(chainIndent);
+                sb.AppendLine("{");
+                foreach (var group in byFirstByte)
+                {
+                    sb.Append(chainIndent);
+                    sb.Append("    case ");
+                    sb.Append(FirstByteLiteral(group.Key));
+                    sb.AppendLine(":");
+                    EmitExactChain(
+                        sb,
+                        ExactChainEntries(group.ToList()),
+                        nameVar,
+                        indexVar,
+                        chainIndent + "        "
+                    );
+                    sb.Append(chainIndent);
+                    sb.AppendLine("        break;");
+                }
+                sb.Append(chainIndent);
+                sb.AppendLine("}");
+            }
+
+            sb.Append(chainIndent);
+            sb.AppendLine("break;");
+        }
+        sb.Append(indent);
+        sb.AppendLine("}");
+    }
+
+    /// <summary>
+    /// Groups candidates by UTF-8 name length \u2014 ascending by length, declaration-ordered inside a
+    /// bucket, i.e. a deterministic order so the generated file and the checked-in baseline stay
+    /// stable.
+    /// </summary>
+    private static IEnumerable<
+        KeyValuePair<int, List<(int Index, PropertyInfo Prop, int Length)>>
+    > LengthBuckets(List<(int Index, PropertyInfo Prop, int Length)> candidates)
+    {
+        var buckets = new Dictionary<int, List<(int Index, PropertyInfo Prop, int Length)>>();
+        foreach (var candidate in candidates)
+        {
+            if (!buckets.TryGetValue(candidate.Length, out var bucket))
+                buckets[candidate.Length] = bucket =
+                    new List<(int Index, PropertyInfo Prop, int Length)>();
+            bucket.Add(candidate);
         }
         foreach (var length in buckets.Keys.OrderBy(k => k))
-            yield return new KeyValuePair<int, List<(int Index, PropertyInfo Prop)>>(
+            yield return new KeyValuePair<int, List<(int Index, PropertyInfo Prop, int Length)>>(
                 length,
                 buckets[length]
             );
     }
+
+    private static IEnumerable<(int Index, PropertyInfo Prop)> ExactChainEntries(
+        List<(int Index, PropertyInfo Prop, int Length)> candidates
+    ) => candidates.Select(c => (c.Index, c.Prop));
 
     /// <summary>
     /// Emits one exact-match chain over <paramref name="candidates"/>: the first test is an
@@ -5710,10 +6026,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 "            if (reader.TokenType == TokenType.Null) { result = null; return ReadStatus.Success; }"
             );
         sb.AppendLine(
-            "            if (reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($\"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            "            if (reader.TokenType != TokenType.ObjectStart) throw __PicoJsonCold.Err(\"Expected a JSON object at offset \", reader.BytesConsumed, \" but found \" + reader.TokenType + \".\");"
         );
         sb.AppendLine("        }");
         sb.AppendLine();
+        sb.AppendLine("        " + CiLocal);
         sb.AppendLine("        while (true)");
         sb.AppendLine("        {");
         // Snapshot before the property name: any incomplete inner read
@@ -5747,7 +6064,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         sb.AppendLine(" = true;");
                     }
                 }
-            }
+            },
+            caseInsensitiveVar: "__ci"
         );
         if (type.Properties.Length > 0)
         {
@@ -5755,7 +6073,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 "            else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)"
             );
             sb.AppendLine(
-                "                throw new System.FormatException($\"Unexpected property '{Encoding.UTF8.GetString(propNameSpan)}' at offset {reader.BytesConsumed}\");"
+                "                throw __PicoJsonCold.Err(\"Unexpected property '\" + Encoding.UTF8.GetString(propNameSpan) + \"' at offset \", reader.BytesConsumed);"
             );
             sb.AppendLine("            else reader.TrySkip();");
         }
@@ -6343,6 +6661,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             // method scope, so a chunk resume no longer resets them (review C-06).
 
             // Read remaining properties using streaming loop
+            sb.AppendLine("            " + CiLocal);
             sb.AppendLine("            while (true)");
             sb.AppendLine("            {");
             sb.AppendLine(
@@ -6368,7 +6687,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                         EmitDeserializeCtorParam(sb, prop, dti, bodyIndent, $"{i}_");
                     else
                         EmitDeserializeProperty(sb, prop, $"(({dtName})result!)", bodyIndent);
-                }
+                },
+                caseInsensitiveVar: "__ci"
             );
 
             if (dtProps.Length > 0)
@@ -6907,7 +7227,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         else
             sb.AppendLine("                    return null!;");
         sb.AppendLine(
-            "                if (!reader.IsResumed && reader.TokenType != TokenType.ArrayStart) throw new System.FormatException($\"Expected a JSON array at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            "                if (!reader.IsResumed && reader.TokenType != TokenType.ArrayStart) throw __PicoJsonCold.Err(\"Expected a JSON array at offset \", reader.BytesConsumed, \" but found \" + reader.TokenType + \".\");"
         );
         if (IsFusedElementKind(elemKind))
         {
@@ -7340,7 +7660,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             "            if (!reader.Read()) return reader.NeedsMoreData ? ReadStatus.NeedMoreData : reader.TokenType != TokenType.None ? ReadStatus.Success : ReadStatus.EndOfInput;"
         );
         sb.AppendLine(
-            "            if (reader.TokenType != TokenType.ArrayStart) throw new System.FormatException($\"Expected a JSON array at offset {reader.BytesConsumed} but found {reader.TokenType}.\");"
+            "            if (reader.TokenType != TokenType.ArrayStart) throw __PicoJsonCold.Err(\"Expected a JSON array at offset \", reader.BytesConsumed, \" but found \" + reader.TokenType + \".\");"
         );
         sb.AppendLine(
             "            if (reader.TokenType == TokenType.Null) return ReadStatus.Success;"

@@ -44,29 +44,29 @@ internal static class FormatCapabilities_Probe_S11aJson_13778ea7136184ceJsonInne
     internal static FormatCapabilities.Probe.S11aJson Deserialize(ref JsonReader reader)
     {
         var obj = new FormatCapabilities.Probe.S11aJson();
-        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw new System.FormatException($"Expected a JSON object at offset {reader.BytesConsumed} but found {reader.TokenType}.");
+        if (!reader.IsResumed && reader.TokenType != TokenType.ObjectStart) throw __PicoJsonCold.Err("Expected a JSON object at offset ", reader.BytesConsumed, " but found " + reader.TokenType + ".");
+        bool __ci = reader.Options?.PropertyNameCaseInsensitive ?? true;
         while (reader.Read() && reader.TokenType == TokenType.PropertyName)
         {
             var __n = reader.GetStringRaw();
             if (!reader.Read() && reader.NeedsMoreData) break;
             int __mi = -1;
-            switch (__n.Length)
+            if (__n.Length >= 3)
             {
-                case 5:
-                    switch (__n[0])
-                    {
-                        case (byte)'V':
-                            if (__n.SequenceEqual("Value"u8))
-                                __mi = 0;
-                            break;
-                        case (byte)'C':
-                            if (__n.SequenceEqual("Child"u8))
-                                __mi = 1;
-                            break;
-                    }
-                    break;
+                int __nk = (__n[0] << 16) | (__n[1] << 8) | __n[2];
+                switch (__nk)
+                {
+                    case 0x436869:
+                        if (__n.SequenceEqual("Child"u8))
+                            __mi = 1;
+                        break;
+                    case 0x56616C:
+                        if (__n.SequenceEqual("Value"u8))
+                            __mi = 0;
+                        break;
+                }
             }
-            if (__mi < 0 && (reader.Options?.PropertyNameCaseInsensitive ?? true))
+            if (__mi < 0 && __ci)
             {
                 if (TextHelpers.Eq(__n, "Value"u8))
                     __mi = 0;
@@ -78,7 +78,7 @@ internal static class FormatCapabilities_Probe_S11aJson_13778ea7136184ceJsonInne
                 if (!reader.TryGetInt32(out var __intValue))
                 {
                     if (!reader.TryGetInt64(out var __lv))
-                        throw new System.FormatException($"Expected an integer value for property \"Value\" at offset {reader.BytesConsumed}");
+                        throw __PicoJsonCold.Err("Expected an integer value for property \"Value\" at offset ", reader.BytesConsumed);
                     __intValue = checked((int)__lv);
                 }
                 obj.Value = __intValue;
@@ -91,9 +91,19 @@ internal static class FormatCapabilities_Probe_S11aJson_13778ea7136184ceJsonInne
                     obj.Child = __PicoSerDe_FormatCapabilities_Probe.FormatCapabilities_Probe_S11aJson_13778ea7136184ceJsonInner.Deserialize(ref reader);
             }
             else if (reader.Options?.UnmappedMemberHandling == PicoJetson.JsonUnmappedMemberHandling.Disallow)
-                throw new System.FormatException($"Unexpected property '{Encoding.UTF8.GetString(__n)}' at offset {reader.BytesConsumed}");
+                throw __PicoJsonCold.Err("Unexpected property '" + Encoding.UTF8.GetString(__n) + "' at offset ", reader.BytesConsumed);
             else reader.TrySkip();
         }
         return obj;
     }
+}
+file static class __PicoJsonCold
+{
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset) =>
+        new System.FormatException(prefix + offset.ToString());
+
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal static System.FormatException Err(string prefix, long offset, string suffix) =>
+        new System.FormatException(prefix + offset.ToString() + suffix);
 }
