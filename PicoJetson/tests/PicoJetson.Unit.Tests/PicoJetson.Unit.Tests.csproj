@@ -4,13 +4,20 @@
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
-<IsPackable>false</IsPackable>
+    <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);IL2026;IL3050;TUnitAssertions0005</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The line-ending-neutral comparison for block-literal expectations in this project
+         (JsonReaderSyntaxCornerGuardTests pins a """…""" dump table). Test-only: linked, not
+         referenced — see shared/TestText.cs and TestTextUniformTests in the integration suite. -->
+    <Compile Include="..\..\..\shared\TestText.cs" Link="TestText.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -4,7 +4,7 @@
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
-<IsPackable>false</IsPackable>
+    <IsPackable>false</IsPackable>
     <!-- IL2026/IL3050: TUnit reflection (test-only). PICOSERDE002: the hint-name
          collision fixtures intentionally collide. PICOSERDE003: recursive fixtures
          intentionally exercise the TOML/YAML/INI limitation; PICOSERDE005: the anonymous
@@ -74,6 +74,11 @@
   <!-- Shared models -->
   <ItemGroup>
     <Compile Include="..\..\shared\CrossValidationModels.cs" Link="CrossValidationModels.cs" />
+    <!-- The line-ending-neutral comparison for block-literal expectations (shared/TestText.cs
+         — see TestTextUniformTests for the three contracts it must keep). Test-only: linked
+         here and into the other test projects that pin a multi-line block, never into a
+         shipping assembly (shared/TextHelpers.cs is the production file). -->
+    <Compile Include="..\..\shared\TestText.cs" Link="TestText.cs" />
     <!-- The capability model is compiled from the SAME source the five generators
          link, so the tests assert against the real tables (no InternalsVisibleTo:
          the file is linked into five assemblies, so "internal" would be five copies). -->
@@ -85,9 +90,6 @@
          if the generator disagreed with it. The file depends on Roslyn only, so this
          project (which already loads Microsoft.CodeAnalysis for the in-proc generator
          tests) needs nothing else. -->
-    <Compile
-      Include="..\..\shared\Gen\RecursionClassifier.cs"
-      Link="Gen\RecursionClassifier.cs"
-    />
+    <Compile Include="..\..\shared\Gen\RecursionClassifier.cs" Link="Gen\RecursionClassifier.cs" />
   </ItemGroup>
 </Project>

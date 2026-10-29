@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using PicoSerDe.TestSupport;
 
 namespace PicoMsgPack.Tests;
 
@@ -273,8 +274,11 @@ public class MsgPackReaderReadSpanDerivationTests
 
     // ── source-text helpers ──
 
-    private static string Normalize(string text) =>
-        text.Replace("\r\n", "\n", StringComparison.Ordinal);
+    // The same line-ending contract every text comparison in the test tree uses: ONE shared
+    // helper (shared/TestText.cs), not a private copy per test file. ReadSequential above is
+    // read from disk, so it carries the checkout's line endings; Normalize is what makes the
+    // derived body comparable on both a CRLF and an LF checkout.
+    private static string Normalize(string text) => TestText.Uniform(text);
 
     private static string Lines(params string[] lines) => string.Join("\n", lines);
 

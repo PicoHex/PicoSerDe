@@ -3,7 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
-<IsPackable>false</IsPackable>
+    <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);IL2026;IL3050;TUnitAssertions0005</NoWarn>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
@@ -22,5 +22,9 @@
     />
     <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
     <Compile Include="..\..\..\shared\CrossValidationModels.cs" Link="CrossValidationModels.cs" />
+    <!-- The line-ending-neutral comparison for text read from disk (here: PicoMsgPack's own
+         sources, which carry the checkout's line endings). Test-only, same mechanism as
+         shared/CrossValidationModels.cs — see TestTextUniformTests in the integration suite. -->
+    <Compile Include="..\..\..\shared\TestText.cs" Link="TestText.cs" />
   </ItemGroup>
 </Project>

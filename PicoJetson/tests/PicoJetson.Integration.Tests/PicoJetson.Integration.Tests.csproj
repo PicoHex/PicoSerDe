@@ -4,7 +4,7 @@
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
     <TrimMode>full</TrimMode>
-<IsPackable>false</IsPackable>
+    <IsPackable>false</IsPackable>
     <!-- PICOSERDE001 is NOT here: PairCoverageDto.Kvp (KeyValuePair), .Tup (Tuple) and
          DegradationDto.Zone (TimeZoneInfo) are deliberately unserializable fixtures and
          the warning they produce is the tested behaviour (Task 5 / D-6), so it is
@@ -37,5 +37,10 @@
       ReferenceOutputAssembly="true"
     />
     <Compile Include="..\..\..\shared\CrossValidationModels.cs" Link="CrossValidationModels.cs" />
+    <!-- The line-ending-neutral comparison for block-literal expectations in this project
+         (ColdThrowMessageTests pins a """…""" message table against a string.Join("\n", …)).
+         Test-only: linked, not referenced — see shared/TestText.cs and TestTextUniformTests
+         in the integration suite. -->
+    <Compile Include="..\..\..\shared\TestText.cs" Link="TestText.cs" />
   </ItemGroup>
 </Project>
