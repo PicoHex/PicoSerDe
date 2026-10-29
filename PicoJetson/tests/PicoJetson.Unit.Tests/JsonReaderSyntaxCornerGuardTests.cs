@@ -1,3 +1,5 @@
+using PicoSerDe.TestSupport;
+
 namespace PicoJetson.Tests;
 
 /// <summary>
@@ -84,12 +86,16 @@ seg-bom-split-2/Sequence/opts=default/final=1/seg=2 => 1:ArrayStart@4/1/0--1--1/
     private static Dictionary<string, string> Expected()
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var line in Pinned.Split('\n'))
+        // `Pinned` is a SOURCE block literal: on a CRLF checkout every line it yields ends in
+        // '\r', while the dumps it is compared against never do. Uniform the block once, here,
+        // rather than trimming each line — a per-test patch is what let the same trap in twice
+        // (see shared/TestText.cs and TestTextUniformTests).
+        foreach (var line in TestText.Uniform(Pinned).Split('\n'))
         {
             if (line.Length == 0)
                 continue;
             int at = line.IndexOf(" => ", StringComparison.Ordinal);
-            map[line[..at]] = line[(at + 4)..].TrimEnd('\r'); // this file is CRLF on Windows and LF elsewhere; the pinned value must not carry the \r
+            map[line[..at]] = line[(at + 4)..];
         }
         return map;
     }

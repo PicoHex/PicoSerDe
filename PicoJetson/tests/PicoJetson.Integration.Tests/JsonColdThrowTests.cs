@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using PicoJetson.Gen;
+using PicoSerDe.TestSupport;
 
 namespace PicoJetson.Tests;
 
@@ -160,6 +161,13 @@ public class ColdThrowMessageTests
     /// Every message a deserializer can raise for one document, with its offset, frozen. This is the
     /// pre-change text captured from the build before the cold helper existed; if a single character
     /// moves, this fails.
+    /// <para>
+    /// This is a SOURCE block literal, so it holds <c>\r\n</c> on a CRLF checkout and <c>\n</c> on an
+    /// LF one, while the value it is compared against is a <c>string.Join("\n", …)</c>. The two sides
+    /// are therefore compared through <see cref="TestText"/> — uniforming both, never one — instead of
+    /// normalising this side alone (<c>ReplaceLineEndings</c>), which is the per-test patch that let the
+    /// same bug in through the next block expectation. See <c>TestTextUniformTests</c>.
+    /// </para>
     /// </summary>
     private const string Expected = """
         string-value: FormatException: Expected String value for property "Name" at offset 9
@@ -215,7 +223,10 @@ public class ColdThrowMessageTests
     public async Task ColdThrowMessages_AreFrozen()
     {
         var actual = string.Join("\n", Cases.Select(c => $"{c.Name}: {Outcome(c.Doc, c.Opts)}"));
-        await Assert.That(actual).IsEqualTo(Expected.ReplaceLineEndings("\n"));
+        await Assert
+            .That(TestText.Uniform(actual))
+            .IsEqualTo(TestText.Uniform(Expected))
+            .Because(TestText.Explain(actual, Expected));
     }
 
     private static string Outcome(byte[] doc, JsonOptions? opts)
