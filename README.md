@@ -37,8 +37,8 @@ Four claims, each with the check that backs it.
 - **Faster than the incumbent in every format where an opponent exists — with one exception, stated
   in the same breath: under the runtime's default JIT, three of JSON's twelve scenarios lose.** One
   line per scenario, AOT against AOT and JIT against JIT, in one window. Fastest: YAML
-  `Simple — SerializeToString` — **PicoSerDe ~50× faster** (one round of it read 0.135 vs 6.108 µs;
-  the row publishes as 0.02×). Slowest: JSON `LargeFlat 50-fields — Deserialize` — **System.Text.Json
+  `Simple — SerializeToString` — **PicoSerDe 45.6× faster** (0.138 vs 6.293 µs; the harness prints
+  that pair as 0.02×). Slowest: JSON `LargeFlat 50-fields — Deserialize` — **System.Text.Json
   1.33× faster** (2.654 vs 1.992 µs). Each format's scenarios, one line at a time, with the direction
   rule and the µs pairs: [Performance](#performance).
 
@@ -94,24 +94,27 @@ each), and **the multiplier is that pair divided — larger by smaller — to on
 `0.589 ÷ 0.421 = 1.399 → 1.4×`. It is read off the µs themselves, never by inverting the harness's
 two-decimal ratio and rounding that a second time. Two variants keep a different basis and say so in the
 row itself: a row the opponent wins prints the harness's own two decimals — the same division one place
-further, `2.654 ÷ 1.992 = 1.3323 → 1.33×` — and the one YAML row whose kept rounds disagree says so in
-the row itself and reads its row's published 0.02×.
+further, `2.654 ÷ 1.992 = 1.3323 → 1.33×` — and the one YAML row whose kept rounds disagree carries that
+fact in the note under its table.
 
 **Conversion note, stated once:** the harness prints its ratios as **ours ÷ theirs**, so its `0.55×`
 means we are the faster side and its `1.33×` means we are slower. **This section quotes the reciprocal
 and puts the winner in words** — "PicoSerDe 1.8× faster" *is* the harness's `0.55×`, and
 "System.Text.Json 1.33× faster" *is* the harness's `1.33×` — so no reader has to invert anything to
-find out who won. A row with no µs pair is marked *ratio only*:
-[`docs/perf/measurement.md`](docs/perf/measurement.md) publishes that row as a ratio without its pair,
-and no µs was ever divided out to fill the gap.
+find out who won. **Every row below carries its µs pair.** The archive publishes the full per-scenario
+table for this window — [Per-scenario tables, 2026-10-29
+window](docs/perf/measurement.md#per-scenario-tables-2026-10-29-window): one table per format per mode,
+both arms' medians as printed, and the kept rounds those medians are the median of. The multiple is
+always that pair divided, so no cell is left empty for a row whose pair is published, and no pair was
+invented for a row that has none.
 
 A ratio inside **~±10 %** of 1.00 is not a direction claim in either direction. Those rows are listed
 as **level**, with the harness ratio shown, so they cannot be read as a win.
 
-Each table's µs columns carry exactly what the archive publishes for that row. Where a mode is published
-as a range and a median instead of per-row pairs, the rows carry the scenario medians those two figures
-are computed from; where a row is published as a ratio alone, the µs columns stay empty and the row says
-so.
+Each table's µs columns carry exactly what the archive publishes for that row — that arm's median for
+that scenario, two decimals, unchanged — and every multiplier is those two numbers divided. The one
+place on this page with no division at all is INI, where the opponent is a caller-written DOM walk and
+not a library call, so only absolute cost is quoted there.
 
 ### JSON — System.Text.Json
 
@@ -126,11 +129,11 @@ so.
 | Collection POCO — Serialize | 1.297 | 1.694 | **PicoSerDe 1.3×** |
 | LargeString 1KB — Serialize | 0.382 | 0.486 | **PicoSerDe 1.3×** |
 | Nested POCO — Deserialize | 1.003 | 1.267 | **PicoSerDe 1.3×** |
-| Simple POCO — Deserialize | — | — | µs not published — ratio only (0.88×) |
-| Complex POCO — Serialize | — | — | level (0.90×, ±10%) |
-| LargeFlat 50-fields — Serialize | — | — | level (0.92×, ±10%) |
-| Complex POCO — Deserialize | — | — | level (0.94×, ±10%) |
-| LargeFlat 50-fields — Deserialize | — | — | level (0.98×, ±10%) |
+| Simple POCO — Deserialize | 0.269 | 0.307 | **PicoSerDe 1.1×** |
+| Complex POCO — Serialize | 0.582 | 0.650 | level (0.90×, ±10%) |
+| LargeFlat 50-fields — Serialize | 1.395 | 1.513 | level (0.92×, ±10%) |
+| Complex POCO — Deserialize | 0.884 | 0.936 | level (0.94×, ±10%) |
+| LargeFlat 50-fields — Deserialize | 3.356 | 3.418 | level (0.98×, ±10%) |
 
 Both the object/member paths and the collection paths are ahead, and the largest single lead is the
 collection read. The four level rows at the bottom are ahead but inside the band, so they are not
@@ -144,10 +147,10 @@ direction claims.
 | Simple POCO — Serialize | 0.066 | 0.109 | **PicoSerDe 1.7×** |
 | Collection POCO — Deserialize | 2.180 | 3.337 | **PicoSerDe 1.5×** |
 | Collection POCO — Serialize | 0.874 | 1.294 | **PicoSerDe 1.5×** |
-| Complex POCO — Serialize | — | — | level (0.92×, ±10%) |
-| LargeString 1KB — Serialize | — | — | level (0.96×, ±10%) |
-| LargeString 1KB — Deserialize | — | — | level (0.97×, ±10%) |
-| Nested POCO — Deserialize | — | — | level (0.99×, ±10%) |
+| Complex POCO — Serialize | 0.296 | 0.322 | level (0.92×, ±10%) |
+| LargeString 1KB — Serialize | 0.188 | 0.196 | level (0.96×, ±10%) |
+| LargeString 1KB — Deserialize | 0.311 | 0.322 | level (0.97×, ±10%) |
+| Nested POCO — Deserialize | 0.780 | 0.787 | level (0.99×, ±10%) |
 | Simple POCO — Deserialize | 0.154 | 0.154 | level (1.00×, ±10%) |
 | LargeFlat 50-fields — Deserialize | 2.654 | 1.992 | **System.Text.Json 1.33×** |
 | LargeFlat 50-fields — Serialize | 1.173 | 0.923 | **System.Text.Json 1.27×** |
@@ -159,15 +162,16 @@ loss then, see [JSON under JIT](#json-under-jit-and-why-the-default-is-not-neutr
 
 ### MessagePack — MessagePack-CSharp
 
-**NativeAOT — ahead in 4 of 4**, every cell past the band (row median 0.72×, i.e. ≈1.4× faster). This
-mode is published as harness ratios without µs pairs:
+**NativeAOT — ahead in 4 of 4**, every cell past the band (row median 0.72×, i.e. ≈1.4× faster). The AOT
+benchmarks run their own model set — `Person` and `Metrics`, with no collection scenario, because
+MessagePack-CSharp's collection formatters do not survive NativeAOT:
 
 | Scenario | PicoSerDe | Opponent | Faster by |
 |---|---:|---:|---|
-| Metrics — Serialize | — | — | µs not published — ratio only (0.60×) |
-| Person — Serialize | — | — | µs not published — ratio only (0.69×) |
-| Person — Deserialize | — | — | µs not published — ratio only (0.75×) |
-| Metrics — Deserialize | — | — | µs not published — ratio only (0.88×) |
+| Metrics — Serialize | 0.077 | 0.129 | **PicoSerDe 1.7×** |
+| Person — Serialize | 0.072 | 0.104 | **PicoSerDe 1.4×** |
+| Person — Deserialize | 0.115 | 0.153 | **PicoSerDe 1.3×** |
+| Metrics — Deserialize | 0.126 | 0.144 | **PicoSerDe 1.1×** |
 
 Read side included: no row of this mode is level and none is lost.
 
@@ -176,11 +180,11 @@ Read side included: no row of this mode is level and none is lost.
 | Scenario | PicoSerDe | Opponent | Faster by |
 |---|---:|---:|---|
 | Nested — Serialize | 0.103 | 0.231 | **PicoSerDe 2.2×** |
+| Collection — Deserialize | 0.382 | 0.694 | **PicoSerDe 1.8×** |
+| Collection — Serialize | 0.136 | 0.228 | **PicoSerDe 1.7×** |
 | Simple — Deserialize | 0.076 | 0.100 | **PicoSerDe 1.3×** |
 | Simple — Serialize | 0.055 | 0.069 | **PicoSerDe 1.3×** |
 | Nested — Deserialize | 0.325 | 0.400 | **PicoSerDe 1.2×** |
-| Collection — Deserialize | — | — | µs not published — ratio only (0.55×) |
-| Collection — Serialize | — | — | µs not published — ratio only (0.60×) |
 | Complex — Serialize | 0.187 | 0.200 | level (0.93×, ±10%) |
 | Complex — Deserialize | 0.335 | 0.299 | **MessagePack-CSharp 1.12×** |
 
@@ -233,15 +237,17 @@ is invented. **JIT — ahead in 6 of 6** (0.02×–0.06×, median 0.04×):
 
 | Scenario | PicoSerDe | Opponent | Faster by |
 |---|---:|---:|---|
-| Simple — SerializeToString | — | — | µs not published — ratio only (0.02×) |
+| Simple — SerializeToString | 0.138 | 6.293 | **PicoSerDe 45.6×** |
 | Collection — SerializeToString | 1.514 | 60.867 | **PicoSerDe 40.2×** |
 | Nested — SerializeToString | 0.552 | 16.288 | **PicoSerDe 29.5×** |
 | Simple — Deserialize←string | 0.239 | 5.297 | **PicoSerDe 22.2×** |
 | Nested — Deserialize←string | 0.913 | 15.539 | **PicoSerDe 17.0×** |
 | Collection — Deserialize←string | 4.752 | 74.536 | **PicoSerDe 15.7×** |
 
-The top row keeps the archive's published ratio instead of a multiple because its kept rounds disagree
-(see the spread note below); every other row carries the division, and the margin is wide on both the
+Every row carries the division of its own pair, the top one included. That top row is the one whose kept
+rounds disagree (see the spread note below): its three kept rounds read 0.135 / 0.138 / 0.159 µs on our
+arm — a 1.18× swing — against 6.108 / 6.377 / 6.293 µs on YamlDotNet's, which is why its multiple is
+quoted with that note attached rather than read down to a second decimal. The margin is wide on both the
 write and the read side.
 
 ### INI — ini-parser 2.5.3
@@ -271,7 +277,7 @@ much of them is the tiering pipeline rather than the code.
 
 Where a row's own three rounds disagree the spread is left in the record: `Simple — SerializeToString`
 (YAML) could not use its second and third kept rounds because the YamlDotNet arm was refused unstable in
-both, which is why its 0.02× is quoted as the published definition and not down to a second decimal.
+both, which is why its 45.6× is quoted with this note attached and not down to a second decimal.
 
 **How a number gets here.** A **round** is one whole process; each round prints, per arm, the median
 µs/op over **5 independent runs × ≥100k iterations each**, and every figure is the **median of three
