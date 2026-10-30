@@ -10,6 +10,7 @@ inside the README now point at the right file.
 
 Contents: [The window behind the published figures](#the-window-behind-the-published-figures) ·
 [The five rows, as published](#the-five-rows-as-published) ·
+[Per-scenario tables, 2026-10-29 window](#per-scenario-tables-2026-10-29-window) ·
 [What the JIT column is comparing](#what-the-jit-column-is-comparing) ·
 [What a published number requires](#what-a-published-number-requires) ·
 [The 2026-10-27 archive](#the-2026-10-27-archive) ·
@@ -174,6 +175,151 @@ the same job as one library call — so only its absolute cost is quoted, on a `
 0.084 µs vs 7.597 µs on the smallest write row and 2.250 µs vs 22.018 µs on the largest read row, our
 arms 0 %–13 % faster and the DOM walk 6 %–18 % faster than in the previous window, i.e. the same offset
 as everywhere else in it.
+
+## Per-scenario tables, 2026-10-29 window
+
+**Source: the 2026-10-29 17:49–18:24 window; the round-by-round readings behind every row are in the
+report that generated that window** (`.superpowers/sdd/remeasure-5/report.md`, session-local and not
+committed — its per-scenario section 4, the same section the ledger paragraph above is drawn from).
+These are the full per-scenario tables the README's µs columns quote: one table per format per
+execution mode, carried over **verbatim**. The µs are the two arm medians the row's ratio is divided
+from, the ratio is **ours ÷ theirs**, and the last column names the kept rounds those medians are the
+median of (`rN` = one whole process; the ledger above says which ten rows take one later round and
+why). Nothing is re-computed or re-rounded on the way in — a figure that reads `0.123` is the median
+the harness printed, not that median written shorter.
+
+### JSON — NativeAOT — PicoJetson vs System.Text.Json (12 scenarios)
+
+| Scenario | Ours µs | Opponent µs | Ratio (ours ÷ theirs) | Rounds |
+|---|---:|---:|---:|---|
+| Simple POCO — Serialize | 0.123 | 0.166 | 0.74× | r9+r10+r33 |
+| Simple POCO — Deserialize | 0.269 | 0.307 | 0.88× | r8+r9+r10 |
+| Complex POCO — Serialize | 0.582 | 0.650 | 0.90× | r8+r9+r10 |
+| Complex POCO — Deserialize | 0.884 | 0.936 | 0.94× | r8+r9+r10 |
+| Nested POCO — Serialize | 0.312 | 0.450 | 0.69× | r8+r9+r10 |
+| Nested POCO — Deserialize | 1.003 | 1.267 | 0.79× | r8+r9+r10 |
+| Collection POCO — Serialize | 1.297 | 1.694 | 0.77× | r8+r9+r10 |
+| Collection POCO — Deserialize | 3.193 | 5.790 | 0.55× | r8+r9+r10 |
+| LargeFlat 50-fields — Serialize | 1.395 | 1.513 | 0.92× | r8+r9+r10 |
+| LargeFlat 50-fields — Deserialize | 3.356 | 3.418 | 0.98× | r8+r9+r10 |
+| LargeString 1KB — Serialize | 0.382 | 0.486 | 0.79× | r8+r9+r10 |
+| LargeString 1KB — Deserialize | 0.421 | 0.589 | 0.71× | r8+r9+r10 |
+
+### JSON — JIT, runtime default — PicoJetson vs System.Text.Json (12 scenarios)
+
+| Scenario | Ours µs | Opponent µs | Ratio (ours ÷ theirs) | Rounds |
+|---|---:|---:|---:|---|
+| Simple POCO — Serialize | 0.066 | 0.109 | 0.61× | r11+r12+r13 |
+| Simple POCO — Deserialize | 0.154 | 0.154 | 1.00× | r13+r34+r38 |
+| Complex POCO — Serialize | 0.296 | 0.322 | 0.92× | r13+r34+r38 |
+| Complex POCO — Deserialize | 0.706 | 0.617 | 1.14× | r11+r12+r13 |
+| Nested POCO — Serialize | 0.187 | 0.366 | 0.51× | r11+r12+r13 |
+| Nested POCO — Deserialize | 0.780 | 0.787 | 0.99× | r11+r12+r13 |
+| Collection POCO — Serialize | 0.874 | 1.294 | 0.68× | r11+r12+r13 |
+| Collection POCO — Deserialize | 2.180 | 3.337 | 0.65× | r11+r13+r34 |
+| LargeFlat 50-fields — Serialize | 1.173 | 0.923 | 1.27× | r11+r12+r13 |
+| LargeFlat 50-fields — Deserialize | 2.654 | 1.992 | 1.33× | r11+r12+r13 |
+| LargeString 1KB — Serialize | 0.188 | 0.196 | 0.96× | r11+r12+r13 |
+| LargeString 1KB — Deserialize | 0.311 | 0.322 | 0.97× | r11+r12+r13 |
+
+### MessagePack — NativeAOT — PicoMsgPack vs MessagePack-CSharp (4 scenarios)
+
+AOT changes the model set (`Person`, `Metrics`), and there is no collection scenario here at all —
+MessagePack-CSharp's collection formatters do not survive NativeAOT — so these rows are **not** the JIT
+table's rows below, and the two tables must not be aligned by scenario name.
+
+| Scenario | Ours µs | Opponent µs | Ratio (ours ÷ theirs) | Rounds |
+|---|---:|---:|---:|---|
+| Person — Serialize | 0.072 | 0.104 | 0.69× | r1+r2+r3 |
+| Person — Deserialize | 0.115 | 0.153 | 0.75× | r1+r2+r3 |
+| Metrics — Serialize | 0.077 | 0.129 | 0.60× | r1+r2+r3 |
+| Metrics — Deserialize | 0.126 | 0.144 | 0.88× | r1+r2+r3 |
+
+### MessagePack — JIT, runtime default — PicoMsgPack vs MessagePack-CSharp (8 scenarios)
+
+| Scenario | Ours µs | Opponent µs | Ratio (ours ÷ theirs) | Rounds |
+|---|---:|---:|---:|---|
+| Simple — Serialize | 0.055 | 0.069 | 0.80× | r4+r5+r7 |
+| Simple — Deserialize | 0.076 | 0.100 | 0.76× | r4+r5+r7 |
+| Complex — Serialize | 0.187 | 0.200 | 0.93× | r4+r5+r7 |
+| Complex — Deserialize | 0.335 | 0.299 | 1.12× | r4+r7+r32 |
+| Nested — Serialize | 0.103 | 0.231 | 0.45× | r5+r7+r32 |
+| Nested — Deserialize | 0.325 | 0.400 | 0.81× | r4+r5+r7 |
+| Collection — Serialize | 0.136 | 0.228 | 0.60× | r4+r5+r7 |
+| Collection — Deserialize | 0.382 | 0.694 | 0.55× | r4+r5+r7 |
+
+### TOML — NativeAOT — PicoToml vs Tomlyn 2.10.1 (10 scenarios)
+
+| Scenario | Ours µs | Opponent µs | Ratio (ours ÷ theirs) | Rounds |
+|---|---:|---:|---:|---|
+| Simple — Serialize (bytes) | 0.158 | 0.642 | 0.25× | r20+r21+r22 |
+| Simple — Deserialize (bytes) | 0.207 | 1.898 | 0.11× | r20+r21+r22 |
+| Medium — Serialize (bytes) | 0.466 | 1.383 | 0.34× | r20+r21+r22 |
+| Medium — Deserialize (bytes) | 0.520 | 4.305 | 0.12× | r20+r21+r22 |
+| Nested — Serialize (bytes) | 0.634 | 1.551 | 0.41× | r20+r21+r22 |
+| Nested — Deserialize (bytes) | 0.700 | 5.595 | 0.13× | r20+r21+r22 |
+| Large — Serialize (bytes) | 2.280 | 5.666 | 0.40× | r20+r21+r22 |
+| Large — Deserialize (bytes) | 3.040 | 17.906 | 0.17× | r20+r21+r22 |
+| Simple — SerializeToString | 0.171 | 0.522 | 0.33× | r20+r21+r22 |
+| Simple — Deserialize←string | 0.200 | 1.931 | 0.10× | r20+r21+r22 |
+
+### TOML — JIT, runtime default — PicoToml vs Tomlyn 2.10.1 (10 scenarios)
+
+| Scenario | Ours µs | Opponent µs | Ratio (ours ÷ theirs) | Rounds |
+|---|---:|---:|---:|---|
+| Simple — Serialize (bytes) | 0.095 | 0.479 | 0.20× | r29+r30+r31 |
+| Simple — Deserialize (bytes) | 0.142 | 1.540 | 0.09× | r29+r30+r31 |
+| Medium — Serialize (bytes) | 0.244 | 0.969 | 0.25× | r29+r30+r31 |
+| Medium — Deserialize (bytes) | 0.345 | 3.344 | 0.10× | r29+r31+r37 |
+| Nested — Serialize (bytes) | 0.341 | 0.978 | 0.35× | r29+r31+r37 |
+| Nested — Deserialize (bytes) | 0.506 | 4.632 | 0.11× | r29+r31+r37 |
+| Large — Serialize (bytes) | 1.309 | 3.913 | 0.33× | r29+r30+r31 |
+| Large — Deserialize (bytes) | 2.674 | 14.449 | 0.19× | r29+r30+r31 |
+| Simple — SerializeToString | 0.115 | 0.324 | 0.35× | r29+r30+r31 |
+| Simple — Deserialize←string | 0.146 | 1.661 | 0.09× | r29+r30+r31 |
+
+### YAML — JIT, CoreCLR only (no AOT opponent exists) (6 scenarios)
+
+Under NativeAOT this layer does not work at all — typed `Deserialize<T>` throws `MissingMethodException`
+and typed `Serialize` silently emits `{}` — so there is no AOT table here and none is invented.
+
+| Scenario | Ours µs | Opponent µs | Ratio (ours ÷ theirs) | Rounds |
+|---|---:|---:|---:|---|
+| Simple — SerializeToString | 0.138 | 6.293 | 0.02× | r26+r36+r39 |
+| Simple — Deserialize←string | 0.239 | 5.297 | 0.05× | r26+r27+r28 |
+| Nested — SerializeToString | 0.552 | 16.288 | 0.03× | r26+r27+r28 |
+| Nested — Deserialize←string | 0.913 | 15.539 | 0.06× | r26+r27+r28 |
+| Collection — SerializeToString | 1.514 | 60.867 | 0.02× | r26+r27+r28 |
+| Collection — Deserialize←string | 4.752 | 74.536 | 0.06× | r26+r27+r28 |
+
+`Simple — SerializeToString` rests on `r26`/`r36`/`r39` because the YamlDotNet arm was refused unstable
+in `r27` and `r28`; its kept rounds read 0.135 / 0.138 / 0.159 µs against 6.108 / 6.377 / 6.293 µs (a
+1.18× swing on our arm), which is why that row's 0.02× is quoted as the published definition rather
+than as a claim about its second decimal. Its µs pair and its division are published all the same.
+
+### INI — JIT — PicoIni vs ini-parser 2.5.3 (`NON-EQUIVALENT`, absolute cost only) (9 scenarios)
+
+ini-parser exposes no typed API in any execution mode, so the opponent column here is a caller-written
+DOM walk — not the same job as one library call. **No ratio exists for these rows and none is derived**;
+absolute cost is the whole of the claim, which is why this table's ratio column is filled with the fact
+rather than with a division.
+
+| Scenario | Ours µs | Opponent µs (DOM walk) | Ratio | Rounds |
+|---|---:|---:|---|---|
+| Simple — Serialize (bytes) | 0.084 | 7.597 | not divided — `NON-EQUIVALENT` | r23+r24+r25 |
+| Simple — Deserialize (bytes) | 0.127 | 9.260 | not divided — `NON-EQUIVALENT` | r23+r24+r25 |
+| Medium — Serialize (bytes) | 0.229 | 8.908 | not divided — `NON-EQUIVALENT` | r23+r24+r25 |
+| Medium — Deserialize (bytes) | 0.290 | 10.517 | not divided — `NON-EQUIVALENT` | r23+r24+r25 |
+| Complex — Serialize (bytes) | 0.363 | 9.403 | not divided — `NON-EQUIVALENT` | r23+r24+r25 |
+| Large — Serialize (bytes) | 1.107 | 16.088 | not divided — `NON-EQUIVALENT` | r23+r24+r25 |
+| Large — Deserialize (bytes) | 2.250 | 22.018 | not divided — `NON-EQUIVALENT` | r23+r24+r25 |
+| Simple — SerializeToString | 0.095 | 7.459 | not divided — `NON-EQUIVALENT` | r23+r24+r25 |
+| Simple — Deserialize←string | 0.123 | 8.227 | not divided — `NON-EQUIVALENT` | r23+r24+r25 |
+
+The two JSON JIT companions — the same project run with `DOTNET_TieredCompilation=0` and with
+`DOTNET_TieredPGO=0`, in this same window — are published as row medians in [What the JIT column is
+comparing](#what-the-jit-column-is-comparing) rather than as per-scenario tables here: they are not
+published rows, and no figure on the front page is taken from them.
 
 ## What the JIT column is comparing
 
