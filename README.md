@@ -88,109 +88,161 @@ format has the same shape — `TomlSerializer`/`YamlSerializer`/`IniSerializer` 
 
 ## Performance
 
-One line per scenario — or one line per mode where the archive publishes only a range — named the way
-the harness names it, saying **who is faster and by how much**. The bracketed µs pairs are `ours vs
-theirs` in that order, and **the multiplier is that pair divided — larger by smaller — to one
-decimal**: `0.589 ÷ 0.421 = 1.399 → 1.4×`. It is read off the µs themselves, never by inverting the
-harness's two-decimal ratio and rounding that a second time. Two variants keep a different basis and
-say so: a row the opponent wins prints the harness's own two decimals — the same division one place
-further, `2.654 ÷ 1.992 = 1.3323 → 1.33×` — and the one YAML line whose bracket is a single kept round
-says so in the line itself and reads its row's published 0.02×.
+One row per scenario per execution mode, named the way the harness names it, saying **who is faster and
+by how much**. The two µs columns are `ours vs theirs` in that order (µs/op, the median of three rounds
+each), and **the multiplier is that pair divided — larger by smaller — to one decimal**:
+`0.589 ÷ 0.421 = 1.399 → 1.4×`. It is read off the µs themselves, never by inverting the harness's
+two-decimal ratio and rounding that a second time. Two variants keep a different basis and say so in the
+row itself: a row the opponent wins prints the harness's own two decimals — the same division one place
+further, `2.654 ÷ 1.992 = 1.3323 → 1.33×` — and the one YAML row whose kept rounds disagree says so in
+the row itself and reads its row's published 0.02×.
 
 **Conversion note, stated once:** the harness prints its ratios as **ours ÷ theirs**, so its `0.55×`
 means we are the faster side and its `1.33×` means we are slower. **This section quotes the reciprocal
 and puts the winner in words** — "PicoSerDe 1.8× faster" *is* the harness's `0.55×`, and
 "System.Text.Json 1.33× faster" *is* the harness's `1.33×` — so no reader has to invert anything to
-find out who won. A line with no µs pair is marked *ratio only*:
+find out who won. A row with no µs pair is marked *ratio only*:
 [`docs/perf/measurement.md`](docs/perf/measurement.md) publishes that row as a ratio without its pair,
 and no µs was ever divided out to fill the gap.
 
 A ratio inside **~±10 %** of 1.00 is not a direction claim in either direction. Those rows are listed
 as **level**, with the harness ratio shown, so they cannot be read as a win.
 
+Each table's µs columns carry exactly what the archive publishes for that row. Where a mode is published
+as a range and a median instead of per-row pairs, the rows carry the scenario medians those two figures
+are computed from; where a row is published as a ratio alone, the µs columns stay empty and the row says
+so.
+
 ### JSON — System.Text.Json
 
-**NativeAOT — ahead in 12 of 12** (row median 0.79× ours ÷ theirs, i.e. ≈1.3× faster). Past the band:
+**NativeAOT — ahead in 12 of 12** (row median 0.79× ours ÷ theirs, i.e. ≈1.3× faster):
 
-- `Collection POCO — Deserialize` — **PicoSerDe 1.8× faster** (3.193 vs 5.790 µs)
-- `Nested POCO — Serialize` — **PicoSerDe 1.4× faster** (0.312 vs 0.450 µs)
-- `LargeString 1KB — Deserialize` — **PicoSerDe 1.4× faster** (0.421 vs 0.589 µs)
-- `Simple POCO — Serialize` — **PicoSerDe 1.3× faster** (0.123 vs 0.166 µs)
-- `Collection POCO — Serialize` — **PicoSerDe 1.3× faster** (1.297 vs 1.694 µs)
-- `LargeString 1KB — Serialize` — **PicoSerDe 1.3× faster** (0.382 vs 0.486 µs)
-- `Nested POCO — Deserialize` — **PicoSerDe 1.3× faster** (1.003 vs 1.267 µs)
-- `Simple POCO — Deserialize` — **PicoSerDe 1.1× faster** (0.88×, ratio only)
+| Scenario | PicoSerDe | Opponent | Faster by |
+|---|---:|---:|---|
+| Collection POCO — Deserialize | 3.193 | 5.790 | **PicoSerDe 1.8×** |
+| Nested POCO — Serialize | 0.312 | 0.450 | **PicoSerDe 1.4×** |
+| LargeString 1KB — Deserialize | 0.421 | 0.589 | **PicoSerDe 1.4×** |
+| Simple POCO — Serialize | 0.123 | 0.166 | **PicoSerDe 1.3×** |
+| Collection POCO — Serialize | 1.297 | 1.694 | **PicoSerDe 1.3×** |
+| LargeString 1KB — Serialize | 0.382 | 0.486 | **PicoSerDe 1.3×** |
+| Nested POCO — Deserialize | 1.003 | 1.267 | **PicoSerDe 1.3×** |
+| Simple POCO — Deserialize | — | — | µs not published — ratio only (0.88×) |
+| Complex POCO — Serialize | — | — | level (0.90×, ±10%) |
+| LargeFlat 50-fields — Serialize | — | — | level (0.92×, ±10%) |
+| Complex POCO — Deserialize | — | — | level (0.94×, ±10%) |
+| LargeFlat 50-fields — Deserialize | — | — | level (0.98×, ±10%) |
 
-**Level, ±10 % —** ahead, but not a direction claim: `Complex POCO — Serialize` 0.90×, `LargeFlat
-50-fields — Serialize` 0.92×, `Complex POCO — Deserialize` 0.94×, `LargeFlat 50-fields — Deserialize`
-0.98×.
+Both the object/member paths and the collection paths are ahead, and the largest single lead is the
+collection read. The four level rows at the bottom are ahead but inside the band, so they are not
+direction claims.
 
-**JIT, runtime default — slower in 3 of 12** (row median 0.96×, itself level). The three losses, named
-and not softened:
+**JIT, runtime default — slower in 3 of 12** (row median 0.96×, itself level):
 
-- `LargeFlat 50-fields — Deserialize` — **System.Text.Json 1.33× faster** (2.654 vs 1.992 µs)
-- `LargeFlat 50-fields — Serialize` — **System.Text.Json 1.27× faster** (1.173 vs 0.923 µs)
-- `Complex POCO — Deserialize` — **System.Text.Json 1.14× faster** (0.706 vs 0.617 µs)
+| Scenario | PicoSerDe | Opponent | Faster by |
+|---|---:|---:|---|
+| Nested POCO — Serialize | 0.187 | 0.366 | **PicoSerDe 2.0×** |
+| Simple POCO — Serialize | 0.066 | 0.109 | **PicoSerDe 1.7×** |
+| Collection POCO — Deserialize | 2.180 | 3.337 | **PicoSerDe 1.5×** |
+| Collection POCO — Serialize | 0.874 | 1.294 | **PicoSerDe 1.5×** |
+| Complex POCO — Serialize | — | — | level (0.92×, ±10%) |
+| LargeString 1KB — Serialize | — | — | level (0.96×, ±10%) |
+| LargeString 1KB — Deserialize | — | — | level (0.97×, ±10%) |
+| Nested POCO — Deserialize | — | — | level (0.99×, ±10%) |
+| Simple POCO — Deserialize | 0.154 | 0.154 | level (1.00×, ±10%) |
+| LargeFlat 50-fields — Deserialize | 2.654 | 1.992 | **System.Text.Json 1.33×** |
+| LargeFlat 50-fields — Serialize | 1.173 | 0.923 | **System.Text.Json 1.27×** |
+| Complex POCO — Deserialize | 0.706 | 0.617 | **System.Text.Json 1.14×** |
 
-All three are the JSON object/member path — the part that scales with property count — and all three
-flip once tiering is out of the picture (the whole column has no loss then, see
-[JSON under JIT](#json-under-jit-and-why-the-default-is-not-neutral)).
-
-Past the band on our side:
-
-- `Nested POCO — Serialize` — **PicoSerDe 2.0× faster** (0.187 vs 0.366 µs)
-- `Simple POCO — Serialize` — **PicoSerDe 1.7× faster** (0.066 vs 0.109 µs)
-- `Collection POCO — Deserialize` — **PicoSerDe 1.5× faster** (2.180 vs 3.337 µs)
-- `Collection POCO — Serialize` — **PicoSerDe 1.5× faster** (0.874 vs 1.294 µs)
-
-**Level, ±10 % —** `Simple POCO — Deserialize` 1.00× (0.154 vs 0.154 µs) is level outright; `Complex
-POCO — Serialize` 0.92×, `LargeString 1KB — Serialize` 0.96×, `LargeString 1KB — Deserialize` 0.97× and
-`Nested POCO — Deserialize` 0.99× are ahead inside the band.
+The three losses sit at the bottom, and all three are the JSON object/member path — the part that scales
+with property count — and all three flip once tiering is out of the picture (the whole column has no
+loss then, see [JSON under JIT](#json-under-jit-and-why-the-default-is-not-neutral)).
 
 ### MessagePack — MessagePack-CSharp
 
-**NativeAOT — ahead in 4 of 4**, every cell past the band (row median 0.72×, i.e. ≈1.4× faster):
+**NativeAOT — ahead in 4 of 4**, every cell past the band (row median 0.72×, i.e. ≈1.4× faster). This
+mode is published as harness ratios without µs pairs:
 
-- `Metrics — Serialize` — **PicoSerDe 1.7× faster** (0.60×, ratio only)
-- `Person — Serialize` — **PicoSerDe 1.4× faster** (0.69×, ratio only)
-- `Person — Deserialize` — **PicoSerDe 1.3× faster** (0.75×, ratio only)
-- `Metrics — Deserialize` — **PicoSerDe 1.1× faster** (0.88×, ratio only)
+| Scenario | PicoSerDe | Opponent | Faster by |
+|---|---:|---:|---|
+| Metrics — Serialize | — | — | µs not published — ratio only (0.60×) |
+| Person — Serialize | — | — | µs not published — ratio only (0.69×) |
+| Person — Deserialize | — | — | µs not published — ratio only (0.75×) |
+| Metrics — Deserialize | — | — | µs not published — ratio only (0.88×) |
 
-**JIT — ahead in 7 of 8** (row median 0.78×, i.e. ≈1.3× faster). The one loss, then the two rows that
-used to be this page's worst MessagePack numbers:
+Read side included: no row of this mode is level and none is lost.
 
-- `Complex — Deserialize` — **MessagePack-CSharp 1.12× faster** (0.335 vs 0.299 µs)
-- `Collection — Deserialize` — **PicoSerDe 1.8× faster** (0.55×, was 1.43×; our arm 1.016 → 0.382 µs)
-- `Collection — Serialize` — **PicoSerDe 1.7× faster** (0.60×, was 1.24×; our arm 0.254 → 0.136 µs)
+**JIT — ahead in 7 of 8** (row median 0.78×, i.e. ≈1.3× faster):
 
-MessagePack's other JIT rows are not published one by one here: they moved only with the machine
-(−5.5 %…+15.7 % on our arm), and the row median above covers them.
+| Scenario | PicoSerDe | Opponent | Faster by |
+|---|---:|---:|---|
+| Nested — Serialize | 0.103 | 0.231 | **PicoSerDe 2.2×** |
+| Simple — Deserialize | 0.076 | 0.100 | **PicoSerDe 1.3×** |
+| Simple — Serialize | 0.055 | 0.069 | **PicoSerDe 1.3×** |
+| Nested — Deserialize | 0.325 | 0.400 | **PicoSerDe 1.2×** |
+| Collection — Deserialize | — | — | µs not published — ratio only (0.55×) |
+| Collection — Serialize | — | — | µs not published — ratio only (0.60×) |
+| Complex — Serialize | 0.187 | 0.200 | level (0.93×, ±10%) |
+| Complex — Deserialize | 0.335 | 0.299 | **MessagePack-CSharp 1.12×** |
+
+The two collection rows are what the bulk-path commits bought — they used to be this page's worst
+MessagePack losses — and the single loss is the complex read.
 
 ### TOML — Tomlyn 2.10.1
 
-The one opponent that does the same job in both modes — one library call, same POCO in and out.
+The one opponent that does the same job in both modes — one library call, same POCO in and out — and the
+only format where the two modes are compared like for like.
 
-- **NativeAOT — ahead in 10 of 10:** **PicoSerDe 2.4× to 10× faster** (0.10×–0.41×, median 0.21× ≈ 4.8×)
-- **JIT — ahead in 10 of 10:** **PicoSerDe 2.9× to 11× faster** (0.09×–0.35×, median 0.19× ≈ 5.3×)
+**NativeAOT — ahead in 10 of 10** (0.10×–0.41×, median 0.21×):
 
-The rows the archive names individually (JIT, ratio only — this format publishes its ranges and medians
-rather than per-row µs pairs):
+| Scenario | PicoSerDe | Opponent | Faster by |
+|---|---:|---:|---|
+| Simple — Deserialize←string | 0.200 | 1.931 | **PicoSerDe 9.7×** |
+| Simple — Deserialize (bytes) | 0.207 | 1.898 | **PicoSerDe 9.2×** |
+| Medium — Deserialize (bytes) | 0.520 | 4.305 | **PicoSerDe 8.3×** |
+| Nested — Deserialize (bytes) | 0.700 | 5.595 | **PicoSerDe 8.0×** |
+| Large — Deserialize (bytes) | 3.040 | 17.906 | **PicoSerDe 5.9×** |
+| Simple — Serialize (bytes) | 0.158 | 0.642 | **PicoSerDe 4.1×** |
+| Simple — SerializeToString | 0.171 | 0.522 | **PicoSerDe 3.1×** |
+| Medium — Serialize (bytes) | 0.466 | 1.383 | **PicoSerDe 3.0×** |
+| Large — Serialize (bytes) | 2.280 | 5.666 | **PicoSerDe 2.5×** |
+| Nested — Serialize (bytes) | 0.634 | 1.551 | **PicoSerDe 2.4×** |
 
-- `Simple — Deserialize←string` — **PicoSerDe 11× faster** (0.09×)
-- `Simple — Serialize` — **PicoSerDe 5.0× faster** (0.20×)
-- `Medium — Serialize` — **PicoSerDe 4.0× faster** (0.25×)
+**JIT — ahead in 10 of 10** (0.09×–0.35×, median 0.19×):
+
+| Scenario | PicoSerDe | Opponent | Faster by |
+|---|---:|---:|---|
+| Simple — Deserialize←string | 0.146 | 1.661 | **PicoSerDe 11.4×** |
+| Simple — Deserialize (bytes) | 0.142 | 1.540 | **PicoSerDe 10.8×** |
+| Medium — Deserialize (bytes) | 0.345 | 3.344 | **PicoSerDe 9.7×** |
+| Nested — Deserialize (bytes) | 0.506 | 4.632 | **PicoSerDe 9.2×** |
+| Large — Deserialize (bytes) | 2.674 | 14.449 | **PicoSerDe 5.4×** |
+| Simple — Serialize (bytes) | 0.095 | 0.479 | **PicoSerDe 5.0×** |
+| Medium — Serialize (bytes) | 0.244 | 0.969 | **PicoSerDe 4.0×** |
+| Large — Serialize (bytes) | 1.309 | 3.913 | **PicoSerDe 3.0×** |
+| Nested — Serialize (bytes) | 0.341 | 0.978 | **PicoSerDe 2.9×** |
+| Simple — SerializeToString | 0.115 | 0.324 | **PicoSerDe 2.8×** |
+
+Every row in both modes is ahead, and the read side carries the wider margin — the cost of this format
+is dominated by the opponent's parser, not by our writer.
 
 ### YAML — YamlDotNet 18.1.0
 
 CoreCLR only. Under NativeAOT that layer does not work at all — typed `Deserialize<T>` throws
 `MissingMethodException` and typed `Serialize` silently emits `{}` — so there is no AOT opponent and none
-is invented.
+is invented. **JIT — ahead in 6 of 6** (0.02×–0.06×, median 0.04×):
 
-- `Simple — SerializeToString` — **PicoSerDe ~50× faster** (its three rounds read 0.135 / 0.138 / 0.159 µs
-  against 6.108 / 6.377 / 6.293 µs, in that order; the row publishes as 0.02×)
-- the remaining five sit inside the same **0.02×–0.06×** span that makes the format read **PicoSerDe
-  17× to 50× faster**; across the six rows the median is 0.04× (≈25×), and the two cells that print
-  0.03× and 0.02× are two-decimal roundings of 0.0339× and 0.0249×
+| Scenario | PicoSerDe | Opponent | Faster by |
+|---|---:|---:|---|
+| Simple — SerializeToString | — | — | µs not published — ratio only (0.02×) |
+| Collection — SerializeToString | 1.514 | 60.867 | **PicoSerDe 40.2×** |
+| Nested — SerializeToString | 0.552 | 16.288 | **PicoSerDe 29.5×** |
+| Simple — Deserialize←string | 0.239 | 5.297 | **PicoSerDe 22.2×** |
+| Nested — Deserialize←string | 0.913 | 15.539 | **PicoSerDe 17.0×** |
+| Collection — Deserialize←string | 4.752 | 74.536 | **PicoSerDe 15.7×** |
+
+The top row keeps the archive's published ratio instead of a multiple because its kept rounds disagree
+(see the spread note below); every other row carries the division, and the margin is wide on both the
+write and the read side.
 
 ### INI — ini-parser 2.5.3
 
