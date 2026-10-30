@@ -58,8 +58,10 @@ public class WideEnumReadModel
 /// path itself — make it answer a wrong value, drop the time-zone handling, or widen the guard past the
 /// shapes it is equivalent for, and these go red. That negative control is what
 /// <see cref="DateTime_Payloads_MatchTheReferenceParser_ValueAndKind"/>,
-/// <see cref="Enum_NumericGuard_RejectsWhatTheReferenceRejects"/> and
-/// <see cref="DateTime_MaxValue_WithAnOffset_IsStillAnError"/> exist for; the emission guard
+/// <see cref="Enum_NumericGuard_RejectsWhatTheReferenceRejects"/>,
+/// <see cref="DateTime_MaxValue_WithAnOffset_AgreesWithTheReferenceParser"/> and
+/// <see cref="DateTime_OffsetPayloadThatOverflowsInEveryZone_IsStillAnError"/> exist for; the
+/// emission guard
 /// (<see cref="EmittedDateTimeRead_UsesTheSpanParser_AndAllocatesNoString"/>) is the one that pins the
 /// shape itself on the checked-in artefact.
 /// </para>
@@ -192,15 +194,78 @@ public class JsonScalarReadFastPathTests
 
     /// <summary>
     /// The boundary the fast path must <b>decline</b>: with an explicit offset, <c>Utf8Parser</c>
-    /// clamps at <c>DateTime.MaxValue</c> and answers <c>true</c>, while the reference parser fails.
-    /// A widened guard (no length check) turns this into a silent wrong value.
+    /// clamps at <c>DateTime.MaxValue</c> and answers <c>true</c>, while the reference parser applies
+    /// the offset. A widened guard (no length check) turns this into a silent wrong value.
+    /// <para>
+    /// <b>But what the reference parser answers is the machine's time zone, so this test does not pin
+    /// it.</b> <c>TryParse(…, RoundtripKind)</c> converts an offset payload to <c>Kind = Local</c>:
+    /// <c>9999-12-31T12:00:00.1234567-05:30</c> is 17:30Z, which is 9999-12-31 17:30 where the local
+    /// offset is zero (a value) but 10000-01-01 01:30 at UTC+8, past <c>DateTime.MaxValue</c>, so the
+    /// parser fails there. Asserting that failure is what made this test green in Asia/Shanghai and
+    /// red on every UTC CI runner. The assertion is an oracle comparison instead — the fast arm must
+    /// agree with the reference parser <i>on the machine it runs on</i>: it fails where the reference
+    /// fails, and answers the same ticks and the same <c>Kind</c> where the reference answers. Neither
+    /// branch holds a fixed expectation.
+    /// </para>
+    /// <para>
+    /// The "must fail" half of the guard is pinned separately, by a payload that overflows in
+    /// <i>every</i> time zone — <see cref="DateTime_OffsetPayloadThatOverflowsInEveryZone_IsStillAnError"/>.
+    /// </para>
     /// </summary>
     [Test]
-    public async Task DateTime_MaxValue_WithAnOffset_IsStillAnError()
+    public async Task DateTime_MaxValue_WithAnOffset_AgreesWithTheReferenceParser()
+    {
+        const string payload = "9999-12-31T12:00:00.1234567-05:30";
+        var json = Encoding.UTF8.GetBytes($"{{\"CreatedAt\":\"{payload}\"}}");
+
+        if (
+            !DateTime.TryParse(
+                payload,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out var reference
+            )
+        )
+        {
+            // The reference parser rejects it on this machine (local offset above −05:30, UTC
+            // included), so the read must reject it too — with the message the old string path
+            // produced.
+            var ex = Assert.Throws<FormatException>(() =>
+                JsonSerializer.Deserialize<DateTimeEnumReadModel>(json)
+            );
+            await Assert.That(ex!.Message).Contains("Expected a DateTime value for property");
+            return;
+        }
+
+        // The reference parser answers it on this machine (local offset −05:30 or below: UTC−6 and
+        // west of it), so the read must answer the very same value — clamping at MaxValue would be a
+        // silent wrong answer.
+        var model = JsonSerializer.Deserialize<DateTimeEnumReadModel>(json)!;
+        await Assert
+            .That(model.CreatedAt)
+            .IsEqualTo(reference)
+            .Because($"payload '{payload}' must read back as {reference:O}, not clamp to MaxValue");
+        await Assert.That(model.CreatedAt.Kind).IsEqualTo(reference.Kind);
+    }
+
+    /// <summary>
+    /// The "must fail" half of the same guard, on a payload that fails in <b>every</b> time zone — the
+    /// coverage the oracle above cannot promise on a machine whose answer happens to be a value.
+    /// <para>
+    /// <c>TryParse(…, RoundtripKind)</c> answers <c>wall clock + (local offset − payload offset)</c>, so
+    /// one payload only fails on <i>one</i> side of the range: the MaxValue shape at <c>-05:30</c>
+    /// overflows wherever the local offset is above <c>−05:30</c> (UTC included) but is a perfectly
+    /// good <c>9999-12-31T18:29:59</c> at UTC−11. Pinning <c>-14:00</c>, the largest offset the parser
+    /// accepts, fixes the sign: every zone in the tz database sits between UTC−12:00 and UTC+14:00, so
+    /// the answer is at least two hours past <c>DateTime.MaxValue</c> wherever this runs.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task DateTime_OffsetPayloadThatOverflowsInEveryZone_IsStillAnError()
     {
         var ex = Assert.Throws<FormatException>(() =>
             JsonSerializer.Deserialize<DateTimeEnumReadModel>(
-                """{"CreatedAt":"9999-12-31T12:00:00.1234567-05:30"}"""u8.ToArray()
+                """{"CreatedAt":"9999-12-31T23:59:59.1234567-14:00"}"""u8.ToArray()
             )
         );
         await Assert.That(ex!.Message).Contains("Expected a DateTime value for property");
