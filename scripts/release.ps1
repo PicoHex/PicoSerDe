@@ -110,8 +110,28 @@ function Invoke-Tool([string[]]$arguments) {
 function Get-PackableProjects([string]$root) {
     $srcRoot = Join-Path $root "src"
     if (-not (Test-Path $srcRoot)) { $srcRoot = $root }
+    # The scan never descends into a directory that holds *copies* of the
+    # repository or its build output: leftover worktrees under .worktrees/,
+    # staged packages under artifacts/, process state under .superpowers/.
+    # Every copy carries the same PackageId, so a copy looks like a duplicate
+    # project and aborts the whole release. Dot-prefixed directories (.git,
+    # .idea, ...) are skipped for the same reason.
+    # The match is made against the path RELATIVE to the scan root so that a
+    # repository which itself lives under a dot-directory - this script
+    # running from inside .worktrees/<lane> - still scans its own sources.
+    $excludedDirectoryNames = @(".worktrees", ".superpowers", "artifacts")
     $projects = @()
     foreach ($file in Get-ChildItem -Path $srcRoot -Recurse -Filter *.csproj -File) {
+        $relativeDirectory = [System.IO.Path]::GetDirectoryName(
+            $file.FullName.Substring($srcRoot.Length).TrimStart([char[]]@('\', '/')))
+        $excluded = $false
+        foreach ($segment in @($relativeDirectory -split "[\\/]" | Where-Object { $_ })) {
+            if ($segment.StartsWith(".") -or $excludedDirectoryNames -contains $segment.ToLowerInvariant()) {
+                $excluded = $true
+                break
+            }
+        }
+        if ($excluded) { continue }
         if ($file.FullName -match "[\\/](obj|bin)[\\/]") { continue }
         [xml]$xml = Get-Content -LiteralPath $file.FullName -Raw
         $propertyGroups = @($xml.Project.PropertyGroup)
@@ -135,6 +155,10 @@ function Get-PackableProjects([string]$root) {
             TargetFramework = ("$targetFrameworks".Trim() -split ";")[0]
         }
     }
+    # Always report what the scan picked up: a jump in the count (11 -> 47)
+    # means stray copies of the repository crept back into the tree.
+    $packageIds = ($projects.PackageId | Sort-Object) -join ', '
+    Write-Host "   packable projects ($($projects.Count)) under $srcRoot`: $packageIds" -ForegroundColor DarkGray
     $duplicateIds = $projects | Group-Object -Property PackageId | Where-Object { $_.Count -gt 1 }
     if ($duplicateIds) {
         Fail "duplicate PackageId across packable projects: $(($duplicateIds | ForEach-Object { $_.Name }) -join ', ')"
