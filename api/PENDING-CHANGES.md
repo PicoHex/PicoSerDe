@@ -33,11 +33,38 @@ only one in the library that cannot talk to its own ecosystem.
 | 6 | PicoSerDe.Core | `T:TokenReaderFused` (+ the same six `M:` methods, static) | R-3 | The reference those overrides must equal: the literal composition of `Read()` plus `TryGetX()`, existing exactly once. Readers that do not optimize a member forward to it, so "the fast path is equivalent to the slow path" is testable against a single source of truth rather than against each implementer's memory of one. |
 | 7 | PicoMsgPack | `M:MsgPackWriter.WriteInt32Array(System.ReadOnlySpan\`1<int> values)` | **R-4** | A flat `List<int>` / `int[]` row is the one place where the per-element *call* is the whole cost, not the encoding: measured on the Collection row, 100 elements cost 2.1 ns each through `WriteInt32` (inlined by dynamic PGO, so this is not a call-overhead story any more) against 0.57 ns for MessagePack-CSharp's equivalent loop, and 0.5 ns for the same encoding run as a tight loop inside this type. Writing the run in one call removes the per-element `Ensure` and the per-element method boundary while emitting **byte-identical** output - the non-fixint values are still handed to `WriteInt32` itself, so no value takes an encoding the loop would not have chosen. `api/*.public.txt` is untouched, as the note above requires. |
 
+## Readers that implement `IFusedTokenReader`
+
+Entry #5 is the interface; it does not say who implements it, and each implementation puts its own
+lines into the next release's delta. **Every format reader in the tree implements it** - five readers
+across four packages, on top of the contract itself in `PicoSerDe.Core`:
+
+| Reader | Declaration | Lines it adds to the delta |
+|---|---|--:|
+| `PicoJetson.JsonReader` | `PicoJetson/src/PicoJetson/JsonReader.cs:27` | 7 (`I:` + `HasCountedCollections` + the five `TryGet*`) |
+| `PicoIni.IniReader` | `PicoIni/src/PicoIni/IniReader.cs:15` | 7 |
+| `PicoToml.TomlReader` | `PicoToml/src/PicoToml/TomlReader.cs:20` | 7 |
+| `PicoYaml.YamlReader` | `PicoYaml/src/PicoYaml/YamlReader.cs:19` | 7 |
+| `PicoMsgPack.MsgPackReader` | `PicoMsgPack/src/PicoMsgPack/MsgPackReader.cs:13` | 7 |
+
+What each one does with the members: the four text formats declare
+`HasCountedCollections => false` (`IniReader.cs:459`, `TomlReader.cs:603`, `YamlReader.cs:717`,
+`JsonReader.cs:758`) and forward every fused read to `TokenReaderFused` whenever their own fast path
+does not serve the token - JSON's `TryReadInt32` is the one that carries a real fused body
+(`JsonReader.cs:792-797`). `MsgPackReader` is the one answering `HasCountedCollections` with `true`
+(`MsgPackReader.cs:1232`), because its wire header carries the element count.
+
+Which of these members the **generator** then calls is a separate question, and not an API question:
+it is the table in `docs/fused-emission-registry.md`, enforced by `FusedMemberEmissionGuardTests`.
+
 ## Notes
 
 - Additions are additive only. No existing signature changed, so no consumer breaks; the release
   script treats `-0` as the safe case and bumps accordingly.
-- `PicoMsgPack` and `PicoSerDe.Core` are the packages affected by this cycle so far.
+- The packages affected by this cycle are **six**, not two: `PicoSerDe.Core` and `PicoMsgPack` (the
+  rulings above) plus `PicoJetson`, `PicoIni`, `PicoToml` and `PicoYaml`, whose readers also implement
+  `IFusedTokenReader` (see "Readers that implement `IFusedTokenReader`" above). `-DryRun` on
+  `v2026.10.0 -> v2026.11.0` measures `+57 / -0` across those six; the `.Gen` packages are unchanged.
 - R-3 is additive in the plain sense: a new interface and a new static class. No existing member
   changed signature, and `ITokenReader` itself is untouched, so readers that do not want the fused
   path never see it.
