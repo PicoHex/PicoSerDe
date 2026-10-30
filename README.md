@@ -34,24 +34,13 @@ Four claims, each with the check that backs it.
   ([`JsonReader.cs:27`](PicoJetson/src/PicoJetson/JsonReader.cs),
   [`JsonWriter.cs:3`](PicoJetson/src/PicoJetson/JsonWriter.cs)), which is why trimming cannot break
   a code path it never had to discover.
-- **Faster than the incumbent in every format where an opponent exists.** Medians below, measured
-  AOT against AOT and JIT against JIT in one window; JSON is the one row with a losing column, and
-  the footnote says so.
-
-**Direction:** `×` is **ours ÷ theirs**, the direction the harness prints, so **`< 1.00` means
-PicoSerDe is faster** and **`> 1.00` means it is slower**.
-
-| Format | Opponent | Median `×` | Scale of the win (verbatim from [Performance](#performance)) |
-| --- | --- | --- | --- |
-| JSON | System.Text.Json | AOT **0.79×** · JIT **0.96×** | AOT ahead in **12 of 12** — **0.55×–0.98×**; JIT slower in **3 of 12** — **0.51×–1.33×** ¹ |
-| MessagePack | MessagePack-CSharp | AOT **0.72×** · JIT **0.78×** | AOT ahead in **4 of 4** — **0.60×–0.88×**; JIT ahead in **7 of 8** — **0.45×–1.12×** |
-| TOML | Tomlyn 2.10.1 | AOT **0.21×** · JIT **0.19×** | AOT faster in **10 of 10** — **0.10×–0.41×**, between **2.4× and 10×** faster; JIT faster in **10 of 10** — **0.09×–0.35×**, between **2.9× and 11×** faster |
-| YAML | YamlDotNet 18.1.0 | JIT **0.04×** | JIT faster in **6 of 6** — **0.02×–0.06×**, **17×–50×** faster; AOT — no opponent exists |
-
-¹ **The losing column, stated plainly:** on the runtime default (tiered JIT + dynamic PGO) JSON is
-slower in **3 of 12** scenarios — **0.51×–1.33×**, median **0.96×** — while its AOT column wins all
-twelve. Multiples are quoted only where the full table states one; keys are never computed, rounded or
-re-windowed here, and ratios inside ~±10 % of 1.00 are not a direction claim either way.
+- **Faster than the incumbent in every format where an opponent exists — with one exception, stated
+  in the same breath: under the runtime's default JIT, three of JSON's twelve scenarios lose.** One
+  line per scenario, AOT against AOT and JIT against JIT, in one window. Fastest: YAML
+  `Simple — SerializeToString` — **PicoSerDe ~50× faster** (0.135 vs 6.108 µs, one round of that
+  row). Slowest: JSON `LargeFlat 50-fields — Deserialize` — **System.Text.Json 1.33× faster**
+  (2.654 vs 1.992 µs). Each format's scenarios, one line at a time, with the direction rule and the
+  µs pairs: [Performance](#performance).
 
 ---
 
@@ -99,30 +88,142 @@ format has the same shape — `TomlSerializer`/`YamlSerializer`/`IniSerializer` 
 
 ## Performance
 
-**Direction: every ratio below is `×` = ours ÷ theirs** — the direction the harness itself prints, so
-**above 1.00 means PicoSerDe is slower** and **below 1.00 means PicoSerDe is faster**. No reciprocal is
-ever taken: the direction above is the only one printed.
+One line per scenario — or one line per mode where the archive publishes only a range — named the way
+the harness names it, saying **who is faster and by how much**. The bracketed µs pairs are `ours vs
+theirs` in that order — divide them and you get the printed ratio back.
 
-A ratio inside ~±10 % of 1.00 is not a direction claim in either direction.
+**Conversion note, stated once:** the harness prints its ratios as **ours ÷ theirs**, so its `0.55×`
+means we are the faster side and its `1.33×` means we are slower. **This section quotes the reciprocal
+and puts the winner in words** — "PicoSerDe 1.8× faster" *is* the harness's `0.55×`, and
+"System.Text.Json 1.33× faster" *is* the harness's `1.33×` — so no reader has to invert anything to
+find out who won. A line with no µs pair is marked *ratio only*:
+[`docs/perf/measurement.md`](docs/perf/measurement.md) publishes that row as a ratio without its pair,
+and no µs was ever divided out to fill the gap.
 
-| Format | Opponent | AOT vs AOT | JIT vs JIT |
-| --- | --- | --- | --- |
-| JSON | System.Text.Json | ahead in **12 of 12** — **0.55×–0.98×**, median **0.79×** | slower in **3 of 12** — **0.51×–1.33×**, median **0.96×** |
-| MessagePack | MessagePack-CSharp | ahead in **4 of 4** — **0.60×–0.88×**, median **0.72×** (every cell beyond the band) | ahead in **7 of 8** — **0.45×–1.12×**, median **0.78×** |
-| TOML | Tomlyn 2.10.1 | faster in **10 of 10** — **0.10×–0.41×**, median **0.21×** (between **2.4× and 10×** faster) | faster in **10 of 10** — **0.09×–0.35×**, median **0.19×** (between **2.9× and 11×** faster) |
-| YAML | YamlDotNet 18.1.0 | — no AOT opponent exists | faster in **6 of 6** — **0.02×–0.06×**, median **0.04×** (**17×–50×** faster) |
-| INI | ini-parser 2.5.3 | — no equivalent operation | — no equivalent operation |
+A ratio inside **~±10 %** of 1.00 is not a direction claim in either direction. Those rows are listed
+as **level**, with the harness ratio shown, so they cannot be read as a win.
+
+### JSON — System.Text.Json
+
+**NativeAOT — ahead in 12 of 12** (row median 0.79× ours ÷ theirs, i.e. ≈1.3× faster). Past the band:
+
+- `Collection POCO — Deserialize` — **PicoSerDe 1.8× faster** (3.193 vs 5.790 µs)
+- `Nested POCO — Serialize` — **PicoSerDe 1.4× faster** (0.312 vs 0.450 µs)
+- `LargeString 1KB — Deserialize` — **PicoSerDe 1.4× faster** (0.421 vs 0.589 µs)
+- `Simple POCO — Serialize` — **PicoSerDe 1.4× faster** (0.123 vs 0.166 µs)
+- `Collection POCO — Serialize` — **PicoSerDe 1.3× faster** (1.297 vs 1.694 µs)
+- `LargeString 1KB — Serialize` — **PicoSerDe 1.3× faster** (0.382 vs 0.486 µs)
+- `Nested POCO — Deserialize` — **PicoSerDe 1.3× faster** (1.003 vs 1.267 µs)
+- `Simple POCO — Deserialize` — **PicoSerDe 1.1× faster** (0.88×, ratio only)
+
+**Level, ±10 % —** ahead, but not a direction claim: `Complex POCO — Serialize` 0.90×, `LargeFlat
+50-fields — Serialize` 0.92×, `Complex POCO — Deserialize` 0.94×, `LargeFlat 50-fields — Deserialize`
+0.98×.
+
+**JIT, runtime default — slower in 3 of 12** (row median 0.96×, itself level). The three losses, named
+and not softened:
+
+- `LargeFlat 50-fields — Deserialize` — **System.Text.Json 1.33× faster** (2.654 vs 1.992 µs)
+- `LargeFlat 50-fields — Serialize` — **System.Text.Json 1.27× faster** (1.173 vs 0.923 µs)
+- `Complex POCO — Deserialize` — **System.Text.Json 1.14× faster** (0.706 vs 0.617 µs)
+
+All three are the JSON object/member path — the part that scales with property count — and all three
+flip once tiering is out of the picture (the whole column has no loss then, see
+[JSON under JIT](#json-under-jit-and-why-the-default-is-not-neutral)).
+
+Past the band on our side:
+
+- `Nested POCO — Serialize` — **PicoSerDe 2.0× faster** (0.187 vs 0.366 µs)
+- `Simple POCO — Serialize` — **PicoSerDe 1.6× faster** (0.066 vs 0.109 µs)
+- `Collection POCO — Deserialize` — **PicoSerDe 1.5× faster** (2.180 vs 3.337 µs)
+- `Collection POCO — Serialize` — **PicoSerDe 1.5× faster** (0.874 vs 1.294 µs)
+
+**Level, ±10 % —** `Simple POCO — Deserialize` 1.00× (0.154 vs 0.154 µs) is level outright; `Complex
+POCO — Serialize` 0.92×, `LargeString 1KB — Serialize` 0.96×, `LargeString 1KB — Deserialize` 0.97× and
+`Nested POCO — Deserialize` 0.99× are ahead inside the band.
+
+### MessagePack — MessagePack-CSharp
+
+**NativeAOT — ahead in 4 of 4**, every cell past the band (row median 0.72×, i.e. ≈1.4× faster):
+
+- `Metrics — Serialize` — **PicoSerDe 1.7× faster** (0.60×, ratio only)
+- `Person — Serialize` — **PicoSerDe 1.4× faster** (0.69×, ratio only)
+- `Person — Deserialize` — **PicoSerDe 1.3× faster** (0.75×, ratio only)
+- `Metrics — Deserialize` — **PicoSerDe 1.1× faster** (0.88×, ratio only)
+
+**JIT — ahead in 7 of 8** (row median 0.78×, i.e. ≈1.3× faster). The one loss, then the two rows that
+used to be this page's worst MessagePack numbers:
+
+- `Complex — Deserialize` — **MessagePack-CSharp 1.12× faster** (0.335 vs 0.299 µs)
+- `Collection — Deserialize` — **PicoSerDe 1.8× faster** (0.55×, was 1.43×; our arm 1.016 → 0.382 µs)
+- `Collection — Serialize` — **PicoSerDe 1.7× faster** (0.60×, was 1.24×; our arm 0.254 → 0.136 µs)
+
+MessagePack's other JIT rows are not published one by one here: they moved only with the machine
+(−5.5 %…+15.7 % on our arm), and the row median above covers them.
+
+### TOML — Tomlyn 2.10.1
+
+The one opponent that does the same job in both modes — one library call, same POCO in and out.
+
+- **NativeAOT — ahead in 10 of 10:** **PicoSerDe 2.4× to 10× faster** (0.10×–0.41×, median 0.21× ≈ 4.8×)
+- **JIT — ahead in 10 of 10:** **PicoSerDe 2.9× to 11× faster** (0.09×–0.35×, median 0.19× ≈ 5.3×)
+
+The rows the archive names individually (JIT, ratio only — this format publishes its ranges and medians
+rather than per-row µs pairs):
+
+- `Simple — Deserialize←string` — **PicoSerDe 11× faster** (0.09×)
+- `Simple — Serialize` — **PicoSerDe 5.0× faster** (0.20×)
+- `Medium — Serialize` — **PicoSerDe 4.0× faster** (0.25×)
+
+### YAML — YamlDotNet 18.1.0
+
+CoreCLR only. Under NativeAOT that layer does not work at all — typed `Deserialize<T>` throws
+`MissingMethodException` and typed `Serialize` silently emits `{}` — so there is no AOT opponent and none
+is invented.
+
+- `Simple — SerializeToString` — **PicoSerDe ~50× faster** (its three rounds read 0.135 / 0.138 / 0.159 µs
+  against 6.108 / 6.377 / 6.293 µs, in that order; the row publishes as 0.02×)
+- the remaining five sit inside the same **0.02×–0.06×** span that makes the format read **PicoSerDe
+  17× to 50× faster**; across the six rows the median is 0.04× (≈25×), and the two cells that print
+  0.03× and 0.02× are two-decimal roundings of 0.0339× and 0.0249×
+
+### INI — ini-parser 2.5.3
+
+**No multiple is given here, and none is derived from the two numbers below.** ini-parser exposes no
+typed API in any execution mode, and a caller-written DOM walk is not the same job as one library call,
+so this format is absolute cost on a `NON-EQUIVALENT` table:
+
+- smallest write row — **0.084 µs**, against 7.597 µs for the DOM walk
+- largest read row — **2.250 µs**, against 22.018 µs for the DOM walk
+
+### JSON under JIT, and why the default is not neutral
+
+The published JIT column is measured the way a user runs it — tiered compilation with dynamic PGO on —
+and that default is not neutral between two libraries: tiering is a re-compilation pipeline, and each
+side converts it into throughput differently. So the same twelve scenarios were measured twice more in
+the same window, one runtime knob at a time: **0.94×** median with `DOTNET_TieredPGO=0` (still 3 lost,
+0.59×–1.23×) and **0.58×** median with `DOTNET_TieredCompilation=0` — **no losing scenario at all**
+(0.32×–0.74×). Measured per arm rather than inferred, turning dynamic PGO off costs System.Text.Json a
+median 1.14× (0.91×–1.36×) and costs us 1.13× (0.89×–1.40×), near enough symmetric to explain
+essentially none of the gap; turning tiered compilation off costs System.Text.Json 1.97× (1.25×–2.29×)
+and us 1.14× (0.90×–1.33×), and that asymmetry is the whole 0.58× → 0.96× on the row median. The three
+losses read the same way: `LargeFlat 50-fields — Deserialize` 1.33× by default, 1.23× with PGO off,
+0.73× with tiering off; `LargeFlat 50-fields — Serialize` 1.27× / 0.56×; `Complex POCO — Deserialize`
+1.14× / 0.74×. So the published JIT lines are what a reader actually gets, and this paragraph says how
+much of them is the tiering pipeline rather than the code.
+
+Where a row's own three rounds disagree the spread is left in the record: `Simple — SerializeToString`
+(YAML) could not use its second and third kept rounds because the YamlDotNet arm was refused unstable in
+both, which is why its 0.02× is quoted as the published definition and not down to a second decimal.
 
 **How a number gets here.** A **round** is one whole process; each round prints, per arm, the median
 µs/op over **5 independent runs × ≥100k iterations each**, and every figure is the **median of three
 rounds** taken inside **one** window — 2026-10-29, 17:49–18:24 local, AMD Ryzen 7 6800H, Windows 11,
 .NET SDK 10.0.401, runtime 10.0.12 — behind an idle-machine gate that refuses any arm missing its
-drift, spread or dispersion criteria. A row's ratio is `ours ÷ theirs` from those two medians, and
-**AOT and JIT are never merged into one figure, one column or one ratio.**
-
-**The JIT column is the runtime's default** — tiered compilation with dynamic PGO on, i.e. what a
-user actually gets — and that default is not neutral between two libraries, so the same row is also
-measured with `DOTNET_TieredPGO=0` and with `DOTNET_TieredCompilation=0`.
+drift, spread or dispersion criteria. Each multiple above comes from those two medians, and **AOT and
+JIT are never merged into one figure, one column or one multiple.** A µs written as `a → b` for our own
+arm is a cross-window delta and carries the later window's ~16 % discount, which is why the multiple,
+not the µs, is what this page publishes.
 
 How each number is produced — the window ledger, the per-scenario detail, the JIT companions and the
 publishing protocol: [`docs/perf/measurement.md`](docs/perf/measurement.md). What each round of
