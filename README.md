@@ -89,32 +89,20 @@ format has the same shape — `TomlSerializer`/`YamlSerializer`/`IniSerializer` 
 ## Performance
 
 One row per scenario per execution mode, named the way the harness names it, saying **who is faster and
-by how much**. The two µs columns are `ours vs theirs` in that order (µs/op, the median of three rounds
-each), and **the multiplier is that pair divided — larger by smaller — to one decimal**:
-`0.589 ÷ 0.421 = 1.399 → 1.4×`. It is read off the µs themselves, never by inverting the harness's
-two-decimal ratio and rounding that a second time. Two variants keep a different basis and say so in the
-row itself: a row the opponent wins prints the harness's own two decimals — the same division one place
-further, `2.654 ÷ 1.992 = 1.3323 → 1.33×` — and the one YAML row whose kept rounds disagree carries that
-fact in the note under its table.
+by how much**. The two µs columns are `ours vs theirs` (µs/op, the median of three rounds each), and
+**the multiplier is that pair divided — larger by smaller — to one decimal**: `0.589 ÷ 0.421 = 1.399 →
+1.4×`, read off the µs themselves, never by inverting the harness's two-decimal ratio and rounding
+again. A row the opponent wins prints the harness's own two decimals — the same division one place
+further, `2.654 ÷ 1.992 = 1.3323 → 1.33×`.
 
-**Conversion note, stated once:** the harness prints its ratios as **ours ÷ theirs**, so its `0.55×`
-means we are the faster side and its `1.33×` means we are slower. **This section quotes the reciprocal
-and puts the winner in words** — "PicoSerDe 1.8× faster" *is* the harness's `0.55×`, and
-"System.Text.Json 1.33× faster" *is* the harness's `1.33×` — so no reader has to invert anything to
-find out who won. **Every row below carries its µs pair.** The archive publishes the full per-scenario
-table for this window — [Per-scenario tables, 2026-10-29
-window](docs/perf/measurement.md#per-scenario-tables-2026-10-29-window): one table per format per mode,
-both arms' medians as printed, and the kept rounds those medians are the median of. The multiple is
-always that pair divided, so no cell is left empty for a row whose pair is published, and no pair was
-invented for a row that has none.
-
-A ratio inside **~±10 %** of 1.00 is not a direction claim in either direction. Those rows are listed
-as **level**, with the harness ratio shown, so they cannot be read as a win.
-
-Each table's µs columns carry exactly what the archive publishes for that row — that arm's median for
-that scenario, two decimals, unchanged — and every multiplier is those two numbers divided. The one
-place on this page with no division at all is INI, where the opponent is a caller-written DOM walk and
-not a library call, so only absolute cost is quoted there.
+**Conversion note, stated once:** the harness prints its ratios as **ours ÷ theirs**, so its `0.55×` means we are the faster side
+and its `1.33×` means we are slower; **this section quotes the reciprocal and puts the winner in words** — "PicoSerDe 1.8× faster" *is*
+the harness's `0.55×` — so no reader has to invert anything, and **every row carries the µs pair its multiplier was divided from**: no
+cell is empty for a published pair and no pair was invented for a row that has none. A ratio inside **~±10 %** of 1.00 is not a direction
+claim: those rows are **level**, with the harness ratio shown so they cannot be read as a win. INI is the one table with no
+division at all — its opponent is a caller-written DOM walk, not a library call, so only absolute cost is quoted there. Per-scenario
+tables for this window, both arms' medians as printed and the kept rounds behind them: [2026-10-29 window
+archive](docs/perf/measurement.md#per-scenario-tables-2026-10-29-window).
 
 ### JSON — System.Text.Json
 
@@ -373,8 +361,6 @@ class PicoSerDeConfig { }
 
 No attributes are required for basic usage — calling `Serialize<T>()` automatically triggers generation.
 
-## Key Features
-
 ### Strict Deserialization (fail-loud, STJ-compatible semantics)
 
 Deserialization validates input shape and types instead of silently producing default values:
@@ -411,43 +397,26 @@ Deserialization validates input shape and types instead of silently producing de
 
 ### Null Semantics
 
-Null is not portable across the five formats: "write a null" and "read a null" are spelled out per
-format below, as observed behaviour of the generated code.
+Null is not portable across the five formats: "write a null" and "read a null" are spelled out per format, and three states are kept apart.
 
-**Writing a null member** (default options, `DefaultIgnoreCondition = Never`):
+| State | On the wire | Behaviour |
+|-------|-------------|-----------|
+| **null** | JSON `"key":null`; MsgPack `nil` (`0xC0`, map/array header adjusted) | written, and round-trips — the only two formats with a null *value* on the wire |
+| **empty** | `""`, `[]`, `{}` | always a value, never a null — a quoted scalar is never null, so `"null"` is four characters |
+| **missing** | the member is absent | not an error — the target keeps its default, the property initializer's value when one exists |
 
-| Format | Null member written as | Under `WhenWritingNull` |
-|--------|------------------------|-------------------------|
-| JSON | `"key":null` | member omitted |
-| MsgPack | `nil` (`0xC0`; the map/array header is adjusted) | member omitted |
-| TOML | member omitted — TOML has no null value | member omitted |
-| YAML | member omitted — YAML has no null value on write | member omitted |
-| INI | member omitted — INI has no null value | member omitted |
+**Who supports null.** JSON and MsgPack write an explicit null and read it back. TOML, YAML and INI have no null value on the write side,
+so the member is omitted and **a null does not round-trip** through them. On read all three accept an unquoted empty value as the null
+literal (TOML/INI `Key =`, YAML `Key:`), plus `~` (YAML) and the unquoted word `null` in any case (all three): that assigns `null` to a
+nullable target and throws `FormatException` for a non-nullable value type, never a silent `0` / `false` / `Guid.Empty`. The non-nullable
+`string` column is the generators' NRT-lenient contract — TOML/YAML/INI assign `null!` to an unannotated `string`, while JSON/MsgPack
+require a value token and reject the null.
 
-Because the three section-based formats drop the member, **a null does not round-trip through
-TOML/YAML/INI** — reading the document back leaves the target at its default (the property
-initializer's value when one exists). JSON and MsgPack write an explicit null and do round-trip.
-
-**Reading a null** — accepted spellings and what the target receives:
-
-| Format | Null spellings accepted | nullable target (`T?`, `string?`) | non-nullable value type | non-nullable `string` |
-|--------|-------------------------|:---:|:---:|:---:|
-| JSON | `null` | `null` | `FormatException` | `FormatException` |
-| MsgPack | `nil` | `null` | `FormatException` | `FormatException` |
-| TOML | `Key =` (no value), or unquoted `null` (any case) | `null` | `FormatException` | `null` |
-| YAML | `Key:` (no value), `~`, or unquoted `null` (any case) | `null` | `FormatException` | `null` |
-| INI | `Key =` (no value), or unquoted `null` (any case) | `null` | `FormatException` | `null` |
-
-Rules that hold in every format:
-
-- **A quoted scalar is never null.** `Key = ""` is the empty string and `Key = "null"` is the four-character string `null` — both are values, not omissions.
-- **A missing member is not an error.** It leaves the target at its default.
-- **An unquoted empty value *is* the null literal** in TOML/YAML/INI: `Key =` with nothing after it assigns `null`, not "member missing".
-- **A null aimed at a non-nullable value type fails loudly** with `FormatException`, never a silent `0` / `false` / `Guid.Empty`.
-- **The non-nullable `string` column is the generators' NRT-lenient contract:** TOML/YAML/INI assign
-  `null!` to an unannotated `string`, while JSON/MsgPack require a value token and reject the null.
-- **Scope:** scalar members only (string, numeric, temporal, enum, Guid and their nullable forms);
-  collection, object and dictionary branches keep their own empty-value semantics.
+Scope: scalar members only (string, numeric, temporal, enum, Guid and their nullable forms); collection, object and dictionary branches keep
+their own empty-value semantics, and nullable *elements* belong to [Format limits](#format-limits-what-each-wire-format-cannot-express).
+Per-format write/read rules: [PicoToml](PicoToml/README.md#null-handling), [PicoYaml](PicoYaml/README.md#null-handling),
+[PicoIni](PicoIni/README.md#null-handling), [PicoJetson](PicoJetson/README.md#nullability-fidelity), [PicoMsgPack](PicoMsgPack/README.md#limits).
+`WhenWritingNull` omits the member in every format — see [PicoJetson JsonOptions](#picojetson-jsonoptions).
 
 ### Polymorphic Deserialization (Type Discriminator)
 
@@ -496,13 +465,14 @@ if (doc.RootElement["age"].TryGetInt32(out int age))
     Console.WriteLine(age);
 ```
 
-### C# Records
+### Small shapes: records, top-level arrays, nullable elements
 
-`record` and `record struct` types are fully supported. Primary constructor auto-detected — no `[JsonConstructor]` needed. `init`-only properties work correctly.
-
-### Top-Level Arrays
-
-`Serialize<T[]>(...)` / `Deserialize<T[]>(...)` and streaming `DeserializeFromStreamAsync<T[]>(stream)` work directly.
+- **Records** — `record` / `record struct` primary constructors are auto-detected, so no `[JsonConstructor]` or `[PicoConstructor]` is needed,
+  and `init`-only properties work; this holds in every format (see [Arrays and Dictionaries](#arrays-and-dictionaries)).
+- **Top-level arrays** — `Serialize<T[]>(...)` / `Deserialize<T[]>(...)` and streaming `DeserializeFromStreamAsync<T[]>(stream)` work directly.
+- **Nullable elements** — `List<int?>`, `List<string?>`, `List<TObject?>`, `Dictionary<string, TObject?>` and nested lists of objects round-trip
+  with their null elements in JSON and MsgPack; YAML writes the null literal for a nullable leaf, TOML and INI drop it with `PICOSERDE004` —
+  the [Format limits](#format-limits-what-each-wire-format-cannot-express) matrix and its notes are the authority.
 
 ### Arrays and Dictionaries
 
@@ -518,16 +488,6 @@ streaming delegate is not registered — `DeserializeFromStreamAsync` then buffe
 the synchronous path (correct, just not incremental). Dictionaries accept scalar, object and
 nested-dictionary values; a **collection** dict value (`Dictionary<string, List<T>>`) is dropped with
 `PICOSERDE004` instead of generating broken code.
-
-### Nullable Elements
-
-`List<int?>`, `List<string?>`, `List<TObject?>`, `Dictionary<string, TObject?>` and nested lists of
-objects round-trip in JSON and MsgPack, null elements included. TOML and YAML have no null *type*:
-null *scalar elements* are skipped on write, and a **nullable element** (`List<int?>`, a nullable
-object/dict element, or `int?` at any depth of a nested chain) is dropped with the `PICOSERDE004`
-warning — nested lists themselves are a separate axis, and both formats express them (see
-[Format limits](#format-limits-what-each-wire-format-cannot-express)). INI cannot represent any
-nullable element and drops those members the same way.
 
 ### Format limits: what each wire format cannot express
 
@@ -593,136 +553,74 @@ The wire shape behind each ✅ is documented per format: [PicoToml](PicoToml/REA
 
 ### Streaming (incremental, chunked)
 
-`DeserializeFromStreamAsync<T>(stream, options, ct)` reads a stream incrementally: for
-JSON/TOML/YAML/INI the consumed prefix is released as tokens complete and only the current
-token/member window is retained, so the document is never buffered wholesale before parsing.
-
-**MsgPack is the exception — its stream path buffers.** Each read is appended to an accumulator and
-the whole buffer is re-parsed from the beginning until the value is complete (correct, and it resumes
-cleanly, but not incremental — it costs O(n²) in the number of chunks).
-
-JSON/TOML/YAML/INI accept an options argument (`JsonOptions`/`TomlOptions`/`YamlOptions`/`IniOptions`).
-MsgPack has a `MsgPackOptions` type too, but its `DeserializeFromStreamAsync` overload takes
-`(stream, ct)` only — options are not accepted on the streaming path.
+`DeserializeFromStreamAsync<T>(stream, options, ct)` parses a stream incrementally: for JSON/TOML/YAML/INI the consumed prefix is released as tokens
+complete and only the current token/member window is retained, so the document is never buffered wholesale before parsing. The generated delegate
+returns a `ReadStatus` — `Success` (the value is complete), `NeedMoreData` (the chunk ends inside a token/section, so the runner refills and resumes
+from the reader's mark) or `EndOfInput` (no value in the document — the runner throws `FormatException`) — and an **empty stream** matches the
+synchronous path: TOML/YAML/INI read an empty object, JSON throws.
 
 ```csharp
 await using var stream = File.OpenRead("config.toml");
 var config = await TomlSerializer.DeserializeFromStreamAsync<ServerConfig>(stream);
 ```
 
-The generated delegate returns a `ReadStatus`:
+**MsgPack is the exception — its stream path buffers**: each read is appended to an accumulator and the whole buffer is re-parsed from the beginning
+until the value is complete (correct, resumes cleanly, but O(n²) in the number of chunks — see [PicoMsgPack → Streaming](PicoMsgPack/README.md#streaming)).
+The text formats take options here (`JsonOptions`/`TomlOptions`/`YamlOptions`/`IniOptions`); MsgPack has a `MsgPackOptions` type but its streaming
+overload is `(stream, ct)` only.
 
-| Status | Meaning |
-| --- | --- |
-| `Success` | The value is complete |
-| `NeedMoreData` | The current chunk ends inside a token/section; the runner refills and resumes from the reader's mark |
-| `EndOfInput` | The document contains no value — the runner throws `FormatException` |
+**Recursive DTOs** — JSON and MsgPack support self- and mutually-referencing types (cycle-safe extraction + seeded helpers, recursive members on
+polymorphic bases included) and fail loudly on data-level cycles instead of overflowing the stack; TOML/YAML/INI skip the member with `PICOSERDE003`,
+never silently. **Polymorphic hierarchies** serialize a concrete base instance with a synthesized, collision-safe discriminator, so bases round-trip as
+the base while derived instances keep theirs *and* their nested object/dict/collection members in JSON, MsgPack, TOML and YAML (INI ignores nested
+members — its format is flat).
 
-**Empty-stream semantics** match the synchronous path: TOML/YAML/INI treat an empty stream as an empty
-object; JSON throws `FormatException` ("the document contains no value").
+**Diagnostics** (warnings): `PICOSERDE001` a property type the generator could not resolve was ignored; `PICOSERDE002` two distinct types produced
+the same generated file name (internal helper names get a stable hashed `UniqueName` suffix); `PICOSERDE003` a recursive member was skipped by a
+section-based format; `PICOSERDE004` a member shape the format cannot represent (nested list, nullable value-type element, null object element,
+collection dictionary value) was skipped; `PICOSERDE005` an anonymous-type collection member was skipped by a writer that cannot emit one (JSON is
+the only writer that can). The matrix behind `003`/`004` is [Format limits](#format-limits-what-each-wire-format-cannot-express); the chunked
+reader itself (dual-mode `ReadOnlySpan<byte>` + `ReadOnlySequence<byte>` / `PipeReader`, chunk boundaries included) is
+[PicoJetson → Features](PicoJetson/README.md#features).
 
-**Recursive DTOs**: JSON and MsgPack support self- and mutually-referencing types (cycle-safe
-extraction + seeded helpers), including recursive members on polymorphic bases — nested values keep
-their derived (discriminator) type on both the sync and chunked paths. TOML/YAML/INI cannot express
-unbounded nesting, so the recursive member is skipped and the generator reports `PICOSERDE003` (never
-silent). Data-level object-graph cycles fail loudly instead of overflowing the stack.
-
-**Polymorphic hierarchies**: a concrete polymorphic base instance serializes with a synthesized
-discriminator (the base type name, collision-safe), so base instances round-trip as the base type while
-derived instances keep their declared discriminator. They also keep nested object/dict members *and*
-collection members (`List<T>`, `Dictionary<string,T>`) of derived types in JSON, MsgPack, TOML and YAML;
-INI ignores nested members because its format is flat.
-
-**Diagnostics** (warnings): `PICOSERDE001` — a property type the generator cannot resolve was ignored.
-`PICOSERDE002` — two distinct types produced the same generated file name (main hint); internal helper
-names get a stable hash suffix (`UniqueName`). `PICOSERDE003` — a recursive member was skipped by a
-section-based format. `PICOSERDE004` — a member shape the format cannot represent (a nested list the
-format has no syntax for, a nullable value-type element, a null object element, a collection dictionary
-value) was skipped. `PICOSERDE005` — an anonymous-type collection member was skipped by a format whose
-writer cannot emit one (JSON is the only writer that can). See
-[Format limits](#format-limits-what-each-wire-format-cannot-express) for the support matrix behind
-`PICOSERDE003`/`PICOSERDE004`.
-
-**Custom/advanced registration** (scripts or hand-written serializers):
-`JsonSerializer.RegisterStreaming<T>(StreamingFunc<JsonReader, T> func)` with `where T : notnull`;
-`HasStreamingDelegate<T>()` reports whether a delegate is registered. The source generator emits this
-registration in a `ModuleInitializer` for every discovered type.
+**Custom/advanced registration** (scripts or hand-written serializers): `JsonSerializer.RegisterStreaming<T>(StreamingFunc<JsonReader, T> func)` with
+`where T : notnull`, and `HasStreamingDelegate<T>()` reports whether a delegate is registered; the generator emits that registration in a
+`ModuleInitializer` for every discovered type.
 
 > Repository architecture, the feature bullet list that went with it, the three-layer test split and the per-module cross-validation: [`docs/testing-and-ci.md`](docs/testing-and-ci.md).
 
 ### PicoJetson JsonOptions
 
 ```csharp
-byte[] compact = JsonSerializer.SerializeToUtf8Bytes(model);                 // compact (default)
-byte[] pretty  = JsonSerializer.SerializeToUtf8Bytes(model,                  // human-readable
-    new JsonOptions { Indented = true });
-byte[] camel   = JsonSerializer.SerializeToUtf8Bytes(model,                  // CamelCase names
-    new JsonOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-byte[] nonulls = JsonSerializer.SerializeToUtf8Bytes(model,                  // skip null members
-    new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
-byte[] nan     = JsonSerializer.SerializeToUtf8Bytes(model,                  // allow NaN/Infinity
-    new JsonOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals });
+byte[] compact = JsonSerializer.SerializeToUtf8Bytes(model);                              // compact (default)
+byte[] pretty  = JsonSerializer.SerializeToUtf8Bytes(model, new JsonOptions { Indented = true });
+byte[] camel   = JsonSerializer.SerializeToUtf8Bytes(model, new JsonOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
 ```
 
-Available options:
+Nine options in all — `Indented`, `MaxDepth`, `PropertyNamingPolicy`, `DefaultIgnoreCondition`, `NumberHandling`, `AllowTrailingCommas`, `ReadCommentHandling`, `UnmappedMemberHandling`,
+`PropertyNameCaseInsensitive` — with defaults and the `WhenWritingNull` / trailing-comma examples in [PicoJetson → Options](PicoJetson/README.md#options).
 
-| Option | Default | Description |
-|--------|:-------:|-------------|
-| `Indented` | `false` | Human-readable indented output |
-| `MaxDepth` | `63` | Maximum nesting depth |
-| `PropertyNamingPolicy` | `null` | Naming policy: `CamelCase`, `SnakeCaseLower`, `KebabCaseLower`, `PascalCase` |
-| `DefaultIgnoreCondition` | `Never` | Skip null/default properties: `WhenWritingNull`, `WhenWritingDefault` |
-| `NumberHandling` | `Strict` | Allow named floats: `AllowNamedFloatingPointLiterals` |
-| `PropertyNameCaseInsensitive` | `true` | Property matching is case-insensitive by default; set `false` for exact case-sensitive matching |
-| `AllowTrailingCommas` | `false` | Accept trailing commas in objects/arrays |
-| `ReadCommentHandling` | `Disallow` | Skip `//` and `/* */` comments |
-| `UnmappedMemberHandling` | `Skip` | Throw on unknown properties: `Disallow` |
+`DefaultIgnoreCondition` exists on every options class, but what "writing a null" means is fixed by the wire format ([Null Semantics](#null-semantics)):
+JSON and MsgPack read it from their options, INI/TOML/YAML accept it and always omit. It applies to every emit path — nested objects, collection
+elements, nullable collections, polymorphic dispatch — and is locked by `IgnoreConditionMatrixTests`. `Indented = true` is honored by all five
+writers — YAML indents sequence items under their key, TOML table contents, INI section contents; the compact default is unchanged.
 
-#### Null handling across formats
-
-Every options class (`JsonOptions`, `YamlOptions`, `TomlOptions`, `IniOptions`, `MsgPackOptions`)
-exposes `DefaultIgnoreCondition`, but what "writing a null" means is fixed by the wire format: JSON
-writes `"key":null`, MsgPack writes `nil` (map count adjusted), and TOML/YAML/INI omit the member —
-YAML because writing `key:` would read back as a default and break round-trip fidelity. The matrix
-applies to every emit path (nested objects, collection elements, nullable collections, polymorphic
-dispatch) and is locked by `IgnoreConditionMatrixTests`; the full write-side matrix, `WhenWritingNull`
-included, is in [Null Semantics](#null-semantics).
-
-> **Honored options:** JSON and MsgPack read `DefaultIgnoreCondition` from their options objects. INI/TOML/YAML always omit nulls because those wire formats have no null *value* on the write side; their `DefaultIgnoreCondition` property is accepted by the public API but the generated code treats nulls as always omitted. `Indented = true` is honored: YAML additionally indents sequence items under their key, TOML indents table contents, and INI indents section contents (the compact default is unchanged).
-
-Per-property control is available via the cross-format `[PicoIgnore]` attribute (PicoSerDe.Core):
-
-```csharp
-[PicoIgnore]                                                  // stripped everywhere (write + read)
-public string Internal { get; set; } = "";
-
-[PicoIgnore(Condition = PicoIgnoreCondition.WhenWritingNull)] // omitted only when null, regardless of global options
-public string? Note { get; set; }
-
-[PicoIgnore(Condition = PicoIgnoreCondition.Never)]           // exempt from the global DefaultIgnoreCondition
-public string? Pinned { get; set; }
-```
-
-Conditions affect serialization only — deserialization still maps conditional properties. Format-specific markers (`[JsonIgnore]`, `[YamlIgnore]`, …) remain single-format unconditional ignores.
-
-#### Custom serializers for nested types
-
-`Register` applies at the top level only. To also override `T` wherever it appears as a **nested** value (object property, list element, dictionary value), use `RegisterCustom` — available on JSON and MessagePack:
-
-```csharp
-JsonSerializer.RegisterCustom(new MySerializer(), new MyDeserializer());
-// Outer { Foo Inner } now serializes Inner with MySerializer too.
-// Deserialization override applies at the top level only.
-```
+`Register` is top-level only; `JsonSerializer.RegisterCustom(new MySerializer(), new MyDeserializer())` also overrides `T` wherever it appears
+as a **nested** value (property, list element, dict value) on JSON and MessagePack — the deserialization override stays top-level. Per-property
+control is the cross-format `[PicoIgnore]` (see [Shared Attribute Hierarchy](#shared-attribute-hierarchy)).
 
 ---
 
 ## Shared Attribute Hierarchy
 
-Per-format attributes (`[JsonIgnore]`, `[IniKey]`, ...) inherit shared PicoSerDe.Core bases
-(`PicoIgnoreAttribute`, `PicoSerializableAttribute`, `PicoCamelCaseAttribute`, `PicoConstructorAttribute`,
-`PicoDateTimeFormatAttribute`, `PicoConverterAttribute`) — one implementation per concept, format-specific
-public names preserved. `IniKeyAttribute.Key` is the canonical property (`Name` is an obsolete alias).
+Per-format attributes (`[JsonIgnore]`, `[IniKey]`, ...) inherit shared PicoSerDe.Core bases (`PicoIgnoreAttribute`, `PicoSerializableAttribute`,
+`PicoCamelCaseAttribute`, `PicoConstructorAttribute`, `PicoDateTimeFormatAttribute`, `PicoConverterAttribute`) — one implementation per concept,
+format-specific public names preserved. `IniKeyAttribute.Key` is the canonical property (`Name` is an obsolete alias).
+
+Per-property control is the cross-format `[PicoIgnore]` (PicoSerDe.Core): bare `[PicoIgnore]` strips a member everywhere (write and read),
+`[PicoIgnore(Condition = PicoIgnoreCondition.WhenWritingNull)]` omits it only when null regardless of the global options, and `Condition = Never`
+exempts it from the global `DefaultIgnoreCondition`. Conditions affect serialization only — deserialization still maps the member — and
+format-specific markers (`[JsonIgnore]`, `[YamlIgnore]`, …) remain single-format unconditional ignores.
 
 ---
 
