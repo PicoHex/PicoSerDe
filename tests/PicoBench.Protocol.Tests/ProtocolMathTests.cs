@@ -1,3 +1,4 @@
+using System.Globalization;
 using PicoBench;
 
 namespace PicoBench.Protocol.Tests;
@@ -353,7 +354,15 @@ public class ProtocolMathTests
 
         await Assert
             .That(BenchProtocol.FormatCell(sample))
-            .Contains($"w⚠{result.ElapsedMilliseconds / 1000.0:F1}s/{result.Bursts}b");
+            // The expectation is spelled in the protocol's own format, not the host's: under a
+            // decimal-comma culture an ambient `:F1` would ask for "1,2" and the cell would
+            // (rightly) answer "1.2".
+            .Contains(
+                $"w⚠{string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{result.ElapsedMilliseconds / 1000.0:F1}"
+                )}s/{result.Bursts}b"
+            );
     }
 
     // ── Exit code: the rule that decides whether a run of nothing is a failure ───────
