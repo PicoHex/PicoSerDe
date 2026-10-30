@@ -396,8 +396,8 @@ Deserialization validates input shape and types instead of silently producing de
 - **Comments** (`ReadCommentHandling.Skip`): malformed comment syntax (`/x`) and unterminated block
   comments throw instead of being swallowed
 - **Streaming** (`DeserializeFromStreamAsync<T>`) shares the semantics — `UnmappedMemberHandling.Disallow`
-  and top-level `null` behave exactly as on the direct path (v2026.4.11+; both paths use one
-  generated dispatch chain). Struct DTOs and propertyless types have no streaming delegate and throw
+  and top-level `null` behave exactly as on the direct path (both paths use one generated dispatch
+  chain). Struct DTOs and propertyless types have no streaming delegate and throw
   `InvalidOperationException`
 - **MsgPack rejects zero-length payloads and trailing bytes** with `FormatException`
 - **INI parses list values strictly per element kind** — malformed numbers, booleans, dates and so on
@@ -451,7 +451,7 @@ Rules that hold in every format:
 
 ### Polymorphic Deserialization (Type Discriminator)
 
-Base types declare derived types at compile time. Zero reflection, AOT-safe. Since v2026.3.0.
+Base types declare derived types at compile time. Zero reflection, AOT-safe.
 
 ```csharp
 [PicoSerializable]
@@ -469,14 +469,14 @@ var result = JsonSerializer.Deserialize<SessionEntry>(json);
 
 | Feature | Support |
 |---------|---------|
-| Serialization + Deserialization | ✅ v2026.3.0 |
-| Streaming (PipeReader) | ✅ v2026.3.2 |
-| Base class properties | ✅ v2026.3.3 |
+| Serialization + Deserialization | ✅ |
+| Streaming (PipeReader) | ✅ |
+| Base class properties | ✅ |
 | `[JsonConstructor]` on derived types | ✅ |
-| Record derived types | ✅ v2026.3.23 |
-| Complex/collection ctor params | ✅ v2026.3.24 |
-| TOML / YAML poly support | ✅ v2026.3.24 |
-| INI / MsgPack poly support | ✅ v2026.4.0 |
+| Record derived types | ✅ |
+| Complex/collection ctor params | ✅ |
+| TOML / YAML poly support | ✅ |
+| INI / MsgPack poly support | ✅ |
 
 ### DOM Layer (PicoDocument / PicoElement)
 
