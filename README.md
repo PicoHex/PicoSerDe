@@ -37,10 +37,10 @@ Four claims, each with the check that backs it.
 - **Faster than the incumbent in every format where an opponent exists — with one exception, stated
   in the same breath: under the runtime's default JIT, three of JSON's twelve scenarios lose.** One
   line per scenario, AOT against AOT and JIT against JIT, in one window. Fastest: YAML
-  `Simple — SerializeToString` — **PicoSerDe ~50× faster** (0.135 vs 6.108 µs, one round of that
-  row). Slowest: JSON `LargeFlat 50-fields — Deserialize` — **System.Text.Json 1.33× faster**
-  (2.654 vs 1.992 µs). Each format's scenarios, one line at a time, with the direction rule and the
-  µs pairs: [Performance](#performance).
+  `Simple — SerializeToString` — **PicoSerDe ~50× faster** (one round of it read 0.135 vs 6.108 µs;
+  the row publishes as 0.02×). Slowest: JSON `LargeFlat 50-fields — Deserialize` — **System.Text.Json
+  1.33× faster** (2.654 vs 1.992 µs). Each format's scenarios, one line at a time, with the direction
+  rule and the µs pairs: [Performance](#performance).
 
 ---
 
@@ -90,7 +90,12 @@ format has the same shape — `TomlSerializer`/`YamlSerializer`/`IniSerializer` 
 
 One line per scenario — or one line per mode where the archive publishes only a range — named the way
 the harness names it, saying **who is faster and by how much**. The bracketed µs pairs are `ours vs
-theirs` in that order — divide them and you get the printed ratio back.
+theirs` in that order, and **the multiplier is that pair divided — larger by smaller — to one
+decimal**: `0.589 ÷ 0.421 = 1.399 → 1.4×`. It is read off the µs themselves, never by inverting the
+harness's two-decimal ratio and rounding that a second time. Two variants keep a different basis and
+say so: a row the opponent wins prints the harness's own two decimals — the same division one place
+further, `2.654 ÷ 1.992 = 1.3323 → 1.33×` — and the one YAML line whose bracket is a single kept round
+says so in the line itself and reads its row's published 0.02×.
 
 **Conversion note, stated once:** the harness prints its ratios as **ours ÷ theirs**, so its `0.55×`
 means we are the faster side and its `1.33×` means we are slower. **This section quotes the reciprocal
@@ -110,7 +115,7 @@ as **level**, with the harness ratio shown, so they cannot be read as a win.
 - `Collection POCO — Deserialize` — **PicoSerDe 1.8× faster** (3.193 vs 5.790 µs)
 - `Nested POCO — Serialize` — **PicoSerDe 1.4× faster** (0.312 vs 0.450 µs)
 - `LargeString 1KB — Deserialize` — **PicoSerDe 1.4× faster** (0.421 vs 0.589 µs)
-- `Simple POCO — Serialize` — **PicoSerDe 1.4× faster** (0.123 vs 0.166 µs)
+- `Simple POCO — Serialize` — **PicoSerDe 1.3× faster** (0.123 vs 0.166 µs)
 - `Collection POCO — Serialize` — **PicoSerDe 1.3× faster** (1.297 vs 1.694 µs)
 - `LargeString 1KB — Serialize` — **PicoSerDe 1.3× faster** (0.382 vs 0.486 µs)
 - `Nested POCO — Deserialize` — **PicoSerDe 1.3× faster** (1.003 vs 1.267 µs)
@@ -134,7 +139,7 @@ flip once tiering is out of the picture (the whole column has no loss then, see
 Past the band on our side:
 
 - `Nested POCO — Serialize` — **PicoSerDe 2.0× faster** (0.187 vs 0.366 µs)
-- `Simple POCO — Serialize` — **PicoSerDe 1.6× faster** (0.066 vs 0.109 µs)
+- `Simple POCO — Serialize` — **PicoSerDe 1.7× faster** (0.066 vs 0.109 µs)
 - `Collection POCO — Deserialize` — **PicoSerDe 1.5× faster** (2.180 vs 3.337 µs)
 - `Collection POCO — Serialize` — **PicoSerDe 1.5× faster** (0.874 vs 1.294 µs)
 
