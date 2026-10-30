@@ -202,8 +202,8 @@ await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
 ## Performance
 
 **PicoJetson is slower than System.Text.Json on these micro-benchmarks.** The full tables, the
-machine they were taken on and the log behind every number live in the root README's
-[Measured results](../README.md#measured-results-2026-10-27); this page keeps only what is specific
+machine they were taken on and the log behind every number live in the
+[2026-10-27 measurement record](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27); this page keeps only what is specific
 to JSON. Every ratio is **ours ÷ theirs**, the direction the harness prints: above 1.00 we are
 slower.
 
@@ -221,9 +221,9 @@ Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (5%–22% o
 table, 7%–29% on the JIT one, against the protocol's 35% limit; no arm was refused). One qualifier
 applies to all of it: **a single session's ±stddev is not a cross-session error bar** — five runs in
 one process cannot see tiered-JIT landing points or thermal history, so the honest cross-session
-band is about ±10%, and a ratio inside that band is not a direction claim (the root README spells
-this out under
-[One session's stddev is not a cross-session error bar](../README.md#one-sessions-stddev-is-not-a-cross-session-error-bar)).
+band is about ±10%, and a ratio inside that band is not a direction claim (the 2026-10-27 measurement
+record spells this out under
+[One session's stddev is not a cross-session error bar](../docs/perf/measurement-2026-10-27.md#one-sessions-stddev-is-not-a-cross-session-error-bar)).
 `Nested POCO — Deserialize` at 0.92× is inside it and is not claimed as a win.
 
 `dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks` reproduces the JIT
