@@ -36,6 +36,7 @@ I:PicoJetson.ArrayEnumerator : System.Collections.Generic.IEnumerator`1<PicoJets
 I:PicoJetson.ArrayEnumerator : System.Collections.IEnumerable
 I:PicoJetson.ArrayEnumerator : System.Collections.IEnumerator
 I:PicoJetson.ArrayEnumerator : System.IDisposable
+I:PicoJetson.JsonReader : PicoSerDe.Core.IFusedTokenReader
 I:PicoJetson.JsonReader : PicoSerDe.Core.ITokenReader
 I:PicoJetson.JsonReader : PicoSerDe.Core.ITransactionalTokenReader
 I:PicoJetson.ObjectEnumerator : System.Collections.Generic.IEnumerable`1<PicoJetson.PicoProperty>
@@ -71,12 +72,17 @@ M:PicoJetson.JsonReader.RewindToMark() : void override
 M:PicoJetson.JsonReader.SetRawPos(int pos) : void
 M:PicoJetson.JsonReader.Skip() : void
 M:PicoJetson.JsonReader.TryGetBool(out bool v) : bool override
+M:PicoJetson.JsonReader.TryGetCollectionCount(out int count) : bool override
 M:PicoJetson.JsonReader.TryGetFloat64(out double v) : bool override
 M:PicoJetson.JsonReader.TryGetInt32(out int v) : bool override
 M:PicoJetson.JsonReader.TryGetInt64(out long v) : bool override
 M:PicoJetson.JsonReader.TryGetUInt64(out ulong v) : bool
+M:PicoJetson.JsonReader.TryReadBool(out bool value) : bool override
 M:PicoJetson.JsonReader.TryReadBoolArrayFast(System.Span`1<bool> dest) : int
+M:PicoJetson.JsonReader.TryReadFloat64(out double value) : bool override
+M:PicoJetson.JsonReader.TryReadInt32(out int value) : bool override
 M:PicoJetson.JsonReader.TryReadInt32ArrayFast(System.Span`1<int> dest) : int
+M:PicoJetson.JsonReader.TryReadInt64(out long value) : bool override
 M:PicoJetson.JsonReader.TryReadInt64ArrayFast(System.Span`1<long> dest) : int
 M:PicoJetson.JsonReader.TryReadNextInt32(out int v) : bool
 M:PicoJetson.JsonReader.TrySkip() : bool override
@@ -160,6 +166,7 @@ M:PicoJetson.TypeIo.ReadVersion(ref PicoJetson.JsonReader r) : System.Version st
 M:PicoJetson.TypeIo.WriteBigInteger(ref PicoJetson.JsonWriter w, System.Numerics.BigInteger value) : void static
 M:PicoJetson.TypeIo.WriteChar(ref PicoJetson.JsonWriter w, char value) : void static
 M:PicoJetson.TypeIo.WriteDateTimeOffset(ref PicoJetson.JsonWriter w, System.DateTimeOffset value) : void static
+M:PicoJetson.TypeIo.WriteFormattable``1(ref PicoJetson.JsonWriter w, T value, System.ReadOnlySpan`1<char> format) : void static
 M:PicoJetson.TypeIo.WriteHalf(ref PicoJetson.JsonWriter w, System.Half value) : void static
 M:PicoJetson.TypeIo.WriteInt128(ref PicoJetson.JsonWriter w, System.Int128 value) : void static
 M:PicoJetson.TypeIo.WriteNInt(ref PicoJetson.JsonWriter w, nint value) : void static
@@ -184,6 +191,7 @@ P:PicoJetson.JsonOptions.UnmappedMemberHandling : PicoJetson.JsonUnmappedMemberH
 P:PicoJetson.JsonPropertyNameAttribute.Name : string { get; }
 P:PicoJetson.JsonReader.BytesConsumed : long { get; }
 P:PicoJetson.JsonReader.Depth : int { get; }
+P:PicoJetson.JsonReader.HasCountedCollections : bool { get; }
 P:PicoJetson.JsonReader.IsResumed : bool { get; }
 P:PicoJetson.JsonReader.NeedsMoreData : bool { get; }
 P:PicoJetson.JsonReader.Options : PicoJetson.JsonOptions { get; }

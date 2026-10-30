@@ -41,6 +41,7 @@ F:PicoSerDe.Core.TokenType.UInt32 : PicoSerDe.Core.TokenType = 12 const
 F:PicoSerDe.Core.TokenType.UInt64 : PicoSerDe.Core.TokenType = 13 const
 F:PicoSerDe.Core.TokenType.UInt8 : PicoSerDe.Core.TokenType = 10 const
 F:PicoSerDe.Core.TokenType.value__ : int
+I:PicoSerDe.Core.IFusedTokenReader : PicoSerDe.Core.ITokenReader
 I:PicoSerDe.Core.ITransactionalTokenReader : PicoSerDe.Core.ITokenReader
 M:PicoSerDe.Core.DeserializeDelegate`1..ctor(object object, nint method) : void
 M:PicoSerDe.Core.DeserializeDelegate`1.BeginInvoke(System.ReadOnlySpan`1<byte> data, PicoSerDe.Core.SerOptions options, System.AsyncCallback callback, object object) : System.IAsyncResult virtual
@@ -53,6 +54,11 @@ M:PicoSerDe.Core.DeserializerExtensions.Deserialize``1(PicoSerDe.Core.IDeseriali
 M:PicoSerDe.Core.DeserializerExtensions.Deserialize``1(PicoSerDe.Core.IDeserializer`1<T> deserializer, string data) : T static
 M:PicoSerDe.Core.GenerateSerializerAttribute..ctor(System.Type type) : void
 M:PicoSerDe.Core.IDeserializer`1.Deserialize(System.ReadOnlySpan`1<byte> data) : T abstract
+M:PicoSerDe.Core.IFusedTokenReader.TryGetCollectionCount(out int count) : bool abstract
+M:PicoSerDe.Core.IFusedTokenReader.TryReadBool(out bool value) : bool abstract
+M:PicoSerDe.Core.IFusedTokenReader.TryReadFloat64(out double value) : bool abstract
+M:PicoSerDe.Core.IFusedTokenReader.TryReadInt32(out int value) : bool abstract
+M:PicoSerDe.Core.IFusedTokenReader.TryReadInt64(out long value) : bool abstract
 M:PicoSerDe.Core.IOptionsSerializer`1.Serialize(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoSerDe.Core.SerOptions options) : void abstract
 M:PicoSerDe.Core.ISerializer`1.Serialize(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
 M:PicoSerDe.Core.ITokenReader.Read() : bool abstract
@@ -135,7 +141,12 @@ M:PicoSerDe.Core.TextHelpers.SkipBom(System.ReadOnlySpan`1<byte> data) : System.
 M:PicoSerDe.Core.TextHelpers.SkipBomSeq(ref System.Buffers.SequenceReader`1<byte> reader, bool isFinalBlock, out bool needsMoreData) : bool static
 M:PicoSerDe.Core.TextHelpers.Trim(System.ReadOnlySpan`1<byte> s) : System.ReadOnlySpan`1<byte> static
 M:PicoSerDe.Core.TextHelpers.TrimEnd(System.ReadOnlySpan`1<byte> s) : System.ReadOnlySpan`1<byte> static
+M:PicoSerDe.Core.TokenReaderFused.TryReadBool``1(ref T reader, out bool value) : bool static
+M:PicoSerDe.Core.TokenReaderFused.TryReadFloat64``1(ref T reader, out double value) : bool static
+M:PicoSerDe.Core.TokenReaderFused.TryReadInt32``1(ref T reader, out int value) : bool static
+M:PicoSerDe.Core.TokenReaderFused.TryReadInt64``1(ref T reader, out long value) : bool static
 M:System.Runtime.CompilerServices.InterceptsLocationAttribute..ctor(string filePath, int line, int column) : void
+P:PicoSerDe.Core.IFusedTokenReader.HasCountedCollections : bool { get; }
 P:PicoSerDe.Core.ITokenReader.Depth : int { get; }
 P:PicoSerDe.Core.ITokenReader.NeedsMoreData : bool { get; }
 P:PicoSerDe.Core.ITokenReader.TokenType : PicoSerDe.Core.TokenType { get; }
@@ -168,6 +179,7 @@ T:class PicoSerDe.Core.SerializerFacade`1
 T:class PicoSerDe.Core.SimdHelpers
 T:class PicoSerDe.Core.StreamingRunner
 T:class PicoSerDe.Core.TextHelpers
+T:class PicoSerDe.Core.TokenReaderFused
 T:class System.Runtime.CompilerServices.InterceptsLocationAttribute
 T:delegate PicoSerDe.Core.DeserializeDelegate`1
 T:delegate PicoSerDe.Core.SerDelegate`1
@@ -177,6 +189,7 @@ T:enum PicoSerDe.Core.PicoIgnoreCondition
 T:enum PicoSerDe.Core.ReadStatus
 T:enum PicoSerDe.Core.TokenType
 T:interface PicoSerDe.Core.IDeserializer`1
+T:interface PicoSerDe.Core.IFusedTokenReader
 T:interface PicoSerDe.Core.IOptionsSerializer`1
 T:interface PicoSerDe.Core.ISerializer`1
 T:interface PicoSerDe.Core.ITokenReader

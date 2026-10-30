@@ -11,6 +11,7 @@ F:PicoYaml.YamlIgnoreCondition.Never : PicoYaml.YamlIgnoreCondition = 0 const
 F:PicoYaml.YamlIgnoreCondition.WhenWritingNull : PicoYaml.YamlIgnoreCondition = 1 const
 F:PicoYaml.YamlIgnoreCondition.value__ : int
 F:PicoYaml.YamlSerializer.ContentType : string = "text/yaml" const
+I:PicoYaml.YamlReader : PicoSerDe.Core.IFusedTokenReader
 I:PicoYaml.YamlReader : PicoSerDe.Core.ITokenReader
 I:PicoYaml.YamlReader : PicoSerDe.Core.ITransactionalTokenReader
 M:PicoYaml.IYamlConverter`1.Read(ref PicoYaml.YamlReader reader) : T abstract
@@ -36,12 +37,17 @@ M:PicoYaml.YamlReader.RewindToMark() : void override
 M:PicoYaml.YamlReader.SetRawPos(int pos) : void
 M:PicoYaml.YamlReader.Skip() : void
 M:PicoYaml.YamlReader.TryGetBool(out bool v) : bool override
+M:PicoYaml.YamlReader.TryGetCollectionCount(out int count) : bool override
 M:PicoYaml.YamlReader.TryGetFloat64(out double v) : bool override
 M:PicoYaml.YamlReader.TryGetInt32(out int v) : bool override
 M:PicoYaml.YamlReader.TryGetInt64(out long v) : bool override
 M:PicoYaml.YamlReader.TryGetUInt64(out ulong v) : bool
+M:PicoYaml.YamlReader.TryReadBool(out bool value) : bool override
 M:PicoYaml.YamlReader.TryReadBoolArrayFast(System.Span`1<bool> dest) : int
+M:PicoYaml.YamlReader.TryReadFloat64(out double value) : bool override
+M:PicoYaml.YamlReader.TryReadInt32(out int value) : bool override
 M:PicoYaml.YamlReader.TryReadInt32ArrayFast(System.Span`1<int> dest) : int
+M:PicoYaml.YamlReader.TryReadInt64(out long value) : bool override
 M:PicoYaml.YamlReader.TryReadInt64ArrayFast(System.Span`1<long> dest) : int
 M:PicoYaml.YamlReader.TrySkip() : bool override
 M:PicoYaml.YamlSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, PicoYaml.YamlOptions options, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
@@ -86,6 +92,7 @@ P:PicoYaml.YamlOptions.DefaultIgnoreCondition : PicoYaml.YamlIgnoreCondition { g
 P:PicoYaml.YamlOptions.Indented : bool { get; set; }
 P:PicoYaml.YamlReader.BytesConsumed : long { get; }
 P:PicoYaml.YamlReader.Depth : int { get; }
+P:PicoYaml.YamlReader.HasCountedCollections : bool { get; }
 P:PicoYaml.YamlReader.IsEmptySequenceMarker : bool { get; }
 P:PicoYaml.YamlReader.IsNestedSequenceItem : bool { get; }
 P:PicoYaml.YamlReader.IsNullLiteral : bool { get; }

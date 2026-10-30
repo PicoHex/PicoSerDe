@@ -10,6 +10,7 @@ F:PicoToml.TomlIgnoreCondition.Never : PicoToml.TomlIgnoreCondition = 0 const
 F:PicoToml.TomlIgnoreCondition.WhenWritingNull : PicoToml.TomlIgnoreCondition = 1 const
 F:PicoToml.TomlIgnoreCondition.value__ : int
 F:PicoToml.TomlSerializer.ContentType : string = "application/toml" const
+I:PicoToml.TomlReader : PicoSerDe.Core.IFusedTokenReader
 I:PicoToml.TomlReader : PicoSerDe.Core.ITokenReader
 I:PicoToml.TomlReader : PicoSerDe.Core.ITransactionalTokenReader
 M:PicoToml.ITomlConverter`1.Read(ref PicoToml.TomlReader reader) : T abstract
@@ -34,12 +35,17 @@ M:PicoToml.TomlReader.RewindTo(long consumedOffset) : void override
 M:PicoToml.TomlReader.RewindToMark() : void override
 M:PicoToml.TomlReader.Skip() : void
 M:PicoToml.TomlReader.TryGetBool(out bool v) : bool override
+M:PicoToml.TomlReader.TryGetCollectionCount(out int count) : bool override
 M:PicoToml.TomlReader.TryGetFloat64(out double v) : bool override
 M:PicoToml.TomlReader.TryGetInt32(out int v) : bool override
 M:PicoToml.TomlReader.TryGetInt64(out long v) : bool override
 M:PicoToml.TomlReader.TryGetUInt64(out ulong v) : bool
+M:PicoToml.TomlReader.TryReadBool(out bool value) : bool override
 M:PicoToml.TomlReader.TryReadBoolArrayFast(System.Span`1<bool> dest) : int
+M:PicoToml.TomlReader.TryReadFloat64(out double value) : bool override
+M:PicoToml.TomlReader.TryReadInt32(out int value) : bool override
 M:PicoToml.TomlReader.TryReadInt32ArrayFast(System.Span`1<int> dest) : int
+M:PicoToml.TomlReader.TryReadInt64(out long value) : bool override
 M:PicoToml.TomlReader.TryReadInt64ArrayFast(System.Span`1<long> dest) : int
 M:PicoToml.TomlReader.TryReadNextInt32(out int v) : bool
 M:PicoToml.TomlReader.TrySkip() : bool override
@@ -107,6 +113,7 @@ P:PicoToml.TomlOptions.DefaultIgnoreCondition : PicoToml.TomlIgnoreCondition { g
 P:PicoToml.TomlOptions.Indented : bool { get; set; }
 P:PicoToml.TomlReader.BytesConsumed : long { get; }
 P:PicoToml.TomlReader.Depth : int { get; }
+P:PicoToml.TomlReader.HasCountedCollections : bool { get; }
 P:PicoToml.TomlReader.IsArrayTable : bool { get; }
 P:PicoToml.TomlReader.IsNullLiteral : bool { get; }
 P:PicoToml.TomlReader.IsResumed : bool { get; }

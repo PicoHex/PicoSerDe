@@ -13,6 +13,7 @@ F:PicoIni.IniIgnoreCondition.WhenWritingNull : PicoIni.IniIgnoreCondition = 1 co
 F:PicoIni.IniIgnoreCondition.value__ : int
 F:PicoIni.IniReaderState.SectionNameBytes : byte[]
 F:PicoIni.IniSerializer.ContentType : string = "text/plain" const
+I:PicoIni.IniReader : PicoSerDe.Core.IFusedTokenReader
 I:PicoIni.IniReader : PicoSerDe.Core.ITokenReader
 I:PicoIni.IniReader : PicoSerDe.Core.ITransactionalTokenReader
 M:PicoIni.IIniConverter`1.Read(System.ReadOnlySpan`1<byte> value) : T abstract
@@ -38,10 +39,15 @@ M:PicoIni.IniReader.RewindTo(long consumedOffset) : void override
 M:PicoIni.IniReader.RewindToMark() : void override
 M:PicoIni.IniReader.Skip() : void
 M:PicoIni.IniReader.TryGetBool(out bool v) : bool override
+M:PicoIni.IniReader.TryGetCollectionCount(out int count) : bool override
 M:PicoIni.IniReader.TryGetFloat64(out double v) : bool override
 M:PicoIni.IniReader.TryGetInt32(out int v) : bool override
 M:PicoIni.IniReader.TryGetInt64(out long v) : bool override
 M:PicoIni.IniReader.TryGetUInt64(out ulong v) : bool
+M:PicoIni.IniReader.TryReadBool(out bool value) : bool override
+M:PicoIni.IniReader.TryReadFloat64(out double value) : bool override
+M:PicoIni.IniReader.TryReadInt32(out int value) : bool override
+M:PicoIni.IniReader.TryReadInt64(out long value) : bool override
 M:PicoIni.IniReader.TrySkip() : bool override
 M:PicoIni.IniSectionAttribute..ctor(string name) : void
 M:PicoIni.IniSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, PicoIni.IniOptions options, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
@@ -101,6 +107,7 @@ P:PicoIni.IniOptions.DefaultIgnoreCondition : PicoIni.IniIgnoreCondition { get; 
 P:PicoIni.IniOptions.Indented : bool { get; set; }
 P:PicoIni.IniReader.BytesConsumed : long { get; }
 P:PicoIni.IniReader.Depth : int { get; }
+P:PicoIni.IniReader.HasCountedCollections : bool { get; }
 P:PicoIni.IniReader.IsNullLiteral : bool { get; }
 P:PicoIni.IniReader.IsResumed : bool { get; }
 P:PicoIni.IniReader.NeedsMoreData : bool { get; }
