@@ -72,14 +72,15 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 `YamlSerializer.Serialize` / `Deserialize` accept `YamlOptions`:
 
 - `Indented` — additionally indents sequence items under their key (nested block mappings are always indented; default: compact sequence items)
-- `DefaultIgnoreCondition` — accepted for API uniformity; YAML has no null value on the write side, so null members are always omitted
+- `DefaultIgnoreCondition` — accepted for API uniformity; a null **member** is always omitted (see [Null Handling](#null-handling))
 
 ## Null Handling
 
-- **Write:** a null member is omitted — YAML has no null value on the write
-  path (`key:` would read back as a default). Omission means a null does **not**
-  round-trip: the property keeps its initializer (or stays `null` when it has
-  none) on read.
+- **Write:** a null **member** is omitted — the key does not appear at all, so a
+  null member does **not** round-trip: the property keeps its initializer (or
+  stays `null` when it has none) on read. A null *element* and a null
+  *dictionary value* are a different story: the writer emits the null literal for
+  them (`- null`, `key: null` — see [Limits](#limits)), so those read back null.
 - **Read:** `Key:` with nothing after it, `~`, and the unquoted word `null`
   (any case) are null literals and assign `null` to nullable members.
 - A quoted `""` is the empty string and a quoted `"null"` is the four-character
@@ -113,16 +114,21 @@ syntax on the write side):
   not an empty sequence.
 - `List<List<Dto>>` (objects at the innermost level) round-trips the same way.
 
+Nullable leaves are **supported** in both directions. The writer emits the YAML null literal —
+`- null` as a sequence item (inside the dash block of a nested sequence too) — so `List<int?>`,
+`List<string?>`, `List<Dto?>`, `List<List<int?>>`, `List<List<MyEnum?>>`, `List<List<Dto?>>` and
+`Dictionary<string, int?>` all keep their nulls, and a null element, an empty collection (an empty
+sequence is `V: []`, or `- []` for an inner one) and a missing member stay three different
+documents. A null *member* — the collection itself being null — is still omitted rather than
+written (see [Null Handling](#null-handling)).
+
 Not representable, dropped at generation time with a warning (never emitted as code that would
 not compile):
 
-- a **nullable value leaf** in a nested chain — `List<List<int?>>`, `List<List<MyEnum?>>`,
-  `List<List<Dto?>>`, `Dictionary<string, List<int?>>` report `PICOSERDE004`;
 - a **recursive member** (`Node Child` on `Node`) reports `PICOSERDE003`.
 
-A nullable *reference* leaf stays supported: `List<List<string?>>` round-trips and null string
-items are skipped on write (YAML writes no null). The generator diagnostic is the authority for
-your build — `dotnet build 2>&1 | grep PICOSERDE`. The full five-format matrix lives in the
+The generator diagnostic is the authority for your build — `dotnet build 2>&1 | grep PICOSERDE`.
+The full five-format matrix lives in the
 [root README](../README.md#format-limits-what-each-wire-format-cannot-express).
 
 ## Performance

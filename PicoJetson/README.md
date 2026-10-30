@@ -108,6 +108,10 @@ byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
 byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
     new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
 
+// NaN / Infinity as named literals
+var withNaN = JsonSerializer.SerializeToUtf8Bytes(model,
+    new JsonOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals });
+
 // Accept trailing commas and comments (lenient parsing)
 var result = JsonSerializer.Deserialize<MyModel>(json,
     new JsonOptions { AllowTrailingCommas = true, ReadCommentHandling = JsonCommentHandling.Skip });
