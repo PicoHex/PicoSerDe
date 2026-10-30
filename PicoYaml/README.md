@@ -134,8 +134,8 @@ The full five-format matrix lives in the
 ## Performance
 
 **PicoYaml has a comparable opponent on CoreCLR, and against it PicoSerDe is faster: 0.02×–0.06× of
-YamlDotNet's cost, 6 of 6 scenarios (17×–50×).** The root README's
-[Measured results](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27) section carries the full table — median
+YamlDotNet's cost, 6 of 6 scenarios (17×–50×).** The
+[2026-10-27 measurement record](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27) carries the full table — median
 µs/op with min–max ±stddev, ratio printed as **ours ÷ theirs**, above 1.00 meaning we are slower.
 `Simple — SerializeToString` 0.163 vs 7.107 µs, `Collection — Deserialize←string` 5.301 vs
 84.649 µs.
