@@ -12,7 +12,8 @@ Contents: [The window behind the published figures](#the-window-behind-the-publi
 [The five rows, as published](#the-five-rows-as-published) ·
 [What the JIT column is comparing](#what-the-jit-column-is-comparing) ·
 [What a published number requires](#what-a-published-number-requires) ·
-[The 2026-10-27 archive](#the-2026-10-27-archive)
+[The 2026-10-27 archive](#the-2026-10-27-archive) ·
+[A probe that did not become a change](#a-probe-that-did-not-become-a-change)
 
 ---
 
@@ -267,3 +268,13 @@ Full per-scenario tables, per-run logs and the history behind the **2026-10-27**
 session's record and predates every figure above — it is kept as history, not as a second opinion on
 today's numbers. The 2026-10-29 run behind this page is reproducible with the commands above; its raw
 logs are session-local and are not committed.
+
+## A probe that did not become a change
+
+One mechanism question was measured and answered **no**: whether the two writers' self-managed
+span bookkeeping should move into `PicoSerDe.Core` as one shared `SpanBuffer`. The probe found it
+technically possible and a 4.3–6.9 % regression on the hottest paths under NativeAOT, so it was
+rejected; the record — three environments, the CONTROL bands, the conditions for reopening it, and
+the cross-format commit-timing test that replaced it — is
+[spanbuffer-probe.md](spanbuffer-probe.md). **No figure on this page came from it**, and no
+production line changed.
