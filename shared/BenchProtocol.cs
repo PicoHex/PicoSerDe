@@ -418,13 +418,15 @@ public static class BenchProtocol
                 + $" | runtime {Environment.Version}"
         );
         Console.WriteLine(
-            $"{RunsPerAction} independent runs × ≥{MinimumIterationsPerRun:N0} iterations/run"
-                + $" (≥{MinimumIterationsPerAction:N0} per operation, asserted in code) | values"
+            $"{RunsPerAction} independent runs × ≥{FormatNumber(MinimumIterationsPerRun, "N0")}"
+                + $" iterations/run (≥{FormatNumber(MinimumIterationsPerAction, "N0")} per"
+                + " operation, asserted in code) | values"
                 + " are median µs/op (min–max ±stddev over the runs)"
         );
         Console.WriteLine(
             "A run that is not idle — fixed-workload drift above"
-                + $" {MaxMedianDrift:P0}, spread above {MaxSpreadRatio:F1}x, or other processes"
+                + $" {FormatNumber(MaxMedianDrift, "P0")}, spread above"
+                + $" {FormatNumber(MaxSpreadRatio, "F1")}x, or other processes"
                 + $" using more than {FormatLimit(MaxOtherCpuFraction)} of the CPU — is not"
                 + " published."
         );
@@ -432,7 +434,8 @@ public static class BenchProtocol
             "The system-wide CPU criterion is the decisive one; when the host cannot report it,"
                 + " measurement is refused (fail-closed) unless PICOBENCH_ALLOW_UNKNOWN_CPU=1."
                 + " Knobs: PICOBENCH_MAX_OTHER_CPU (default"
-                + $" {DefaultMaxOtherCpuFraction:P0}), PICOBENCH_STRICT=1 (a refusal exits 1),"
+                + $" {FormatNumber(DefaultMaxOtherCpuFraction, "P0")}), PICOBENCH_STRICT=1 (a"
+                + " refusal exits 1),"
                 + " PICOBENCH_ALLOW_ZERO_PUBLISH=1 (publishing nothing does not exit 1)."
         );
 
@@ -480,27 +483,32 @@ public static class BenchProtocol
         string failure = "";
         if (!double.IsFinite(drift) || drift > MaxMedianDrift)
             failure =
-                $"repeating the same fixed workload twice moved its median by {drift:P1}"
-                + $" (limit {MaxMedianDrift:P0}) — the machine is not idle";
+                $"repeating the same fixed workload twice moved its median by"
+                + $" {FormatNumber(drift, "P1")} (limit {FormatNumber(MaxMedianDrift, "P0")}) —"
+                + " the machine is not idle";
         else if (spread > MaxSpreadRatio)
             failure =
-                $"run-to-run max/min of the fixed workload is {spread:F2}x (limit"
-                + $" {MaxSpreadRatio:F1}x) — the machine is not idle";
+                $"run-to-run max/min of the fixed workload is {FormatNumber(spread, "F2")}x"
+                + $" (limit {FormatNumber(MaxSpreadRatio, "F1")}x) — the machine is not idle";
         else if (relativeStdDev > MaxProbeRelativeStdDev)
             failure =
-                $"run-to-run dispersion of the fixed workload is {relativeStdDev:F1}% (limit"
-                + $" {MaxProbeRelativeStdDev:F0}%) — the machine is not idle";
+                $"run-to-run dispersion of the fixed workload is"
+                + $" {FormatNumber(relativeStdDev, "F1")}% (limit"
+                + $" {FormatNumber(MaxProbeRelativeStdDev, "F0")}%) — the machine is not idle";
         else if (loadUnknown && !AllowUnknownCpu)
             failure = UnknownCpuFailure("during the check");
         else if (!loadUnknown && otherCpu > MaxOtherCpuFraction)
             failure =
-                $"other processes used {otherCpu:P1} of the machine's CPU during the check"
+                $"other processes used {FormatNumber(otherCpu, "P1")} of the machine's CPU"
+                + " during the check"
                 + $" (limit {FormatLimit(MaxOtherCpuFraction)}) — the machine is not idle";
 
         if (TraceProbe)
             Console.WriteLine(
-                $"  probe: {first.MedianUs:F1}µs vs {second.MedianUs:F1}µs | drift {drift:P1} |"
-                    + $" spread {spread:F2}x (run-to-run) | dispersion {relativeStdDev:F1}% |"
+                $"  probe: {FormatNumber(first.MedianUs, "F1")}µs vs"
+                    + $" {FormatNumber(second.MedianUs, "F1")}µs | drift {FormatNumber(drift, "P1")} |"
+                    + $" spread {FormatNumber(spread, "F2")}x (run-to-run) |"
+                    + $" dispersion {FormatNumber(relativeStdDev, "F1")}% |"
                     + $" other-CPU {FormatOtherCpu(otherCpu)}"
             );
 
@@ -527,8 +535,10 @@ public static class BenchProtocol
         {
             _selfCheckReported = true;
             Console.WriteLine(
-                $"  load self-check: idle enough — drift {drift:P1}, spread {spread:F2}x,"
-                    + $" dispersion {relativeStdDev:F1}% on a {first.MedianUs:F1}µs fixed workload,"
+                $"  load self-check: idle enough — drift {FormatNumber(drift, "P1")}, spread"
+                    + $" {FormatNumber(spread, "F2")}x, dispersion"
+                    + $" {FormatNumber(relativeStdDev, "F1")}% on a"
+                    + $" {FormatNumber(first.MedianUs, "F1")}µs fixed workload,"
                     + $" other-CPU {FormatOtherCpu(otherCpu)}"
             );
         }
@@ -558,9 +568,11 @@ public static class BenchProtocol
         if (sample.Spread > MaxSpreadRatio)
             return Reject(
                 label,
-                $"the action's own {RunsPerAction} runs spread {sample.Spread:F2}x (limit"
-                    + $" {MaxSpreadRatio:F1}x) — the code had not settled (tiered JIT, GC) or the"
-                    + " machine is busy, so there is no trustworthy figure to report"
+                $"the action's own {RunsPerAction} runs spread"
+                    + $" {FormatNumber(sample.Spread, "F2")}x (limit"
+                    + $" {FormatNumber(MaxSpreadRatio, "F1")}x) — the code had not settled"
+                    + " (tiered JIT, GC) or the machine is busy, so there is no trustworthy"
+                    + " figure to report"
             );
 
         PublishedCount++;
@@ -615,10 +627,11 @@ public static class BenchProtocol
     /// </returns>
     public static string FormatCell(ProtocolSample sample) =>
         sample.Stable
-            ? $"{sample.MedianUs:F3} ({sample.MinUs:F3}–{sample.MaxUs:F3} ±{sample.StdDevUs:F3})"
+            ? $"{FormatNumber(sample.MedianUs, "F3")} ({FormatNumber(sample.MinUs, "F3")}"
+                + $"–{FormatNumber(sample.MaxUs, "F3")} ±{FormatNumber(sample.StdDevUs, "F3")})"
                 + $" {FormatCellCpu(sample.OtherCpuFraction)}"
                 + $" w{(sample.WarmupSettled ? "" : "⚠")}"
-                + $"{sample.WarmupMilliseconds / 1000.0:F1}s/{sample.WarmupBursts}b"
+                + $"{FormatNumber(sample.WarmupMilliseconds / 1000.0, "F1")}s/{sample.WarmupBursts}b"
             : "UNSTABLE — not published";
 
     /// <summary>
@@ -737,7 +750,16 @@ public static class BenchProtocol
                 var idle = 0.0;
                 for (var i = 1; i < fields.Length && i <= 8; i++)
                 {
-                    if (!double.TryParse(fields[i], out var value))
+                    // /proc/stat always writes plain integers, but a comma-decimal ambient
+                    // culture must not get a vote on whether they parse.
+                    if (
+                        !double.TryParse(
+                            fields[i],
+                            NumberStyles.Float,
+                            CultureInfo.InvariantCulture,
+                            out var value
+                        )
+                    )
                         return false;
                     total += value;
                     if (i is 4 or 5)
@@ -773,16 +795,58 @@ public static class BenchProtocol
         );
     }
 
+    // Every number this file prints goes through ProtocolNumbers and never through the ambient
+    // culture. This is protocol text — pasted verbatim into README tables, quoted in release
+    // notes, read back by tools — so it has to be one string on every machine, and it was not:
+    // `P0` inserts a space before the percent sign when the culture asks for one, so the
+    // linux-x64 CI leg printed "12 %" where windows printed "12%" from the same source. Under
+    // a culture with a comma decimal separator (fr-FR) the same code also printed "0,250" —
+    // straight into the archive.
+    //
+    // Basing this on CultureInfo.InvariantCulture would NOT have fixed it: .NET's invariant
+    // culture formats a percentage as "12 %" as well (its NumberFormatInfo carries
+    // PercentPositivePattern 0), which is exactly the string the Linux leg produced — an
+    // "invariant" fix would have renamed the bug into all five legs and changed the published
+    // "12%" spelling that the tables and the tests are pinned to. The format is therefore
+    // declared here in full, borrowed from no culture: "." decimal, "," thousands grouped by
+    // three, and "%" glued to the number — the spelling windows/macOS already produced and the
+    // one the quoted cells are written in.
+    private static readonly NumberFormatInfo ProtocolNumbers = new()
+    {
+        NumberDecimalSeparator = ".",
+        NumberGroupSeparator = ",",
+        NumberGroupSizes = [3],
+        PercentDecimalSeparator = ".",
+        PercentGroupSeparator = ",",
+        PercentGroupSizes = [3],
+        PercentSymbol = "%",
+        PercentPositivePattern = 1, // "12%", not "12 %"
+        PercentNegativePattern = 1, // "-12%", not "-12 %"
+        NegativeSign = "-",
+        PositiveSign = "+",
+        NaNSymbol = "NaN",
+    };
+
+    /// <summary>
+    /// Formats one number the way this protocol prints numbers — under
+    /// <see cref="ProtocolNumbers"/>, so the text is a property of this file and not of
+    /// whichever culture the host happens to run under.
+    /// </summary>
+    internal static string FormatNumber(double value, string format) =>
+        value.ToString(format, ProtocolNumbers);
+
     private static string FormatOtherCpu(double fraction) =>
-        double.IsNaN(fraction) ? "n/a on this OS" : fraction.ToString("P0");
+        double.IsNaN(fraction) ? "n/a on this OS" : FormatNumber(fraction, "P0");
 
     // P0 is right for the default (35%) but would round an override like 0.5% to "1%".
     private static string FormatLimit(double fraction) =>
-        fraction == Math.Round(fraction, 2) ? fraction.ToString("P0") : fraction.ToString("P2");
+        fraction == Math.Round(fraction, 2)
+            ? FormatNumber(fraction, "P0")
+            : FormatNumber(fraction, "P2");
 
     // The same value, short enough for a table cell.
     private static string FormatCellCpu(double fraction) =>
-        double.IsNaN(fraction) ? "n/a" : fraction.ToString("P0");
+        double.IsNaN(fraction) ? "n/a" : FormatNumber(fraction, "P0");
 
     private static string UnknownCpuFailure(string window) =>
         $"system-wide CPU load cannot be read on this host {window}, so \"the machine is"
@@ -843,9 +907,11 @@ public static class BenchProtocol
         var plannedIterations = (long)iterationsPerSample * samplesPerRun * RunsPerAction;
         if (plannedIterations < MinimumIterationsPerAction)
             throw new InvalidOperationException(
-                $"Protocol violation: this measurement would execute {plannedIterations:N0}"
+                $"Protocol violation: this measurement would execute"
+                    + $" {FormatNumber(plannedIterations, "N0")}"
                     + $" iterations ({iterationsPerSample} per sample x {samplesPerRun} samples x"
-                    + $" {RunsPerAction} runs), below the {MinimumIterationsPerAction:N0} floor."
+                    + $" {RunsPerAction} runs), below the"
+                    + $" {FormatNumber(MinimumIterationsPerAction, "N0")} floor."
                     + " Fix the iteration arithmetic; do not publish a figure measured this way."
             );
 
@@ -854,7 +920,7 @@ public static class BenchProtocol
         if (!warmup.Settled && Strict)
             return Reject(
                 label,
-                $"warm-up did not converge within {warmup.ElapsedMilliseconds:N0} ms"
+                $"warm-up did not converge within {FormatNumber(warmup.ElapsedMilliseconds, "N0")} ms"
                     + $" ({warmup.Bursts} bursts) and PICOBENCH_STRICT=1 is set — the code was"
                     + " still heating up when the runs started, so there is no trustworthy figure"
             );
@@ -888,7 +954,7 @@ public static class BenchProtocol
 
         if (TraceProbe)
             Console.WriteLine(
-                $"  runs {label}: {string.Join(" | ", perRun.Select(v => v.ToString("F3")))}"
+                $"  runs {label}: {string.Join(" | ", perRun.Select(v => FormatNumber(v, "F3")))}"
                     + $" (iters/sample {iterationsPerSample}, samples/run {samplesPerRun},"
                     + $" other-CPU {FormatOtherCpu(otherCpu)}, warm-up"
                     + $" {(warmup.Settled ? "settled" : "TIMED OUT")} {warmup.ElapsedMilliseconds}ms/"
@@ -901,7 +967,8 @@ public static class BenchProtocol
         if (!loadUnknown && otherCpu > MaxOtherCpuFraction)
             return Reject(
                 label,
-                $"other processes used {otherCpu:P1} of the machine's CPU while this action was"
+                $"other processes used {FormatNumber(otherCpu, "P1")} of the machine's CPU"
+                    + " while this action was"
                     + $" measured (limit {FormatLimit(MaxOtherCpuFraction)}) — every run is slowed"
                     + " unknown factor, so the figure is not trustworthy"
             );
@@ -1300,7 +1367,7 @@ public sealed class ProtocolTable
             : "✗";
         var verdict =
             !_equivalent ? "NON-EQUIVALENT"
-            : double.IsFinite(ratio) ? $"{ratio:F2}x"
+            : double.IsFinite(ratio) ? $"{BenchProtocol.FormatNumber(ratio, "F2")}x"
             : "—";
 
         Console.WriteLine(
@@ -1402,17 +1469,19 @@ public sealed class ProtocolTable
             return;
         }
 
+        var floor = BenchProtocol.FormatNumber(BenchProtocol.MinimumIterationsPerAction, "N0");
         Console.WriteLine(
-            $"iterations executed per arm: {published.Min(s => s.Iterations):N0}"
-                + $"–{published.Max(s => s.Iterations):N0} (README floor"
-                + $" {BenchProtocol.MinimumIterationsPerAction:N0}, asserted in MeasureCore)"
+            $"iterations executed per arm:"
+                + $" {BenchProtocol.FormatNumber(published.Min(s => s.Iterations), "N0")}"
+                + $"–{BenchProtocol.FormatNumber(published.Max(s => s.Iterations), "N0")}"
+                + $" (README floor {floor}, asserted in MeasureCore)"
         );
 
         var timedOut = published.Count(sample => !sample.WarmupSettled);
         Console.WriteLine(
             $"warm-up: {published.Length - timedOut}/{published.Length} arms converged after"
-                + $" {published.Min(s => s.WarmupMilliseconds) / 1000.0:F1}"
-                + $"–{published.Max(s => s.WarmupMilliseconds) / 1000.0:F1} s"
+                + $" {BenchProtocol.FormatNumber(published.Min(s => s.WarmupMilliseconds) / 1000.0, "F1")}"
+                + $"–{BenchProtocol.FormatNumber(published.Max(s => s.WarmupMilliseconds) / 1000.0, "F1")} s"
                 + $" ({published.Min(s => s.WarmupBursts)}–{published.Max(s => s.WarmupBursts)}"
                 + " bursts)"
                 + (timedOut > 0 ? $"; ⚠ {timedOut} arm(s) ran out of warm-up budget" : "")
