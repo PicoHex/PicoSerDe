@@ -478,14 +478,25 @@ public class BoundaryValueWhiteAreaTests
 
     /// <summary>
     /// I-6 white area 5, the ROOT CAUSE, pinned so the fallback above cannot be "simplified"
-    /// away later: <c>Utf8Parser.TryParse(…, 'O')</c> answers <c>false</c> for
-    /// <c>DateTime.MinValue</c>'s own round-trip text while accepting the identical SHAPE for
-    /// another value. That is why the INI read path needs
-    /// <c>DateTime.Parse(…, RoundtripKind)</c> behind it — not a "missing Kind suffix", which is
-    /// what spec §3 footnote ⁴ guessed before it was measured.
+    /// away later: <c>Utf8Parser.TryParse(…, 'O')</c> declines <c>DateTime.MinValue</c>'s own
+    /// round-trip text while accepting the identical SHAPE for another value — the value, not the
+    /// format. That is why the INI read path needs <c>DateTime.Parse(…, RoundtripKind)</c> behind it,
+    /// not a "missing Kind suffix", which is what spec §3 footnote ⁴ guessed before it was measured.
+    /// <para>
+    /// <b>Whether it declines is the machine's time zone, not the text.</b> A round-trip text with no
+    /// zone designator is range-checked against the UTC form of its local reading, so
+    /// <c>0001-01-01T00:00:00</c> underflows exactly where the local offset is positive — measured
+    /// <c>false</c> at UTC+00:01 and every offset east of it, <c>true</c> at UTC and every offset west
+    /// of it. Pinning the eastern answer made this test red on every UTC CI runner, where the raw
+    /// parser accepts the text and the fallback is needed for its other inputs instead. So the
+    /// expectation here is derived from the offset this machine is in — one assertion, no fixed
+    /// answer — and the product behaviour the fallback exists for
+    /// (<see cref="Ini_reads_back_a_default_DateTime_member"/>) is asserted unconditionally above,
+    /// on whatever zone runs it.
+    /// </para>
     /// </summary>
     [Test]
-    public async Task Utf8Parser_round_trip_format_rejects_DateTime_MinValue()
+    public async Task Utf8Parser_round_trip_format_judges_DateTime_MinValue_against_the_local_offset()
     {
         var min = "0001-01-01T00:00:00.0000000"u8;
         var ordinary = "2020-12-31T23:59:59.0000000"u8;
@@ -503,12 +514,17 @@ public class BoundaryValueWhiteAreaTests
             'O'
         );
 
+        var offsetAtMinValue = TimeZoneInfo.Local.GetUtcOffset(default(DateTime));
+        var acceptsMinValue = offsetAtMinValue <= TimeSpan.Zero;
+
         await Assert
             .That(minParsed)
-            .IsFalse()
+            .IsEqualTo(acceptsMinValue)
             .Because(
-                "this false is the whole bug: the text is the writer's own canonical form for "
-                    + "default(DateTime)"
+                "the parser range-checks a no-zone text as a local reading: at UTC"
+                    + $"{offsetAtMinValue} the UTC form of MinValue leaves the range, so it declines; "
+                    + "at or west of UTC the same reading is representable and it answers. Either way "
+                    + "the INI fallback is what makes the product read the text back."
             );
         await Assert
             .That(ordinaryParsed)
