@@ -101,7 +101,7 @@ lives in the [root README](../README.md#format-limits-what-each-wire-format-cann
 **TOML has a competitor that does the same job, and on it PicoSerDe is faster under JIT *and* under
 NativeAOT: 0.08×–0.41× of Tomlyn's cost under JIT (faster in 10 of 10 scenarios, median 0.20×, i.e.
 2.4×–12.5×) and 0.10×–0.40× under AOT (10 of 10, median 0.21×, i.e. 2.5×–10×).**
-The root README's [Measured results](../README.md#measured-results-2026-10-27) section carries both
+The root README's [Measured results](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27) section carries both
 per-scenario tables — median µs/op with min–max ±stddev, ratio printed as **ours ÷ theirs** — beside
 each run's own summary line. Two highlights under JIT: `Simple — Deserialize` 0.141 vs 1.688 µs
 (0.08×) and `Nested — Deserialize` 0.592 vs 5.094 µs (0.12×); under AOT the same two rows read
@@ -156,7 +156,7 @@ row anywhere near 1.00. The margin does narrow slightly on the serialize rows un
 
 Ratios are read to the session's precision: a single session's ±stddev comes from five runs in one
 process, and the honest band between sessions is about ±10% (see
-[the root README's note](../README.md#one-sessions-stddev-is-not-a-cross-session-error-bar)) — the
+[the root README's note](../docs/perf/measurement-2026-10-27.md#one-sessions-stddev-is-not-a-cross-session-error-bar)) — the
 widest row at 0.41× is still an order of magnitude clear of that band.
 
 Capability fact that does not depend on measurement: **Tommy's DOM API (`TOML.Parse`, `TomlTable`)

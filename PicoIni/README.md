@@ -106,7 +106,7 @@ var ini = IniSerializer.Serialize(config);
 and 0 parameters of type `System.Type`**, and its only entry point is `Parse(string) → IniData` — a
 DOM. Any POCO mapping on its side is therefore the caller's own code, by definition, so it is never
 "one library call" against ours, in any execution mode. The root README's
-[Measured results](../README.md#measured-results-2026-10-27) section carries PicoIni's own
+[Measured results](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27) section carries PicoIni's own
 per-scenario cost — nine scenarios, median µs/op with min–max ±stddev — under a table labelled
 `NON-EQUIVALENT`, with the competitor column deliberately left out so that no reader is invited to
 divide one arm by the other. `equivalent=false` in that run's summary line.

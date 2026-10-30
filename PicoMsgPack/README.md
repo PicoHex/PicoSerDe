@@ -112,7 +112,7 @@ again.
 
 **PicoMsgPack is slower than MessagePack-CSharp on these micro-benchmarks.** The full tables, the
 machine and the log behind every number live in the root README's
-[Measured results](../README.md#measured-results-2026-10-27); this page keeps the
+[Measured results](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27); this page keeps the
 MessagePack-specific summary. Every ratio is **ours ÷ theirs**: above 1.00 we are slower.
 
 - **AOT vs AOT, 4 scenarios — slower in 3 of 4.** Range 0.93×–3.34×, median 1.40×:
@@ -137,7 +137,7 @@ table, 8%–21% on the JIT one, against the protocol's 35% limit; no arm was ref
 session's ±stddev is not a cross-session error bar: five runs in one process share a JIT and a
 thermal state, so the honest band between sessions is about ±10% — the root README explains this
 under
-[One session's stddev is not a cross-session error bar](../README.md#one-sessions-stddev-is-not-a-cross-session-error-bar),
+[One session's stddev is not a cross-session error bar](../docs/perf/measurement-2026-10-27.md#one-sessions-stddev-is-not-a-cross-session-error-bar),
 with this format's AOT `Person — Serialize` as the worked example (±1% within the session, 17%
 between sessions).
 

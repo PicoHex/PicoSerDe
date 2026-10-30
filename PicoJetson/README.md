@@ -203,7 +203,7 @@ await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
 
 **PicoJetson is slower than System.Text.Json on these micro-benchmarks.** The full tables, the
 machine they were taken on and the log behind every number live in the root README's
-[Measured results](../README.md#measured-results-2026-10-27); this page keeps only what is specific
+[Measured results](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27); this page keeps only what is specific
 to JSON. Every ratio is **ours ÷ theirs**, the direction the harness prints: above 1.00 we are
 slower.
 
@@ -223,7 +223,7 @@ applies to all of it: **a single session's ±stddev is not a cross-session error
 one process cannot see tiered-JIT landing points or thermal history, so the honest cross-session
 band is about ±10%, and a ratio inside that band is not a direction claim (the root README spells
 this out under
-[One session's stddev is not a cross-session error bar](../README.md#one-sessions-stddev-is-not-a-cross-session-error-bar)).
+[One session's stddev is not a cross-session error bar](../docs/perf/measurement-2026-10-27.md#one-sessions-stddev-is-not-a-cross-session-error-bar)).
 `Nested POCO — Deserialize` at 0.92× is inside it and is not claimed as a win.
 
 `dotnet run -c Release --project PicoJetson/benchmarks/PicoJetson.Benchmarks` reproduces the JIT
