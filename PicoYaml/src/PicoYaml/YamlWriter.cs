@@ -164,7 +164,7 @@ public ref struct YamlWriter
             _afterKey = false;
         }
         Span<byte> buf = _buffer.GetSpan(16);
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, System.Globalization.CultureInfo.InvariantCulture);
         _buffer.Advance(w);
         _bytesWritten += w;
         WriteNewLine();
@@ -237,7 +237,7 @@ public ref struct YamlWriter
             _afterKey = false;
         }
         Span<byte> buf = _buffer.GetSpan(32);
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, System.Globalization.CultureInfo.InvariantCulture);
         _buffer.Advance(w);
         _bytesWritten += w;
         WriteNewLine();
@@ -251,7 +251,7 @@ public ref struct YamlWriter
             _afterKey = false;
         }
         Span<byte> buf = _buffer.GetSpan(32);
-        value.TryFormat(buf, out var w);
+        value.TryFormat(buf, out var w, default, System.Globalization.CultureInfo.InvariantCulture);
         _buffer.Advance(w);
         _bytesWritten += w;
         WriteNewLine();
