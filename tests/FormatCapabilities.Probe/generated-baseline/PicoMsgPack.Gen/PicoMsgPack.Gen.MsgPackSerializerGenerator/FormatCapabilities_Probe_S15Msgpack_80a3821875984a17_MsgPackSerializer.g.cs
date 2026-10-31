@@ -24,7 +24,7 @@ file static class S15MsgpackMsgPackSerializer {
         if (!__sk1) {
             mw.WriteInt32(5);
             if (value.Day.HasValue) {
-                mw.WriteString(value.Day.Value.ToString());
+                mw.WriteString(System.Enum.IsDefined(value.Day.Value) ? value.Day.Value.ToString() : System.Convert.ToDecimal(value.Day.Value).ToString(System.Globalization.CultureInfo.InvariantCulture));
             } else mw.WriteNull();
         }
         mw.WriteEndObject(); _ = mw.Buffer; } }

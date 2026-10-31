@@ -614,7 +614,28 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine(")");
             s.AppendLine(dictPad + "{");
             s.Append(dictPad + "    iw.WriteKeyValue(__kvp.Key, ");
-            WriteValue(s, p, "__kvp.Value");
+            // Review C7 §2.5 ②: the VALUE type decides the write shape. Handing this
+            // emitter the dictionary's own PropertyInfo (TypeKind "dict" — no case in the
+            // switch below) fell through to `object.ToString()`, so an `int` value was
+            // formatted by the ambient culture before the writer saw it. The synthesized
+            // descriptor routes it to the same typed overload every other `int` takes.
+            WriteValue(
+                s,
+                new PropertyInfo(
+                    Name: "__value",
+                    JsonName: "__value",
+                    TypeKind: p.ElementTypeKind ?? "string",
+                    TypeFullName: p.ElementTypeName ?? "object",
+                    IsNullable: p.ElementIsNullableValue,
+                    ElementTypeKind: null,
+                    ElementTypeName: null,
+                    KeyTypeKind: null,
+                    KeyTypeName: null,
+                    NestedProperties: ImmutableArray<PropertyInfo>.Empty,
+                    ConverterTypeFullName: null
+                ),
+                "__kvp.Value"
+            );
             s.AppendLine(");");
             s.AppendLine(dictPad + "}");
             if (dictGuard)
@@ -1446,8 +1467,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "enum":
                 s.Append("Encoding.UTF8.GetBytes(");
-                s.Append(acc);
-                s.Append(".ToString())");
+                s.Append(EnumTextExpr(acc));
+                s.Append(")");
                 break;
             case "list":
             case "array":
@@ -1488,6 +1509,28 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     );
                 else if (p.ElementTypeKind == "boolean")
                     s.Append(".Select(__s => __s ? \"true\" : \"false\"))");
+                // Review C7 §2.5 ①: `string.Join(",", values)` formats each element with
+                // `ToString()` — no provider, so the ambient culture. sv-SE spells the minus
+                // sign U+2212, and the comma-joined line is then unreadable by the invariant
+                // `int.Parse` the reader below uses. The integer overloads on the writer were
+                // already pinned (`91437c1`); these branches are the same fix one level up, in
+                // the TEXT this generated code builds before the writer ever sees it.
+                else if (
+                    p.ElementTypeKind
+                    is "int32"
+                        or "int64"
+                        or "int16"
+                        or "uint16"
+                        or "sbyte"
+                        or "byte"
+                        or "uint32"
+                        or "uint64"
+                )
+                    s.Append(
+                        ".Select(__s => __s.ToString(System.Globalization.CultureInfo.InvariantCulture)))"
+                    );
+                else if (p.ElementTypeKind == "enum")
+                    s.Append(".Select(__s => ").Append(EnumTextExpr("__s")).Append("))");
                 else
                     s.Append(")");
                 break;
@@ -2065,6 +2108,27 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append(pad);
         s.AppendLine("{");
     }
+
+    /// <summary>
+    /// The text of an enum value, culture-free.
+    /// <para>
+    /// <c>Enum.ToString()</c> is culture-free for a value that HAS a name (it returns the
+    /// name) and culture-<b>sensitive</b> for one that does not (it returns the underlying
+    /// number formatted by the ambient culture, so <c>sv-SE</c> writes U+2212 MINUS SIGN).
+    /// <c>Enum.ToString(format, provider)</c> does not help: its provider argument is unused
+    /// (and obsolete, CS0618). So the name path stays exactly as it was, and only the
+    /// nameless path is re-spelled — through <see cref="decimal"/>, which every enum width
+    /// converts to, so no underlying-type guess is needed (review C7 §2.5 ③).
+    /// </para>
+    /// </summary>
+    private static string EnumTextExpr(string acc) =>
+        "System.Enum.IsDefined("
+        + acc
+        + ") ? "
+        + acc
+        + ".ToString() : System.Convert.ToDecimal("
+        + acc
+        + ").ToString(System.Globalization.CultureInfo.InvariantCulture)";
 
     private static string EmitIniValue(AnonFieldInfo f, string vv, string wv)
     {

@@ -1851,12 +1851,34 @@ file static class __PicoMsgPackBulk {
                 );
                 break;
             case "dateonly":
+                // Review C7 §2.5 ④: MessagePack is a binary format, but this payload is
+                // TEXT — a 0xAA string header, not a timestamp extension. `DateOnly.ToString()`
+                // follows the ambient culture: "06/04/2026" under the invariant culture,
+                // "2026-06-04" under sv-SE, "04/06/2026" under fr-FR — so the same value was
+                // three different byte sequences, and the reader below could only undo one of
+                // them. "O" is the ISO 8601 shape every culture reads back identically.
+                s.Append(ind);
+                s.Append("mw.WriteString(");
+                s.Append(a);
+                s.AppendLine(
+                    ".ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
             case "guid":
-            case "enum":
+                // Guid.ToString() is the culture-free "D" form already; no provider to add.
                 s.Append(ind);
                 s.Append("mw.WriteString(");
                 s.Append(a);
                 s.AppendLine(".ToString());");
+                break;
+            case "enum":
+                // A DEFINED value is a name and stays culture-free; an UNDEFINED one is the
+                // underlying number formatted by the ambient culture (sv-SE: U+2212). The
+                // reader parses either shape (Enum.TryParse below), so the number stays.
+                s.Append(ind);
+                s.Append("mw.WriteString(");
+                s.Append(EnumTextExpr(a));
+                s.AppendLine(");");
                 break;
             case "decimal":
                 // C-14: a plain ToString() writes "1,5" under de-DE, which the invariant
@@ -2135,12 +2157,34 @@ file static class __PicoMsgPackBulk {
                 );
                 break;
             case "dateonly":
+                // Review C7 §2.5 ④: MessagePack is a binary format, but this payload is
+                // TEXT — a 0xAA string header, not a timestamp extension. `DateOnly.ToString()`
+                // follows the ambient culture: "06/04/2026" under the invariant culture,
+                // "2026-06-04" under sv-SE, "04/06/2026" under fr-FR — so the same value was
+                // three different byte sequences, and the reader below could only undo one of
+                // them. "O" is the ISO 8601 shape every culture reads back identically.
+                s.Append(ind);
+                s.Append("mw.WriteString(");
+                s.Append(a);
+                s.AppendLine(
+                    ".ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture));"
+                );
+                break;
             case "guid":
-            case "enum":
+                // Guid.ToString() is the culture-free "D" form already; no provider to add.
                 s.Append(ind);
                 s.Append("mw.WriteString(");
                 s.Append(a);
                 s.AppendLine(".ToString());");
+                break;
+            case "enum":
+                // A DEFINED value is a name and stays culture-free; an UNDEFINED one is the
+                // underlying number formatted by the ambient culture (sv-SE: U+2212). The
+                // reader parses either shape (Enum.TryParse below), so the number stays.
+                s.Append(ind);
+                s.Append("mw.WriteString(");
+                s.Append(EnumTextExpr(a));
+                s.AppendLine(");");
                 break;
             case "decimal":
                 // C-14: a plain ToString() writes "1,5" under de-DE, which the invariant
@@ -2267,6 +2311,27 @@ file static class __PicoMsgPackBulk {
                 break;
         }
     }
+
+    /// <summary>
+    /// The text of an enum value, culture-free.
+    /// <para>
+    /// <c>Enum.ToString()</c> is culture-free for a value that HAS a name (it returns the
+    /// name) and culture-<b>sensitive</b> for one that does not (it returns the underlying
+    /// number formatted by the ambient culture, so <c>sv-SE</c> writes U+2212 MINUS SIGN).
+    /// <c>Enum.ToString(format, provider)</c> does not help: its provider argument is unused
+    /// (and obsolete, CS0618). So the name path stays exactly as it was, and only the
+    /// nameless path is re-spelled — through <see cref="decimal"/>, which every enum width
+    /// converts to, so no underlying-type guess is needed (review C7 §2.5 ④).
+    /// </para>
+    /// </summary>
+    static string EnumTextExpr(string acc) =>
+        "System.Enum.IsDefined("
+        + acc
+        + ") ? "
+        + acc
+        + ".ToString() : System.Convert.ToDecimal("
+        + acc
+        + ").ToString(System.Globalization.CultureInfo.InvariantCulture)";
 
     /// <summary>
     /// Strips the Nullable&lt;T&gt; annotation from a fully-qualified type name so
@@ -2487,7 +2552,10 @@ file static class __PicoMsgPackBulk {
                 s.AppendLine("{");
                 s.Append(ind);
                 s.AppendLine(
-                    "    if (!DateOnly.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), out __dov"
+                    // The writer above emits "O" (ISO 8601); reading it back through the
+                    // ambient culture would undo that fix on the other half of the round trip
+                    // (review C7 §2.5 ④ / §8-2).
+                    "    if (!DateOnly.TryParse(Encoding.UTF8.GetString(reader.GetStringRaw()), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out __dov"
                         + id
                         + ")) throw new System.FormatException($\"Invalid DateOnly at offset {reader.BytesConsumed}\");"
                 );
