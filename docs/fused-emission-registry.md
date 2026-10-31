@@ -26,7 +26,12 @@
 - **状态**：只有两个值 ——
   - `已发射`：生成基线里**必须**真有 `成员名(` 的调用（否则红：登记表在说谎）；
   - `不用`：实现了但生成器不调用它。**理由列必填**（写清"为什么不发"，不是"没时间"）。
-- **理由 / 证据**：可核对的判据（grep 判据 / 文件行号 / commit / 数字）。**一句话就够，但必须能被查。**
+- **理由 / 证据**：可核对的判据（grep 判据 / 符号名 / commit / 数字）。**一句话就够，但必须能被查。**
+- **引代码就引符号名，不引行号。** 要指 `JsonReader` 的某个成员，写 `` `JsonReader.TryReadInt32` ``，不写
+  行号：成员名用一条 `grep -n 'bool TryReadInt32' PicoJetson/src/PicoJetson/JsonReader.cs`
+  就能查到，而行号会被任何一次插入改掉 —— 本表的行号曾因 `JsonReader.cs` 一次 +33 行整体失效（本表五处
+  + `api/PENDING-CHANGES.md` 两处，没有任何测试因此变红）。`DocPointerGuardTests` 现在会拒绝这两个
+  账本里的行号引用。
 - 已发射的成员**可以不登记**（被调用本身就满足规则）；但**一旦登记为 `不用`，就不许在基线里出现** ——
   两边的状态必须一致。想让测试变绿，改表或改发射器，**不许改测试**。
 
@@ -36,16 +41,16 @@
 
 | 格式 | 成员 | 状态 | 理由 / 证据 |
 |---|---|---|---|
-| MsgPack | TryGetCollectionCount | 已发射 | T9（`9ab02c5`）的 E-1 计数循环：MsgPack 生成基线里 `TryGetCollectionCount(` 出现 **8** 次。MsgPack 的 wire 头带元素个数（`MsgPackReader.HasCountedCollections` = `true`，:1232），所以计数循环是它独占的能力 |
+| MsgPack | TryGetCollectionCount | 已发射 | T9（`9ab02c5`）的 E-1 计数循环：MsgPack 生成基线里 `TryGetCollectionCount(` 出现 **8** 次。MsgPack 的 wire 头带元素个数（`MsgPackReader.HasCountedCollections` = `true`），所以计数循环是它独占的能力 |
 | MsgPack | TryReadInt32 | 不用 | 成员在（`MsgPackReader.cs`，T6 `0b5e16e`），但**生成器不发射**：MsgPack 生成基线里 `TryReadInt32(` = **0** 次。**T11（E-3 发射）从未做**，且两轮实验判否 —— 属性站点融合实验 `feat/mp-prop-fused` 在**真实发射**上测出无改善、AOT 慢 4–6 %（计划 §7.2）。回退它不影响任何一行 E2E，只会删掉契约与 135 条护栏 |
 | MsgPack | TryReadInt64 | 不用 | 成员在（T7 `76378fd`），无发射点：基线 `TryReadInt64(` = **0**。这是"**已实现但当前无调用方**"，不是"没实现"；发射被否的理由同上一行（计划 §7.2） |
 | MsgPack | TryReadFloat64 | 不用 | 成员在（T8 `76378fd`），无发射点：基线 `TryReadFloat64(` = **0**。理由同 `TryReadInt32` 行 |
 | MsgPack | TryReadBool | 不用 | 成员在（T8 `76378fd`），无发射点：基线 `TryReadBool(` = **0**。理由同 `TryReadInt32` 行 |
-| JSON | TryGetCollectionCount | 不用 | **结构上不可能**：JSON 的 wire 不携带元素个数，`JsonReader.HasCountedCollections` = `false`（:758），契约要求此时恒返回 `false` ⇒ 生成器只能走 `Read()` + 结束符循环 |
-| JSON | TryReadInt32 | 已发射 | T15（`727f2ef`）的 E-3：JSON 生成基线里 `TryReadInt32(` 出现 **7** 次（7 个文件的 `List<int>` 元素循环）。它是 JSON 唯一被**覆写**的融合成员（`JsonReader.cs:792`），也是全仓库唯一真的在生成代码里调融合读的地方 |
-| JSON | TryReadInt64 | 不用 | `JsonReader.cs:862` 是一行转发（没有 JSON 专用正文），生成器也没有 int64 发射点：基线 `TryReadInt64(` = **0**。T14/T15 的范围只有 int32，int64 站点没做过端到端测量 ⇒ 没有据以发射的数字 |
-| JSON | TryReadFloat64 | 不用 | `JsonReader.cs:905` 一行转发，无发射点：基线 `TryReadFloat64(` = **0**。理由同上 |
-| JSON | TryReadBool | 不用 | `JsonReader.cs:919` 一行转发，无发射点：基线 `TryReadBool(` = **0**。理由同上 |
+| JSON | TryGetCollectionCount | 不用 | **结构上不可能**：JSON 的 wire 不携带元素个数，`JsonReader.HasCountedCollections` = `false`，契约要求此时恒返回 `false` ⇒ 生成器只能走 `Read()` + 结束符循环 |
+| JSON | TryReadInt32 | 已发射 | T15（`727f2ef`）的 E-3：JSON 生成基线里 `TryReadInt32(` 出现 **7** 次（7 个文件的 `List<int>` 元素循环）。它是 JSON 唯一被**覆写**的融合成员（`JsonReader.TryReadInt32`），也是全仓库唯一真的在生成代码里调融合读的地方 |
+| JSON | TryReadInt64 | 不用 | `JsonReader.TryReadInt64` 是一行转发（没有 JSON 专用正文），生成器也没有 int64 发射点：基线 `TryReadInt64(` = **0**。T14/T15 的范围只有 int32，int64 站点没做过端到端测量 ⇒ 没有据以发射的数字 |
+| JSON | TryReadFloat64 | 不用 | `JsonReader.TryReadFloat64` 一行转发，无发射点：基线 `TryReadFloat64(` = **0**。理由同上 |
+| JSON | TryReadBool | 不用 | `JsonReader.TryReadBool` 一行转发，无发射点：基线 `TryReadBool(` = **0**。理由同上 |
 
 ## 相关
 

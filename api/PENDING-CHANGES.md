@@ -3,7 +3,16 @@
 **Status: empty as of `v2026.11.0`.** That release read all seven entries this table carried into the
 committed baselines (`e19304b`, `chore(release): v2026.11.0`: `+57`, six files, `-0`), so nothing is
 waiting for the next release. Where each one landed is recorded under "Released by `v2026.11.0`" below,
-pinned to the baseline line that carries it, so the handover can be checked without trusting this file.
+pinned to the baseline **entry** that carries it, so the handover can be checked without trusting this file
+(grep the entry named in the Addition column of a row inside the archive named in its third column).
+
+**Nothing in this file points at code with a line number.** A pointer into a source file is a member name
+(`JsonReader.TryReadInt32`), and a pointer into a baseline is the baseline entry itself. A line number here is
+the one kind of evidence that goes stale with nothing turning red: `JsonReader.cs` grew by 33 lines in one
+commit (`a5c0dfb`) and invalidated every line reference to it here and in `docs/fused-emission-registry.md` -
+seven of them (six spelled `<file>.cs:<line>` and one written as a bare `（:NNN）` shorthand after the file
+had already been named), and no test failed. `DocPointerGuardTests` now rejects `<file>.cs:<line>` and
+`<file>.public.txt:<line>` in both ledgers.
 
 `api/*.public.txt` records **the last released surface**. It is deliberately not edited between
 releases: the release script diffs the freshly dumped surface against it and reports the delta
@@ -21,15 +30,20 @@ the member"; an empty table means the two agree again.
 
 ## Released by `v2026.11.0` (commit `e19304b`)
 
-| Released entry | Addition | The baseline line that now carries it |
+| Released entry | Addition | The baseline that now carries it |
 |---|---|---|
-| one (R-1) | `M:MsgPackWriter.WriteString(System.ReadOnlySpan\`1<char>)` | `api/PicoMsgPack.public.txt:83` |
-| two (R-2) | `M:MsgPackWriter.WriteDateTime(System.DateTime)` | `api/PicoMsgPack.public.txt:70` |
-| three (R-2) | `T:PicoMsgPack.MsgPackDateTimeFormat` (+ `F:TimestampExt`, `F:IsoString`, `F:value__`) | `api/PicoMsgPack.public.txt:110`, `:8`, `:9`, `:10` |
-| four (R-2) | `P:PicoMsgPack.MsgPackOptions.DateTimeFormat` | `api/PicoMsgPack.public.txt:89` |
-| five (R-3) | `T:IFusedTokenReader` (+ `P:HasCountedCollections` and five `M:TryGet*`) | `api/PicoSerDe.Core.public.txt:192`, `:44`, `:149`, `:57-61` |
-| six (R-3) | `T:TokenReaderFused` (+ four static `M:TryRead*`) | `api/PicoSerDe.Core.public.txt:182`, `:144-147` |
-| seven (R-4) | `M:MsgPackWriter.WriteInt32Array(System.ReadOnlySpan\`1<int> values)` | `api/PicoMsgPack.public.txt:76` |
+| one (R-1) | `M:MsgPackWriter.WriteString(System.ReadOnlySpan\`1<char>)` | `api/PicoMsgPack.public.txt` |
+| two (R-2) | `M:MsgPackWriter.WriteDateTime(System.DateTime)` | `api/PicoMsgPack.public.txt` |
+| three (R-2) | `T:PicoMsgPack.MsgPackDateTimeFormat` (+ `F:TimestampExt`, `F:IsoString`, `F:value__`) | `api/PicoMsgPack.public.txt` |
+| four (R-2) | `P:PicoMsgPack.MsgPackOptions.DateTimeFormat` | `api/PicoMsgPack.public.txt` |
+| five (R-3) | `T:IFusedTokenReader` (+ `P:HasCountedCollections` and five `M:TryGet*`) | `api/PicoSerDe.Core.public.txt` |
+| six (R-3) | `T:TokenReaderFused` (+ four static `M:TryRead*`) | `api/PicoSerDe.Core.public.txt` |
+| seven (R-4) | `M:MsgPackWriter.WriteInt32Array(System.ReadOnlySpan\`1<int> values)` | `api/PicoMsgPack.public.txt` |
+
+The third column names the archive; what to look for in it is the entry the Addition column spells, so
+`grep -n 'M:MsgPackWriter.WriteString' api/PicoMsgPack.public.txt` proves the handover in one command. It
+used to carry that archive's line number instead, which the next baseline refresh (`-Push` rewrites all six
+archives wholesale) would have moved under it - the same rot that hit the `JsonReader.cs` pointers.
 
 Those seven are the `+57` the release notes count, and the columns above add up to it: 8 lines for the
 five `PicoMsgPack` entries (the `MsgPackDateTimeFormat` enum on four of them, its option on the fifth),
@@ -55,7 +69,7 @@ release that would have had to read one.**
 
 - It came in with `b9546d6` (`perf(json): write temporals and numbers through the span, without the
   intermediate string`), an ancestor of the `v2026.11.0` tag.
-- `api/PicoJetson.public.txt:169` carries it:
+- `api/PicoJetson.public.txt` carries it, spelled exactly like this:
   `M:PicoJetson.TypeIo.WriteFormattable``1(ref PicoJetson.JsonWriter w, T value, System.ReadOnlySpan\`1<char> format) : void static`
 
 The obligation this table exists for is "public surface the code has and the baseline does not yet".
@@ -89,18 +103,25 @@ across four packages, on top of the contract itself in `PicoSerDe.Core`:
 
 | Reader | Declaration | Lines it added to that delta |
 |---|---|--:|
-| `PicoJetson.JsonReader` | `PicoJetson/src/PicoJetson/JsonReader.cs:27` | 7 (`I:` + `HasCountedCollections` + the five `TryGet*`) |
-| `PicoIni.IniReader` | `PicoIni/src/PicoIni/IniReader.cs:15` | 7 |
-| `PicoToml.TomlReader` | `PicoToml/src/PicoToml/TomlReader.cs:20` | 7 |
-| `PicoYaml.YamlReader` | `PicoYaml/src/PicoYaml/YamlReader.cs:19` | 7 |
-| `PicoMsgPack.MsgPackReader` | `PicoMsgPack/src/PicoMsgPack/MsgPackReader.cs:13` | 7 |
+| `PicoJetson.JsonReader` | `PicoJetson/src/PicoJetson/JsonReader.cs` - `public ref struct JsonReader` | 7 (`I:` + `HasCountedCollections` + the five `TryGet*`) |
+| `PicoIni.IniReader` | `PicoIni/src/PicoIni/IniReader.cs` - `public ref struct IniReader` | 7 |
+| `PicoToml.TomlReader` | `PicoToml/src/PicoToml/TomlReader.cs` - `public ref struct TomlReader` | 7 |
+| `PicoYaml.YamlReader` | `PicoYaml/src/PicoYaml/YamlReader.cs` - `public ref struct YamlReader` | 7 |
+| `PicoMsgPack.MsgPackReader` | `PicoMsgPack/src/PicoMsgPack/MsgPackReader.cs` - `public ref struct MsgPackReader` | 7 |
 
-What each one does with the members: the four text formats declare
-`HasCountedCollections => false` (`IniReader.cs:459`, `TomlReader.cs:603`, `YamlReader.cs:717`,
-`JsonReader.cs:758`) and forward every fused read to `TokenReaderFused` whenever their own fast path
-does not serve the token - JSON's `TryReadInt32` is the one that carries a real fused body
-(`JsonReader.cs:792-797`). `MsgPackReader` is the one answering `HasCountedCollections` with `true`
-(`MsgPackReader.cs:1232`), because its wire header carries the element count.
+The `Declaration` column is a member/type declaration, not a line: `grep -n 'public ref struct JsonReader'
+PicoJetson/src/PicoJetson/JsonReader.cs` finds it. These five rows were still on the right line when the
+review measured them (the five declarations sit above the insert); what `a5c0dfb` moved by 33 lines are the
+two `JsonReader.cs` references in the paragraph below. A line is the one part of this table that can go
+stale while the table still reads right, so the locator is the declaration itself.
+
+What each one does with the members: the four text formats declare `HasCountedCollections => false` (each
+reader's own member of that name: `IniReader.HasCountedCollections`, `TomlReader.HasCountedCollections`,
+`YamlReader.HasCountedCollections`, `JsonReader.HasCountedCollections`) and forward every fused read to
+`TokenReaderFused` whenever their own fast path does not serve the token - JSON's `TryReadInt32` is the one
+that carries a real fused body (`JsonReader.TryReadInt32`, plus its fused half `TryReadInt32Span`).
+`MsgPackReader` is the one answering `HasCountedCollections` with `true`
+(`MsgPackReader.HasCountedCollections`), because its wire header carries the element count.
 
 Which of these members the **generator** then calls is a separate question, and not an API question:
 it is the table in `docs/fused-emission-registry.md`, enforced by `FusedMemberEmissionGuardTests`.
