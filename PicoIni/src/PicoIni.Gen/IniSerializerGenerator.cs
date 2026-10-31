@@ -1485,54 +1485,37 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             case "immutablearray":
             case "memory":
             case "readonlymemory":
+                // Self-sufficiency, not style. The header this file emits (a few lines up) is
+                // `System`, `System.Buffers`, `System.Text`, `System.Runtime.CompilerServices`,
+                // `PicoSerDe.Core`, `PicoIni` and the model's namespace — and NEVER
+                // `System.Linq`, because whether `System.Linq` is already in scope is the
+                // CONSUMER's decision (`Directory.Build.props:12` turns ImplicitUsings on for this
+                // repository; a consumer is free to turn it off). A bare extension call therefore
+                // compiles here and fails in the generated code the consumer cannot edit:
+                //   error CS1061: 'List<int>' does not contain a definition for 'Select' and no
+                //   accessible extension method 'Select' accepting a first argument of type
+                //   'List<int>' could be found (are you missing a using directive …)
+                // Spelling it `System.Linq.Enumerable.Select(…)` needs no using at all, and it is
+                // the right shape for EVERY kind this arm reaches: an array cannot `ToArray()`
+                // without LINQ (`T[]` has no instance one), `HashSet<T>` has no instance one either,
+                // and a bare `.Select` on an `ImmutableArray<T>` collides with
+                // `System.Linq.ImmutableArrayExtensions.Select` (CS0411) — the qualified call is
+                // immune to all three. `IniSequenceSource` still materialises the Memory views.
                 s.Append("string.Join(\",\", ");
-                s.Append(IniSequenceSource(p, acc));
-                if (p.ElementTypeKind == "string")
-                    s.Append(
-                        ".Select(__s => __s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")))"
-                    );
-                else if (p.ElementTypeKind is "float32" or "float64" or "decimal")
-                    s.Append(
-                        ".Select(__s => __s.ToString(System.Globalization.CultureInfo.InvariantCulture)))"
-                    );
-                else if (p.ElementTypeKind == "datetime")
-                    s.Append(
-                        ".Select(__s => __s.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)))"
-                    );
-                else if (p.ElementTypeKind is "dateonly" or "timeonly")
-                    s.Append(
-                        ".Select(__s => __s.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)))"
-                    );
-                else if (p.ElementTypeKind == "timespan")
-                    s.Append(
-                        ".Select(__s => __s.ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)))"
-                    );
-                else if (p.ElementTypeKind == "boolean")
-                    s.Append(".Select(__s => __s ? \"true\" : \"false\"))");
-                // Review C7 §2.5 ①: `string.Join(",", values)` formats each element with
-                // `ToString()` — no provider, so the ambient culture. sv-SE spells the minus
-                // sign U+2212, and the comma-joined line is then unreadable by the invariant
-                // `int.Parse` the reader below uses. The integer overloads on the writer were
-                // already pinned (`91437c1`); these branches are the same fix one level up, in
-                // the TEXT this generated code builds before the writer ever sees it.
-                else if (
-                    p.ElementTypeKind
-                    is "int32"
-                        or "int64"
-                        or "int16"
-                        or "uint16"
-                        or "sbyte"
-                        or "byte"
-                        or "uint32"
-                        or "uint64"
-                )
-                    s.Append(
-                        ".Select(__s => __s.ToString(System.Globalization.CultureInfo.InvariantCulture)))"
-                    );
-                else if (p.ElementTypeKind == "enum")
-                    s.Append(".Select(__s => ").Append(EnumTextExpr("__s")).Append("))");
+                var elementText = IniElementTextExpr(p.ElementTypeKind);
+                if (elementText is null)
+                {
+                    s.Append(IniSequenceSource(p, acc));
+                }
                 else
+                {
+                    s.Append("System.Linq.Enumerable.Select(");
+                    s.Append(IniSequenceSource(p, acc));
+                    s.Append(", __s => ");
+                    s.Append(elementText);
                     s.Append(")");
+                }
+                s.Append(")");
                 break;
             default:
                 s.Append(acc);
@@ -1542,10 +1525,53 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// The enumerable a comma-joined INI list is built from.
+    /// The text of ONE element of a comma-joined INI list — i.e. the lambda body of the
+    /// <c>System.Linq.Enumerable.Select</c> the emitter writes — or <see langword="null"/> when the
+    /// element's own <c>ToString()</c> is already culture-free and <c>string.Join</c> may format
+    /// it directly (a <c>Guid</c>, a NAMED enum value, an element kind with no case here).
+    /// <para>
+    /// Splitting it out of the emitter is what lets the CALL be swapped wholesale: the emitter's
+    /// <c>System.Linq.Enumerable.Select(source, __s => …)</c> shape replaces an earlier
+    /// <c>source.Select(__s => …)</c>, which leaned on a <c>using System.Linq</c> the generated
+    /// header never emits (see the arm's comment). The text below is unchanged by that swap, so
+    /// the wire bytes are unchanged too — only the call that applies it is.
+    /// </para>
+    /// </summary>
+    private static string? IniElementTextExpr(string? elementTypeKind) =>
+        elementTypeKind switch
+        {
+            // A comma separates and a backslash escapes, so both are escaped in place.
+            "string" => "__s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")",
+            // Review C7 §2.5 ①: `string.Join(",", values)` formats each element with
+            // `ToString()` — no provider, so the ambient culture. sv-SE spells the minus sign
+            // U+2212, and the comma-joined line is then unreadable by the invariant `int.Parse`
+            // the reader below uses. The integer overloads on the writer were already pinned
+            // (`91437c1`); these branches are the same fix one level up, in the TEXT this
+            // generated code builds before the writer ever sees it.
+            "int32"
+            or "int64"
+            or "int16"
+            or "uint16"
+            or "sbyte"
+            or "byte"
+            or "uint32"
+            or "uint64"
+            or "float32"
+            or "float64"
+            or "decimal" => "__s.ToString(System.Globalization.CultureInfo.InvariantCulture)",
+            "datetime" or "dateonly" or "timeonly" =>
+                "__s.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)",
+            "timespan" => "__s.ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)",
+            "boolean" => "__s ? \"true\" : \"false\"",
+            "enum" => EnumTextExpr("__s"),
+            _ => null,
+        };
+
+    /// <summary>
+    /// The enumerable a comma-joined INI list is built from when NO per-element text is needed.
     /// <para>
     /// <c>Memory&lt;T&gt;</c>/<c>ReadOnlyMemory&lt;T&gt;</c> are VIEWS, not sequences: they have
-    /// to be materialised before <c>string.Join</c>/LINQ can see them. Every other kind
+    /// to be materialised before <c>string.Join</c> can see them. Every other kind
     /// (List, array, HashSet, Queue, Stack, LinkedList, ImmutableArray) enumerates as
     /// itself, which is why this is the only difference the sequence arm has to know.
     /// </para>
