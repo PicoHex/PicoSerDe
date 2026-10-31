@@ -265,6 +265,23 @@ public class GeneratedCodeSelfSufficiencyGuardTests
             public HashSet<int> Set { get; set; } = new HashSet<int>();
             public int[] Array { get; set; } = new int[0];
             public Dictionary<string, int> Map { get; set; } = new Dictionary<string, int>();
+
+            // The STRING-KEY overload set on IniWriter is smaller than the span-key one, and a
+            // dictionary value is the only INI write site that resolves against it. It has no
+            // `ulong`/`uint`/`short`/`byte`/`float` arm, so those value kinds reach it through
+            // IMPLICIT CONVERSION — i.e. through overload ranking, where `ulong` is ambiguous
+            // between `double` and `decimal`:
+            //   error CS0121: The call is ambiguous between
+            //   'IniWriter.WriteKeyValue(string, double)' and '(string, decimal)'
+            // `c5cf9b2` shipped exactly that, as a hard compile error in generated code; nothing
+            // in the repository saw it because no model here carried a `Dictionary<string,ulong>`.
+            // These three rows are that gap closed. (`Dictionary<string,double|decimal|bool|
+            // DateTime|Guid|…>` are NOT here: their INI READ path is a separate, PRE-EXISTING
+            // CS0029 defect on `b4376bf` too, and this battery would only ledger it.)
+            public Dictionary<string, ulong> Big { get; set; } = new Dictionary<string, ulong>();
+            public Dictionary<string, uint> Medium { get; set; } = new Dictionary<string, uint>();
+            public Dictionary<string, long> Lons { get; set; } = new Dictionary<string, long>();
+            public uint Count { get; set; }
         }
         """;
 

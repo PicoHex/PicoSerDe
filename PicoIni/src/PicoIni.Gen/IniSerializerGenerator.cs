@@ -619,23 +619,41 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             // switch below) fell through to `object.ToString()`, so an `int` value was
             // formatted by the ambient culture before the writer saw it. The synthesized
             // descriptor routes it to the same typed overload every other `int` takes.
-            WriteValue(
-                s,
-                new PropertyInfo(
-                    Name: "__value",
-                    JsonName: "__value",
-                    TypeKind: p.ElementTypeKind ?? "string",
-                    TypeFullName: p.ElementTypeName ?? "object",
-                    IsNullable: p.ElementIsNullableValue,
-                    ElementTypeKind: null,
-                    ElementTypeName: null,
-                    KeyTypeKind: null,
-                    KeyTypeName: null,
-                    NestedProperties: ImmutableArray<PropertyInfo>.Empty,
-                    ConverterTypeFullName: null
-                ),
-                "__kvp.Value"
-            );
+            //
+            // …but ONLY for a value kind `IniDictValueNeedsText` does not name. The key
+            // here is a `string`, not the `"Key"u8` span every top-level property passes,
+            // so this call resolves against the STRING-key overload set — a different list.
+            if (IniDictValueNeedsText(p.ElementTypeKind))
+            {
+                // No exact `WriteKeyValue(string, T)` overload exists for this value kind,
+                // so handing the value over bare lets the compiler pick one by IMPLICIT
+                // conversion — which is exactly how `Dictionary<string,ulong>` became
+                //   error CS0121: The call is ambiguous between
+                //   'IniWriter.WriteKeyValue(string, double)' and '(string, decimal)'
+                // inside generated code the consumer cannot edit. The text is built here
+                // instead, in the invariant culture, like every other fix on this branch.
+                s.Append("__kvp.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)");
+            }
+            else
+            {
+                WriteValue(
+                    s,
+                    new PropertyInfo(
+                        Name: "__value",
+                        JsonName: "__value",
+                        TypeKind: p.ElementTypeKind ?? "string",
+                        TypeFullName: p.ElementTypeName ?? "object",
+                        IsNullable: p.ElementIsNullableValue,
+                        ElementTypeKind: null,
+                        ElementTypeName: null,
+                        KeyTypeKind: null,
+                        KeyTypeName: null,
+                        NestedProperties: ImmutableArray<PropertyInfo>.Empty,
+                        ConverterTypeFullName: null
+                    ),
+                    "__kvp.Value"
+                );
+            }
             s.AppendLine(");");
             s.AppendLine(dictPad + "}");
             if (dictGuard)
@@ -1578,6 +1596,51 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     /// </summary>
     private static string IniSequenceSource(PropertyInfo p, string acc) =>
         p.TypeKind is "memory" or "readonlymemory" ? acc + ".ToArray()" : acc;
+
+    /// <summary>
+    /// Does a DICTIONARY value have to be turned into text here, instead of being handed to a
+    /// typed <c>IniWriter.WriteKeyValue(string key, …)</c> overload?
+    /// <para>
+    /// The dictionary arm is the one INI write site whose key is a <c>string</c>: every
+    /// top-level property passes <c>"Name"u8</c> (<c>ReadOnlySpan&lt;byte&gt;</c>), and for THAT
+    /// key the writer has an overload for every kind it emits — <c>ulong</c> and <c>uint</c>
+    /// included. The <c>string</c>-key overload set is smaller: <c>string</c>, <c>int</c>,
+    /// <c>long</c>, <c>bool</c>, <c>double</c>, <c>decimal</c>, <c>Guid</c>, <c>DateTime</c>,
+    /// <c>TimeSpan</c>, <c>DateOnly</c>, <c>TimeOnly</c>. Every other value kind can reach a
+    /// call with a <c>string</c> key only through an <b>implicit conversion</b>, i.e. through
+    /// overload ranking — and that ranking is where this arm has already broken twice:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><b><c>ulong</c> does not compile at all.</b> It converts implicitly to BOTH
+    ///   <c>double</c> and <c>decimal</c> and neither target is better than the other, so the
+    ///   consumer's generated file carried a hard
+    ///   <c>error CS0121: The call is ambiguous between
+    ///   'IniWriter.WriteKeyValue(string, double)' and '(string, decimal)'</c> (the regression
+    ///   this branch is fixing).</item>
+    ///   <item><b><c>float</c> compiles but says the wrong thing.</b> Measured: it ranks to
+    ///   <c>(string, double)</c>, and that overload formats the PROMOTED value —
+    ///   <c>0.1f</c> leaves as <c>0.10000000149011612</c> where <c>0.1f.ToString(Invariant)</c>
+    ///   is <c>0.1</c>. Widening a value nobody asked to widen is not a culture question, but it
+    ///   is the same mistake: deciding a value's text by which overload happened to win.</item>
+    ///   <item><b><c>uint</c>/<c>short</c>/<c>ushort</c>/<c>byte</c>/<c>sbyte</c> are fine
+    ///   today</b> — measured, they rank to <c>(string, long)</c>/<c>(string, int)</c> and print
+    ///   <c>uint.MaxValue</c> as <c>4294967295</c>, exactly. (They stay safe even if a
+    ///   <c>(string, ulong)</c> overload is ever added: a signed target wins the signed/unsigned
+    ///   tie, also measured.) They are routed through the text anyway, so this arm obeys ONE rule
+    ///   — an exact overload, or text built here — instead of a rule plus a list of ranking
+    ///   accidents that a future overload could invalidate.</item>
+    /// </list>
+    /// <para>
+    /// The rule: pass the value bare only where an <b>exact</b> <c>(string, T)</c> overload
+    /// exists for its kind. Everything else gets its text built here, in the invariant culture,
+    /// and the writer takes the <c>(string, string)</c> route. <c>IniWriter</c> is not touched —
+    /// the CALLER is fixed, so the public surface does not move. <c>enum</c> keeps its own
+    /// byte-level emission (it needs <see cref="EnumTextExpr"/>), and an unknown kind keeps
+    /// whatever <see cref="WriteValue"/> did before, so nothing else about this arm moves.
+    /// </para>
+    /// </summary>
+    private static bool IniDictValueNeedsText(string? valueKind) =>
+        valueKind is "uint64" or "uint32" or "int16" or "uint16" or "byte" or "sbyte" or "float32";
 
     private static void EmitKeyDispatch(
         StringBuilder s,

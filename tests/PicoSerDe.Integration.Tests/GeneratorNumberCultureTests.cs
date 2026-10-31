@@ -50,6 +50,26 @@ public class GeneratorScalarCultureModel
     public SignedLevel Undefined { get; set; }
 }
 
+/// <summary>
+/// The dictionary value kinds <see cref="IniWriter"/> has NO <c>(string, T)</c> overload for.
+/// <para>
+/// <c>IniWriter</c> carries a <c>ulong</c> arm only under a <c>ReadOnlySpan&lt;byte&gt;</c> KEY
+/// (<c>WriteKeyValue(ReadOnlySpan&lt;byte&gt;, ulong)</c>). The dictionary emitter passes the
+/// dictionary's own key, which is a <c>string</c>, so the string-key overload set decides — and
+/// it has <c>int</c>/<c>long</c>/<c>bool</c>/<c>double</c>/<c>decimal</c> but no <c>ulong</c>,
+/// <c>uint</c>, <c>short</c>, <c>byte</c> or <c>float</c>. A bare <c>__kvp.Value</c> for a
+/// <c>ulong</c> therefore ranks <c>ulong → double</c> against <c>ulong → decimal</c>, neither of
+/// which is better, and the consumer's generated file does not compile at all
+/// (<c>error CS0121</c>). These two members are what makes that shape permanent coverage.
+/// </para>
+/// </summary>
+[PicoSerializable]
+public class GeneratorUnsignedDictionaryCultureModel
+{
+    public Dictionary<string, ulong> ULongs { get; set; } = new();
+    public Dictionary<string, uint> UInts { get; set; } = new();
+}
+
 /// <summary>Culture-independence of the GE generated text paths listed above.</summary>
 [NotInParallel]
 public class GeneratorNumberCultureTests
@@ -83,6 +103,17 @@ public class GeneratorNumberCultureTests
             Defined = SignedLevel.Neg,
             Undefined = (SignedLevel)(-42),
         };
+
+    /// <summary>The two values a sign, a culture or a truncation would ruin: the maxima.</summary>
+    private static GeneratorUnsignedDictionaryCultureModel CreateUnsignedDictionaries() =>
+        new()
+        {
+            ULongs = new Dictionary<string, ulong> { ["max"] = ulong.MaxValue, ["zero"] = 0UL },
+            UInts = new Dictionary<string, uint> { ["umax"] = uint.MaxValue, ["zero"] = 0U },
+        };
+
+    private static byte[] IniUnsignedDictionaries() =>
+        IniSerializer.SerializeToUtf8Bytes(CreateUnsignedDictionaries());
 
     private static byte[] IniCollections() =>
         IniSerializer.SerializeToUtf8Bytes(CreateCollections());
@@ -145,6 +176,67 @@ public class GeneratorNumberCultureTests
         await Assert.That(text).Contains("k = " + AsciiMinusSign + "42");
         await Assert.That(text.Contains(NonAsciiMinusSign, StringComparison.Ordinal)).IsFalse();
         await Assert.That(Encoding.UTF8.GetString(swedish)).IsEqualTo(text);
+    }
+
+    // ── ②ᵇ INI: Dictionary<string,ulong> / <uint> — no exact (string, T) overload ──
+
+    /// <summary>
+    /// The GENERATED call site has to be resolvable, not merely correct-looking.
+    /// <para>
+    /// <c>iw.WriteKeyValue(__kvp.Key, __kvp.Value)</c> asks the compiler to rank
+    /// <c>ulong → double</c> against <c>ulong → decimal</c>; neither conversion is better than the
+    /// other, so <c>1e1945f</c>'s bare-value emission did not compile:
+    /// <c>error CS0121: The call is ambiguous between 'IniWriter.WriteKeyValue(string, double)'
+    /// and '(string, decimal)'</c> — inside code the consumer cannot edit. The generator now
+    /// builds this value's text itself, in the invariant culture, and hands over a
+    /// <see cref="string"/>. This test pins the half a compile error cannot: the BYTES.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Ini_unsigned_dictionary_is_the_same_in_every_culture()
+    {
+        var invariant = InCulture(CultureInfo.InvariantCulture, IniUnsignedDictionaries);
+        var text = Encoding.UTF8.GetString(invariant);
+
+        await Assert.That(text).Contains("max = 18446744073709551615");
+        await Assert.That(text).Contains("umax = 4294967295");
+        await Assert.That(text).Contains("zero = 0");
+        // No sign of any kind: these are unsigned maxima, and a widened `double`/`decimal`
+        // detour is exactly what used to make the number unrepresentable here.
+        await Assert.That(text.Contains(NonAsciiMinusSign, StringComparison.Ordinal)).IsFalse();
+        await Assert.That(text.Contains(AsciiMinusSign, StringComparison.Ordinal)).IsFalse();
+
+        foreach (var culture in new[] { Swedish, French })
+        {
+            await Assert
+                .That(InCulture(culture, IniUnsignedDictionaries).AsSpan().SequenceEqual(invariant))
+                .IsTrue()
+                .Because(
+                    $"an INI Dictionary<string,ulong> under {culture.Name} must be byte-identical"
+                        + " to the invariant serialization"
+                );
+        }
+    }
+
+    /// <summary>
+    /// The value survives the round trip across cultures: written under <c>sv-SE</c>, read under
+    /// <c>fr-FR</c>. <c>ulong.MaxValue</c> is the case a <c>double</c>/<c>decimal</c>/<c>long</c>
+    /// detour would silently corrupt — 18446744073709551615 does not survive any of them.
+    /// </summary>
+    [Test]
+    public async Task Ini_unsigned_dictionary_round_trips_its_extremes_across_cultures()
+    {
+        var written = InCulture(Swedish, IniUnsignedDictionaries);
+        var back = InCulture(
+            French,
+            () => IniSerializer.Deserialize<GeneratorUnsignedDictionaryCultureModel>(written)
+        );
+
+        await Assert.That(back).IsNotNull();
+        await Assert.That(back!.ULongs["max"]).IsEqualTo(ulong.MaxValue);
+        await Assert.That(back.ULongs["zero"]).IsEqualTo(0UL);
+        await Assert.That(back.UInts["umax"]).IsEqualTo(uint.MaxValue);
+        await Assert.That(back.UInts["zero"]).IsEqualTo(0U);
     }
 
     // ── ③ INI: an enum value that has no name ───────────────────────────────────────
