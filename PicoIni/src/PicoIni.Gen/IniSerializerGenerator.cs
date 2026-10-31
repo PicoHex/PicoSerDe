@@ -614,7 +614,46 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine(")");
             s.AppendLine(dictPad + "{");
             s.Append(dictPad + "    iw.WriteKeyValue(__kvp.Key, ");
-            WriteValue(s, p, "__kvp.Value");
+            // Review C7 §2.5 ②: the VALUE type decides the write shape. Handing this
+            // emitter the dictionary's own PropertyInfo (TypeKind "dict" — no case in the
+            // switch below) fell through to `object.ToString()`, so an `int` value was
+            // formatted by the ambient culture before the writer saw it. The synthesized
+            // descriptor routes it to the same typed overload every other `int` takes.
+            //
+            // …but ONLY for a value kind `IniDictValueNeedsText` does not name. The key
+            // here is a `string`, not the `"Key"u8` span every top-level property passes,
+            // so this call resolves against the STRING-key overload set — a different list.
+            if (IniDictValueNeedsText(p.ElementTypeKind))
+            {
+                // No exact `WriteKeyValue(string, T)` overload exists for this value kind,
+                // so handing the value over bare lets the compiler pick one by IMPLICIT
+                // conversion — which is exactly how `Dictionary<string,ulong>` became
+                //   error CS0121: The call is ambiguous between
+                //   'IniWriter.WriteKeyValue(string, double)' and '(string, decimal)'
+                // inside generated code the consumer cannot edit. The text is built here
+                // instead, in the invariant culture, like every other fix on this branch.
+                s.Append("__kvp.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)");
+            }
+            else
+            {
+                WriteValue(
+                    s,
+                    new PropertyInfo(
+                        Name: "__value",
+                        JsonName: "__value",
+                        TypeKind: p.ElementTypeKind ?? "string",
+                        TypeFullName: p.ElementTypeName ?? "object",
+                        IsNullable: p.ElementIsNullableValue,
+                        ElementTypeKind: null,
+                        ElementTypeName: null,
+                        KeyTypeKind: null,
+                        KeyTypeName: null,
+                        NestedProperties: ImmutableArray<PropertyInfo>.Empty,
+                        ConverterTypeFullName: null
+                    ),
+                    "__kvp.Value"
+                );
+            }
             s.AppendLine(");");
             s.AppendLine(dictPad + "}");
             if (dictGuard)
@@ -1446,8 +1485,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 break;
             case "enum":
                 s.Append("Encoding.UTF8.GetBytes(");
-                s.Append(acc);
-                s.Append(".ToString())");
+                s.Append(EnumTextExpr(acc));
+                s.Append(")");
                 break;
             case "list":
             case "array":
@@ -1464,32 +1503,37 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             case "immutablearray":
             case "memory":
             case "readonlymemory":
+                // Self-sufficiency, not style. The header this file emits (a few lines up) is
+                // `System`, `System.Buffers`, `System.Text`, `System.Runtime.CompilerServices`,
+                // `PicoSerDe.Core`, `PicoIni` and the model's namespace — and NEVER
+                // `System.Linq`, because whether `System.Linq` is already in scope is the
+                // CONSUMER's decision (`Directory.Build.props:12` turns ImplicitUsings on for this
+                // repository; a consumer is free to turn it off). A bare extension call therefore
+                // compiles here and fails in the generated code the consumer cannot edit:
+                //   error CS1061: 'List<int>' does not contain a definition for 'Select' and no
+                //   accessible extension method 'Select' accepting a first argument of type
+                //   'List<int>' could be found (are you missing a using directive …)
+                // Spelling it `System.Linq.Enumerable.Select(…)` needs no using at all, and it is
+                // the right shape for EVERY kind this arm reaches: an array cannot `ToArray()`
+                // without LINQ (`T[]` has no instance one), `HashSet<T>` has no instance one either,
+                // and a bare `.Select` on an `ImmutableArray<T>` collides with
+                // `System.Linq.ImmutableArrayExtensions.Select` (CS0411) — the qualified call is
+                // immune to all three. `IniSequenceSource` still materialises the Memory views.
                 s.Append("string.Join(\",\", ");
-                s.Append(IniSequenceSource(p, acc));
-                if (p.ElementTypeKind == "string")
-                    s.Append(
-                        ".Select(__s => __s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")))"
-                    );
-                else if (p.ElementTypeKind is "float32" or "float64" or "decimal")
-                    s.Append(
-                        ".Select(__s => __s.ToString(System.Globalization.CultureInfo.InvariantCulture)))"
-                    );
-                else if (p.ElementTypeKind == "datetime")
-                    s.Append(
-                        ".Select(__s => __s.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)))"
-                    );
-                else if (p.ElementTypeKind is "dateonly" or "timeonly")
-                    s.Append(
-                        ".Select(__s => __s.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)))"
-                    );
-                else if (p.ElementTypeKind == "timespan")
-                    s.Append(
-                        ".Select(__s => __s.ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)))"
-                    );
-                else if (p.ElementTypeKind == "boolean")
-                    s.Append(".Select(__s => __s ? \"true\" : \"false\"))");
+                var elementText = IniElementTextExpr(p.ElementTypeKind);
+                if (elementText is null)
+                {
+                    s.Append(IniSequenceSource(p, acc));
+                }
                 else
+                {
+                    s.Append("System.Linq.Enumerable.Select(");
+                    s.Append(IniSequenceSource(p, acc));
+                    s.Append(", __s => ");
+                    s.Append(elementText);
                     s.Append(")");
+                }
+                s.Append(")");
                 break;
             default:
                 s.Append(acc);
@@ -1499,16 +1543,104 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// The enumerable a comma-joined INI list is built from.
+    /// The text of ONE element of a comma-joined INI list — i.e. the lambda body of the
+    /// <c>System.Linq.Enumerable.Select</c> the emitter writes — or <see langword="null"/> when the
+    /// element's own <c>ToString()</c> is already culture-free and <c>string.Join</c> may format
+    /// it directly (a <c>Guid</c>, a NAMED enum value, an element kind with no case here).
+    /// <para>
+    /// Splitting it out of the emitter is what lets the CALL be swapped wholesale: the emitter's
+    /// <c>System.Linq.Enumerable.Select(source, __s => …)</c> shape replaces an earlier
+    /// <c>source.Select(__s => …)</c>, which leaned on a <c>using System.Linq</c> the generated
+    /// header never emits (see the arm's comment). The text below is unchanged by that swap, so
+    /// the wire bytes are unchanged too — only the call that applies it is.
+    /// </para>
+    /// </summary>
+    private static string? IniElementTextExpr(string? elementTypeKind) =>
+        elementTypeKind switch
+        {
+            // A comma separates and a backslash escapes, so both are escaped in place.
+            "string" => "__s.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\")",
+            // Review C7 §2.5 ①: `string.Join(",", values)` formats each element with
+            // `ToString()` — no provider, so the ambient culture. sv-SE spells the minus sign
+            // U+2212, and the comma-joined line is then unreadable by the invariant `int.Parse`
+            // the reader below uses. The integer overloads on the writer were already pinned
+            // (`91437c1`); these branches are the same fix one level up, in the TEXT this
+            // generated code builds before the writer ever sees it.
+            "int32"
+            or "int64"
+            or "int16"
+            or "uint16"
+            or "sbyte"
+            or "byte"
+            or "uint32"
+            or "uint64"
+            or "float32"
+            or "float64"
+            or "decimal" => "__s.ToString(System.Globalization.CultureInfo.InvariantCulture)",
+            "datetime" or "dateonly" or "timeonly" =>
+                "__s.ToString(\"O\", System.Globalization.CultureInfo.InvariantCulture)",
+            "timespan" => "__s.ToString(\"c\", System.Globalization.CultureInfo.InvariantCulture)",
+            "boolean" => "__s ? \"true\" : \"false\"",
+            "enum" => EnumTextExpr("__s"),
+            _ => null,
+        };
+
+    /// <summary>
+    /// The enumerable a comma-joined INI list is built from when NO per-element text is needed.
     /// <para>
     /// <c>Memory&lt;T&gt;</c>/<c>ReadOnlyMemory&lt;T&gt;</c> are VIEWS, not sequences: they have
-    /// to be materialised before <c>string.Join</c>/LINQ can see them. Every other kind
+    /// to be materialised before <c>string.Join</c> can see them. Every other kind
     /// (List, array, HashSet, Queue, Stack, LinkedList, ImmutableArray) enumerates as
     /// itself, which is why this is the only difference the sequence arm has to know.
     /// </para>
     /// </summary>
     private static string IniSequenceSource(PropertyInfo p, string acc) =>
         p.TypeKind is "memory" or "readonlymemory" ? acc + ".ToArray()" : acc;
+
+    /// <summary>
+    /// Does a DICTIONARY value have to be turned into text here, instead of being handed to a
+    /// typed <c>IniWriter.WriteKeyValue(string key, …)</c> overload?
+    /// <para>
+    /// The dictionary arm is the one INI write site whose key is a <c>string</c>: every
+    /// top-level property passes <c>"Name"u8</c> (<c>ReadOnlySpan&lt;byte&gt;</c>), and for THAT
+    /// key the writer has an overload for every kind it emits — <c>ulong</c> and <c>uint</c>
+    /// included. The <c>string</c>-key overload set is smaller: <c>string</c>, <c>int</c>,
+    /// <c>long</c>, <c>bool</c>, <c>double</c>, <c>decimal</c>, <c>Guid</c>, <c>DateTime</c>,
+    /// <c>TimeSpan</c>, <c>DateOnly</c>, <c>TimeOnly</c>. Every other value kind can reach a
+    /// call with a <c>string</c> key only through an <b>implicit conversion</b>, i.e. through
+    /// overload ranking — and that ranking is where this arm has already broken twice:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><b><c>ulong</c> does not compile at all.</b> It converts implicitly to BOTH
+    ///   <c>double</c> and <c>decimal</c> and neither target is better than the other, so the
+    ///   consumer's generated file carried a hard
+    ///   <c>error CS0121: The call is ambiguous between
+    ///   'IniWriter.WriteKeyValue(string, double)' and '(string, decimal)'</c> (the regression
+    ///   this branch is fixing).</item>
+    ///   <item><b><c>float</c> compiles but says the wrong thing.</b> Measured: it ranks to
+    ///   <c>(string, double)</c>, and that overload formats the PROMOTED value —
+    ///   <c>0.1f</c> leaves as <c>0.10000000149011612</c> where <c>0.1f.ToString(Invariant)</c>
+    ///   is <c>0.1</c>. Widening a value nobody asked to widen is not a culture question, but it
+    ///   is the same mistake: deciding a value's text by which overload happened to win.</item>
+    ///   <item><b><c>uint</c>/<c>short</c>/<c>ushort</c>/<c>byte</c>/<c>sbyte</c> are fine
+    ///   today</b> — measured, they rank to <c>(string, long)</c>/<c>(string, int)</c> and print
+    ///   <c>uint.MaxValue</c> as <c>4294967295</c>, exactly. (They stay safe even if a
+    ///   <c>(string, ulong)</c> overload is ever added: a signed target wins the signed/unsigned
+    ///   tie, also measured.) They are routed through the text anyway, so this arm obeys ONE rule
+    ///   — an exact overload, or text built here — instead of a rule plus a list of ranking
+    ///   accidents that a future overload could invalidate.</item>
+    /// </list>
+    /// <para>
+    /// The rule: pass the value bare only where an <b>exact</b> <c>(string, T)</c> overload
+    /// exists for its kind. Everything else gets its text built here, in the invariant culture,
+    /// and the writer takes the <c>(string, string)</c> route. <c>IniWriter</c> is not touched —
+    /// the CALLER is fixed, so the public surface does not move. <c>enum</c> keeps its own
+    /// byte-level emission (it needs <see cref="EnumTextExpr"/>), and an unknown kind keeps
+    /// whatever <see cref="WriteValue"/> did before, so nothing else about this arm moves.
+    /// </para>
+    /// </summary>
+    private static bool IniDictValueNeedsText(string? valueKind) =>
+        valueKind is "uint64" or "uint32" or "int16" or "uint16" or "byte" or "sbyte" or "float32";
 
     private static void EmitKeyDispatch(
         StringBuilder s,
@@ -2065,6 +2197,27 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.Append(pad);
         s.AppendLine("{");
     }
+
+    /// <summary>
+    /// The text of an enum value, culture-free.
+    /// <para>
+    /// <c>Enum.ToString()</c> is culture-free for a value that HAS a name (it returns the
+    /// name) and culture-<b>sensitive</b> for one that does not (it returns the underlying
+    /// number formatted by the ambient culture, so <c>sv-SE</c> writes U+2212 MINUS SIGN).
+    /// <c>Enum.ToString(format, provider)</c> does not help: its provider argument is unused
+    /// (and obsolete, CS0618). So the name path stays exactly as it was, and only the
+    /// nameless path is re-spelled — through <see cref="decimal"/>, which every enum width
+    /// converts to, so no underlying-type guess is needed (review C7 §2.5 ③).
+    /// </para>
+    /// </summary>
+    private static string EnumTextExpr(string acc) =>
+        "System.Enum.IsDefined("
+        + acc
+        + ") ? "
+        + acc
+        + ".ToString() : System.Convert.ToDecimal("
+        + acc
+        + ").ToString(System.Globalization.CultureInfo.InvariantCulture)";
 
     private static string EmitIniValue(AnonFieldInfo f, string vv, string wv)
     {

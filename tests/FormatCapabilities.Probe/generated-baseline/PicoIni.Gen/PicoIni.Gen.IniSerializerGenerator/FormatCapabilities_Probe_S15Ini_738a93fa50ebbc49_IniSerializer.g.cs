@@ -17,7 +17,7 @@ S15Ini> {
         iw.WriteKeyValue("Id"u8, value.Id);
         if (value.Day != null)
         {
-            iw.WriteKeyValue("Day"u8, Encoding.UTF8.GetBytes(value.Day!.Value.ToString()));
+            iw.WriteKeyValue("Day"u8, Encoding.UTF8.GetBytes(System.Enum.IsDefined(value.Day!.Value) ? value.Day!.Value.ToString() : System.Convert.ToDecimal(value.Day!.Value).ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
     } }
 

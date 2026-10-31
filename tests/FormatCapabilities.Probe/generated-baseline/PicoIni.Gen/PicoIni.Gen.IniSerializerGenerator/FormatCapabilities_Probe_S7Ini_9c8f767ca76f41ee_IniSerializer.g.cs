@@ -10,7 +10,7 @@ S7Ini> {
     public void Serialize(IBufferWriter<byte> writer, S7Ini value, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoIni.IniOptions?)options;
         var iw = new IniWriter(writer, indented: __opts?.Indented ?? false);
-        iw.WriteKeyValue("V"u8, string.Join(",", value.V));
+        iw.WriteKeyValue("V"u8, string.Join(",", System.Linq.Enumerable.Select(value.V, __s => __s.ToString(System.Globalization.CultureInfo.InvariantCulture))));
     } }
 
 file readonly struct S7IniIniDeserializer : IDeserializer<S7Ini> {

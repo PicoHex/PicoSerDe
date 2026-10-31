@@ -13,7 +13,7 @@ S9Ini> {
         iw.WriteSection("V"u8);
         foreach (var __kvp in value.V)
         {
-            iw.WriteKeyValue(__kvp.Key, __kvp.Value.ToString());
+            iw.WriteKeyValue(__kvp.Key, __kvp.Value);
         }
     } }
 
