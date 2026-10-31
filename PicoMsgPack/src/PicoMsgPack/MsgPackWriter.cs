@@ -618,7 +618,11 @@ public ref struct MsgPackWriter
     {
         if (_options is { DateTimeFormat: MsgPackDateTimeFormat.IsoString })
         {
-            WriteString(Encoding.UTF8.GetBytes(value.ToString("O")));
+            WriteString(
+                Encoding.UTF8.GetBytes(
+                    value.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
+                )
+            );
             return;
         }
 
