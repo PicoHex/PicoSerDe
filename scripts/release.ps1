@@ -16,14 +16,37 @@ The public API of every packable project is compared against the committed
 baseline in <RepoRoot>/api/<PackageId>.public.txt. A baseline always holds the
 surface of the LAST RELEASE, so it is refreshed as part of the release commit.
 
-The tag is the release trigger: the release workflow runs the tests, packs every
-package at the tag version, and publishes to NuGet.
+What the tag actually does. Pushing a v* tag is the release trigger, and
+.github/workflows/release.yml is the only workflow it starts. That workflow has
+exactly two jobs:
+
+    pack     (ubuntu-latest)                packs the projects listed in the
+                                            workflow at the tag version and
+                                            uploads the .nupkg artifacts
+    publish  (ubuntu-latest, needs: pack)   pushes those artifacts to NuGet and
+                                            creates the GitHub release
+
+The pack list is hand-maintained inside release.yml; it is not derived from the
+project scan this script performs. There is no test job and no dependency on the
+CI workflow, so a tag pointing at a commit with a red CI run publishes exactly
+like a green one - v2026.11.0 went out while CI had been red for three days.
+Neither this script nor the release workflow invokes the test suite: this script
+only builds (dotnet build -c Release) and diffs the public surface. The gate is
+manual and belongs to whoever cuts the release:
+
+  - main must already be green BEFORE the tag is created; nothing downstream
+    checks it for you.
+  - confirm the CI verdict yourself before packing, e.g.
+        gh run list --workflow=ci.yml --limit 1
+    and expect a completed / success conclusion for the commit you are tagging.
 
 .PARAMETER RepoRoot
 Repository to release. Defaults to the current directory.
 
 .PARAMETER DryRun
-Report the API delta and the next version without writing, committing, or tagging.
+Report the API delta and the next version without touching the baselines,
+committing, or tagging. The Release build still runs and a dirty working tree is
+tolerated (only a real release requires a clean tree).
 
 .PARAMETER Bootstrap
 Create the api/ baselines. Use with -FromTag <tag> (preferred) or -AssumeCurrent.
@@ -39,7 +62,8 @@ release cannot be recovered this way; the next release compares against HEAD.
 Baseline directory relative to RepoRoot. Default: api
 
 .PARAMETER Push
-After tagging, push the branch and the tag (this triggers the release workflow).
+After tagging, push the branch and the tag (this triggers the release workflow,
+which publishes the packages without running the tests).
 
 .PARAMETER ResetOnYearChange
 Reset x and y when the year changes instead of carrying them forward.
@@ -49,7 +73,7 @@ Reset x and y when the year changes instead of carrying them forward.
 ./scripts/release.ps1 -Bootstrap -FromTag v2026.9.0
 
 .EXAMPLE
-# inspect the decision without writing anything
+# inspect the decision without changing the repository
 ./scripts/release.ps1 -DryRun
 
 .EXAMPLE
