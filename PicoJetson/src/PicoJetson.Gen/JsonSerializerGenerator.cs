@@ -3,6 +3,7 @@ namespace PicoJetson.Gen;
 using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
+using FusedEmit = PicoSerDe.Gen.FusedEmit;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -4479,6 +4480,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     static bool IsFusedElementKind(string? kind) => kind == "int32";
 
     /// <summary>
+    /// The name this generator gives the reader local, passed to every <see cref="FusedEmit"/> shape (spec
+    /// §3.4.2 C-1: the shared emitter must not hard-code it — JSON/MsgPack/INI generate <c>reader</c>, TOML
+    /// generates <c>r</c>). Spelled once here rather than at each call site, so a site cannot disagree with
+    /// the rest of the file about what the local is called.
+    /// </summary>
+    const string FusedReaderVar = "reader";
+
+    /// <summary>The concrete reader the emitted calls are made on (spec §3.4.3: never a token-reader
+    /// interface). Emitted text does not spell it — the local's declared type does — but the shared emitter
+    /// takes it so a wiring mistake names the culprit instead of producing code that will not compile.</summary>
+    const string FusedReaderType = "JsonReader";
+
+    /// <summary>
     /// Emits one collection read loop: rule <b>E-2</b> (spec §3.4.1) — JSON carries no element count
     /// (spec §3.3: the reader finds the closing bracket by scanning bytes and counts nothing), so there
     /// is no counted loop (<b>E-1</b>) to emit — with rule <b>E-3</b> applied to the element read where
@@ -4506,8 +4520,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
     {
         if (IsFusedElementKind(element.ElementTypeKind))
         {
-            EmitFusedInt32ElementLoop(
+            FusedEmit.EmitFusedInt32ElementLoop(
                 sb,
+                FusedReaderVar,
+                FusedReaderType,
                 addTarget,
                 "__elementValue",
                 element.ElementIsNullableValue,
@@ -4521,114 +4537,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.Append(ind);
         sb.AppendLine("{");
         EmitDeserializeElementAdd(sb, element, addTarget, ind + "    ", nestLevel);
-        sb.Append(ind);
-        sb.AppendLine("}");
-    }
-
-    /// <summary>
-    /// Rule <b>E-3</b> for an <c>int</c> element (spec §3.4.1): <c>reader.TryReadInt32(out v)</c> advances
-    /// the reader <b>and</b> decodes the token in one pass, replacing the reference pair whose
-    /// <c>Read()</c> classifies the same bytes (int, then long, then ulong) before <c>TryGetInt32()</c>
-    /// parses them once more.
-    /// <para>
-    /// <b>Why the failure path is longer than "swap the two calls".</b> JSON has no count (spec §3.3), so
-    /// the loop cannot assume an element is there, and <c>false</c> means one of three things, each with a
-    /// different answer in the loop being replaced:
-    /// </para>
-    /// <list type="number">
-    /// <item><description><b>The end token</b> (<c>TokenType.ArrayEnd</c>) — that is exactly what the
-    /// reference <c>while</c> condition tested, so break.</description></item>
-    /// <item><description><b>A chunk boundary</b> (<c>NeedsMoreData</c>, which only <c>Read()</c> sets and
-    /// which a token it produced always clears) — the reference loop's <c>reader.Read()</c> was false and
-    /// broke out, so this loop breaks out identically and the caller keeps its rewind-and-retry.</description></item>
-    /// <item><description><b>The end of the data</b> — no token at all. <c>Read()</c> returns the pooled
-    /// buffer and clears the value span when it fails at the end of a final block, so the token still
-    /// current is the <i>previous element</i>: breaking is what the reference loop did, while consuming it
-    /// again would append the last element twice. It is recognised by an empty
-    /// <c>ValueSpan</c> <b>plus</b> a type an int loop can leave behind (<c>Int32</c>/<c>Int64</c>/
-    /// <c>ArrayStart</c>): a fresh <c>Int32</c> can never reach this branch (the fused read answers
-    /// <c>true</c> for every literal <c>Read()</c> would call <c>Int32</c>), a fresh <c>Int64</c> carries
-    /// its literal, and a fresh <c>ArrayStart</c> carries the superseded span.</description></item>
-    /// </list>
-    /// <para>
-    /// <b>Three is a conservative test, not a proof.</b> It can only misfire on a malformed payload whose
-    /// collection is preceded by an <i>empty</i> JSON property name (the superseded span of a fresh
-    /// <c>ArrayStart</c> is then empty too), where this loop exits instead of throwing; every well-formed
-    /// document and every malformed one without that shape takes the reference answer. The alternative —
-    /// asking the reader whether its last read produced a token — would be a new member, and spec §2.2 N2
-    /// keeps <c>Read()</c>'s observable surface closed.
-    /// </para>
-    /// <para>
-    /// <b>Everything else keeps the reference body.</b> A JSON <c>null</c> element is stored when the
-    /// declared element is nullable and is otherwise the same format error; a number that needs
-    /// <c>long</c> is widened and narrowed with <c>checked</c> (the reference never truncates); any other
-    /// token type throws the identical message at the identical offset.
-    /// </para>
-    /// </summary>
-    static void EmitFusedInt32ElementLoop(
-        StringBuilder sb,
-        string addTarget,
-        string valueVar,
-        bool nullableElement,
-        string ind
-    )
-    {
-        var body = ind + "    ";
-        var cold = ind + "        ";
-
-        sb.Append(ind);
-        sb.AppendLine("while (true)");
-        sb.Append(ind);
-        sb.AppendLine("{");
-        sb.Append(body);
-        sb.Append("if (reader.TryReadInt32(out var ");
-        sb.Append(valueVar);
-        sb.AppendLine("))");
-        sb.Append(body);
-        sb.AppendLine("{");
-        sb.Append(cold);
-        sb.Append(addTarget);
-        sb.Append('.');
-        sb.AppendLine("Add(" + valueVar + ");");
-        sb.Append(cold);
-        sb.AppendLine("continue;");
-        sb.Append(body);
-        sb.AppendLine("}");
-        sb.Append(body);
-        sb.AppendLine("// rule E-3 (spec §3.4.1): the three ways the fused read can answer false");
-        sb.Append(body);
-        sb.AppendLine("if (reader.TokenType == TokenType.ArrayEnd) break;");
-        sb.Append(body);
-        sb.AppendLine("if (reader.NeedsMoreData) break;");
-        sb.Append(body);
-        sb.AppendLine("if (reader.ValueSpan.IsEmpty");
-        sb.Append(body);
-        sb.AppendLine(
-            "    && reader.TokenType is TokenType.Int32 or TokenType.Int64 or TokenType.ArrayStart) break;"
-        );
-        if (nullableElement)
-        {
-            sb.Append(body);
-            sb.AppendLine("if (reader.TokenType == TokenType.Null)");
-            sb.Append(body);
-            sb.AppendLine("{");
-            sb.Append(cold);
-            sb.Append(addTarget);
-            sb.AppendLine(".Add(null!);");
-            sb.Append(cold);
-            sb.AppendLine("continue;");
-            sb.Append(body);
-            sb.AppendLine("}");
-        }
-        sb.Append(body);
-        sb.AppendLine("if (!reader.TryGetInt64(out var __lev))");
-        sb.Append(cold);
-        sb.AppendLine(
-            "throw new System.FormatException($\"Expected an integer element at offset {reader.BytesConsumed}\");"
-        );
-        sb.Append(body);
-        sb.Append(addTarget);
-        sb.AppendLine(".Add(checked((int)__lev));");
         sb.Append(ind);
         sb.AppendLine("}");
     }
@@ -7056,8 +6964,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             // The top-level array entry point has its own element body (Engine's `__ev`), so it gets
             // the fused loop directly instead of going through EmitDeserializeElementAdd.
-            EmitFusedInt32ElementLoop(
+            FusedEmit.EmitFusedInt32ElementLoop(
                 sb,
+                FusedReaderVar,
+                FusedReaderType,
                 "__list",
                 "__ev",
                 nullableElement: false,

@@ -2,6 +2,7 @@ namespace PicoMsgPack.Gen;
 
 using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
+using FusedEmit = PicoSerDe.Gen.FusedEmit;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -3325,24 +3326,31 @@ file static class __PicoMsgPackBulk {
                 or "extension";
 
     /// <summary>
+    /// The name this generator gives the reader local, passed to every <see cref="FusedEmit"/> shape (spec
+    /// §3.4.2 C-1: the shared emitter must not hard-code it). Spelled once here rather than at each call
+    /// site, so a site cannot disagree with the rest of the file about what the local is called.
+    /// </summary>
+    const string FusedReaderVar = "reader";
+
+    /// <summary>The concrete reader the emitted calls are made on (spec §3.4.3: never a token-reader
+    /// interface). Emitted text does not spell it — the local's declared type does — but the shared emitter
+    /// takes it so a wiring mistake names the culprit instead of producing code that will not compile.</summary>
+    const string FusedReaderType = "MsgPackReader";
+
+    /// <summary>
     /// Emits one collection read loop: rule <b>E-1</b> (spec §3.4.1) where it applies, the old end-token
     /// loop (<b>E-2</b>) everywhere else. MessagePack stores the element count in every array header, so
     /// <c>reader.TryGetCollectionCount(out n)</c> right after the start token returns exactly the number
     /// the reader itself uses to decide when the collection ends (spec §3.1 contract, spec §6 S1).
     /// <para>
-    /// <b>The explicit trailing <c>Read()</c> is the whole point.</b> Counting the elements does not
-    /// close the collection: after <c>count</c> elements the level counter is 0 and the <i>next</i>
-    /// <c>Read()</c> produces the end token. The <c>while</c> form performed that read as its own exit
-    /// condition, so the counted loop has to do it explicitly — otherwise the token stream shifts by one
-    /// and the parent's next member is decoded from the end token.
-    /// </para>
-    /// <para>
-    /// <b>The element read keeps the <c>while</c> form's failure path.</b> <c>Read()</c> returns
-    /// <c>false</c> when the payload ends inside the collection and leaves the previous token in place,
-    /// so <c>if (!reader.Read()) break;</c> reproduces the old behaviour exactly (a truncated root
-    /// <c>List&lt;T&gt;</c> yields the elements that were there instead of re-reading a stale value span
-    /// and reporting the last element twice). On a well-formed payload the branch is never taken and the
-    /// token count is the <c>while</c> form's <c>count + 1</c>.
+    /// <b>The E-1 shape is emitted by <see cref="FusedEmit"/>, not here</b> — the count probe
+    /// (<see cref="FusedEmit.EmitCollectionCountProbe"/>), the counted loop opening and its
+    /// element-existence guard (<see cref="FusedEmit.EmitCountedLoopBodyOpen"/>) and the explicit trailing
+    /// <c>Read()</c> that closes the collection (<see cref="FusedEmit.EmitCountedCollectionEndRead"/>). Each
+    /// of those shapes carries its own rationale where it is written, once, so a second format wiring E-1
+    /// cannot get the trailing read — or the truncated-collection answer — subtly wrong. The bulk int-array
+    /// fast path stays below, between the probe and the loop opening, because it belongs to this format
+    /// only.
     /// </para>
     /// <para>
     /// <b>Static, not probed.</b> This generator only ever emits for <see cref="MsgPackReader"/>
@@ -3374,16 +3382,15 @@ file static class __PicoMsgPackBulk {
             // one element — no end-token test per element. `id` keeps the two loop locals unique across
             // every site in one generated file.
             var id = c++;
-            s.Append(ind);
-            s.Append("    if (reader.TryGetCollectionCount(out var __cn");
-            s.Append(id);
-            s.AppendLine(")) {");
+            var bulk = BulkIntListApplies(element, op, targetIsList);
+            var open = bulk ? "            " : "        ";
+            FusedEmit.EmitCollectionCountProbe(s, FusedReaderVar, FusedReaderType, ind, id);
             // The bulk form: one call consumes the whole int array straight into the list's own
             // storage, instead of one `Read()` + one `TryGetInt32()` per element. It declines
             // (false, consuming nothing) whenever the payload is not a flat run of int32
             // encodings — a sequence-mode reader, a truncated array, an int64 or a nested value —
             // and the per-element loop below then runs exactly as it always did.
-            if (BulkIntListApplies(element, op, targetIsList))
+            if (bulk)
             {
                 s.Append(ind);
                 s.Append("        if (!__PicoMsgPackBulk.TryReadInt32List(ref reader, ");
@@ -3392,32 +3399,23 @@ file static class __PicoMsgPackBulk {
                 s.Append(id);
                 s.AppendLine(")) {");
             }
-            var open = BulkIntListApplies(element, op, targetIsList) ? "            " : "        ";
-            s.Append(ind);
-            s.Append(open);
-            s.Append("for (var __ci");
-            s.Append(id);
-            s.Append(" = 0; __ci");
-            s.Append(id);
-            s.Append(" < __cn");
-            s.Append(id);
-            s.Append("; __ci");
-            s.Append(id);
-            s.AppendLine("++) {");
-            s.Append(ind);
-            s.Append(open);
-            s.AppendLine("    if (!reader.Read()) break;");
-            ReadDeserElem(s, element, target, op, ind + open + "    ", ref c);
+            FusedEmit.EmitCountedLoopBodyOpen(s, FusedReaderVar, FusedReaderType, ind + open, id);
+            var elemInd = ind + open + "    ";
+            ReadDeserElem(s, element, target, op, elemInd, ref c);
             s.Append(ind);
             s.Append(open);
             s.AppendLine("}");
-            if (BulkIntListApplies(element, op, targetIsList))
+            if (bulk)
             {
                 s.Append(ind);
                 s.AppendLine("        }");
             }
-            s.Append(ind);
-            s.AppendLine("        reader.Read();");
+            FusedEmit.EmitCountedCollectionEndRead(
+                s,
+                FusedReaderVar,
+                FusedReaderType,
+                ind + "        "
+            );
             s.Append(ind);
             s.AppendLine("    } else {");
             s.Append(ind);
