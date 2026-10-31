@@ -125,7 +125,7 @@ var result = JsonSerializer.Deserialize<MyModel>(json,
 | `MaxDepth` | `63` | Maximum nesting depth |
 | `PropertyNamingPolicy` | `null` | `JsonNamingPolicy.CamelCase`, `.SnakeCaseLower`, `.KebabCaseLower`, `.PascalCase` |
 | `DefaultIgnoreCondition` | `Never` | `WhenWritingNull` / `WhenWritingDefault` |
-| `NumberHandling` | `Strict` | `AllowNamedFloatingPointLiterals` (NaN/Inf) |
+| `NumberHandling` | `Strict` | `AllowNamedFloatingPointLiterals` (NaN/Inf; also admits an out-of-range literal such as `1e400` as ±∞, which Strict rejects) |
 | `AllowTrailingCommas` | `false` | Accept trailing commas |
 | `ReadCommentHandling` | `Disallow` | `Skip` — ignore `//` and `/* */` |
 | `UnmappedMemberHandling` | `Skip` | `Disallow` — throw on unknown properties |
@@ -142,6 +142,7 @@ JsonSerializer.Deserialize<Model>("null"u8);                 // returns null (re
 JsonSerializer.Deserialize<Model>("{\"a\":1} {\"a\":2}"u8);  // throws: trailing data
 JsonSerializer.Deserialize<Model>("{}"u8);                  // throws if Model has required members
 JsonSerializer.Deserialize<int[]>("[1,null]"u8);            // throws: null into value type
+JsonSerializer.Deserialize<Model>("{\"score\":1e400}"u8);      // throws: number out of range
 ```
 
 `PicoDocument.IsValid` performs full structural validation (container
