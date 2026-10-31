@@ -700,6 +700,29 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         return false;
     }
 
+    /// <summary>
+    /// Reads the current number token as a <see cref="double"/>.
+    /// <para>
+    /// <b>Over-range literals never become <c>∞</c> in Strict mode.</b> <c>Utf8Parser.TryParse</c>
+    /// answers <see langword="true"/> and <c>∞</c> for a literal it cannot represent (measured:
+    /// <c>1e400</c>, <c>1e309</c>, <c>1e999999</c>), so a token type alone is not a range check —
+    /// without the guard below <c>{"V":1e400}</c> read back as <see cref="double.PositiveInfinity"/>,
+    /// a value the writer itself refuses to emit under the same <see cref="JsonNumberHandling.Strict"/>
+    /// policy and a back door past the named literal <see cref="Read"/> already rejects.
+    /// <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> is the one documented way to
+    /// admit a non-finite value, so it governs this case too instead of a second rule: lax answers
+    /// <c>±∞</c>, Strict throws. Underflow (<c>1e-400</c> ⇒ <c>0</c>) is not an overflow and stays
+    /// legal.
+    /// </para>
+    /// <para>
+    /// The guard sits on the <c>Utf8Parser</c> arm, so it can only see a value that came from digits:
+    /// <c>NaN</c>/<c>Infinity</c>/<c>-Infinity</c> return above it, keeping exactly the answer
+    /// <see cref="Read"/>'s number-handling policy already decided for them. Every read path funnels
+    /// here — the span reader's <c>ReadNumberSpan</c>, the sequence reader's <c>ReadNumberSeq</c>, the
+    /// source-generated member/element/dictionary reads and the streaming deserializer — so one check
+    /// covers them all instead of one per caller.
+    /// </para>
+    /// </summary>
     public bool TryGetFloat64(out double v)
     {
         if (
@@ -733,7 +756,17 @@ public ref struct JsonReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 v = double.NegativeInfinity;
                 return true;
             default:
-                return Utf8Parser.TryParse(_valueSpan, out v, out _);
+                if (!Utf8Parser.TryParse(_valueSpan, out v, out _))
+                    return false;
+                // A numeric literal, not a named one: a saturated ±∞ here is an out-of-range
+                // value, and Strict JSON never lets a non-finite value out of the reader.
+                if (
+                    double.IsInfinity(v)
+                    && _options?.NumberHandling
+                        != PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals
+                )
+                    throw new FormatException($"Number is out of range at offset {BytesConsumed}");
+                return true;
         }
     }
 
