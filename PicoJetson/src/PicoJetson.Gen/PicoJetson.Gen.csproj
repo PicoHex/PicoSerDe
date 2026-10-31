@@ -41,6 +41,7 @@
     <Compile Include="..\..\..\shared\Gen\FormatCapabilities.cs" Link="Gen\FormatCapabilities.cs" />
     <Compile Include="..\..\..\shared\Gen\DecisionTables.cs" Link="Gen\DecisionTables.cs" />
     <Compile Include="..\..\..\shared\Gen\RecursionClassifier.cs" Link="Gen\RecursionClassifier.cs" />
+    <Compile Include="..\..\..\shared\Gen\FusedEmit.cs" Link="Gen\FusedEmit.cs" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="PicoJetson.Integration.Tests" />
