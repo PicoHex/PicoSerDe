@@ -1423,7 +1423,7 @@ file static class __PicoMsgPackBulk {
 
     /// <summary>
     /// Emits the map header for an object. When any property is nullable and
-    /// MsgPackIgnoreCondition.WhenWritingNull is active at runtime, null members
+    /// PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull is active at runtime, null members
     /// are skipped entirely, so the map count is computed dynamically to keep
     /// the header consistent with the number of written key/value pairs.
     /// Returns a map from property name to its skip-flag local, or null when
@@ -1540,7 +1540,7 @@ file static class __PicoMsgPackBulk {
                     break;
                 default:
                     s.Append(
-                        " = mw.Options?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && "
+                        " = mw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull && "
                     );
                     s.Append(accessor(p));
                     s.AppendLine(" == null;");

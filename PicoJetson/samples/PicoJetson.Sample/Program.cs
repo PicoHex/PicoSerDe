@@ -148,7 +148,7 @@ class Program
         Console.Write("  SkipNull: ");
         var sn = JsonSerializer.SerializeToUtf8Bytes(
             new HasNull { Name = "X", Desc = null },
-            new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }
+            new JsonOptions { DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull }
         );
         Console.WriteLine(Encoding.UTF8.GetString(sn));
 

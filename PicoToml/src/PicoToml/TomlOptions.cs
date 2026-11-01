@@ -1,13 +1,13 @@
 namespace PicoToml;
 
-public enum TomlIgnoreCondition
-{
-    Never = 0,
-    WhenWritingNull = 1,
-}
-
 public class TomlOptions : SerOptions
 {
     public bool Indented { get; set; } = false;
-    public TomlIgnoreCondition DefaultIgnoreCondition { get; set; } = TomlIgnoreCondition.Never;
+
+    /// <summary>
+    /// Controls when properties are skipped based on their value. Default:
+    /// <see cref="PicoIgnoreCondition.Never"/>. Accepted for API uniformity — TOML has
+    /// no null literal, so null members are omitted whatever this is set to.
+    /// </summary>
+    public PicoIgnoreCondition DefaultIgnoreCondition { get; set; } = PicoIgnoreCondition.Never;
 }

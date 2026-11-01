@@ -14,6 +14,12 @@ seven of them (six spelled `<file>.cs:<line>` and one written as a bare `（:NNN
 had already been named), and no test failed. `DocPointerGuardTests` now rejects `<file>.cs:<line>` and
 `<file>.public.txt:<line>` in both ledgers.
 
+**Removals are recorded here too, since `v2026.12.0`.** This file was written for additions, and an
+addition can wait for a release because nothing breaks while it waits. A **removal** cannot wait quietly: a
+consumer's build goes red the moment the type is gone, and no `+N` in a later delta explains it. So a removal
+is registered as soon as the code loses the member - see "Pending public API removals" at the end of this
+file, which carries the five enums the C9 unification deleted.
+
 `api/*.public.txt` records **the last released surface**. It is deliberately not edited between
 releases: the release script diffs the freshly dumped surface against it and reports the delta
 (`+N / -M`), which is what drives the version bump. Editing a baseline by hand to match new code
@@ -148,3 +154,71 @@ element on the Collection row against 0.57 ns for the competitor, and no existin
 a length-prefixed run of values. Output is byte-identical to the element loop because non-fixint values
 still go through `WriteInt32`. While it was pending, `api/*.public.txt` stayed untouched, as the note
 above requires; `v2026.11.0` then wrote it into the baseline along with the rest of the release.
+
+## Pending public API removals - `v2026.12.0`
+
+**One change, five types, source-breaking.** The C9 unification deleted the per-format ignore-condition
+enums and pointed every `DefaultIgnoreCondition` property at the suite-wide
+`PicoSerDe.Core.PicoIgnoreCondition` that already existed for `[PicoIgnore(Condition = ...)]`. Five public
+types disappear and five properties change type in the same release, so this is an **x bump**
+(`v2026.11.x` -> `v2026.12.0`), not a `y`.
+
+### What goes, entry by entry
+
+| # | Package | Removed baseline entries | The one that replaces them |
+|---|---|---|---|
+| R-1 | `PicoJetson` | `T:enum PicoJetson.JsonIgnoreCondition` + its four `F:` rows (`Never`, `WhenWritingNull`, `WhenWritingDefault`, `value__`) | `T:enum PicoSerDe.Core.PicoIgnoreCondition` |
+| R-2 | `PicoMsgPack` | `T:enum PicoMsgPack.MsgPackIgnoreCondition` + three `F:` rows (`Never`, `WhenWritingNull`, `value__`) | same |
+| R-3 | `PicoIni` | `T:enum PicoIni.IniIgnoreCondition` + three `F:` rows (`Never`, `WhenWritingNull`, `value__`) | same |
+| R-4 | `PicoToml` | `T:enum PicoToml.TomlIgnoreCondition` + three `F:` rows (`Never`, `WhenWritingNull`, `value__`) | same |
+| R-5 | `PicoYaml` | `T:enum PicoYaml.YamlIgnoreCondition` + three `F:` rows (`Never`, `WhenWritingNull`, `value__`) | same |
+
+Five properties change type rather than disappear, so each shows up in the delta as one removed line and one
+added line:
+
+| Package | The property |
+|---|---|
+| `PicoJetson` | `JsonOptions.DefaultIgnoreCondition`, `JsonIgnoreCondition` -> `PicoIgnoreCondition` |
+| `PicoMsgPack` | `MsgPackOptions.DefaultIgnoreCondition`, `MsgPackIgnoreCondition` -> `PicoIgnoreCondition` |
+| `PicoIni` | `IniOptions.DefaultIgnoreCondition`, `IniIgnoreCondition` -> `PicoIgnoreCondition` |
+| `PicoToml` | `TomlOptions.DefaultIgnoreCondition`, `TomlIgnoreCondition` -> `PicoIgnoreCondition` |
+| `PicoYaml` | `YamlOptions.DefaultIgnoreCondition`, `YamlIgnoreCondition` -> `PicoIgnoreCondition` |
+
+Expected delta: **`+5 / -26`** over the five format archives (`-21` enum rows, `-5`/`+5` for the retyped
+properties); `api/PicoSerDe.Core.public.txt` is untouched.
+
+### Why it is safe to merge into one enum
+
+- **Same member names, same meanings.** `Never` = never skip, `WhenWritingNull` = skip when null,
+  `WhenWritingDefault` = skip when null or `default(T)`. Only the integer values move (`Never` 0 -> 1,
+  `WhenWritingNull` 1 -> 2, `WhenWritingDefault` 2 -> 3, and `Always = 0` is new to these five classes).
+  Nothing in the runtime or the generators compares the numeric value: every generated guard compares
+  **named constants**, and no library code reads `DefaultIgnoreCondition` at all - it is consumed by emitted
+  code only.
+- **Wire output is unchanged.** A harness ran the same model (null member, default-value member, normal
+  member, null nullable, nested object, nullable list) through all five formats at every setting, before and
+  after: the ten pre-existing settings produce byte-identical payloads, and the settings the unification
+  newly exposes (`WhenWritingDefault` on INI/TOML/YAML/MsgPack) produce exactly the `Never` bytes, because
+  those four formats never consulted the value. JSON is the only format that honors
+  `WhenWritingDefault`, and it honored it before too.
+- **Two values are accepted-but-inert as a global default**, and that is the one behavioral sharp edge of
+  the unification, recorded here instead of discovered later: `PicoIgnoreCondition.Always` means "strip this
+  property everywhere" *at attribute level* and has no global meaning, so setting it as a
+  `DefaultIgnoreCondition` behaves like `Never` (write everything); `WhenWritingNull`/`WhenWritingDefault`
+  remain inert in TOML/INI/YAML, and `WhenWritingDefault` inert in MsgPack, exactly as their per-format
+  enums never offered it.
+
+### Checking this without trusting this file
+
+Each removed entry is still in the last released baseline, so one `grep` per row proves the removal is real
+and has not been applied yet:
+
+```
+grep -c 'IgnoreCondition' api/PicoJetson.public.txt api/PicoMsgPack.public.txt api/PicoIni.public.txt api/PicoToml.public.txt api/PicoYaml.public.txt
+```
+
+Before the release that answers `6 5 5 5 5` (Jetson carries one extra `F:` row: it also had
+`WhenWritingDefault`); the release commit rewrites the five archives and the same
+`grep` answers `1 1 1 1 1` - the surviving count is the retyped `P:` row, which now spells
+`PicoSerDe.Core.PicoIgnoreCondition`. The handover is complete when every `T:enum` row for one of the five
+names is gone from `api/`, and `T:enum PicoSerDe.Core.PicoIgnoreCondition` is still there.

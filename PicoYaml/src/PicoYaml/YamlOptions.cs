@@ -1,13 +1,14 @@
 namespace PicoYaml;
 
-public enum YamlIgnoreCondition
-{
-    Never = 0,
-    WhenWritingNull = 1,
-}
-
 public class YamlOptions : SerOptions
 {
     public bool Indented { get; set; } = false;
-    public YamlIgnoreCondition DefaultIgnoreCondition { get; set; } = YamlIgnoreCondition.Never;
+
+    /// <summary>
+    /// Controls when properties are skipped based on their value. Default:
+    /// <see cref="PicoIgnoreCondition.Never"/>. A null <b>member</b> is omitted
+    /// whatever this is set to; null elements and null dictionary values keep their
+    /// <c>null</c> literal.
+    /// </summary>
+    public PicoIgnoreCondition DefaultIgnoreCondition { get; set; } = PicoIgnoreCondition.Never;
 }

@@ -11,15 +11,15 @@ internal static class FormatCapabilities_Probe_S11aJson_13778ea7136184ceJsonInne
     internal static void Serialize(ref JsonWriter jw, FormatCapabilities.Probe.S11aJson value)
     {
         jw.WriteStartObject();
-        if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+        if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
             || value.Value != default)
         {
         jw.WritePropertyName("Value"u8);
         jw.WriteNumber(value.Value);
         }
-        if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull
+        if (jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull
             ? value.Child != null
-            : jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+            : jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
             ? value.Child != null
             : true)
         {

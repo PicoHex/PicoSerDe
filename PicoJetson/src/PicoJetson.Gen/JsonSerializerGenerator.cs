@@ -1761,7 +1761,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             // or holding default(T) (WhenWritingDefault).
             sb.Append(indent);
             sb.AppendLine(
-                "if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
+                "if (jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull"
             );
             sb.Append(indent);
             sb.Append("    ? ");
@@ -1769,7 +1769,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine(".HasValue");
             sb.Append(indent);
             sb.AppendLine(
-                "    : jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+                "    : jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault"
             );
             sb.Append(indent);
             sb.Append("    ? (");
@@ -1789,7 +1789,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             // Non-nullable value type: only WhenWritingDefault can omit it.
             sb.Append(indent);
             sb.AppendLine(
-                "if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+                "if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault"
             );
             sb.Append(indent);
             sb.Append("    || ");
@@ -1804,7 +1804,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         {
             sb.Append(indent);
             sb.AppendLine(
-                "if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull"
+                "if (jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull"
             );
             sb.Append(indent);
             sb.Append("    ? ");
@@ -1812,7 +1812,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine(" != null");
             sb.Append(indent);
             sb.AppendLine(
-                "    : jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault"
+                "    : jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault"
             );
             sb.Append(indent);
             sb.Append("    ? ");

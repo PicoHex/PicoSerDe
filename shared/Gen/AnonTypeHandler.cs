@@ -932,7 +932,7 @@ internal static class AnonTypeHandler
                 if (afc.HasOptionsParam)
                 {
                     sb.AppendLine(
-                        $"{body}if ({valueVar} != null || options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingNull) {{"
+                        $"{body}if ({valueVar} != null || options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull) {{"
                     );
                     if (!afc.EmbedsKeyInValue)
                         EmitAnonFieldKey(sb, wv, f, afc, ot, body + "    ");

@@ -122,7 +122,7 @@ public class IgnoreConditionMatrixTests
                 IgnMatrixFactory.CreateWithNulls(),
                 new PicoJetson.JsonOptions
                 {
-                    DefaultIgnoreCondition = PicoJetson.JsonIgnoreCondition.WhenWritingNull,
+                    DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
                 }
             )
         );
@@ -170,7 +170,7 @@ public class IgnoreConditionMatrixTests
         var full = PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes(model);
         var opts = new PicoMsgPack.MsgPackOptions
         {
-            DefaultIgnoreCondition = PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull,
+            DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
         };
         var skipped = PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes(model, opts);
         await Assert.That(skipped.Length).IsLessThan(full.Length);

@@ -126,7 +126,7 @@ public class PerPropertyIgnoreTests
                 model,
                 new PicoJetson.JsonOptions
                 {
-                    DefaultIgnoreCondition = PicoJetson.JsonIgnoreCondition.WhenWritingNull,
+                    DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
                 }
             )
         );
@@ -186,7 +186,7 @@ public class PerPropertyIgnoreTests
     {
         var opts = new PicoMsgPack.MsgPackOptions
         {
-            DefaultIgnoreCondition = PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull,
+            DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
         };
         var bytes = PicoMsgPack.MsgPackSerializer.SerializeToUtf8Bytes(Create(), opts);
         var map = MessagePack.MessagePackSerializer.Deserialize<Dictionary<int, object?>>(bytes);

@@ -1,11 +1,5 @@
 namespace PicoMsgPack;
 
-public enum MsgPackIgnoreCondition
-{
-    Never = 0,
-    WhenWritingNull = 1,
-}
-
 /// <summary>
 /// How a <see cref="System.DateTime"/> is put on the wire.
 /// </summary>
@@ -31,8 +25,13 @@ public enum MsgPackDateTimeFormat
 
 public class MsgPackOptions : SerOptions
 {
-    public MsgPackIgnoreCondition DefaultIgnoreCondition { get; set; } =
-        MsgPackIgnoreCondition.Never;
+    /// <summary>
+    /// Controls when properties are skipped based on their value. Default:
+    /// <see cref="PicoIgnoreCondition.Never"/> (a null member is written as
+    /// <c>nil</c>). <see cref="PicoIgnoreCondition.WhenWritingNull"/> omits the
+    /// member instead.
+    /// </summary>
+    public PicoIgnoreCondition DefaultIgnoreCondition { get; set; } = PicoIgnoreCondition.Never;
 
     /// <summary>
     /// Wire representation for <see cref="System.DateTime"/> members. Defaults to

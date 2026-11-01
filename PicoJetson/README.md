@@ -106,7 +106,7 @@ byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
 
 // Skip null properties
 byte[] data = JsonSerializer.SerializeToUtf8Bytes(model,
-    new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
+    new JsonOptions { DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull });
 
 // NaN / Infinity as named literals
 var withNaN = JsonSerializer.SerializeToUtf8Bytes(model,
@@ -124,7 +124,7 @@ var result = JsonSerializer.Deserialize<MyModel>(json,
 | `Indented` | `false` | Human-readable indented output |
 | `MaxDepth` | `63` | Maximum nesting depth |
 | `PropertyNamingPolicy` | `null` | `JsonNamingPolicy.CamelCase`, `.SnakeCaseLower`, `.KebabCaseLower`, `.PascalCase` |
-| `DefaultIgnoreCondition` | `Never` | `WhenWritingNull` / `WhenWritingDefault` |
+| `DefaultIgnoreCondition` | `Never` | `PicoIgnoreCondition` (`PicoSerDe.Core`): `Never` / `WhenWritingNull` / `WhenWritingDefault` |
 | `NumberHandling` | `Strict` | `AllowNamedFloatingPointLiterals` (NaN/Inf; also admits an out-of-range literal such as `1e400` as ±∞, which Strict rejects) |
 | `AllowTrailingCommas` | `false` | Accept trailing commas |
 | `ReadCommentHandling` | `Disallow` | `Skip` — ignore `//` and `/* */` |

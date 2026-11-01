@@ -9,7 +9,7 @@ internal static class FormatCapabilities_Probe_S11bMsgpack_b84dd7056be5654bMsgPa
     internal static void Serialize(ref MsgPackWriter mw, FormatCapabilities.Probe.S11bMsgpack v)
     {
         int __n0 = 2;
-        bool __sk1 = mw.Options?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && v.B == null;
+        bool __sk1 = mw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull && v.B == null;
         if (__sk1) __n0--;
         mw.WriteStartObject(__n0);
         mw.WriteInt32(0);
@@ -24,7 +24,7 @@ internal static class FormatCapabilities_Probe_S11bMsgpack_b84dd7056be5654bMsgPa
                     global::PicoMsgPack.MsgPackSerializer.SerializeCustom<global::FormatCapabilities.Probe.S11bMsgpackPartner>(mw.Buffer, v.B);
                 else {
                     int __n2 = 2;
-                    bool __sk3 = mw.Options?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && v.B.A == null;
+                    bool __sk3 = mw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull && v.B.A == null;
                     if (__sk3) __n2--;
                     mw.WriteStartObject(__n2);
                     mw.WriteInt32(0);

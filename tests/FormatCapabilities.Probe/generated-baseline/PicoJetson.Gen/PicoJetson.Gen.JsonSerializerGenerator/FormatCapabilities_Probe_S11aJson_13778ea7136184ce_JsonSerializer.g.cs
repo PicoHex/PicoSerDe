@@ -13,7 +13,7 @@ namespace FormatCapabilities.Probe;
             var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);
             jw.WriteStartObject();
             var __policy = jw.Options?.PropertyNamingPolicy;
-            if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+            if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
                 || value.Value != default)
             {
             if (__policy is null)
@@ -22,9 +22,9 @@ namespace FormatCapabilities.Probe;
                 jw.WritePropertyName(__policy.ConvertName("Value") ?? "Value");
             jw.WriteNumber(value.Value);
             }
-            if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull
+            if (jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull
                 ? value.Child != null
-                : jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+                : jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
                 ? value.Child != null
                 : true)
             {

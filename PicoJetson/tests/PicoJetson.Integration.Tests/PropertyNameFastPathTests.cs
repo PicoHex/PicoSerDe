@@ -203,11 +203,11 @@ public class PropertyNameEquivalenceTests
     {
         var options = new JsonOptions
         {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
         };
         var camel = new JsonOptions
         {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
@@ -297,7 +297,10 @@ public class PropertyNameShapeTests
         var compilation = CSharpCompilation.Create(
             "PropertyNameShapeAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
-            RoslynProbe.PlatformReferences(typeof(JsonSerializer).Assembly, typeof(PicoSerDe.Core.SerializerExtensions).Assembly),
+            RoslynProbe.PlatformReferences(
+                typeof(JsonSerializer).Assembly,
+                typeof(PicoSerDe.Core.SerializerExtensions).Assembly
+            ),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true)
         );
 
