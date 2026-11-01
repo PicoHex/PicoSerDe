@@ -86,10 +86,10 @@ var ini = IniSerializer.Serialize(config);
 ## Limits
 
 - **No object-list *members*.** INI has no array-of-tables syntax, so a `List<SomeDto>` property
-  cannot be represented and is dropped. This is the one unsupported shape that is currently
-  **not** reported: no `PICOSERDE004` warning is emitted for it, so check the member with a
-  round-trip test if a list mysteriously comes back empty. If you need an object list inside a
-  DTO, use **TOML**, **YAML** or **JSON** instead.
+  cannot be represented and is dropped with a `PICOSERDE004` warning
+  (`SilentDropDiagnosticTests.Ini_ObjectListMember_ReportsDiagnostic`) — visible in the build log,
+  never silent. If you need an object list inside a DTO, use **TOML**, **YAML** or **JSON**
+  instead.
 - **A top-level `List<SomeDto>` does round-trip** — each item is written as a numbered section
   (`[0]`, `[1]`, ...).
 - **Nested lists, nullable elements and recursion are reported.** `List<List<int>>`, `List<int?>`

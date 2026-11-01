@@ -129,7 +129,8 @@ clothes.
 - **Clean up `.worktrees/` before releasing.** The packable-project scan sweeps the tree, and a leftover
   worktree — a second copy carrying the same `PackageId` — aborted releases with *duplicate PackageId across
   packable projects* until `b55c14f` made the scan skip `.worktrees/`, `.superpowers/`, `artifacts/` and every
-  dot-prefixed directory (`scripts/release.ps1:110-122`). That exclusion is a safety net, not a licence.
+  dot-prefixed directory (`scripts/release.ps1:136-158`; `b55c14f` added the block at `:113-122` of that time,
+  and it has since moved down the file). That exclusion is a safety net, not a licence.
 - **Docs and skills ship in the release commit.** The gate is the `verify` job in `release.yml`
   (`.github/workflows/release.yml:37`): restore, Release build, and all ten test projects, on `ubuntu-latest`.
   `pack` waits on it (`jobs.pack.needs: verify`, `release.yml:76`) and `publish` on `pack`

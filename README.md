@@ -486,17 +486,21 @@ see [PicoYaml → Limits](PicoYaml/README.md#limits)). TOML keeps its documented
 deeper than one level" error, and TOML arrays of tables have no chunk-resume strategy, so their
 streaming delegate is not registered — `DeserializeFromStreamAsync` then buffers the stream and uses
 the synchronous path (correct, just not incremental). Dictionaries accept scalar, object and
-nested-dictionary values; a **collection** dict value (`Dictionary<string, List<T>>`) is dropped with
-`PICOSERDE004` instead of generating broken code.
+nested-dictionary values; a **collection** dict value (`Dictionary<string, List<T>>`) round-trips in
+JSON, MsgPack, TOML and YAML and is dropped in **INI** with `PICOSERDE004` instead of generating
+broken code — see [Format limits](#format-limits-what-each-wire-format-cannot-express).
 
 ### Format limits: what each wire format cannot express
 
 Not every C# shape has a wire representation in every format. The matrix below is the boundary of
 the five generated serializers, and every ❌ is enforced at **generation time**, never at runtime: a
 member the format cannot express is left out of the generated serializer and the build reports
-`PICOSERDE004` — `Member 'X.Y' cannot be represented by this format — it will be ignored` — while a
-self-referencing member reports `PICOSERDE003` — `Member 'X.Y' is recursive/self-referencing and
-cannot be represented by this format — it will be ignored`. The rest of the document is written and
+`PICOSERDE004` — `Member 'X.Y' (declared type 'D') cannot be represented by the FMT format. Use a
+format that can, or change the member's type.` — while a self-referencing member reports
+`PICOSERDE003` — `Member 'X.Y' (declared type 'D') closes a type cycle, and the FMT format cannot
+represent one. Use a format that can hold recursion, or remove the cycle.` Both ids carry a second,
+*deferred* wording for a shape the format **can** hold and this generator has not implemented yet
+(the diagnostic title says which of the two fired). The rest of the document is written and
 read as usual, so the drop shows up in the build log instead of surfacing later as a mysteriously
 empty property.
 
@@ -542,9 +546,10 @@ YAML still drop those members with `PICOSERDE003`, reported as a debt (`⏸`, re
 carry one, the emitter has no route for a table inside an array yet).
 
 Two shapes sit outside this matrix. A **collection dictionary value** (`Dictionary<string, List<T>>`;
-nested dictionaries are fine) is dropped in **every** format with `PICOSERDE004`, while a **top-level
-scalar** target is refused outright — `Serialize<Guid>()`, `Deserialize<int?>()` and friends throw
-`InvalidOperationException` ("no serializer registered").
+nested dictionaries are fine) round-trips in JSON, MsgPack, TOML and YAML and is dropped in **INI
+alone** with `PICOSERDE004` — its sections carry no nesting at all (`DictValueCollectionTests`); a
+**top-level scalar** target is refused outright — `Serialize<Guid>()`, `Deserialize<int?>()` and
+friends throw `InvalidOperationException` ("no serializer registered").
 
 The wire shape behind each ✅ is documented per format: [PicoToml](PicoToml/README.md#limits)
 (`[[Table]]`, `G = [[1, 2], [3]]`), [PicoYaml](PicoYaml/README.md#limits) (block sequences, `- []` vs
@@ -597,7 +602,7 @@ byte[] pretty  = JsonSerializer.SerializeToUtf8Bytes(model, new JsonOptions { In
 byte[] camel   = JsonSerializer.SerializeToUtf8Bytes(model, new JsonOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
 ```
 
-Nine options in all — `Indented`, `MaxDepth`, `PropertyNamingPolicy`, `DefaultIgnoreCondition`, `NumberHandling`, `AllowTrailingCommas`, `ReadCommentHandling`, `UnmappedMemberHandling`,
+Ten options in all — `Indented`, `MaxDepth`, `PropertyNamingPolicy`, `DefaultIgnoreCondition`, `NumberHandling`, `IncludeFields`, `AllowTrailingCommas`, `ReadCommentHandling`, `UnmappedMemberHandling`,
 `PropertyNameCaseInsensitive` — with defaults and the `WhenWritingNull` / trailing-comma examples in [PicoJetson → Options](PicoJetson/README.md#options).
 
 `DefaultIgnoreCondition` exists on every options class, but what "writing a null" means is fixed by the wire format ([Null Semantics](#null-semantics)):

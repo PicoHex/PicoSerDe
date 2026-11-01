@@ -83,13 +83,15 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
   inline array of inline arrays (`Grid = [[1, 2], [3]]`) and round-trip. The representable leaf
   kinds are the scalars the TOML list writer has a case for: `string`, the integer widths,
   `float`/`double`, `bool`.
-- **`List<List<Dto>>` is not representable** — TOML has no "array table of array tables", so the
-  member is dropped and the build reports `PICOSERDE004`
-  (`Member 'X.Y' cannot be represented by this format — it will be ignored`). A nested chain with
-  a nullable leaf (`List<List<int?>>`) is dropped the same way.
-- **Recursive members** (`Node Child` on `Node`) are dropped with `PICOSERDE003`; the rest of the
-  document is still written, so a recursive DTO serializes "partially". JSON/MsgPack keep the
-  member.
+- **`List<List<Dto>>` round-trips** — an inline array of inline tables (`V = [[{ Name = "a" }]]`)
+  is a form TOML can hold, so the member is emitted and nothing is reported
+  (`TomlNestedObjectArrayTests`, `RecursiveDiagnosticTests.NestedObjectListMember_IsEmittedAndNotReported`).
+  A nested chain with a nullable *value* leaf (`List<List<int?>>`) is still not representable and is
+  dropped with `PICOSERDE004`.
+- **Recursive members** (`Node Child` on `Node`) round-trip as nested tables (`[Child]`, `[B.A]`).
+  The remaining debt is the cycle *position*: a recursive collection **element** (`List<Node>` on
+  `Node`) or a recursive **dict value** (`Dictionary<string, Node>` on `Node`) is still dropped with
+  `PICOSERDE003`, reported as a `⏸` debt because TOML can carry the shape.
 - Objects nested deeper than one level throw `NotSupportedException` instead of silently losing data.
 
 Confirm what was dropped with `dotnet build 2>&1 | grep PICOSERDE` (the diagnostics carry

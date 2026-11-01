@@ -68,12 +68,12 @@ expressible: object lists (`List<Dto>`), nested primitive lists (`List<List<int>
 lists (`List<List<Dto>>`), nested nullable elements (`List<List<int?>>`, `nil` elements included)
 and recursive members. `PICOSERDE003` never fires for this format.
 
-The drops that do happen come from rules shared with the other formats and are all reported: a
-**collection dictionary value** (`Dictionary<string, List<T>>`) and a nested chain with a nullable
-*value* leaf are dropped with `PICOSERDE004`; an anonymous-type **collection** member is dropped
-with `PICOSERDE005` (the map/array headers need an element count up front, so only the JSON writer
-can emit those). A **top-level scalar** target fails loudly instead (`Serialize<Guid>()` throws
-`InvalidOperationException`).
+The drops that do happen come from rules shared with the other formats: the JSON-only **extended
+scalars** (`char`, `DateTimeOffset`, `Uri`, `Version`, `Half`, `BigInteger`, `Int128`, `UInt128`,
+`nint`) and `ConcurrentDictionary<K,V>` are dropped without a diagnostic; an anonymous-type
+**collection** member is dropped with `PICOSERDE005` (the map/array headers need an element count
+up front, so only the JSON writer can emit those). A **top-level scalar** target fails loudly
+instead (`Serialize<Guid>()` throws `InvalidOperationException`).
 
 See the [root README](../README.md#format-limits-what-each-wire-format-cannot-express) for the
 same matrix across all five formats.
