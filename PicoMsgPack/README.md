@@ -90,7 +90,7 @@ options argument.
 ## Options
 
 `MsgPackSerializer.SerializeToUtf8Bytes` / `Serialize` accept `MsgPackOptions`
-(`DefaultIgnoreCondition = WhenWritingNull` omits null members); `Deserialize`
+(`DefaultIgnoreCondition = PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull` omits null members); `Deserialize`
 accepts options for API uniformity.
 
 ### `DateTime` on the wire

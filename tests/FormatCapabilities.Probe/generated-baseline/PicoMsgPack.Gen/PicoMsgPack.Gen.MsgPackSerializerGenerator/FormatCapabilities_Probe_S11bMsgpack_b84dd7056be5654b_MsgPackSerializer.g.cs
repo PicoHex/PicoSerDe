@@ -8,7 +8,7 @@ file static class S11bMsgpackMsgPackSerializer {
     public static void Serialize(IBufferWriter<byte> writer, S11bMsgpack value, global::PicoSerDe.Core.SerOptions? options) {
         var mw = new MsgPackWriter(writer, options: ((global::PicoMsgPack.MsgPackOptions?)options));
         int __n0 = 2;
-        bool __sk1 = mw.Options?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && value.B == null;
+        bool __sk1 = mw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull && value.B == null;
         if (__sk1) __n0--;
         mw.WriteStartObject(__n0);
         mw.WriteInt32(0);
@@ -23,7 +23,7 @@ file static class S11bMsgpackMsgPackSerializer {
                     global::PicoMsgPack.MsgPackSerializer.SerializeCustom<global::FormatCapabilities.Probe.S11bMsgpackPartner>(mw.Buffer, value.B);
                 else {
                     int __n2 = 2;
-                    bool __sk3 = mw.Options?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && value.B.A == null;
+                    bool __sk3 = mw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull && value.B.A == null;
                     if (__sk3) __n2--;
                     mw.WriteStartObject(__n2);
                     mw.WriteInt32(0);

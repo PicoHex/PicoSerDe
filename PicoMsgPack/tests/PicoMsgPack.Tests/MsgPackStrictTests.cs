@@ -93,7 +93,7 @@ public class MsgPackStrictTests
     {
         var opts = new MsgPackOptions
         {
-            DefaultIgnoreCondition = MsgPackIgnoreCondition.WhenWritingNull,
+            DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
         };
         // Per-property WhenWritingDefault is honored independent of the
         // global option.

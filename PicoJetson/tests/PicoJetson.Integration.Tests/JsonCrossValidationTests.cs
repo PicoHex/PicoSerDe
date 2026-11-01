@@ -204,7 +204,7 @@ public class JsonCrossValidationTests
     {
         var model = ComplexModelFactory.Create();
         model.NullableString = null;
-        var opts = new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+        var opts = new JsonOptions { DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(model, opts);
         var text = System.Text.Encoding.UTF8.GetString(bytes);
         await Assert.That(text).DoesNotContain("NullableString");

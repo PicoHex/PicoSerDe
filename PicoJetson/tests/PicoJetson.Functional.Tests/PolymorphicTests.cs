@@ -346,7 +346,7 @@ public class PolymorphicTests
         SessionEntry session = entry;
         var json = JsonSerializer.Serialize(
             session,
-            new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }
+            new JsonOptions { DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull }
         );
         await Assert.That(json).DoesNotContain("OptionalNote");
         await Assert.That(json).Contains("Content");
@@ -547,7 +547,7 @@ public class PolymorphicTests
         NullableRecordBase ev = new NullableRecordMsg("hi", null, 42);
         var json = JsonSerializer.Serialize(
             ev,
-            new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }
+            new JsonOptions { DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull }
         );
 
         await Assert.That(json).Contains("\"Content\"");

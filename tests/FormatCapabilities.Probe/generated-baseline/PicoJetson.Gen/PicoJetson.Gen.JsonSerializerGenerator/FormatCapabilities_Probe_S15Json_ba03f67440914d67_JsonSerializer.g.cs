@@ -13,7 +13,7 @@ namespace FormatCapabilities.Probe;
             var jw = new JsonWriter(writer, indented: __opts?.Indented ?? false, maxDepth: __opts?.MaxDepth ?? 63, options: __opts);
             jw.WriteStartObject();
             var __policy = jw.Options?.PropertyNamingPolicy;
-            if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+            if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
                 || value.F != default)
             {
             if (__policy is null)
@@ -22,7 +22,7 @@ namespace FormatCapabilities.Probe;
                 jw.WritePropertyName(__policy.ConvertName("F") ?? "F");
             jw.WriteNumber(value.F);
             }
-            if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+            if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
                 || value.D != default)
             {
             if (__policy is null)
@@ -31,7 +31,7 @@ namespace FormatCapabilities.Probe;
                 jw.WritePropertyName(__policy.ConvertName("D") ?? "D");
             jw.WriteNumber(value.D);
             }
-            if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+            if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
                 || value.When != default)
             {
             if (__policy is null)
@@ -40,7 +40,7 @@ namespace FormatCapabilities.Probe;
                 jw.WritePropertyName(__policy.ConvertName("When") ?? "When");
             global::PicoJetson.TypeIo.WriteFormattable(ref jw, value.When, "O");
             }
-            if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+            if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
                 || value.Span != default)
             {
             if (__policy is null)
@@ -49,7 +49,7 @@ namespace FormatCapabilities.Probe;
                 jw.WritePropertyName(__policy.ConvertName("Span") ?? "Span");
             global::PicoJetson.TypeIo.WriteFormattable(ref jw, value.Span, "c");
             }
-            if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+            if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
                 || value.Id != default)
             {
             if (__policy is null)
@@ -58,9 +58,9 @@ namespace FormatCapabilities.Probe;
                 jw.WritePropertyName(__policy.ConvertName("Id") ?? "Id");
             global::PicoJetson.TypeIo.WriteFormattable(ref jw, value.Id, "D");
             }
-            if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull
+            if (jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull
                 ? value.Day.HasValue
-                : jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+                : jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
                 ? (value.Day.HasValue && value.Day.Value != default)
                 : true)
             {

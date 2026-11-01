@@ -256,7 +256,7 @@ namespace PicoJetson.Tests
             };
             var json = JsonSerializer.Serialize(
                 m,
-                new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault }
+                new JsonOptions { DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingDefault }
             );
             await Assert.That(json).IsEqualTo("{}");
         }
@@ -273,7 +273,7 @@ namespace PicoJetson.Tests
             };
             var json = JsonSerializer.Serialize(
                 m,
-                new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault }
+                new JsonOptions { DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingDefault }
             );
             await Assert.That(json).Contains("\"Count\":3");
             await Assert.That(json).Contains("\"Note\":\"x\"");
@@ -293,7 +293,7 @@ namespace PicoJetson.Tests
             };
             var json = JsonSerializer.Serialize(
                 m,
-                new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault }
+                new JsonOptions { DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingDefault }
             );
             await Assert.That(json).Contains("\"Count\":1");
             await Assert.That(json).DoesNotContain("\"Opt\"");

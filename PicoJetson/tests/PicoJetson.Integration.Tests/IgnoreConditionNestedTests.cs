@@ -45,7 +45,7 @@ public class IgnoreConditionNestedTests
 {
     private static readonly JsonOptions WhenWritingNull = new()
     {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
     };
 
     // Bug 1: nested object property (inner helper path)
@@ -179,7 +179,7 @@ public class IgnoreConditionNestedTests
         };
         var json = JsonSerializer.Serialize(
             model,
-            new JsonOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault }
+            new JsonOptions { DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingDefault }
         );
         await Assert.That(json).DoesNotContain("\"NullableInt\"");
         await Assert.That(json).Contains("\"inner\"");

@@ -6,7 +6,7 @@ public class OptionsTests
     public async Task MsgPackOptions_Defaults()
     {
         var opts = new MsgPackOptions();
-        await Assert.That(opts.DefaultIgnoreCondition).IsEqualTo(MsgPackIgnoreCondition.Never);
+        await Assert.That(opts.DefaultIgnoreCondition).IsEqualTo(PicoIgnoreCondition.Never);
     }
 }
 

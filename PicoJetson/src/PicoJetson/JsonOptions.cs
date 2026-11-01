@@ -1,18 +1,5 @@
 namespace PicoJetson;
 
-/// <summary>Controls when properties are skipped during serialization.</summary>
-public enum JsonIgnoreCondition
-{
-    /// <summary>Always serialize the property.</summary>
-    Never = 0,
-
-    /// <summary>Skip properties whose value is null.</summary>
-    WhenWritingNull = 1,
-
-    /// <summary>Skip properties whose value is null or the type's default.</summary>
-    WhenWritingDefault = 2,
-}
-
 /// <summary>Controls how comments in JSON are handled during deserialization.</summary>
 public enum JsonCommentHandling
 {
@@ -157,8 +144,16 @@ public class JsonOptions : SerOptions
     /// <summary>Property naming policy applied during serialization. Default: null (use compiled names).</summary>
     public JsonNamingPolicy? PropertyNamingPolicy { get; set; }
 
-    /// <summary>Controls when properties are skipped based on their value. Default: Never.</summary>
-    public JsonIgnoreCondition DefaultIgnoreCondition { get; set; } = JsonIgnoreCondition.Never;
+    /// <summary>
+    /// Controls when properties are skipped based on their value. Default:
+    /// <see cref="PicoIgnoreCondition.Never"/>. Uses the suite-wide
+    /// <see cref="PicoIgnoreCondition"/> so this setting and the per-property
+    /// <see cref="PicoIgnoreAttribute.Condition"/> share one enum.
+    /// <see cref="PicoIgnoreCondition.Always"/> has no global meaning: it strips a property
+    /// everywhere at attribute level, but as a default here it behaves like
+    /// <see cref="PicoIgnoreCondition.Never"/> and writes every member.
+    /// </summary>
+    public PicoIgnoreCondition DefaultIgnoreCondition { get; set; } = PicoIgnoreCondition.Never;
 
     /// <summary>Whether to serialize public fields in addition to properties. Default: false.</summary>
     public bool IncludeFields { get; set; } = false;

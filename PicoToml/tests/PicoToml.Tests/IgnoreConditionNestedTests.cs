@@ -28,7 +28,7 @@ public class TIgnOuter
 [NotInParallel]
 public class IgnoreConditionNestedTests
 {
-    private static string SerializeWith(TomlIgnoreCondition condition, TIgnOuter model)
+    private static string SerializeWith(PicoIgnoreCondition condition, TIgnOuter model)
     {
         return TomlSerializer.Serialize(model);
     }
@@ -44,7 +44,7 @@ public class IgnoreConditionNestedTests
             NullableList = null,
             NullableDict = null,
         };
-        var toml = SerializeWith(TomlIgnoreCondition.WhenWritingNull, model);
+        var toml = SerializeWith(PicoIgnoreCondition.WhenWritingNull, model);
         await Assert.That(toml).DoesNotContain("NullableArray");
         await Assert.That(toml).DoesNotContain("NullableList");
         await Assert.That(toml).DoesNotContain("NullableDict");
@@ -86,7 +86,7 @@ public class IgnoreConditionNestedTests
                 Rank = null,
             },
         };
-        var toml = SerializeWith(TomlIgnoreCondition.Never, model);
+        var toml = SerializeWith(PicoIgnoreCondition.Never, model);
         await Assert.That(toml).Contains("outer");
         await Assert.That(toml).Contains("inner");
         await Assert.That(toml).DoesNotContain("Count");
@@ -148,7 +148,7 @@ public class IgnoreConditionNestedTests
             Name = "outer",
             Nested = new TIgnNested { Name = "inner", Note = null },
         };
-        var toml = SerializeWith(TomlIgnoreCondition.WhenWritingNull, model);
+        var toml = SerializeWith(PicoIgnoreCondition.WhenWritingNull, model);
         await Assert.That(toml).DoesNotContain("Note");
         await Assert.That(toml).Contains("inner");
     }
@@ -164,7 +164,7 @@ public class IgnoreConditionNestedTests
             NullableList = [1, 2],
             NullableDict = new Dictionary<string, string> { ["k"] = "v" },
         };
-        var toml = SerializeWith(TomlIgnoreCondition.WhenWritingNull, model);
+        var toml = SerializeWith(PicoIgnoreCondition.WhenWritingNull, model);
         await Assert.That(toml).Contains("NullableArray");
         await Assert.That(toml).Contains("NullableList");
         await Assert.That(toml).Contains("NullableDict");

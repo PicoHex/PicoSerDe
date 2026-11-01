@@ -1,9 +1,11 @@
 namespace PicoSerDe.Core;
 
-/// <summary>Controls when a property marked with <see cref="PicoIgnoreAttribute"/> is skipped during serialization.</summary>
+/// <summary>Controls when a property is skipped. Two roles, one enum: per property through
+/// <see cref="PicoIgnoreAttribute.Condition"/>, and globally through the <c>DefaultIgnoreCondition</c> property
+/// that every PicoSerDe format's options class carries.</summary>
 public enum PicoIgnoreCondition
 {
-    /// <summary>Always ignore the property (default). The property participates in neither serialization nor deserialization.</summary>
+    /// <summary>Always ignore the property. The property participates in neither serialization nor deserialization. This is the default of <see cref="PicoIgnoreAttribute.Condition"/>; it has no global meaning, so as a <c>DefaultIgnoreCondition</c> it behaves like <see cref="Never"/>.</summary>
     Always = 0,
 
     /// <summary>Never ignore the property: it is exempt from the format's global DefaultIgnoreCondition. Formats without a null literal (TOML/INI/YAML) still omit null values.</summary>

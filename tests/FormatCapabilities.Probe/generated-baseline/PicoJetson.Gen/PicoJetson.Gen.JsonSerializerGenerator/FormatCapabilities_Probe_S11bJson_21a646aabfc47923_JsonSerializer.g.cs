@@ -18,9 +18,9 @@ namespace FormatCapabilities.Probe;
             else
                 jw.WritePropertyName(__policy.ConvertName("Name") ?? "Name");
             jw.WriteString(value.Name);
-            if (jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingNull
+            if (jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull
                 ? value.B != null
-                : jw.Options?.DefaultIgnoreCondition == PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+                : jw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
                 ? value.B != null
                 : true)
             {

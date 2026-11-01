@@ -1,4 +1,4 @@
-// Regression tests: MsgPackIgnoreCondition.WhenWritingNull must skip null
+// Regression tests: PicoIgnoreCondition.WhenWritingNull must skip null
 // members entirely (dynamic map count) instead of writing nil, and the
 // resulting payload must stay readable (map header count consistency).
 
@@ -48,7 +48,7 @@ public class IgnoreConditionTests
     {
         var opts = new MsgPackOptions
         {
-            DefaultIgnoreCondition = MsgPackIgnoreCondition.WhenWritingNull,
+            DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
         };
         return MsgPackSerializer.SerializeToUtf8Bytes(model, opts);
     }
@@ -161,7 +161,7 @@ public class IgnoreConditionTests
         var full = MsgPackSerializer.SerializeToUtf8Bytes(value);
         var opts = new MsgPackOptions
         {
-            DefaultIgnoreCondition = MsgPackIgnoreCondition.WhenWritingNull,
+            DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
         };
         var skipped = MsgPackSerializer.SerializeToUtf8Bytes(value, opts);
         await Assert.That(skipped.Length).IsLessThan(full.Length);

@@ -9,7 +9,7 @@ internal static class FormatCapabilities_Probe_S11bMsgpackPartner_b74364c7b036ea
     internal static void Serialize(ref MsgPackWriter mw, FormatCapabilities.Probe.S11bMsgpackPartner v)
     {
         int __n0 = 2;
-        bool __sk1 = mw.Options?.DefaultIgnoreCondition == PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull && v.A == null;
+        bool __sk1 = mw.Options?.DefaultIgnoreCondition == PicoSerDe.Core.PicoIgnoreCondition.WhenWritingNull && v.A == null;
         if (__sk1) __n0--;
         mw.WriteStartObject(__n0);
         mw.WriteInt32(0);

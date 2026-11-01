@@ -13,25 +13,25 @@ internal static class FormatCapabilities_Probe_ProbeDto_3ef273a25f945351JsonInne
         jw.WriteStartObject();
         jw.WritePropertyName("Name"u8);
         jw.WriteString(value.Name);
-        if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+        if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
             || value.N != default)
         {
         jw.WritePropertyName("N"u8);
         jw.WriteNumber(value.N);
         }
-        if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+        if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
             || value.F != default)
         {
         jw.WritePropertyName("F"u8);
         jw.WriteNumber(value.F);
         }
-        if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+        if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
             || value.D != default)
         {
         jw.WritePropertyName("D"u8);
         jw.WriteNumber(value.D);
         }
-        if (jw.Options?.DefaultIgnoreCondition != PicoJetson.JsonIgnoreCondition.WhenWritingDefault
+        if (jw.Options?.DefaultIgnoreCondition != PicoSerDe.Core.PicoIgnoreCondition.WhenWritingDefault
             || value.When != default)
         {
         jw.WritePropertyName("When"u8);

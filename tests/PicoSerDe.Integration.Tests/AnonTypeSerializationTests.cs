@@ -29,7 +29,7 @@ public class AnonTypeSerializationTests
             new { Name = (string?)null, Value = 42 },
             new PicoJetson.JsonOptions
             {
-                DefaultIgnoreCondition = PicoJetson.JsonIgnoreCondition.WhenWritingNull,
+                DefaultIgnoreCondition = PicoIgnoreCondition.WhenWritingNull,
             }
         );
         await Assert.That(json).DoesNotContain("Name");
