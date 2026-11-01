@@ -5,6 +5,8 @@ using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using AnonPipelineConfig = PicoSerDe.Gen.AnonPipelineConfig;
 using Arity = PicoSerDe.Gen.AttributeArity;
 using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
+using DefaultLiteralRow = PicoSerDe.Gen.DefaultLiteralRow;
+using DefaultLiterals = PicoSerDe.Gen.DefaultLiterals;
 using FusedEmit = PicoSerDe.Gen.FusedEmit;
 using GenPipeline = PicoSerDe.Gen.GenPipeline;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
@@ -440,19 +442,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(" {");
                 foreach (var rp in mpReq)
                 {
-                    s.Append("            ");
-                    s.Append(rp.Name);
-                    s.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            s.Append("\"\"");
-                            break;
-                        default:
-                            s.Append("default");
-                            break;
-                    }
-                    s.AppendLine(",");
+                    DefaultLiterals.EmitRequiredMemberLine(s, rp, "            ");
                 }
                 s.Append("        };");
             }
@@ -474,7 +464,9 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.Append(tn);
                 s.Append(" __cp_");
                 s.Append(ci);
-                s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
+                s.Append(" = ");
+                s.Append(DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTempNull));
+                s.AppendLine(";");
             }
         }
         s.AppendLine(
@@ -556,19 +548,7 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(" {");
                 foreach (var rp in mpSrcReq)
                 {
-                    s.Append("            ");
-                    s.Append(rp.Name);
-                    s.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            s.Append("\"\"");
-                            break;
-                        default:
-                            s.Append("default");
-                            break;
-                    }
-                    s.AppendLine(",");
+                    DefaultLiterals.EmitRequiredMemberLine(s, rp, "            ");
                 }
                 s.Append("        };");
             }
@@ -3908,23 +3888,7 @@ file static class __PicoMsgPackBulk {
                     s.Append(" __cp_");
                     s.Append(ci);
                     s.Append(" = ");
-                    s.AppendLine(
-                        cp.TypeKind switch
-                        {
-                            "string" => "\"\"",
-                            "int32"
-                            or "int64"
-                            or "int16"
-                            or "uint16"
-                            or "sbyte"
-                            or "byte"
-                            or "uint32"
-                            or "uint64"
-                            or "float64" => "0",
-                            "boolean" => "false",
-                            _ => "default!",
-                        }
-                    );
+                    s.AppendLine(DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTemp));
                 }
             }
             else

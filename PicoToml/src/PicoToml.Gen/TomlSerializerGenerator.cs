@@ -5,6 +5,8 @@ using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using AnonPipelineConfig = PicoSerDe.Gen.AnonPipelineConfig;
 using Arity = PicoSerDe.Gen.AttributeArity;
 using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
+using DefaultLiteralRow = PicoSerDe.Gen.DefaultLiteralRow;
+using DefaultLiterals = PicoSerDe.Gen.DefaultLiterals;
 using GenPipeline = PicoSerDe.Gen.GenPipeline;
 using NullGuardEmit = PicoSerDe.Gen.NullGuardEmit;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
@@ -708,7 +710,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(tn);
                 s.Append(" __cp_");
                 s.Append(ci);
-                s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
+                s.Append(" = ");
+                s.Append(DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTempNull));
+                s.AppendLine(";");
             }
         }
         else
@@ -721,19 +725,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(" {");
                 foreach (var rp in tomlReq)
                 {
-                    s.Append("            ");
-                    s.Append(rp.Name);
-                    s.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            s.Append("\"\"");
-                            break;
-                        default:
-                            s.Append("default");
-                            break;
-                    }
-                    s.AppendLine(",");
+                    DefaultLiterals.EmitRequiredMemberLine(s, rp, "            ");
                 }
                 s.Append("        };");
             }
@@ -1053,7 +1045,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             {
                 s.Append(rp.Name);
                 s.Append(" = ");
-                s.Append(rp.TypeKind == "string" ? "\"\"" : "default");
+                s.Append(DefaultLiterals.For(rp.TypeKind, DefaultLiteralRow.RequiredMember));
                 s.Append(", ");
             }
             s.Append("}");
@@ -3506,7 +3498,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
                     s.Append(" __cp_");
                     s.Append(ci);
-                    s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
+                    s.Append(" = ");
+                    s.Append(DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTempNull));
+                    s.AppendLine(";");
                 }
             }
             else

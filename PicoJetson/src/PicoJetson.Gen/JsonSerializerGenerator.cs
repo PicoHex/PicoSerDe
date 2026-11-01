@@ -6,6 +6,8 @@ using AnonPipelineConfig = PicoSerDe.Gen.AnonPipelineConfig;
 using Arity = PicoSerDe.Gen.AttributeArity;
 using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
 using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
+using DefaultLiteralRow = PicoSerDe.Gen.DefaultLiteralRow;
+using DefaultLiterals = PicoSerDe.Gen.DefaultLiterals;
 using FusedEmit = PicoSerDe.Gen.FusedEmit;
 using GenPipeline = PicoSerDe.Gen.GenPipeline;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
@@ -675,19 +677,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.AppendLine(" {");
             foreach (var rp in reqInner)
             {
-                sb.Append("            ");
-                sb.Append(rp.Name);
-                sb.Append(" = ");
-                switch (rp.TypeKind)
-                {
-                    case "string":
-                        sb.Append("\"\"");
-                        break;
-                    default:
-                        sb.Append("default");
-                        break;
-                }
-                sb.AppendLine(",");
+                DefaultLiterals.EmitRequiredMemberLine(sb, rp, "            ");
             }
             sb.Append("        };");
         }
@@ -2003,62 +1993,25 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(effectiveAccessor);
                 sb.AppendLine(");");
                 break;
-            // The kinds a foreach enumerates itself: CollectionKinds.IsForeachable. The .Span kinds are the next arm.
-            case var __kind when PicoSerDe.Gen.CollectionKinds.IsForeachable(__kind):
-                sb.Append(indent);
-                sb.AppendLine("jw.WriteStartArray();");
-                sb.Append(indent);
-                sb.Append("foreach (var __item in ");
-                sb.Append(effectiveAccessor);
-                sb.AppendLine(")");
-                sb.Append(indent);
-                sb.AppendLine("{");
-                // Check for nested list: NestedProperties contains wrapper(s)
-                if (prop.NestedProperties.Length > 0 && IsNestedList(prop))
-                {
-                    EmitNestedListSerialize(
-                        sb,
-                        prop.NestedProperties[0],
-                        "__item",
-                        indent + "    "
-                    );
-                }
-                else
-                {
-                    EmitSerializeElement(sb, prop, "__item", indent + "    ");
-                }
-                sb.Append(indent);
-                sb.AppendLine("}");
-                sb.Append(indent);
-                sb.AppendLine("jw.WriteEndArray();");
-                break;
-            // The two kinds that are written through .Span: CollectionKinds.RequiresSpan.
-            case var __kind when PicoSerDe.Gen.CollectionKinds.RequiresSpan(__kind):
-                sb.Append(indent);
-                sb.AppendLine("jw.WriteStartArray();");
-                sb.Append(indent);
-                sb.Append("foreach (var __item in ");
-                sb.Append(effectiveAccessor);
-                sb.AppendLine(".Span)");
-                sb.Append(indent);
-                sb.AppendLine("{");
-                if (prop.NestedProperties.Length > 0 && IsNestedList(prop))
-                {
-                    EmitNestedListSerialize(
-                        sb,
-                        prop.NestedProperties[0],
-                        "__item",
-                        indent + "    "
-                    );
-                }
-                else
-                {
-                    EmitSerializeElement(sb, prop, "__item", indent + "    ");
-                }
-                sb.Append(indent);
-                sb.AppendLine("}");
-                sb.Append(indent);
-                sb.AppendLine("jw.WriteEndArray();");
+            // ONE sequence arm for all NINE kinds (CollectionKinds.IsSequence). The wire form
+            // does not depend on whether a `foreach` can enumerate the value directly, and the
+            // only per-kind difference is `.Span` on Memory/ReadOnlyMemory — which is the whole
+            // question CollectionKinds.SequenceItemsExpression answers. Until C22 two
+            // byte-identical 22-line bodies stood here (IsForeachable, then RequiresSpan), so
+            // "edited one, forgot the other" was one commit away. The element-position copy
+            // further down (EmitSerializeElementCore) is deliberately NOT folded in: it writes
+            // an item of another collection, so it names its loop variable per nesting depth and
+            // its nested branch has no IsNestedList test.
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
+                EmitMemberSequenceWrite(
+                    sb,
+                    prop,
+                    PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(
+                        __kind,
+                        effectiveAccessor
+                    ),
+                    indent
+                );
                 break;
             case "dict":
                 sb.Append(indent);
@@ -2144,6 +2097,53 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             sb.Append(indent);
             sb.AppendLine("    jw.WriteNull();");
         }
+    }
+
+    /// <summary>
+    /// Emits the member-position write of ONE sequence: the array brackets plus a
+    /// <c>foreach</c> over <paramref name="itemsExpression"/>. This is the body that stood
+    /// twice — once for the kinds a <c>foreach</c> enumerates itself, once for the two that need
+    /// <c>.Span</c> — byte-identical apart from the accessor, which is now the only thing that
+    /// differs and <see cref="PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression"/> is the one
+    /// place that decides it (C22).
+    /// </summary>
+    /// <param name="sb">The generator's source builder.</param>
+    /// <param name="prop">
+    /// The member being written: its element descriptor chain drives the nested-list branch.
+    /// </param>
+    /// <param name="itemsExpression">
+    /// The expression the <c>foreach</c> enumerates — the member accessor itself, or its
+    /// <c>.Span</c> for <c>Memory&lt;T&gt;</c> / <c>ReadOnlyMemory&lt;T&gt;</c>.
+    /// </param>
+    /// <param name="indent">The emit column.</param>
+    private static void EmitMemberSequenceWrite(
+        StringBuilder sb,
+        PropertyInfo prop,
+        string itemsExpression,
+        string indent
+    )
+    {
+        sb.Append(indent);
+        sb.AppendLine("jw.WriteStartArray();");
+        sb.Append(indent);
+        sb.Append("foreach (var __item in ");
+        sb.Append(itemsExpression);
+        sb.AppendLine(")");
+        sb.Append(indent);
+        sb.AppendLine("{");
+        // Check for nested list: NestedProperties contains wrapper(s)
+        if (prop.NestedProperties.Length > 0 && IsNestedList(prop))
+        {
+            EmitNestedListSerialize(sb, prop.NestedProperties[0], "__item", indent + "    ");
+        }
+        else
+        {
+            EmitSerializeElement(sb, prop, "__item", indent + "    ");
+        }
+        sb.Append(indent);
+        sb.AppendLine("}");
+        sb.Append(indent);
+        sb.AppendLine("jw.WriteEndArray();");
     }
 
     /// <summary>
@@ -2293,6 +2293,10 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(");");
                 break;
             // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            // NOT EmitMemberSequenceWrite (C22): that helper writes a member's OWN array, while
+            // this arm writes a collection in element position — it names its loop variable per
+            // nesting depth and its inner branch has no IsNestedList test. It already shares the
+            // one thing worth sharing, CollectionKinds.SequenceItemsExpression.
             case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
             {
                 // A SEQUENCE value in a non-member position: S8's element (a collection as
@@ -2817,21 +2821,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     // Use TypeFullName directly — MapTypeName with null type NREs
                     // for complex kinds (object, enum, list, dict).
                     var typeName = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
-                    var defaultVal = cp.TypeKind switch
-                    {
-                        "string" => "\"\"",
-                        "int32"
-                        or "int64"
-                        or "int16"
-                        or "uint16"
-                        or "sbyte"
-                        or "byte"
-                        or "uint32"
-                        or "uint64"
-                        or "float64" => "0",
-                        "boolean" => "false",
-                        _ => "default!",
-                    };
+                    var defaultVal = DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTemp);
                     sb.Append("            ");
                     sb.Append(typeName);
                     sb.Append(" __cp_");
@@ -2851,19 +2841,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.AppendLine(" {");
                     foreach (var rp in reqProps)
                     {
-                        sb.Append("                ");
-                        sb.Append(rp.Name);
-                        sb.Append(" = ");
-                        switch (rp.TypeKind)
-                        {
-                            case "string":
-                                sb.Append("\"\"");
-                                break;
-                            default:
-                                sb.Append("default");
-                                break;
-                        }
-                        sb.AppendLine(",");
+                        DefaultLiterals.EmitRequiredMemberLine(sb, rp, "                ");
                     }
                     sb.Append("            };");
                 }
@@ -5472,19 +5450,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(" {");
                 foreach (var rp in reqProps2)
                 {
-                    sb.Append("            ");
-                    sb.Append(rp.Name);
-                    sb.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            sb.Append("\"\"");
-                            break;
-                        default:
-                            sb.Append("default");
-                            break;
-                    }
-                    sb.AppendLine(",");
+                    DefaultLiterals.EmitRequiredMemberLine(sb, rp, "            ");
                 }
                 sb.Append("        };");
             }
@@ -5645,21 +5611,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     // Use TypeFullName directly — MapTypeName with null type NREs
                     // for complex kinds (object, enum, list, dict).
                     var typeName = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
-                    var defaultVal = cp.TypeKind switch
-                    {
-                        "string" => "\"\"",
-                        "int32"
-                        or "int64"
-                        or "int16"
-                        or "uint16"
-                        or "sbyte"
-                        or "byte"
-                        or "uint32"
-                        or "uint64"
-                        or "float64" => "0",
-                        "boolean" => "false",
-                        _ => "default!",
-                    };
+                    var defaultVal = DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTemp);
                     sb.Append("    public ");
                     sb.Append(typeName);
                     sb.Append(" __cp_");
@@ -5957,21 +5909,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     // Use TypeFullName directly — MapTypeName with null type NREs
                     // for complex kinds (object, enum, list, dict).
                     var tn = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
-                    var dv = cp.TypeKind switch
-                    {
-                        "string" => "\"\"",
-                        "int32"
-                        or "int64"
-                        or "int16"
-                        or "uint16"
-                        or "sbyte"
-                        or "byte"
-                        or "uint32"
-                        or "uint64"
-                        or "float64" => "0",
-                        "boolean" => "false",
-                        _ => "default!",
-                    };
+                    var dv = DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTemp);
                     sb.Append("                ");
                     sb.Append(tn);
                     sb.Append(" __cp_");
@@ -6268,21 +6206,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 // Use TypeFullName directly — MapTypeName with null type NREs
                 // for complex kinds (object, enum, list, dict).
                 var tn = cp.TypeFullNameAnnotated ?? cp.TypeFullName;
-                var dv = cp.TypeKind switch
-                {
-                    "string" => "\"\"",
-                    "int32"
-                    or "int64"
-                    or "int16"
-                    or "uint16"
-                    or "sbyte"
-                    or "byte"
-                    or "uint32"
-                    or "uint64"
-                    or "float64" => "0",
-                    "boolean" => "false",
-                    _ => "default!",
-                };
+                var dv = DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTemp);
                 sb.Append("    public ");
                 sb.Append(tn);
                 sb.Append(" __cp_");

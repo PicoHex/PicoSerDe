@@ -5,6 +5,8 @@ using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using AnonPipelineConfig = PicoSerDe.Gen.AnonPipelineConfig;
 using Arity = PicoSerDe.Gen.AttributeArity;
 using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
+using DefaultLiteralRow = PicoSerDe.Gen.DefaultLiteralRow;
+using DefaultLiterals = PicoSerDe.Gen.DefaultLiterals;
 using GenPipeline = PicoSerDe.Gen.GenPipeline;
 using NullGuardEmit = PicoSerDe.Gen.NullGuardEmit;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
@@ -1604,7 +1606,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 sb.Append(tn);
                 sb.Append(" __cp_");
                 sb.Append(yci);
-                sb.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
+                sb.Append(" = ");
+                sb.Append(DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTempNull));
+                sb.AppendLine(";");
             }
         }
         else
@@ -1617,19 +1621,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(" {");
                 foreach (var rp in ylReq)
                 {
-                    sb.Append("            ");
-                    sb.Append(rp.Name);
-                    sb.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            sb.Append("\"\"");
-                            break;
-                        default:
-                            sb.Append("default");
-                            break;
-                    }
-                    sb.AppendLine(",");
+                    DefaultLiterals.EmitRequiredMemberLine(sb, rp, "            ");
                 }
                 sb.Append("        };");
             }
@@ -1758,7 +1750,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             {
                 sb.Append(rp.Name);
                 sb.Append(" = ");
-                sb.Append(rp.TypeKind == "string" ? "\"\"" : "default");
+                sb.Append(DefaultLiterals.For(rp.TypeKind, DefaultLiteralRow.RequiredMember));
                 sb.Append(", ");
             }
             sb.Append("}");
@@ -4358,7 +4350,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
                     s.Append(" __cp_");
                     s.Append(ci);
-                    s.AppendLine(cp.TypeKind == "string" ? " = null!;" : " = default!;");
+                    s.Append(" = ");
+                    s.Append(DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTempNull));
+                    s.AppendLine(";");
                 }
             }
             else
