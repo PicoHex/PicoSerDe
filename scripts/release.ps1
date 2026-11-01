@@ -29,8 +29,13 @@ three jobs, chained:
                                              creates the GitHub release
 
 The pack list is hand-maintained inside release.yml; it is not derived from the
-project scan this script performs. The test run, however, is not optional any
-more: verify runs all ten test projects on ubuntu-latest and pack declares
+project scan this script performs. That scan asks MSBuild for each candidate's
+IsPackable / PackageId / AssemblyName / TargetFramework (dotnet msbuild
+-getProperty), so a property that lives in an imported props file is seen too -
+reading the csproj's raw XML is what let v2026.12.0 delete the five .Gen
+baselines - and it refuses to continue unless the count is exactly 11.
+The test run, however, is not optional any more: verify runs all ten test
+projects on ubuntu-latest and pack declares
 `needs: verify`, so a tag whose tests fail stops before a single .nupkg is
 built - v2026.11.0 went out while CI had been red for three days, which is the
 failure that gate exists to prevent.
@@ -138,7 +143,44 @@ function Invoke-Tool([string[]]$arguments) {
     return $result.Output
 }
 
-function Get-PackableProjects([string]$root) {
+# The release is defined over ELEVEN packages: the pack list in
+# .github/workflows/release.yml is hand-maintained and names exactly those. This
+# scan must agree with it, so a different count is an ERROR, not a new fact - the
+# way it goes wrong is a property that leaves the csproj (into an imported props
+# file or a Directory.Build.props) while the scan keeps reading raw XML, which is
+# how v2026.12.0 silently dropped the five api/*.Gen.public.txt baselines. Bump
+# this number and release.yml together when the package list really changes.
+$script:ExpectedPackableCount = 11
+
+# `dotnet msbuild -getProperty` costs ~0.6 s per project and Invoke-Build and
+# Get-Surface both scan, so what each file evaluated to is kept for the run.
+$script:EvaluatedProjectProperties = @{}
+
+function Get-EvaluatedProjectProperties([string]$projectPath) {
+    if ($script:EvaluatedProjectProperties.ContainsKey($projectPath)) {
+        return $script:EvaluatedProjectProperties[$projectPath]
+    }
+    # Ask MSBuild instead of reading the csproj's raw XML: a raw read sees neither
+    # an <Import> (shared/Gen/PicoSerDe.Gen.props carries IsPackable and
+    # TargetFramework for the five .Gen projects) nor Directory.Build.props nor the
+    # SDK defaults (AssemblyName = project file name). These are the values
+    # `dotnet pack` itself would see, which is the whole point.
+    $propertyNames = "IsPackable,PackageId,AssemblyName,TargetFramework,TargetFrameworks"
+    $result = Invoke-Native "dotnet" @("msbuild", $projectPath, "-getProperty:$propertyNames", "-nologo")
+    $text = "$($result.Output -join [Environment]::NewLine)".Trim()
+    if ($result.ExitCode -ne 0) {
+        Fail "msbuild evaluation failed for $projectPath (exit $($result.ExitCode)): $text"
+    }
+    # The JSON object is the outermost {...}; anything around it is a warning.
+    $open = $text.IndexOf("{")
+    $close = $text.LastIndexOf("}")
+    if ($open -lt 0 -or $close -le $open) { Fail "unexpected msbuild -getProperty output for $projectPath`: $text" }
+    $properties = ($text.Substring($open, $close - $open + 1) | ConvertFrom-Json).Properties
+    $script:EvaluatedProjectProperties[$projectPath] = $properties
+    return $properties
+}
+
+function Get-PackableProjects([string]$root, [switch]$NoCountGuard) {
     $srcRoot = Join-Path $root "src"
     if (-not (Test-Path $srcRoot)) { $srcRoot = $root }
     # The scan never descends into a directory that holds *copies* of the
@@ -164,26 +206,22 @@ function Get-PackableProjects([string]$root) {
         }
         if ($excluded) { continue }
         if ($file.FullName -match "[\\/](obj|bin)[\\/]") { continue }
-        [xml]$xml = Get-Content -LiteralPath $file.FullName -Raw
-        $propertyGroups = @($xml.Project.PropertyGroup)
-        $isPackable = $propertyGroups | ForEach-Object { $_.IsPackable } | Where-Object { $_ } | Select-Object -First 1
-        if ("$isPackable".Trim().ToLowerInvariant() -ne "true") { continue }
-        $packageId = $propertyGroups | ForEach-Object { $_.PackageId } | Where-Object { $_ } | Select-Object -First 1
-        $assemblyName = $propertyGroups | ForEach-Object { $_.AssemblyName } | Where-Object { $_ } | Select-Object -First 1
+        $evaluated = Get-EvaluatedProjectProperties $file.FullName
+        if ("$($evaluated.IsPackable)".Trim().ToLowerInvariant() -ne "true") { continue }
+        $packageId = "$($evaluated.PackageId)".Trim()
+        $assemblyName = "$($evaluated.AssemblyName)".Trim()
         if (-not $packageId) { $packageId = $assemblyName }
         if (-not $packageId) { $packageId = [System.IO.Path]::GetFileNameWithoutExtension($file.Name) }
         if (-not $assemblyName) { $assemblyName = $packageId }
-        $targetFrameworks = $propertyGroups | ForEach-Object { $_.TargetFrameworks } | Where-Object { $_ } | Select-Object -First 1
-        if (-not $targetFrameworks) {
-            $targetFrameworks = $propertyGroups | ForEach-Object { $_.TargetFramework } | Where-Object { $_ } | Select-Object -First 1
-        }
+        $targetFrameworks = "$($evaluated.TargetFramework)".Trim()
+        if (-not $targetFrameworks) { $targetFrameworks = "$($evaluated.TargetFrameworks)".Trim() }
         if (-not $targetFrameworks) { $targetFrameworks = "net10.0" }
         $projects += [pscustomobject]@{
             Path            = $file.FullName
             Directory       = $file.DirectoryName
-            PackageId       = "$packageId".Trim()
-            AssemblyName    = "$assemblyName".Trim()
-            TargetFramework = ("$targetFrameworks".Trim() -split ";")[0]
+            PackageId       = $packageId
+            AssemblyName    = $assemblyName
+            TargetFramework = ($targetFrameworks -split ";")[0]
         }
     }
     # Always report what the scan picked up: a jump in the count (11 -> 47)
@@ -194,12 +232,24 @@ function Get-PackableProjects([string]$root) {
     if ($duplicateIds) {
         Fail "duplicate PackageId across packable projects: $(($duplicateIds | ForEach-Object { $_.Name }) -join ', ')"
     }
+    if (-not $NoCountGuard -and $projects.Count -ne $script:ExpectedPackableCount) {
+        Fail @"
+the scan found $($projects.Count) packable project(s) under $srcRoot but the release is defined over $($script:ExpectedPackableCount).
+        This is the shape of the v2026.12.0 regression: a property (IsPackable, PackageId,
+        TargetFramework) moved into an imported props file or a Directory.Build.props and the
+        scan stopped seeing the project - and a scan that silently finds fewer packages
+        deletes their api/ baselines on the next release. Check the <Import> elements of
+        every csproj and shared/Gen/PicoSerDe.Gen.props before releasing.
+        If the package list really changed, update `$script:ExpectedPackableCount in
+        scripts/release.ps1 and the pack list in .github/workflows/release.yml together.
+"@
+    }
     return , $projects
 }
 
-function Invoke-Build([string]$root) {
+function Invoke-Build([string]$root, [switch]$NoCountGuard) {
     Write-Step "Building packable projects (Release)"
-    $projects = Get-PackableProjects $root
+    $projects = Get-PackableProjects $root -NoCountGuard:$NoCountGuard
     if ($projects.Count -eq 0) { Fail "no packable projects found under $root" }
     foreach ($project in $projects) {
         $result = Invoke-Native "dotnet" @("build", $project.Path, "-c", "Release", "--nologo")
@@ -211,9 +261,9 @@ function Invoke-Build([string]$root) {
     }
 }
 
-function Get-Surface([string]$root, [string]$outputDirectory) {
+function Get-Surface([string]$root, [string]$outputDirectory, [switch]$NoCountGuard) {
     $surfaces = @{}
-    $projects = Get-PackableProjects $root
+    $projects = Get-PackableProjects $root -NoCountGuard:$NoCountGuard
     foreach ($project in $projects) {
         $assembly = Get-ChildItem -Path (Join-Path $project.Directory "bin/Release") -Recurse -Filter "$($project.AssemblyName).dll" -File -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -notmatch "[\\/](ref|obj)[\\/]" } |
@@ -270,8 +320,9 @@ try {
             $worktree = Join-Path $workRoot "tag"
             $null = Invoke-Git @("worktree", "add", "--detach", $worktree, $FromTag)
             try {
-                Invoke-Build $worktree
-                $surfaces = Get-Surface $worktree $baselineRoot
+                # A historical revision: its package count is whatever it was then.
+                Invoke-Build $worktree -NoCountGuard
+                $surfaces = Get-Surface $worktree $baselineRoot -NoCountGuard
             }
             finally {
                 $null = Invoke-GitRaw @("worktree", "remove", "--force", $worktree)
