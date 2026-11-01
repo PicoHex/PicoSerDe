@@ -167,20 +167,19 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 hasCtor = true;
         }
 
+        // [JsonConstructor]. The scan stays unconditional here (it was before this change and
+        // it is idempotent: it can only ever set hasCtor, never clear it). `null` is the "no
+        // namespace filter" argument, not an oversight: the hand-written scan this replaces
+        // compared the attribute NAME only (pinned by the N2 equivalence corpus).
         foreach (var ctor in namedType.Constructors)
         {
             if (ctor.DeclaredAccessibility != Accessibility.Public)
                 continue;
-            foreach (var attr in ctor.GetAttributes())
+            if (AttributeLookup.Has(ctor, null, "JsonConstructorAttribute"))
             {
-                if (attr.AttributeClass?.Name == "JsonConstructorAttribute")
-                {
-                    hasCtor = true;
-                    break;
-                }
-            }
-            if (hasCtor)
+                hasCtor = true;
                 break;
+            }
         }
 
         var info = PicoSerDe.Gen.GenInfrastructure.TransformType(

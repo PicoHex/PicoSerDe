@@ -3241,16 +3241,9 @@ internal static class GenInfrastructure
         {
             if (ctor.DeclaredAccessibility != Accessibility.Public)
                 continue;
-            bool hasAttr = false;
-            foreach (var attr in ctor.GetAttributes())
-            {
-                if (attr.AttributeClass?.Name == attributeName)
-                {
-                    hasAttr = true;
-                    break;
-                }
-            }
-            if (!hasAttr)
+            // `null` = "no namespace filter": the scan this replaces compared the bare
+            // attribute name, which is what lets each format pass its own literal.
+            if (!AttributeLookup.Has(ctor, null, attributeName))
                 continue;
 
             return BuildCtorParams(ctor, formatTag);

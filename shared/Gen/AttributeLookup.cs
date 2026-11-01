@@ -1,9 +1,24 @@
 // The five generators each read their own attributes off a member or a type, and each of them
-// spelled that read out by hand: twenty-three `foreach (var attr in symbol.GetAttributes())` bodies
-// across the five `.Gen` projects, plus five inline copies in the MessagePack generator, all of them
-// the same loop around a different attribute NAME. A change to "how is an attribute matched" was
-// five edits in five slightly different shapes, which is how the `== 1` / `>= 1` split below came to
-// exist unnoticed in the first place.
+// spelled that read out by hand: **twenty-eight** `foreach (var attr in symbol.GetAttributes())`
+// bodies — **twenty-three** of them across the four non-MessagePack `.Gen` projects (INI 8, JSON 5,
+// TOML 5, YAML 5) plus **five** inline copies in the MessagePack generator — every one the same loop
+// around a different attribute NAME. A change to "how is an attribute matched" was five edits in five
+// slightly different shapes, which is how the `== 1` / `>= 1` split below came to exist unnoticed in
+// the first place. (Earlier prose here and in `AGENTS.md` said "twenty-three … plus five" while
+// calling the four contributors "five generators", and the C3 merge subject said "twenty-seven";
+// the numbers in this paragraph are the ones the tree actually shows.)
+//
+// THE FIRST CUT WAS ASYMMETRIC, AND THAT IS WHY THIS PARAGRAPH EXISTS. The commit that created this
+// file left five further loops behind of the very shape it exists to remove — the four
+// `[IniConstructor]` / `[JsonConstructor]` / `[TomlConstructor]` / `[YamlConstructor]` scans and the
+// `[YamlTag]` scan — plus a sixth copy inside `GenInfrastructure.DetectConstructor`. A partially
+// converged tree is worse than an unconverged one: it reads as "this is already unified" while the
+// next matcher change still has six places to touch. Those six were folded in afterwards, which puts
+// **thirty-four** sites behind this file (28 + 5 + 1). The only `foreach (... GetAttributes())`
+// bodies left in the tree are the three in `GenInfrastructure` that read an attribute's PAYLOAD
+// rather than asking whether it is present — `[PicoIgnore]`'s condition,
+// `[PicoSerializable(IncludeFields = true)]`, and the `[PicoPolymorphic]` / `[PicoDerivedType]`
+// pair — and reading a named argument is not a lookup this file answers.
 //
 // WHAT IS PARAMETRIC. Everything a format legitimately differs on is an argument: the attribute's
 // class name, the namespace it has to be declared in, how many constructor arguments it must carry,
@@ -16,17 +31,20 @@
 // carry a name, and what is it", never "should this format honour camelCase". Sharing the decision
 // as well as the loop is what makes a format that legitimately differs unrepresentable.
 //
-// THE NAMESPACE ARGUMENT IS NULLABLE, AND NULL MEANS "NO FILTER". Four formats require the attribute
-// to live in their own namespace; MessagePack never checked, so it passes null and gets exactly the
-// behaviour it had. There is deliberately no overload without the argument — a silently skipped
-// namespace check is how an attribute belonging to another format would start being honoured.
+// THE NAMESPACE ARGUMENT IS NULLABLE, AND NULL MEANS "NO FILTER". Twenty-four sites require the
+// attribute to live in a named namespace; the other ten never checked one, so they pass null and get
+// exactly the behaviour they had. In particular the four `[XxxConstructor]` scans pass null: their hand-written
+// bodies compared the attribute NAME only, and "tidying" them into a `PicoIni`/`PicoJetson`/… filter
+// would be a silent behaviour change. There is deliberately no overload without the argument — a
+// silently skipped namespace check is how an attribute belonging to another format would start being
+// honoured.
 
 namespace PicoSerDe.Gen;
 
 /// <summary>
 /// How many constructor arguments an attribute has to carry before its first one is read.
 /// <para>
-/// Two members because the twenty-three hand-written bodies genuinely disagreed, and collapsing the
+/// Two members because the hand-written bodies genuinely disagreed, and collapsing the
 /// difference would have been a silent behaviour change for a multi-argument attribute: the strict
 /// form (<c>ConstructorArguments.Length == 1</c>) refuses an attribute it does not fully understand,
 /// the loose form (<c>&gt;= 1</c>) reads the first argument and ignores the rest. Every format's
