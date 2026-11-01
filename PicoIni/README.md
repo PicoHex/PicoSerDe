@@ -101,31 +101,26 @@ var ini = IniSerializer.Serialize(config);
 
 ## Performance
 
-**No ratio is published for this format; the absolute cost is.** The reason is not modesty but that
-**no equivalent operation exists to divide by**: ini-parser 2.5.3 exposes **0 public generic methods
-and 0 parameters of type `System.Type`**, and its only entry point is `Parse(string) → IniData` — a
-DOM. Any POCO mapping on its side is therefore the caller's own code, by definition, so it is never
-"one library call" against ours, in any execution mode. The
-[2026-10-27 measurement record](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27) carries PicoIni's own
-per-scenario cost — nine scenarios, median µs/op with min–max ±stddev — under a table labelled
-`NON-EQUIVALENT`, with the competitor column deliberately left out so that no reader is invited to
-divide one arm by the other. `equivalent=false` in that run's summary line.
+**From the 2026-10-29 window (see the [archive](../docs/perf/measurement.md#per-scenario-tables-2026-10-29-window)).**
+**No ratio is published for this format; the absolute cost is.** The reason is not modesty but that **no equivalent
+operation exists to divide by**: ini-parser 2.5.3 exposes **0 public generic methods and 0 parameters of type
+`System.Type`**, and its only entry point is `Parse(string) → IniData` — a DOM. Any POCO mapping on its side is
+therefore the caller's own code, by definition, so it is never "one library call" against ours, in any execution
+mode. The archive carries PicoIni's own per-scenario cost — nine scenarios, µs/op as the median of three rounds
+(`r23`/`r24`/`r25`) — under a table labelled `NON-EQUIVALENT`, its competitor column a caller-written DOM walk
+printed beside ours and never divided: no multiple is computed on this page, and none is offered for division.
 
-Two rows are weaker than the rest and are flagged rather than published as equals: the small
-`Simple — Deserialize` case is quoted only as "both sessions landed in the 0.13–0.17 µs band" — its
-median moved −49.2% between the two sessions, the only row in the whole set to move more than 20%,
-and the earlier value carried an outlier run — and `Simple — Serialize` has a max of 0.161 against a
-median of 0.106.
+Absolute cost is also the only claim a window change leaves intact, so it is stated with its window: on the paths
+no commit touched, our arms read 0 %–13 % faster and the DOM walk 6 %–18 % faster than in the window this one
+replaces — the same offset on both sides of a ratio this table does not have, which is why no µs here is compared
+across windows.
 
-The ratio that used to be here was therefore not a measurement of the two libraries, and both actions
-also went through `Benchmark.Compare` in the wrong slots; it has been withdrawn rather than corrected
-in place.
+The ratio that used to be here was therefore not a measurement of the two libraries, and both actions also went
+through `Benchmark.Compare` in the wrong slots; it has been withdrawn rather than corrected in place.
 
-Capability fact that does not depend on measurement: **ini-parser's DOM parsing works under
-NativeAOT** — it has no reflection-free *typed* mapping, so it can parse a document ahead of time
-but cannot produce a POCO. PicoIni does both. Run
-`dotnet run -c Release --project PicoIni/benchmarks/PicoIni.Benchmarks` for current local
-timings.
+Capability fact that does not depend on measurement: **ini-parser's DOM parsing works under NativeAOT** — it has
+no reflection-free *typed* mapping, so it can parse a document ahead of time but cannot produce a POCO. PicoIni
+does both. Run `dotnet run -c Release --project PicoIni/benchmarks/PicoIni.Benchmarks` for current local timings.
 
 ## Low-Level API
 
