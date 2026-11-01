@@ -1627,11 +1627,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind))
+        if (PicoSerDe.Gen.CollectionKinds.IsSequence(p.TypeKind))
         {
             // Extended collection kinds (S7) share this branch: their wire form is the same
             // array, and the only difference is how the reader builds them back (see
-            // EmitCollectionFromList below). Asking IsSequenceKind instead of spelling
+            // EmitCollectionFromList below). Asking CollectionKinds.IsSequence instead of spelling
             // `is "list" or "array"` is what keeps a new kind from being dropped here.
             // TOML has no null literal — a null collection can only be omitted,
             // regardless of DefaultIgnoreCondition.
@@ -1679,7 +1679,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(indent);
                 s.Append("foreach (var __item in ");
                 s.Append(
-                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                    PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(
                         p.TypeKind,
                         target + "." + p.Name + (p.IsNullableReference ? "!" : "")
                     )
@@ -1756,7 +1756,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("    tw.WriteEndInlineTable();");
             }
             else if (
-                PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind)
+                PicoSerDe.Gen.CollectionKinds.IsSequence(p.ElementTypeKind)
                 && p.NestedProperties.Length > 0
             )
             {
@@ -1766,9 +1766,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 // `Dictionary<string, List<List<int>>>` needs no second implementation.
                 // Before this branch the value fell through to the scalar accessor and was
                 // written as the collection's ToString().
-                var valAcc = PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(
-                    p.ElementTypeKind
-                )
+                var valAcc = PicoSerDe.Gen.CollectionKinds.IsNullableSequence(p.ElementTypeKind)
                     ? "__kvp.Value!"
                     : "__kvp.Value";
                 s.Append(indent);
@@ -1776,10 +1774,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.Append(indent);
                 s.Append("    foreach (var __item in ");
                 s.Append(
-                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
-                        p.ElementTypeKind,
-                        valAcc
-                    )
+                    PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(p.ElementTypeKind, valAcc)
                 );
                 s.AppendLine(")");
                 s.Append(indent);
@@ -1993,7 +1988,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    while (r.Read() && r.TokenType != TokenType.ArrayEnd)");
         s.Append(pad);
         s.AppendLine("    {");
-        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(elemNode.ElementTypeKind))
+        if (PicoSerDe.Gen.CollectionKinds.IsSequence(elemNode.ElementTypeKind))
             EmitDeserializeNestedArrayLevel(s, dp, "__dl", pad + "        ", 1);
         else
             EmitDeserializeListElementTemp(s, elemNode, pad + "        ", "__dl");
@@ -2287,15 +2282,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".Deserialize(ref r);");
                 break;
             }
-            case "list":
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                 s.AppendLine();
                 EmitDictValueCollectionRead(s, dp, tgt + "." + dp.Name + "[__dk]", pad + "    ");
                 break;
@@ -2482,8 +2470,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         p.TypeKind == "object" && (p.NestedProperties.Length > 0 || p.IsRecursiveRef);
 
     private static bool IsNestedCollectionMember(PropertyInfo p) =>
-        PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind)
-        && PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind)
+        PicoSerDe.Gen.CollectionKinds.IsSequence(p.TypeKind)
+        && PicoSerDe.Gen.CollectionKinds.IsSequence(p.ElementTypeKind)
         && p.NestedProperties.Length > 0;
 
     /// <summary>
@@ -2501,7 +2489,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     )
     {
         if (
-            PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(node.ElementTypeKind)
+            PicoSerDe.Gen.CollectionKinds.IsSequence(node.ElementTypeKind)
             && node.NestedProperties.Length > 0
         )
         {
@@ -2514,10 +2502,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(innerVar);
             s.Append(" in ");
             s.Append(
-                PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
-                    node.ElementTypeKind,
-                    itemVar
-                )
+                PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(node.ElementTypeKind, itemVar)
             );
             s.AppendLine(")");
             s.Append(indent);
@@ -2608,7 +2593,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind))
+        if (PicoSerDe.Gen.CollectionKinds.IsSequence(p.TypeKind))
         {
             // Extended collection kinds (S7) are read into the same temp list and then
             // converted into the DECLARED type by EmitCollectionFromList — the one shared
@@ -2918,15 +2903,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     s.Append("    var __dk = Encoding.UTF8.GetString(r.KeySpan);");
                     switch (p.ElementTypeKind)
                     {
-                        case "list":
-                        case "array":
-                        case "hashset":
-                        case "queue":
-                        case "stack":
-                        case "linkedlist":
-                        case "immutablearray":
-                        case "memory":
-                        case "readonlymemory":
+                        // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+                        case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                             // Same S10 value position as the section arm below: an inline
                             // table can hold the same `k = [1, 2]` entries, so it goes
                             // through the same emitter instead of storing the collection's
@@ -3321,7 +3299,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             return;
         }
         if (
-            !PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(node.ElementTypeKind)
+            !PicoSerDe.Gen.CollectionKinds.IsSequence(node.ElementTypeKind)
             || node.NestedProperties.Length == 0
         )
         {
@@ -3363,7 +3341,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         // The level's items are in innerVar now. When this level IS an extended
         // collection, the DECLARED element type is that collection — convert before adding.
         var converted = innerVar;
-        if (PicoSerDe.Gen.GenInfrastructure.IsExtendedCollectionKind(node.ElementTypeKind))
+        if (PicoSerDe.Gen.CollectionKinds.IsExtendedCollection(node.ElementTypeKind))
         {
             var convVar =
                 "__cnv" + depth.ToString(System.Globalization.CultureInfo.InvariantCulture);

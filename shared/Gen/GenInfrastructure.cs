@@ -1170,64 +1170,16 @@ internal static class GenInfrastructure
     /// </summary>
     public static bool IsComplexMember(PropertyInfo p) => p.TypeKind is "object" or "dict";
 
-    /// <summary>
-    /// The EXTENDED collection kinds (D-2): collections every format writes as a plain
-    /// sequence, exactly like <c>list</c>/<c>array</c>, but that need their own construction
-    /// on the read side (<c>new HashSet&lt;int&gt;(tmpList)</c>).
-    /// <para>
-    /// One list, one place: <see cref="TypeKindResolver"/> names these kinds,
-    /// <see cref="IsSequenceKind"/> treats them as sequences, and
-    /// <see cref="EmitCollectionFromList"/> turns the temp list back into the declared type.
-    /// A generator that asks <c>kind is "hashset"</c> instead of these helpers is how the
-    /// family drifted apart in the first place.
-    /// </para>
-    /// </summary>
-    public static bool IsExtendedCollectionKind(string? kind) =>
-        kind
-            is "hashset"
-                or "queue"
-                or "stack"
-                or "linkedlist"
-                or "immutablearray"
-                or "memory"
-                or "readonlymemory";
-
-    /// <summary>
-    /// True for every TypeKind whose wire form is a SEQUENCE (<c>list</c>, <c>array</c> and
-    /// the seven extended collection kinds). This is the predicate the emitters should ask
-    /// before treating a member or an element as a sequence; asking <c>is "list" or "array"</c>
-    /// is what silently sent <c>HashSet&lt;int&gt;</c> to the scalar fallback.
-    /// </summary>
-    public static bool IsSequenceKind(string? kind) =>
-        kind is "list" or "array" || IsExtendedCollectionKind(kind);
-
-    /// <summary>
-    /// True when a sequence kind's VALUE can be null. <c>ImmutableArray&lt;T&gt;</c>,
-    /// <c>Memory&lt;T&gt;</c> and <c>ReadOnlyMemory&lt;T&gt;</c> are structs, so a generated
-    /// <c>x ?? []</c> or <c>x is null</c> on them does not compile — the yaml emitter asks
-    /// this before writing either.
-    /// </summary>
-    public static bool IsNullableSequenceKind(string? kind) =>
-        kind is "list" or "array" or "hashset" or "queue" or "stack" or "linkedlist";
-
-    /// <summary>
-    /// The expression that enumerates a sequence value on the WRITE side.
-    /// <c>Memory&lt;T&gt;</c>/<c>ReadOnlyMemory&lt;T&gt;</c> are not enumerable, so they are
-    /// written through <c>.Span</c>; everything else (List, array, HashSet, Queue, Stack,
-    /// LinkedList, ImmutableArray) is enumerated directly.
-    /// </summary>
-    public static string SequenceItemsExpression(string? kind, string accessor) =>
-        kind is "memory" or "readonlymemory" ? accessor + ".Span" : accessor;
-
-    /// <summary>
-    /// The <c>Count</c>/<c>Length</c> expression for a sequence value, for the writers that
-    /// announce the element count up front (msgpack) or test for an empty sequence (yaml's
-    /// <c>- []</c> item).
-    /// </summary>
-    public static string SequenceCountExpression(string? kind, string accessor) =>
-        kind is "array" or "immutablearray" or "memory" or "readonlymemory"
-            ? accessor + ".Length"
-            : accessor + ".Count";
+    // ── collection kinds ──────────────────────────────────────────────────────────────
+    // Which kinds are sequences, which are the extended family, which can be enumerated
+    // without .Span, which convert from the temp list and which count with .Length are
+    // ONE table now: `CollectionKinds` (CollectionKinds.cs). Before it, this file held a
+    // second copy of the same member sets next to the nineteen hand-spelled switches in the
+    // five generators — and the copies had already drifted (the nullable family here was
+    // six kinds wide while the write-side switches spelled seven).
+    //
+    // What stays HERE is `EmitCollectionFromList` below: the per-kind CONSTRUCTION code,
+    // which a new kind really does have to add.
 
     /// <summary>
     /// Emits the step that turns the temp <c>List&lt;T&gt;</c> a reader filled back into the
@@ -2120,18 +2072,10 @@ internal static class GenInfrastructure
             ITypeSymbol? cycleTarget = null;
             bool elementIsNrt = false;
 
-            if (
-                typeKind
-                is "list"
-                    or "array"
-                    or "hashset"
-                    or "queue"
-                    or "stack"
-                    or "linkedlist"
-                    or "immutablearray"
-                    or "memory"
-                    or "readonlymemory"
-            )
+            // Every sequence kind carries an element type; which kinds those are is the
+            // collection-kind table's answer, not a list spelled here (a new kind used to have to
+            // be added to this chain or its element type was never extracted).
+            if (CollectionKinds.IsSequence(typeKind))
             {
                 ITypeSymbol? elementType;
                 if (prop.Type is IArrayTypeSymbol arrType)
@@ -2274,7 +2218,7 @@ internal static class GenInfrastructure
                 // model the single answer: a format whose cell is Supported reaches its
                 // element emitter below, and one whose cell is not still reports a drop.
                 if (
-                    IsExtendedCollectionKind(ek)
+                    CollectionKinds.IsExtendedCollection(ek)
                     && FormatCapabilities.Decide(formatTag, Decision.ExtendedKindAsElement)
                         != Effect.Supported
                 )
@@ -2322,7 +2266,7 @@ internal static class GenInfrastructure
                 // element emitter has no way to name the INNER element kind (int) and falls
                 // back to writing the whole set with ToString().
                 if (
-                    IsSequenceKind(ek)
+                    CollectionKinds.IsSequence(ek)
                     && elementType
                         is INamedTypeSymbol { TypeArguments.Length: 1 }
                             or IArrayTypeSymbol
@@ -2400,7 +2344,7 @@ internal static class GenInfrastructure
                     }
                     // A dict value that is a collection (S10). ONE cell answers this, and
                     // the site ASKS it instead of testing a kind: which kinds are sequences
-                    // is a family FACT (IsSequenceKind), whether a format can hold such a
+                    // is a family FACT (CollectionKinds.IsSequence), whether a format can hold such a
                     // value is the TABLE's answer (DictValueCollection). This used to be two
                     // unconditional kind lists — the same trap R2 Task 2 removed from the
                     // ELEMENT site (ExtendedKindAsElement), in its second copy: a cell could
@@ -2408,7 +2352,7 @@ internal static class GenInfrastructure
                     // kinds were even reported against a row that says Supported (T2 review
                     // I-2). Nested dicts have their own helper path and never reach here.
                     if (
-                        IsSequenceKind(vk)
+                        CollectionKinds.IsSequence(vk)
                         && FormatCapabilities.Decide(formatTag, Decision.DictValueCollection)
                             != Effect.Supported
                     )
@@ -2474,7 +2418,7 @@ internal static class GenInfrastructure
                     );
                     elementIsNrt = valType.NullableAnnotation == NullableAnnotation.Annotated;
                     if (
-                        IsSequenceKind(vk)
+                        CollectionKinds.IsSequence(vk)
                         && valType
                             is INamedTypeSymbol { TypeArguments.Length: 1 }
                                 or IArrayTypeSymbol
@@ -2755,7 +2699,7 @@ internal static class GenInfrastructure
             var (kind, _, _) = TypeKindResolver.Resolve(prop.Type, formatTag);
             if (kind is null || kind is "object" or "dict" or "any")
                 return false;
-            if (IsSequenceKind(kind))
+            if (CollectionKinds.IsSequence(kind))
                 return false;
         }
         return true;
@@ -2830,7 +2774,7 @@ internal static class GenInfrastructure
         // needs its members extracted so the generated inner helper is not
         // empty (and so a recursion back into the current type is detected).
         if (
-            IsSequenceKind(innerKind)
+            CollectionKinds.IsSequence(innerKind)
             && innerType is INamedTypeSymbol { TypeArguments.Length: 1 } or IArrayTypeSymbol
         )
         {
