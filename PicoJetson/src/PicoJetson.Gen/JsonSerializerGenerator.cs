@@ -2,6 +2,8 @@ namespace PicoJetson.Gen;
 
 using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
+using Arity = PicoSerDe.Gen.AttributeArity;
+using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
 using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
 using FusedEmit = PicoSerDe.Gen.FusedEmit;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
@@ -427,76 +429,20 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
     // ── Attribute helpers ──
 
-    private static string? GetJsonPropertyName(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "JsonPropertyNameAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoJetson"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is string name
-            )
-                return name;
-        }
-        return null;
-    }
+    private static string? GetJsonPropertyName(IPropertySymbol prop) =>
+        AttributeLookup.GetString(prop, "PicoJetson", "JsonPropertyNameAttribute", Arity.One);
 
-    private static bool HasJsonIgnore(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "JsonIgnoreAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoJetson"
-            )
-                return true;
-        }
-        return false;
-    }
+    private static bool HasJsonIgnore(IPropertySymbol prop) =>
+        AttributeLookup.Has(prop, "PicoJetson", "JsonIgnoreAttribute");
 
-    private static string? GetJsonConverterType(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "JsonConverterAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoJetson"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is INamedTypeSymbol converterType
-            )
-                return converterType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        }
-        return null;
-    }
+    private static string? GetJsonConverterType(IPropertySymbol prop) =>
+        AttributeLookup.GetTypeName(prop, "PicoJetson", "JsonConverterAttribute", Arity.One);
 
-    private static string? GetDateTimeFormat(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "DateTimeFormatAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoJetson"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is string format
-            )
-                return format;
-        }
-        return null;
-    }
+    private static string? GetDateTimeFormat(IPropertySymbol prop) =>
+        AttributeLookup.GetString(prop, "PicoJetson", "DateTimeFormatAttribute", Arity.One);
 
-    private static bool HasJsonCamelCase(ITypeSymbol type)
-    {
-        foreach (var attr in type.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "JsonCamelCaseAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoJetson"
-            )
-                return true;
-        }
-        return false;
-    }
+    private static bool HasJsonCamelCase(ITypeSymbol type) =>
+        AttributeLookup.Has(type, "PicoJetson", "JsonCamelCaseAttribute");
 
     // ── Source generation ──
 

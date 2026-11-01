@@ -2,6 +2,8 @@ namespace PicoToml.Gen;
 
 using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
+using Arity = PicoSerDe.Gen.AttributeArity;
+using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -296,84 +298,29 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
     // ── Attribute helpers ──
 
-    private static bool HasTomlCamelCase(ITypeSymbol type)
-    {
-        foreach (var attr in type.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "TomlCamelCaseAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
-            )
-                return true;
-        }
-        return false;
-    }
+    private static bool HasTomlCamelCase(ITypeSymbol type) =>
+        AttributeLookup.Has(type, "PicoToml", "TomlCamelCaseAttribute");
 
-    private static string? GetTomlKey(IPropertySymbol p)
-    {
-        foreach (var attr in p.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "TomlKeyAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is string key
-            )
-                return key;
-        }
-        return null;
-    }
+    private static string? GetTomlKey(IPropertySymbol p) =>
+        AttributeLookup.GetString(p, "PicoToml", "TomlKeyAttribute", Arity.One);
 
-    private static bool HasTomlIgnore(IPropertySymbol p)
-    {
-        foreach (var attr in p.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "TomlIgnoreAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
-            )
-                return true;
-        }
-        return false;
-    }
+    private static bool HasTomlIgnore(IPropertySymbol p) =>
+        AttributeLookup.Has(p, "PicoToml", "TomlIgnoreAttribute");
 
-    private static string? GetTomlConverter(IPropertySymbol p)
-    {
-        foreach (var attr in p.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "TomlConverterAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
-            )
-            {
-                if (
-                    attr.ConstructorArguments.Length >= 1
-                    && attr.ConstructorArguments[0].Value is INamedTypeSymbol nts
-                )
-                    return nts.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                if (attr.AttributeClass?.TypeArguments.Length == 1)
-                    return attr
-                        .AttributeClass.TypeArguments[0]
-                        .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            }
-        }
-        return null;
-    }
+    // TOML is the only format whose converter attribute also has a GENERIC form
+    // (`[TomlConverter<T>]`, the converter as the class's type argument): the shared lookup takes
+    // that as its one flag instead of the body being copied back out here.
+    private static string? GetTomlConverter(IPropertySymbol p) =>
+        AttributeLookup.GetTypeName(
+            p,
+            "PicoToml",
+            "TomlConverterAttribute",
+            Arity.AtLeastOne,
+            genericTypeArgumentFallback: true
+        );
 
-    private static string? GetTomlDateTimeFormat(IPropertySymbol p)
-    {
-        foreach (var attr in p.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "TomlDateTimeFormatAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoToml"
-                && attr.ConstructorArguments.Length >= 1
-                && attr.ConstructorArguments[0].Value is string fmt
-            )
-                return fmt;
-        }
-        return null;
-    }
+    private static string? GetTomlDateTimeFormat(IPropertySymbol p) =>
+        AttributeLookup.GetString(p, "PicoToml", "TomlDateTimeFormatAttribute", Arity.AtLeastOne);
 
     // ── Source generation ──
 
@@ -1594,7 +1541,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("                var __item = new ");
             s.Append(et);
             s.AppendLine("();");
-            s.AppendLine("                while (r.Read() && r.TokenType == TokenType.PropertyName)");
+            s.AppendLine(
+                "                while (r.Read() && r.TokenType == TokenType.PropertyName)"
+            );
             s.AppendLine("                {");
             s.AppendLine("                    var __k = r.KeySpan;");
             EmitPropertyDispatch(
@@ -1610,8 +1559,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("                if (r.BytesConsumed == __itPos) break;");
             s.AppendLine("                continue;");
             s.AppendLine("            }");
-            s.AppendLine("            // Foreign header (or a stray token before the first header):");
-            s.AppendLine("            // skip it and its body, then keep looking for this list's array.");
+            s.AppendLine(
+                "            // Foreign header (or a stray token before the first header):"
+            );
+            s.AppendLine(
+                "            // skip it and its body, then keep looking for this list's array."
+            );
             s.AppendLine("            var __skipPos = r.BytesConsumed;");
             s.AppendLine(
                 "            while (r.Read() && !(r.TokenType == TokenType.ArrayStart && TextHelpers.EqLastSegment(r.TablePath, \""
