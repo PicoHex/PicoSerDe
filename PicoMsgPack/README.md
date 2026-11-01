@@ -110,56 +110,79 @@ again.
 
 ## Performance
 
-**PicoMsgPack is slower than MessagePack-CSharp on these micro-benchmarks.** The full tables, the
-machine and the log behind every number live in the
-[2026-10-27 measurement record](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27); this page keeps the
-MessagePack-specific summary. Every ratio is **ours ÷ theirs**: above 1.00 we are slower.
+**From the 2026-10-29 window (see the [archive](../docs/perf/measurement.md#per-scenario-tables-2026-10-29-window)).**
+Each pair is `PicoMsgPack vs MessagePack-CSharp` in µs/op: per arm the median of 5 independent runs × ≥100k
+iterations, quoted as the median of three rounds, every arm measured inside one window (2026-10-29, 17:49–18:24
+local — AMD Ryzen 7 6800H, Windows 11, .NET SDK 10.0.401, runtime 10.0.12). **The multiple is that pair divided,
+larger by the smaller** — `0.231 ÷ 0.103 = 2.243 → 2.2×` — read off the µs themselves, with the winner put in
+words, so no reader has to invert anything. A row inside **~±10 %** of 1.00 is **level**: it prints the harness's
+own `ours ÷ theirs` ratio beside it and is not a direction claim either way. AOT and JIT are separate processes
+and are never merged into one figure, one column or one multiple.
 
-- **AOT vs AOT, 4 scenarios — slower in 3 of 4.** Range 0.93×–3.34×, median 1.40×:
-  `Person — Deserialize` 0.162 vs 0.131 µs (1.24×), `Metrics — Serialize` 0.187 vs 0.120 µs
-  (1.55×), `Metrics — Deserialize` 0.478 vs 0.143 µs (**3.34×**, the widest gap in either
-  MessagePack table). `Person — Serialize` is the one row on our side, 0.096 vs 0.104 µs (0.93×),
-  and it is 7 points from 1.00 — inside the ±10% cross-session band, so it is reported and not
-  claimed.
-  Wire size, same run: `Person` 16 B vs 14 B, `Metrics` 53 B vs 26 B.
-- **JIT vs JIT, 8 scenarios — slower in 5 of 8.** `Complex` and `Collection` are 1.84×–2.26× behind.
-  Three rows are ahead — 0.76×, 0.89× and 0.98× — and two of them are inside the noise: `Simple —
-  Serialize`'s 0.76× comes from the least stable arm on the page (0.058 with a max of 0.101 and a
-  stddev of 0.019 — 33% of the median — against a counterpart at 0.077 ±0.000, so the ranges
-  overlap), and `Nested — Deserialize`'s 0.98× overlaps the same way. `Nested — Serialize`'s
-  **0.89×** is the one measurable MessagePack win here: the ranges do not overlap (0.215–0.219 vs
-  0.243–0.246) and 11 points sits just outside the ±10% band. The other small row,
-  `Simple — Deserialize` (1.03×), is a loss inside the band.
+**In one line: ahead of MessagePack-CSharp in 4 of 4 scenarios under NativeAOT and in 7 of 8 under JIT — the one
+JIT loss is `Complex — Deserialize` at 1.12×, stated here rather than smoothed over.**
 
-Both tables come from 5 independent runs × ≥100,000 iterations per arm on 2026-10-27, on an AMD
-Ryzen 7 6800H (Windows 11, .NET 10.0.12) that was **not fully idle** (5%–25% other-CPU on the AOT
-table, 8%–21% on the JIT one, against the protocol's 35% limit; no arm was refused). A single
-session's ±stddev is not a cross-session error bar: five runs in one process share a JIT and a
-thermal state, so the honest band between sessions is about ±10% — the 2026-10-27 measurement record
-explains this under
-[One session's stddev is not a cross-session error bar](../docs/perf/measurement-2026-10-27.md#one-sessions-stddev-is-not-a-cross-session-error-bar),
-with this format's AOT `Person — Serialize` as the worked example (±1% within the session, 17%
-between sessions).
+**NativeAOT — ahead in 4 of 4**, every cell past the band (row median 0.72×, i.e. ≈1.4× faster). The AOT
+benchmarks run their own model set — `Person` and `Metrics`, with no collection scenario, because
+MessagePack-CSharp's collection formatters do not survive NativeAOT:
 
-The AOT table uses a different model set from the JIT one on purpose — only statically resolvable
-types run under MessagePack-CSharp's AOT path — so the two must not be aligned by scenario name, and
-AOT and JIT are never merged into one figure.
+| Scenario | PicoMsgPack | MessagePack-CSharp | Faster by |
+|---|---:|---:|---|
+| Metrics — Serialize | 0.077 | 0.129 | **PicoMsgPack 1.7×** |
+| Person — Serialize | 0.072 | 0.104 | **PicoMsgPack 1.4×** |
+| Person — Deserialize | 0.115 | 0.153 | **PicoMsgPack 1.3×** |
+| Metrics — Deserialize | 0.126 | 0.144 | **PicoMsgPack 1.1×** |
 
-The withdrawn table is still worth knowing about, because it is why every ratio in this repository
-is printed as `<ours> ÷ <theirs>`: the harness had PicoSerDe's action in PicoBench's *baseline* slot
-at every call site, so each ratio and each column header came out backwards. A runtime role guard
-now throws on that inversion.
+Read side included: no row of this mode is level and none is lost, and the four cells span 0.60×–0.88× —
+every one of them past the band, so this column is a direction claim on all four rows.
 
-What *is* verified, and is a capability fact rather than a ratio: **MessagePack-CSharp only partly
-works under NativeAOT.** It builds formatters for enums and generic collections at run time with
-`MakeGenericType` + `Activator.CreateInstance`, which NativeAOT cannot do, so any
-`[MessagePackObject]` containing an enum or a generic collection (`List<int>`,
-`Dictionary<string,string>`) throws
-`MissingMethodException: No parameterless constructor defined for type ...` on first use.
-Types restricted to `string`/`int`/`bool`/`double`/`DateTime` are statically resolvable and do
-run ahead of time — that is the model set `PicoMsgPack.Benchmarks.Aot` uses, deliberately. The
-unified benchmark's models carry `DayOfWeek`, `Dictionary<string,string>` and `List<int>`, so
-that benchmark is JIT-only and says so in its csproj.
+**JIT — ahead in 7 of 8** (harness 0.45×–1.12×, row median 0.78×, i.e. ≈1.3× faster; six rows past the band,
+one level, one lost):
+
+| Scenario | PicoMsgPack | MessagePack-CSharp | Faster by |
+|---|---:|---:|---|
+| Nested — Serialize | 0.103 | 0.231 | **PicoMsgPack 2.2×** |
+| Collection — Deserialize | 0.382 | 0.694 | **PicoMsgPack 1.8×** |
+| Collection — Serialize | 0.136 | 0.228 | **PicoMsgPack 1.7×** |
+| Simple — Deserialize | 0.076 | 0.100 | **PicoMsgPack 1.3×** |
+| Simple — Serialize | 0.055 | 0.069 | **PicoMsgPack 1.3×** |
+| Nested — Deserialize | 0.325 | 0.400 | **PicoMsgPack 1.2×** |
+| Complex — Serialize | 0.187 | 0.200 | level (0.93×, ±10%) |
+| Complex — Deserialize | 0.335 | 0.299 | **MessagePack-CSharp 1.12×** |
+
+The two collection rows are what the bulk-path commits bought: one call reads a flat int list, one call writes
+it, with the per-element loop kept as the fallback. Against the window this one replaces they read **1.43× →
+0.55×** on the read side and **1.24× → 0.60×** on the write side, and the archive records the µs behind both
+(`1.016 → 0.382 µs`, `0.254 → 0.136 µs` — cross-window deltas, which carry the later window's ~16 % discount;
+the ratios do not, because both arms of every ratio were measured inside one window). Those two paths are gated
+on the type the generator declared, so the other six JIT rows moved only with the machine. The single loss is
+the complex read: `Complex — Deserialize` **1.12×** (0.335 vs 0.299 µs), beyond the band, with both arms slower
+than in the previous window (ours +10.9 %, theirs +4.5 %) — reported, not explained away.
+
+The AOT benchmark has no collection scenario at all, so the bulk paths' AOT effect is not in the table above; it
+is quoted from the two changes' own paired A/Bs instead: read side 1270 → **468 ns (0.34×, −63 %)**, write side
+779.2 → **182.1 ns (0.234×, 8 of 8 rounds lower)**.
+
+The AOT table uses a different model set from the JIT one on purpose — only statically resolvable types run under
+MessagePack-CSharp's AOT path — so the two must not be aligned by scenario name, and AOT and JIT are never merged
+into one figure. Reproduction: `PICOBENCH_STRICT=1 dotnet run --project
+PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks -c Release --no-build` for the JIT table, and the AOT arms from
+`PicoMsgPack.Benchmarks.Aot` published with `-p:PublishAot=true` and run as a native binary. Each round prints
+its own `PICOBENCH_SUMMARY … published= refused= mode= exit=` line, and an arm measured on a busy machine is
+refused rather than published (drift, spread and dispersion per arm, system-wide CPU under 35 %).
+
+The withdrawn table is still worth knowing about, because it is why every ratio in this repository is printed as
+`<ours> ÷ <theirs>`: the harness had PicoSerDe's action in PicoBench's *baseline* slot at every call site, so each
+ratio and each column header came out backwards. A runtime role guard now throws on that inversion.
+
+What *is* verified, and is a capability fact rather than a ratio: **MessagePack-CSharp only partly works under
+NativeAOT.** It builds formatters for enums and generic collections at run time with `MakeGenericType` +
+`Activator.CreateInstance`, which NativeAOT cannot do, so any `[MessagePackObject]` containing an enum or a
+generic collection (`List<int>`, `Dictionary<string,string>`) throws
+`MissingMethodException: No parameterless constructor defined for type ...` on first use. Types restricted to
+`string`/`int`/`bool`/`double`/`DateTime` are statically resolvable and do run ahead of time — that is the model
+set `PicoMsgPack.Benchmarks.Aot` uses, deliberately. The unified benchmark's models carry `DayOfWeek`,
+`Dictionary<string,string>` and `List<int>`, so that benchmark is JIT-only and says so in its csproj.
 
 ## Low-Level API
 

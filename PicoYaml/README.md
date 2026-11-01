@@ -137,36 +137,51 @@ The full five-format matrix lives in the
 
 ## Performance
 
-**PicoYaml has a comparable opponent on CoreCLR, and against it PicoSerDe is faster: 0.02×–0.06× of
-YamlDotNet's cost, 6 of 6 scenarios (17×–50×).** The
-[2026-10-27 measurement record](../docs/perf/measurement-2026-10-27.md#measured-results-2026-10-27) carries the full table — median
-µs/op with min–max ±stddev, ratio printed as **ours ÷ theirs**, above 1.00 meaning we are slower.
-`Simple — SerializeToString` 0.163 vs 7.107 µs, `Collection — Deserialize←string` 5.301 vs
-84.649 µs.
+**From the 2026-10-29 window (see the [archive](../docs/perf/measurement.md#per-scenario-tables-2026-10-29-window)).**
+CoreCLR only, because that is the only mode in which YamlDotNet's typed layer exists at all (see below). Each pair
+is `PicoYaml vs YamlDotNet 18.1.0` in µs/op: per arm the median of 5 independent runs × ≥100k iterations, quoted
+as the median of three rounds (2026-10-29, 17:49–18:24 local — AMD Ryzen 7 6800H, Windows 11, .NET SDK 10.0.401,
+runtime 10.0.12) behind the harness's idle-machine gate. **The multiple is that pair divided, larger by the
+smaller** — `6.293 ÷ 0.138 = 45.60 → 45.6×` — read off the µs themselves, with the winner put in words. No row is
+inside the ±10 % band, so every row below is a direction claim.
 
-Read it as a factor of ten, not two significant digits. Our `Simple — SerializeToString` is
-0.163 ±0.033 — a stddev of 20% of the median — while every YamlDotNet arm sits at 0.7%–4.2% of its
-own, so the jitter is on our side of the division. YamlDotNet's two `Collection` arms also converged
-on 5 and 4 warm-up bursts (against 174 and 60 for ours), which the protocol allows and which is
-worth knowing before quoting `0.02×`. And our deserialize rows pay an extra cost theirs does not:
-`Deserialize<T>(byte[])` decodes UTF-8 inside the timed region while `Deserialize<T>(string)` on the
-other side receives a string built outside it.
+**PicoYaml has a comparable opponent on CoreCLR and is faster against it: ahead in 6 of 6 scenarios,
+0.02×–0.06× of YamlDotNet's cost (row median 0.04×; the row multiples run 15.7×–45.6×).**
 
-**There is no AOT opponent, and that is a property of YamlDotNet rather than a gap in this
-measurement.** Under NativeAOT the same two typed calls do not work at all: `Deserialize<T>` throws
-`MissingMethodException`, and `Serialize` **silently produces `{}`** — no exception, no warning, an
-empty document. Its DOM parsing does still work ahead of time; only the typed POCO layer does not
-(see the [competitor/AOT matrix](../README.md#nativeaot-support-by-competitor-verified-not-a-performance-claim)).
-Comparing our AOT numbers against an arm that emits `{}` would measure nothing, and comparing them
-against its DOM parse would be exactly the non-equivalent comparison this repository refuses to make
-for INI — so YAML gets **one** table, on CoreCLR, against a real opponent.
+| Scenario | PicoYaml | YamlDotNet | Faster by |
+|---|---:|---:|---|
+| Simple — SerializeToString | 0.138 | 6.293 | **PicoYaml 45.6×** |
+| Collection — SerializeToString | 1.514 | 60.867 | **PicoYaml 40.2×** |
+| Nested — SerializeToString | 0.552 | 16.288 | **PicoYaml 29.5×** |
+| Simple — Deserialize←string | 0.239 | 5.297 | **PicoYaml 22.2×** |
+| Nested — Deserialize←string | 0.913 | 15.539 | **PicoYaml 17.0×** |
+| Collection — Deserialize←string | 4.752 | 74.536 | **PicoYaml 15.7×** |
 
-The self-benchmark is gone, and so is the "Serialize vs Deserialize" ratio it used to print: that
-ratio was built from two of our own operations, and its "Deserialize" row was in fact calling
-`SerializeToUtf8Bytes`, so it measured nothing meaningful.
+Every row carries the division of its own pair, the top one included. Read that top row as a factor of ten, not as
+two significant digits: `Simple — SerializeToString` could not use its second and third kept rounds, because the
+YamlDotNet arm was refused *unstable* in both (`r27`, `r28`), so the row rests on `r26`/`r36`/`r39` and reads
+0.135 / 0.138 / 0.159 µs on our arm — a 1.18× swing across rounds that each passed their own five-run criteria —
+against 6.108 / 6.377 / 6.293 µs on YamlDotNet's. That is why its 0.02× is quoted as the published definition
+rather than as a claim about its second decimal; its µs pair and its division are published all the same.
 
-Run `dotnet run -c Release --project PicoYaml/benchmarks/PicoYaml.Benchmarks` for current local
-timings.
+Two more properties are stated rather than left to be discovered. Our deserialize rows pay an extra cost theirs
+does not: `Deserialize<T>(byte[])` decodes UTF-8 inside the timed region while `Deserialize<T>(string)` on the
+other side receives a string built outside it. And the margin is wide on both sides of the table, write and read.
+
+**There is no AOT opponent, and that is a property of YamlDotNet rather than a gap in this measurement.** Under
+NativeAOT the same two typed calls do not work at all: `Deserialize<T>` throws `MissingMethodException`, and
+`Serialize` **silently produces `{}`** — no exception, no warning, an empty document. Its DOM parsing does still
+work ahead of time; only the typed POCO layer does not (see the
+[competitor/AOT matrix](../README.md#nativeaot-support-by-competitor-verified-not-a-performance-claim)). Comparing
+our AOT numbers against an arm that emits `{}` would measure nothing, and comparing them against its DOM parse
+would be exactly the non-equivalent comparison this repository refuses to make for INI — so YAML gets **one**
+table, on CoreCLR, against a real opponent.
+
+The self-benchmark is gone, and so is the "Serialize vs Deserialize" ratio it used to print: that ratio was built
+from two of our own operations, and its "Deserialize" row was in fact calling `SerializeToUtf8Bytes`, so it
+measured nothing meaningful.
+
+Run `dotnet run -c Release --project PicoYaml/benchmarks/PicoYaml.Benchmarks` for current local timings.
 
 ## Why PicoYaml
 
