@@ -2,9 +2,11 @@ namespace PicoMsgPack.Gen;
 
 using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
+using AnonPipelineConfig = PicoSerDe.Gen.AnonPipelineConfig;
 using Arity = PicoSerDe.Gen.AttributeArity;
 using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
 using FusedEmit = PicoSerDe.Gen.FusedEmit;
+using GenPipeline = PicoSerDe.Gen.GenPipeline;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -59,154 +61,41 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
         FacadeTakesOptions: true
     );
 
+    /// <summary>
+    /// This format's anonymous-type pipeline inputs: its two configs, its two diagnostics, its emitter.
+    /// </summary>
+    private static readonly AnonPipelineConfig AnonPipe = new(
+        Config,
+        Attrs,
+        AnonCfg,
+        AnonRequiresCSharp12,
+        AnonRequiresUnsafe,
+        EmitMsgPackValue
+    );
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        // Pipeline A: usage-driven (existing)
-        var usageDriven = context
-            .SyntaxProvider.CreateSyntaxProvider(
-                predicate: static (n, _) => IsCandidate(n),
-                transform: static (ctx, _) => Transform(ctx)
-            )
-            .Where(static t => t is not null)
-            .Select(static (t, _) => t!.Value);
-
-        // Pipeline B: attribute-driven — discover types via [PicoSerializable]
-        var attrDriven = context
-            .SyntaxProvider.ForAttributeWithMetadataName(
-                "PicoSerDe.Core.PicoSerializableAttribute",
-                predicate: static (node, _) => node is TypeDeclarationSyntax,
-                transform: static (ctx, _) =>
-                    PicoSerDe.Gen.GenInfrastructure.ExpandAttributes(ctx, Config, Attrs)
-            )
-            .SelectMany(static (types, _) => types);
-
-        // Pipeline D: shorthand attribute [GenerateSerializer(typeof(T))]
-        var shorthandAttr = context
-            .SyntaxProvider.ForAttributeWithMetadataName(
-                "PicoSerDe.Core.GenerateSerializerAttribute",
-                predicate: static (node, _) => node is TypeDeclarationSyntax,
-                transform: static (ctx, _) =>
-                    PicoSerDe.Gen.GenInfrastructure.ExpandAttributes(ctx, Config, Attrs)
-            )
-            .SelectMany(static (types, _) => types);
-
-        // Pipeline C: format-specific attribute — discover types via [PicoMsgPackSerializable]
-        var formatAttr = context
-            .SyntaxProvider.ForAttributeWithMetadataName(
-                "PicoMsgPack.PicoMsgPackSerializableAttribute",
-                predicate: static (node, _) => node is TypeDeclarationSyntax,
-                transform: static (ctx, _) =>
-                    PicoSerDe.Gen.GenInfrastructure.ExpandAttributes(ctx, Config, Attrs)
-            )
-            .SelectMany(static (types, _) => types);
-
-        // Pipeline E: polymorphic — discover types via [PicoDerivedType]
-        var polyPipeline = context
-            .SyntaxProvider.ForAttributeWithMetadataName(
-                "PicoSerDe.Core.PicoDerivedTypeAttribute",
-                predicate: static (node, _) => node is TypeDeclarationSyntax,
-                transform: static (ctx, _) =>
-                    PicoSerDe.Gen.GenInfrastructure.ExpandPolymorphicTypes(ctx, Config, Attrs)
-            )
-            .SelectMany(static (types, _) => types);
-
-        // Pipeline F: assembly name for namespace isolation of generated helpers
-        var asmName = context.CompilationProvider.Select(
-            static (c, _) =>
-                (c.AssemblyName ?? "unknown").Replace('.', '_').Replace('-', '_').Replace(' ', '_')
+        // Pipelines A–F: the shape is shared (GenPipeline, review C2); every literal below is this
+        // format's own — its syntax transform, its format attribute, its two diagnostics.
+        var usageDriven = GenPipeline.UsageDriven(context, Transform);
+        var attrDriven = GenPipeline.AttributeDriven(context, Config, Attrs);
+        var shorthandAttr = GenPipeline.ShorthandAttributeDriven(context, Config, Attrs);
+        var formatAttr = GenPipeline.FormatAttributeDriven(
+            context,
+            "PicoMsgPack.PicoMsgPackSerializableAttribute",
+            Config,
+            Attrs
         );
+        var poly = GenPipeline.PolymorphicDriven(context, Config, Attrs);
+        var asmName = GenPipeline.AssemblyName(context);
 
         // Pipeline-Anon: anonymous type serialization via interceptors
-        var anonDriven = context
-            .SyntaxProvider.CreateSyntaxProvider(
-                predicate: (n, _) => IsCandidate(n),
-                transform: (ctx, _) =>
-                {
-                    // Anonymous-type usage is detected regardless of capabilities; the
-                    // output callback reports the diagnostic and skips emission (review P3-1).
-                    if (ctx.SemanticModel.GetSymbolInfo(ctx.Node).Symbol is not IMethodSymbol m)
-                        return null;
-                    if (m.TypeArguments.Length != 1)
-                        return null;
-                    if (m.TypeArguments[0] is not INamedTypeSymbol nt || !nt.IsAnonymousType)
-                        return null;
-                    if (
-                        m.ContainingType.Name != Config.SerializerClassName
-                        || m.ContainingType.ContainingNamespace?.ToDisplayString()
-                            != Config.Namespace
-                    )
-                        return null;
-                    return PicoSerDe.Gen.AnonTypeHandler.BuildAnonTypeInfo(nt, ctx, Config, Attrs);
-                }
-            )
-            .Where(a => a is not null);
-
-        // Capability flags for the anonymous-type diagnostic: reported
-        // only when anonymous serialization is actually used (review P3-1).
-        var anonCaps = context.CompilationProvider.Select(
-            static (c, _) =>
-            {
-                var comp = (CSharpCompilation)c;
-                return (
-                    LangOk: comp.LanguageVersion >= LanguageVersion.CSharp12,
-                    Unsafe: comp.Options.AllowUnsafe
-                );
-            }
-        );
-
-        var anonOut = anonDriven.Collect().Combine(asmName).Combine(anonCaps);
-        context.RegisterSourceOutput(
-            anonOut,
-            (spc, pair) =>
-            {
-                var anonTypes = pair.Left.Left;
-                var __asmName = pair.Left.Right;
-                var caps = pair.Right;
-                if (anonTypes.Length > 0 && !caps.LangOk)
-                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresCSharp12, null));
-                else if (anonTypes.Length > 0 && !caps.Unsafe)
-                    spc.ReportDiagnostic(Diagnostic.Create(AnonRequiresUnsafe, null));
-                if (anonTypes.Length == 0 || !caps.LangOk || !caps.Unsafe)
-                    return;
-                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{__asmName}";
-                foreach (var ai in anonTypes)
-                {
-                    if (ai is not { } info)
-                        continue;
-                    PicoSerDe.Gen.AnonTypeHandler.GenerateInterceptorClass(
-                        spc,
-                        info,
-                        Config,
-                        AnonCfg,
-                        (f, vv, wv) => EmitMsgPackValue(f, vv, wv)
-                    );
-                }
-            }
-        );
+        GenPipeline.RegisterAnonOutput(context, AnonPipe, asmName);
 
         // Merge all pipelines into one output
-        var all = usageDriven
-            .Collect()
-            .Combine(attrDriven.Collect())
-            .Select(static (pair, _) => pair.Left.AddRange(pair.Right))
-            .Combine(formatAttr.Collect())
-            .Select(static (pair, _) => pair.Left.AddRange(pair.Right))
-            .Combine(shorthandAttr.Collect())
-            .Select(static (pair, _) => pair.Left.AddRange(pair.Right))
-            .Combine(polyPipeline.Collect())
-            .Select(static (pair, _) => pair.Left.AddRange(pair.Right));
-
-        context.RegisterSourceOutput(
-            all,
-            static (spc, types) =>
-            {
-                PicoSerDe.Gen.GenInfrastructure.AssemblyPrefix = null;
-                GenerateAll(spc, types);
-            }
-        );
+        var all = GenPipeline.Merge(usageDriven, attrDriven, formatAttr, shorthandAttr, poly);
+        GenPipeline.RegisterTypesOutput(context, all, GenerateAll);
     }
-
-    static bool IsCandidate(SyntaxNode n) => PicoSerDe.Gen.GenInfrastructure.IsCandidate(n);
 
     static TypeInfo? Transform(GeneratorSyntaxContext ctx)
     {
