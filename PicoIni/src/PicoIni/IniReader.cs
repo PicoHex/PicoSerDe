@@ -25,18 +25,11 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader, IFusedTok
     // pending-key token: an empty quoted value is "", never a null literal.
     private bool _valueWasQuoted;
     private bool _pendingValueQuoted;
-    private byte[]? _rentedBuffer;
 
-    // Inline buffer tracking — avoids heap array allocation
-    private byte[]? _rb0,
-        _rb1,
-        _rb2,
-        _rb3,
-        _rb4,
-        _rb5,
-        _rb6,
-        _rb7;
-    private int _bufCount;
+    // Every pooled array a published span points into. The retention policy (eight slots,
+    // which one is reclaimed when, what Dispose means) lives in ByteBufferRing and is not
+    // INI's business: nothing about it depends on INI's grammar.
+    private ByteBufferRing _buffers;
     private int _depth;
     private readonly int _maxDepth;
 
@@ -136,9 +129,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader, IFusedTok
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _currentValue = default;
-        _rentedBuffer = null;
-        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
-        _bufCount = 0;
+        _buffers = default;
         _pendingValue = default;
         _hasPendingValue = false;
         _inSection = false;
@@ -171,9 +162,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader, IFusedTok
         _needsMoreData = false;
         _tokenType = TokenType.None;
         _currentValue = default;
-        _rentedBuffer = null;
-        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
-        _bufCount = 0;
+        _buffers = default;
         _pendingValue = default;
         _hasPendingValue = false;
         _inSection = false;
@@ -501,58 +490,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader, IFusedTok
             ArrayPool<byte>.Shared.Return(_chunkCopy);
             _chunkCopy = null;
         }
-        ReturnBuf(ref _rb0);
-        ReturnBuf(ref _rb1);
-        ReturnBuf(ref _rb2);
-        ReturnBuf(ref _rb3);
-        ReturnBuf(ref _rb4);
-        ReturnBuf(ref _rb5);
-        ReturnBuf(ref _rb6);
-        ReturnBuf(ref _rb7);
-        _bufCount = 0;
-        _rentedBuffer = null;
-    }
-
-    private static void ReturnBuf(ref byte[]? buf)
-    {
-        if (buf is not null)
-        {
-            ArrayPool<byte>.Shared.Return(buf);
-            buf = null;
-        }
-    }
-
-    private void TrackBuffer(byte[] buf)
-    {
-        switch (_bufCount++)
-        {
-            case 0:
-                _rb0 = buf;
-                break;
-            case 1:
-                _rb1 = buf;
-                break;
-            case 2:
-                _rb2 = buf;
-                break;
-            case 3:
-                _rb3 = buf;
-                break;
-            case 4:
-                _rb4 = buf;
-                break;
-            case 5:
-                _rb5 = buf;
-                break;
-            case 6:
-                _rb6 = buf;
-                break;
-            default:
-                ReturnBuf(ref _rb7);
-                _rb7 = buf;
-                break;
-        }
-        _rentedBuffer = buf;
+        _buffers.Dispose();
     }
 
     // ── Span-mode read ──
@@ -657,7 +595,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader, IFusedTok
         {
             _position++;
             var buf = ArrayPool<byte>.Shared.Rent(Math.Max(256, _data.Length - _position));
-            TrackBuffer(buf);
+            _buffers.Track(buf);
             int di = 0;
             while (_position < _data.Length && _data[_position] != (byte)'"')
             {
@@ -782,7 +720,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader, IFusedTok
     {
         _seqReader.Advance(1);
         var buf = ArrayPool<byte>.Shared.Rent(64);
-        TrackBuffer(buf);
+        _buffers.Track(buf);
         int di = 0;
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)']')
         {
@@ -792,7 +730,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader, IFusedTok
                 buf.AsSpan(0, di).CopyTo(newBuf);
                 ArrayPool<byte>.Shared.Return(buf);
                 buf = newBuf;
-                TrackBuffer(buf);
+                _buffers.Track(buf);
             }
             buf[di++] = _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex];
             _seqReader.Advance(1);
@@ -807,7 +745,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader, IFusedTok
     private bool ReadKeyValueSeq()
     {
         var buf = ArrayPool<byte>.Shared.Rent(256);
-        TrackBuffer(buf);
+        _buffers.Track(buf);
 
         // Read key up to '='
         if (
@@ -847,7 +785,7 @@ public ref struct IniReader : ITokenReader, ITransactionalTokenReader, IFusedTok
                     buf.AsSpan(0, di).CopyTo(newBuf);
                     ArrayPool<byte>.Shared.Return(buf);
                     buf = newBuf;
-                    TrackBuffer(buf);
+                    _buffers.Track(buf);
                 }
                 if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\\')
                 {

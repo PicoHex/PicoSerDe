@@ -43,16 +43,11 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     private bool _inInlineTable;
     private int _inlineTableDepth;
     private bool _inlineStartEmitted;
-    private byte[]? _rentedBuffer;
-    private byte[]? _rb0,
-        _rb1,
-        _rb2,
-        _rb3,
-        _rb4,
-        _rb5,
-        _rb6,
-        _rb7;
-    private int _bufCount;
+
+    // Every pooled array a published span points into. The retention policy (eight slots,
+    // which one is reclaimed when, what Dispose means) lives in ByteBufferRing and is not
+    // TOML's business: nothing about it depends on TOML's grammar.
+    private ByteBufferRing _buffers;
     private int _depth;
     private readonly int _maxDepth;
 
@@ -205,9 +200,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _inInlineTable = false;
         _inlineTableDepth = 0;
         _inlineStartEmitted = false;
-        _rentedBuffer = null;
-        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
-        _bufCount = 0;
+        _buffers = default;
         _depth = 0;
         _maxDepth = 256;
         _dottedActive = false;
@@ -247,9 +240,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _inInlineTable = false;
         _inlineTableDepth = 0;
         _inlineStartEmitted = false;
-        _rentedBuffer = null;
-        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
-        _bufCount = 0;
+        _buffers = default;
         _depth = 0;
         _maxDepth = 256;
         _dottedActive = false;
@@ -737,7 +728,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (_seqReader.End || _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)']')
             return false;
 
-        var buf = RentBuf(16);
+        var buf = _buffers.Rent(16);
         int di = 0;
         while (
             !_seqReader.End
@@ -789,25 +780,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             ArrayPool<byte>.Shared.Return(_chunkCopy);
             _chunkCopy = null;
         }
-        ReturnBuf(ref _rb0);
-        ReturnBuf(ref _rb1);
-        ReturnBuf(ref _rb2);
-        ReturnBuf(ref _rb3);
-        ReturnBuf(ref _rb4);
-        ReturnBuf(ref _rb5);
-        ReturnBuf(ref _rb6);
-        ReturnBuf(ref _rb7);
-        _bufCount = 0;
-        _rentedBuffer = null;
-    }
-
-    private static void ReturnBuf(ref byte[]? buf)
-    {
-        if (buf is not null)
-        {
-            ArrayPool<byte>.Shared.Return(buf);
-            buf = null;
-        }
+        _buffers.Dispose();
     }
 
     /// <summary>
@@ -910,9 +883,10 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 totalLen++; // dot
             totalLen += GetDottedLength(i);
         }
-        // Use rented buffer for the composed path (tracked by existing _rb0.._rb7)
+        // The composed path goes into a rented buffer the reader keeps alive until
+        // Dispose: the span it publishes must outlive this call.
         var buf = ArrayPool<byte>.Shared.Rent(totalLen);
-        RentTrack(buf);
+        _buffers.Track(buf);
         int w = 0;
         for (int i = 0; i <= endPart; i++)
         {
@@ -924,39 +898,6 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             w += len;
         }
         return buf.AsSpan(0, totalLen);
-    }
-
-    private void RentTrack(byte[] buf)
-    {
-        _rentedBuffer = buf;
-        switch (_bufCount++)
-        {
-            case 0:
-                _rb0 = buf;
-                break;
-            case 1:
-                _rb1 = buf;
-                break;
-            case 2:
-                _rb2 = buf;
-                break;
-            case 3:
-                _rb3 = buf;
-                break;
-            case 4:
-                _rb4 = buf;
-                break;
-            case 5:
-                _rb5 = buf;
-                break;
-            case 6:
-                _rb6 = buf;
-                break;
-            default:
-                ReturnBuf(ref _rb7);
-                _rb7 = buf;
-                break;
-        }
     }
 
     private int GetDottedOffset(int idx) =>
@@ -1561,7 +1502,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         // Every escape sequence is at least as many bytes as its UTF-8 output, so a
         // buffer of src.Length is always large enough (\uXXXX 6→4, \UXXXXXXXX 10→4).
         var buf = ArrayPool<byte>.Shared.Rent(src.Length);
-        RentTrack(buf);
+        _buffers.Track(buf);
         int di = 0;
         int si = 0;
         while (si < src.Length)
@@ -1633,7 +1574,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     /// </summary>
     private ReadOnlySpan<byte> ReadBasicStringSeq()
     {
-        var buf = RentBuf(256);
+        var buf = _buffers.Rent(256);
         int di = 0;
         bool hasEscape = false;
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"')
@@ -1670,7 +1611,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     {
         var nb = ArrayPool<byte>.Shared.Rent(buf.Length * 2);
         buf.AsSpan(0, di).CopyTo(nb);
-        RentTrack(nb);
+        _buffers.Track(nb);
         return nb;
     }
 
@@ -1720,7 +1661,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _seqReader.Advance(1);
         }
 
-        var buf = RentBuf(64);
+        var buf = _buffers.Rent(64);
         int di = 0;
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)']')
         {
@@ -1743,7 +1684,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
 
     private bool ReadKeyValueSeq()
     {
-        var buf = RentBuf(256);
+        var buf = _buffers.Rent(256);
         int di = 0;
 
         // Quoted key
@@ -1819,7 +1760,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                     && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'\n'
                 )
                     _seqReader.Advance(1);
-                var buf = RentBuf(256);
+                var buf = _buffers.Rent(256);
                 int di = 0;
                 while (!_seqReader.End)
                 {
@@ -1849,7 +1790,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         }
         else
         {
-            var buf = RentBuf(256);
+            var buf = _buffers.Rent(256);
             int di = 0;
             while (
                 !_seqReader.End
@@ -1906,7 +1847,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             return true;
         }
 
-        var buf = RentBuf(256);
+        var buf = _buffers.Rent(256);
         int di = 0;
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'=')
         {
@@ -2012,7 +1953,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
 
     private bool ReadArrayValueSeq()
     {
-        var buf = RentBuf(256);
+        var buf = _buffers.Rent(256);
         int di = 0;
         _valueWasQuoted = false;
         if (_seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'"')
@@ -2070,41 +2011,6 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     }
 
     // ── Helpers ──
-
-    private byte[] RentBuf(int size)
-    {
-        var buf = ArrayPool<byte>.Shared.Rent(size);
-        switch (_bufCount++)
-        {
-            case 0:
-                _rb0 = buf;
-                break;
-            case 1:
-                _rb1 = buf;
-                break;
-            case 2:
-                _rb2 = buf;
-                break;
-            case 3:
-                _rb3 = buf;
-                break;
-            case 4:
-                _rb4 = buf;
-                break;
-            case 5:
-                _rb5 = buf;
-                break;
-            case 6:
-                _rb6 = buf;
-                break;
-            default:
-                ReturnBuf(ref _rb7);
-                _rb7 = buf;
-                break;
-        }
-        _rentedBuffer = buf;
-        return buf;
-    }
 
     // ── Fast path array reading (used by source generators) ──
     // The scan itself lives in FastArrayReaders (PicoSerDe.Core): this format's flow array and
