@@ -1,46 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishAot">
+  <!-- Shared generator build configuration (TFM, analyzer flags, packaging, and the
+       shared/Gen compile list). The imported file explains itself and its one Exclude. -->
+  <Import Project="..\..\..\shared\Gen\PicoSerDe.Gen.props" />
+
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
-    <PublishAot>false</PublishAot>
-    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <IsRoslynComponent>true</IsRoslynComponent>
-<ImplicitUsings>disable</ImplicitUsings>
-    <NoWarn>$(NoWarn);RS2008;RS1041;NU5128</NoWarn>
-    <IsPackable>true</IsPackable>
-    <DevelopmentDependency>false</DevelopmentDependency>
-    <IncludeBuildOutput>false</IncludeBuildOutput>
     <PackageId>PicoMsgPack.Gen</PackageId>
     <Description>PicoMsgPack source generator — AOT-compatible MessagePack serialization code generation for PicoHex</Description>
     <PackageTags>PicoHex;MessagePack;AOT;Source Generator;Roslyn;Analyzer</PackageTags>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\..\README.md" Pack="true" PackagePath="" Visible="false" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None
-      Include="$(OutputPath)/$(AssemblyName).dll"
-      Pack="true"
-      PackagePath="analyzers/dotnet/cs"
-      Visible="false"
-    />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="..\..\..\shared\Gen\IsExternalInit.cs" Link="Gen\IsExternalInit.cs" />
-    <Compile Include="..\..\..\shared\Gen\TypeKindResolver.cs" Link="Gen\TypeKindResolver.cs" />
-    <Compile Include="..\..\..\shared\Gen\GenInfrastructure.cs" Link="Gen\GenInfrastructure.cs" />
-    <Compile Include="..\..\..\shared\Gen\AnonTypeHandler.cs" Link="Gen\AnonTypeHandler.cs" />
-    <Compile Include="..\..\..\shared\Gen\AnonFormatConfig.cs" Link="Gen\AnonFormatConfig.cs" />
-    <Compile Include="..\..\..\shared\Gen\FormatCapabilities.cs" Link="Gen\FormatCapabilities.cs" />
-    <Compile Include="..\..\..\shared\Gen\DecisionTables.cs" Link="Gen\DecisionTables.cs" />
-    <Compile Include="..\..\..\shared\Gen\RecursionClassifier.cs" Link="Gen\RecursionClassifier.cs" />
+    <!-- MessagePack emits fused element loops, so it is one of the two generators that
+         compile the shared emitter the common list excludes. -->
     <Compile Include="..\..\..\shared\Gen\FusedEmit.cs" Link="Gen\FusedEmit.cs" />
   </ItemGroup>
 </Project>

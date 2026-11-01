@@ -1,0 +1,58 @@
+<Project>
+  <!--
+    The one build configuration every PicoXxx.Gen generator shares, imported explicitly
+    (`<Import Project="..\..\..\shared\Gen\PicoSerDe.Gen.props" />`) and by nothing else:
+    deliberately NOT a Directory.Build.props, which MSBuild auto-imports into anything under
+    shared/ - a product project must never inherit netstandard2.0 / IsRoslynComponent /
+    IncludeBuildOutput=false by accident. These eleven properties and this compile list were
+    hand-copied into all five .Gen projects and had already drifted (FusedEmit.cs was
+    compiled by two of the five); the list is derived from the directory now, so a new shared
+    file reaches every generator by existing.
+  -->
+  <PropertyGroup>
+    <!-- Roslyn's own TFM; Directory.Build.targets keys its "never AOT" guard off it. -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <!-- TreatAsLocalProperty on each <Project> too: -p:PublishAot=true (dotnet publish, the
+         CI AOT legs) must not turn a generator into an AOT project. -->
+    <PublishAot>false</PublishAot>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <!-- The generators hand source text to the consumer; they build no code themselves. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- RS2008 no release tracking · RS1041 netstandard2.0 analyzers are supported ·
+         NU5128 no lib/ folder, the payload is analyzers/dotnet/cs only. -->
+    <NoWarn>$(NoWarn);RS2008;RS1041;NU5128</NoWarn>
+    <IsPackable>true</IsPackable>
+    <DevelopmentDependency>false</DevelopmentDependency>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The repository README ships in every package; the analyzer dll goes to
+         analyzers/dotnet/cs, with no build output in lib/. -->
+    <None Include="$(MSBuildThisFileDirectory)..\..\README.md" Pack="true" PackagePath="" Visible="false" />
+    <None
+      Include="$(OutputPath)/$(AssemblyName).dll"
+      Pack="true"
+      PackagePath="analyzers/dotnet/cs"
+      Visible="false"
+    />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The shared generator infrastructure: one list for five generators. FusedEmit.cs is
+         the one format-specific file (fused element loops are a JSON/MessagePack shape), so
+         it is excluded here and compiled explicitly by PicoJetson.Gen and PicoMsgPack.Gen; a
+         future format-specific file costs one line in this Exclude, not five csproj edits. -->
+    <Compile
+      Include="$(MSBuildThisFileDirectory)*.cs"
+      Exclude="$(MSBuildThisFileDirectory)FusedEmit.cs"
+      Link="Gen\%(Filename)%(Extension)"
+    />
+  </ItemGroup>
+</Project>
