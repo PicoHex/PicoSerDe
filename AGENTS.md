@@ -131,6 +131,15 @@ clothes.
   packable projects* until `b55c14f` made the scan skip `.worktrees/`, `.superpowers/`, `artifacts/` and every
   dot-prefixed directory (`scripts/release.ps1:136-158`; `b55c14f` added the block at `:113-122` of that time,
   and it has since moved down the file). That exclusion is a safety net, not a licence.
+- **Publishing authenticates over OIDC, not a stored key** (the `publish` job in `release.yml`). The job
+  carries `id-token: write`, and `NuGet/login@v1` (`id: login`) trades a GitHub OIDC token for a **1-hour**
+  API key that `dotnet nuget push` reads from `steps.login.outputs.NUGET_API_KEY`; `secrets.NUGET_API_KEY`
+  is gone — the v2026.12.0 attempt is what expired (`403 The specified API key has expired`). Two things
+  follow. The login step has to stay **immediately before** the push: one OIDC token buys exactly one key,
+  and that key dies in an hour. And nuget.org must carry a matching **trusted publishing policy** —
+  Repository Owner `PicoHex`, Repository `PicoSerDe`, Workflow File `release.yml` (**file name only**, never
+  the `.github/workflows/` path), Environment `release` (this job sets `environment: release`). The one
+  secret left is `NUGET_USER`: the nuget.org **profile name**, not the email address.
 - **Docs and skills ship in the release commit.** The gate is the `verify` job in `release.yml`
   (`.github/workflows/release.yml:37`): restore, Release build, and all ten test projects, on `ubuntu-latest`.
   `pack` waits on it (`jobs.pack.needs: verify`, `release.yml:76`) and `publish` on `pack`
