@@ -8,9 +8,6 @@ B:PicoMsgPack.PicoMsgPackSerializableAttribute : PicoSerDe.Core.PicoSerializable
 F:PicoMsgPack.MsgPackDateTimeFormat.IsoString : PicoMsgPack.MsgPackDateTimeFormat = 1 const
 F:PicoMsgPack.MsgPackDateTimeFormat.TimestampExt : PicoMsgPack.MsgPackDateTimeFormat = 0 const
 F:PicoMsgPack.MsgPackDateTimeFormat.value__ : int
-F:PicoMsgPack.MsgPackIgnoreCondition.Never : PicoMsgPack.MsgPackIgnoreCondition = 0 const
-F:PicoMsgPack.MsgPackIgnoreCondition.WhenWritingNull : PicoMsgPack.MsgPackIgnoreCondition = 1 const
-F:PicoMsgPack.MsgPackIgnoreCondition.value__ : int
 F:PicoMsgPack.MsgPackSerializer.ContentType : string = "application/msgpack" const
 I:PicoMsgPack.MsgPackReader : PicoSerDe.Core.IFusedTokenReader
 I:PicoMsgPack.MsgPackReader : PicoSerDe.Core.ITokenReader
@@ -87,7 +84,7 @@ M:PicoMsgPack.PicoMsgPackSerializableAttribute..ctor(System.Type type) : void
 P:PicoMsgPack.MsgPackExtensionTagAttribute.Tag : byte { get; }
 P:PicoMsgPack.MsgPackKeyAttribute.Key : int { get; }
 P:PicoMsgPack.MsgPackOptions.DateTimeFormat : PicoMsgPack.MsgPackDateTimeFormat { get; set; }
-P:PicoMsgPack.MsgPackOptions.DefaultIgnoreCondition : PicoMsgPack.MsgPackIgnoreCondition { get; set; }
+P:PicoMsgPack.MsgPackOptions.DefaultIgnoreCondition : PicoSerDe.Core.PicoIgnoreCondition { get; set; }
 P:PicoMsgPack.MsgPackReader.BytesConsumed : long { get; }
 P:PicoMsgPack.MsgPackReader.Depth : int { get; }
 P:PicoMsgPack.MsgPackReader.HasCountedCollections : bool { get; }
@@ -108,7 +105,6 @@ T:class PicoMsgPack.MsgPackSerializer
 T:class PicoMsgPack.PicoMsgPackSerializableAttribute
 T:delegate PicoMsgPack.MsgPackSerializer.StreamingFunc`1
 T:enum PicoMsgPack.MsgPackDateTimeFormat
-T:enum PicoMsgPack.MsgPackIgnoreCondition
 T:interface PicoMsgPack.IMsgPackConverter`1
 T:struct PicoMsgPack.MsgPackFormat
 T:struct PicoMsgPack.MsgPackReader

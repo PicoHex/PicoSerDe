@@ -8,9 +8,6 @@ B:PicoIni.IniKeyAttribute : System.Attribute
 B:PicoIni.IniOptions : PicoSerDe.Core.SerOptions
 B:PicoIni.IniSectionAttribute : System.Attribute
 B:PicoIni.PicoIniSerializableAttribute : PicoSerDe.Core.PicoSerializableAttribute
-F:PicoIni.IniIgnoreCondition.Never : PicoIni.IniIgnoreCondition = 0 const
-F:PicoIni.IniIgnoreCondition.WhenWritingNull : PicoIni.IniIgnoreCondition = 1 const
-F:PicoIni.IniIgnoreCondition.value__ : int
 F:PicoIni.IniReaderState.SectionNameBytes : byte[]
 F:PicoIni.IniSerializer.ContentType : string = "text/plain" const
 I:PicoIni.IniReader : PicoSerDe.Core.IFusedTokenReader
@@ -103,7 +100,7 @@ M:PicoIni.PicoIniSerializableAttribute..ctor(System.Type type) : void
 P:PicoIni.IniCommentAttribute.Text : string { get; }
 P:PicoIni.IniKeyAttribute.Key : string { get; }
 P:PicoIni.IniKeyAttribute.Name : string { get; }
-P:PicoIni.IniOptions.DefaultIgnoreCondition : PicoIni.IniIgnoreCondition { get; set; }
+P:PicoIni.IniOptions.DefaultIgnoreCondition : PicoSerDe.Core.PicoIgnoreCondition { get; set; }
 P:PicoIni.IniOptions.Indented : bool { get; set; }
 P:PicoIni.IniReader.BytesConsumed : long { get; }
 P:PicoIni.IniReader.Depth : int { get; }
@@ -126,7 +123,6 @@ T:class PicoIni.IniOptions
 T:class PicoIni.IniSectionAttribute
 T:class PicoIni.IniSerializer
 T:class PicoIni.PicoIniSerializableAttribute
-T:enum PicoIni.IniIgnoreCondition
 T:interface PicoIni.IIniConverter`1
 T:struct PicoIni.IniFormat
 T:struct PicoIni.IniReader

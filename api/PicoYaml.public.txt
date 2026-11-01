@@ -7,9 +7,6 @@ B:PicoYaml.YamlIgnoreAttribute : PicoSerDe.Core.PicoIgnoreAttribute
 B:PicoYaml.YamlKeyAttribute : System.Attribute
 B:PicoYaml.YamlOptions : PicoSerDe.Core.SerOptions
 B:PicoYaml.YamlTagAttribute : System.Attribute
-F:PicoYaml.YamlIgnoreCondition.Never : PicoYaml.YamlIgnoreCondition = 0 const
-F:PicoYaml.YamlIgnoreCondition.WhenWritingNull : PicoYaml.YamlIgnoreCondition = 1 const
-F:PicoYaml.YamlIgnoreCondition.value__ : int
 F:PicoYaml.YamlSerializer.ContentType : string = "text/yaml" const
 I:PicoYaml.YamlReader : PicoSerDe.Core.IFusedTokenReader
 I:PicoYaml.YamlReader : PicoSerDe.Core.ITokenReader
@@ -88,7 +85,7 @@ M:PicoYaml.YamlWriter.WriteString(System.ReadOnlySpan`1<char> value) : void
 M:PicoYaml.YamlWriter.WriteTag(string tag) : void
 M:PicoYaml.YamlWriter.WriteUInt64(ulong value) : void
 P:PicoYaml.YamlKeyAttribute.Key : string { get; }
-P:PicoYaml.YamlOptions.DefaultIgnoreCondition : PicoYaml.YamlIgnoreCondition { get; set; }
+P:PicoYaml.YamlOptions.DefaultIgnoreCondition : PicoSerDe.Core.PicoIgnoreCondition { get; set; }
 P:PicoYaml.YamlOptions.Indented : bool { get; set; }
 P:PicoYaml.YamlReader.BytesConsumed : long { get; }
 P:PicoYaml.YamlReader.Depth : int { get; }
@@ -116,7 +113,6 @@ T:class PicoYaml.YamlKeyAttribute
 T:class PicoYaml.YamlOptions
 T:class PicoYaml.YamlSerializer
 T:class PicoYaml.YamlTagAttribute
-T:enum PicoYaml.YamlIgnoreCondition
 T:interface PicoYaml.IYamlConverter`1
 T:struct PicoYaml.YamlFormat
 T:struct PicoYaml.YamlReader

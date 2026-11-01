@@ -9,10 +9,6 @@ B:PicoJetson.PicoJsonSerializableAttribute : PicoSerDe.Core.PicoSerializableAttr
 F:PicoJetson.JsonCommentHandling.Disallow : PicoJetson.JsonCommentHandling = 0 const
 F:PicoJetson.JsonCommentHandling.Skip : PicoJetson.JsonCommentHandling = 1 const
 F:PicoJetson.JsonCommentHandling.value__ : int
-F:PicoJetson.JsonIgnoreCondition.Never : PicoJetson.JsonIgnoreCondition = 0 const
-F:PicoJetson.JsonIgnoreCondition.WhenWritingDefault : PicoJetson.JsonIgnoreCondition = 2 const
-F:PicoJetson.JsonIgnoreCondition.WhenWritingNull : PicoJetson.JsonIgnoreCondition = 1 const
-F:PicoJetson.JsonIgnoreCondition.value__ : int
 F:PicoJetson.JsonNumberHandling.AllowNamedFloatingPointLiterals : PicoJetson.JsonNumberHandling = 1 const
 F:PicoJetson.JsonNumberHandling.Strict : PicoJetson.JsonNumberHandling = 0 const
 F:PicoJetson.JsonNumberHandling.value__ : int
@@ -179,7 +175,7 @@ P:PicoJetson.JsonNamingPolicy.KebabCaseLower : PicoJetson.JsonNamingPolicy { get
 P:PicoJetson.JsonNamingPolicy.PascalCase : PicoJetson.JsonNamingPolicy { get; }
 P:PicoJetson.JsonNamingPolicy.SnakeCaseLower : PicoJetson.JsonNamingPolicy { get; }
 P:PicoJetson.JsonOptions.AllowTrailingCommas : bool { get; set; }
-P:PicoJetson.JsonOptions.DefaultIgnoreCondition : PicoJetson.JsonIgnoreCondition { get; set; }
+P:PicoJetson.JsonOptions.DefaultIgnoreCondition : PicoSerDe.Core.PicoIgnoreCondition { get; set; }
 P:PicoJetson.JsonOptions.IncludeFields : bool { get; set; }
 P:PicoJetson.JsonOptions.Indented : bool { get; set; }
 P:PicoJetson.JsonOptions.MaxDepth : int { get; set; }
@@ -229,7 +225,6 @@ T:class PicoJetson.PicoDocument
 T:class PicoJetson.PicoJsonSerializableAttribute
 T:class PicoJetson.TypeIo
 T:enum PicoJetson.JsonCommentHandling
-T:enum PicoJetson.JsonIgnoreCondition
 T:enum PicoJetson.JsonNumberHandling
 T:enum PicoJetson.JsonUnmappedMemberHandling
 T:enum PicoJetson.PicoValueKind

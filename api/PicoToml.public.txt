@@ -6,9 +6,6 @@ B:PicoToml.TomlDateTimeFormatAttribute : PicoSerDe.Core.PicoDateTimeFormatAttrib
 B:PicoToml.TomlIgnoreAttribute : PicoSerDe.Core.PicoIgnoreAttribute
 B:PicoToml.TomlKeyAttribute : System.Attribute
 B:PicoToml.TomlOptions : PicoSerDe.Core.SerOptions
-F:PicoToml.TomlIgnoreCondition.Never : PicoToml.TomlIgnoreCondition = 0 const
-F:PicoToml.TomlIgnoreCondition.WhenWritingNull : PicoToml.TomlIgnoreCondition = 1 const
-F:PicoToml.TomlIgnoreCondition.value__ : int
 F:PicoToml.TomlSerializer.ContentType : string = "application/toml" const
 I:PicoToml.TomlReader : PicoSerDe.Core.IFusedTokenReader
 I:PicoToml.TomlReader : PicoSerDe.Core.ITokenReader
@@ -109,7 +106,7 @@ M:PicoToml.TomlWriter.WriteStartInlineTableValue() : void
 M:PicoToml.TomlWriter.WriteTable(System.ReadOnlySpan`1<byte> utf8Name) : void
 M:PicoToml.TomlWriter.WriteTable(string name) : void
 P:PicoToml.TomlKeyAttribute.Key : string { get; }
-P:PicoToml.TomlOptions.DefaultIgnoreCondition : PicoToml.TomlIgnoreCondition { get; set; }
+P:PicoToml.TomlOptions.DefaultIgnoreCondition : PicoSerDe.Core.PicoIgnoreCondition { get; set; }
 P:PicoToml.TomlOptions.Indented : bool { get; set; }
 P:PicoToml.TomlReader.BytesConsumed : long { get; }
 P:PicoToml.TomlReader.Depth : int { get; }
@@ -133,7 +130,6 @@ T:class PicoToml.TomlIgnoreAttribute
 T:class PicoToml.TomlKeyAttribute
 T:class PicoToml.TomlOptions
 T:class PicoToml.TomlSerializer
-T:enum PicoToml.TomlIgnoreCondition
 T:interface PicoToml.ITomlConverter`1
 T:struct PicoToml.TomlFormat
 T:struct PicoToml.TomlReader
