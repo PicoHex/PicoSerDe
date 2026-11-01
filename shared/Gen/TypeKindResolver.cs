@@ -249,21 +249,16 @@ internal static class TypeKindResolver
         // Symbol-derived kinds use the annotation-preserving display so nested
         // annotations survive (List<List<string?>> must not collapse to
         // List<List<string>>), not just the top-level '?'.
-        var name = kind
-            is "list"
-                or "array"
-                or "dict"
-                or "hashset"
-                or "queue"
-                or "stack"
-                or "linkedlist"
-                or "immutablearray"
-                or "memory"
-                or "readonlymemory"
-                or "enum"
-                or "object"
-            ? DisplayType(type)
-            : MapTypeName(kind, type);
+        //
+        // The collection half of this question is "is it a sequence kind", which the
+        // collection-kind table answers (CollectionKinds.IsSequence) — spelling the nine kinds
+        // here meant a new kind had to be remembered here too. `dict`/`enum`/`object` are NOT
+        // sequence kinds and are symbol-derived for their own reason, so they stay: this list is
+        // "kind whose declared type is the symbol's own type", not "collection kind".
+        var name =
+            CollectionKinds.IsSequence(kind) || kind is "dict" or "enum" or "object"
+                ? DisplayType(type)
+                : MapTypeName(kind, type);
         // Nullable value types (int?, Guid?, ...) and annotated reference types
         // keep their '?' so collection declarations stay exact.
         if (
@@ -306,13 +301,6 @@ internal static class TypeKindResolver
             "int128" => "System.Int128",
             "uint128" => "System.UInt128",
             "nint" => "nint",
-            "hashset" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            "queue" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            "stack" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            "linkedlist" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            "immutablearray" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            "memory" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            "readonlymemory" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "float32" => "float",
             "float64" => "double",
             "boolean" => "bool",
@@ -324,10 +312,15 @@ internal static class TypeKindResolver
             "decimal" => "decimal",
             "bytes" => "byte[]",
             "enum" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            "list" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            "array" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "dict" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             "object" => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            // Every sequence kind is displayed as its own declared type — one arm, asked of the
+            // collection-kind table, in place of the nine identical arms that had to be extended
+            // by hand whenever a kind was added. (A kind missing here used to fall to
+            // `_ => "object"` and silently declare the wrong type.)
+            _ when CollectionKinds.IsSequence(kind) => type.ToDisplayString(
+                SymbolDisplayFormat.FullyQualifiedFormat
+            ),
             _ => "object",
         };
 }

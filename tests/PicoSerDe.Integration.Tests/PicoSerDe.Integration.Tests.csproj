@@ -87,6 +87,11 @@
          the file is linked into five assemblies, so "internal" would be five copies). -->
     <Compile Include="..\..\shared\Gen\FormatCapabilities.cs" Link="Gen\FormatCapabilities.cs" />
     <Compile Include="..\..\shared\Gen\DecisionTables.cs" Link="Gen\DecisionTables.cs" />
+    <!-- The collection-kind model, from the SAME source the five generators link (see the
+         note above FormatCapabilities.cs): CollectionKindModelTests drives the real queries
+         against the frozen member-set extraction, so a re-statement of the sets in a test
+         comment would pass even if the generators disagreed with it. -->
+    <Compile Include="..\..\shared\Gen\CollectionKinds.cs" Link="Gen\CollectionKinds.cs" />
     <!-- The recursion taxonomy (RecursionKind + RecursionClassifier) is linked for the
          same reason: RecursionKindTests must drive the REAL classifier over real Roslyn
          symbols, and a re-statement of "self vs mutual" in a test comment would pass even

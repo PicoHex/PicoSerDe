@@ -2004,13 +2004,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(effectiveAccessor);
                 sb.AppendLine(");");
                 break;
-            case "list":
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
+            // The kinds a foreach enumerates itself: CollectionKinds.IsForeachable. The .Span kinds are the next arm.
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsForeachable(__kind):
                 sb.Append(indent);
                 sb.AppendLine("jw.WriteStartArray();");
                 sb.Append(indent);
@@ -2038,8 +2033,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(indent);
                 sb.AppendLine("jw.WriteEndArray();");
                 break;
-            case "memory":
-            case "readonlymemory":
+            // The two kinds that are written through .Span: CollectionKinds.RequiresSpan.
+            case var __kind when PicoSerDe.Gen.CollectionKinds.RequiresSpan(__kind):
                 sb.Append(indent);
                 sb.AppendLine("jw.WriteStartArray();");
                 sb.Append(indent);
@@ -2298,22 +2293,15 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(itemVar);
                 sb.AppendLine(");");
                 break;
-            case "list":
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
             {
                 // A SEQUENCE value in a non-member position: S8's element (a collection as
                 // the element of another collection) and S10's dict VALUE (a collection as
                 // the value of a dictionary) are the same shape here — the wire form is the
                 // nested array `List<List<int>>` writes, and the extractor's descriptor chain
                 // (NestedProperties[0]) says what that inner array's items are, which is the
-                // part a kind-only test could never recover. Asking IsSequenceKind's family
+                // part a kind-only test could never recover. Asking CollectionKinds.IsSequence's family
                 // (not one kind) is why `list`/`array` belong in this group: a dict value of
                 // type List<int> used to fall through to the `default:` arm and be written as
                 // the item's ToString().
@@ -2327,7 +2315,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(setItem);
                 sb.Append(" in ");
                 sb.Append(
-                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                    PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(
                         prop.ElementTypeKind,
                         itemVar
                     )
@@ -3312,15 +3300,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(".Deserialize(ref reader);");
                 break;
             }
-            case "list":
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
             {
                 var elemType = prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object";
                 var listVar = $"__list_{cp.Name}";
@@ -3337,25 +3318,17 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 EmitCollectionElementLoop(sb, prop, listVar, indent + "    ", 0);
                 sb.Append(indent);
                 sb.AppendLine("}");
-                if (cp.TypeKind != "list")
-                {
-                    EmitCollectionConversion(
-                        sb,
-                        cp.TypeKind,
-                        listVar,
-                        target,
-                        prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object",
-                        indent
-                    );
-                }
-                else
-                {
-                    sb.Append(indent);
-                    sb.Append(target);
-                    sb.Append(" = ");
-                    sb.Append(listVar);
-                    sb.AppendLine(";");
-                }
+                // `list`'s conversion is the assignment itself and every other sequence kind
+                // has its own construction, so this is ONE call: the shared emitter already
+                // covers the whole conversion domain (CollectionKinds.RequiresListConversion).
+                PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
+                    sb,
+                    cp.TypeKind,
+                    listVar,
+                    target,
+                    prop.ElementTypeNameAnnotated ?? prop.ElementTypeName ?? "object",
+                    indent
+                );
                 break;
             }
             case "dict":
@@ -3793,15 +3766,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.Append(prop.Name);
                 sb.AppendLine(" = __enumValue;");
                 break;
-            case "list":
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                 if (prop.TypeKind == "list")
                 {
                     sb.Append(indent);
@@ -3852,9 +3818,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
                 sb.Append(indent);
                 sb.AppendLine("}");
-                if (prop.TypeKind != "list")
+                // Which kinds need a conversion is the collection-kind table's answer
+                // (`list` alone is its own conversion); how each one converts is the shared
+                // emitter's. This site named neither.
+                if (PicoSerDe.Gen.CollectionKinds.RequiresListConversion(prop.TypeKind))
                 {
-                    EmitCollectionConversion(
+                    PicoSerDe.Gen.GenInfrastructure.EmitCollectionFromList(
                         sb,
                         prop.TypeKind,
                         $"__list_{prop.Name}",
@@ -4786,13 +4755,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(".Deserialize(ref reader));");
                 break;
             }
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // The rebuilt-from-a-temp-list kinds: CollectionKinds.IsExtendedCollection (list/array have their own arms).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsExtendedCollection(__kind):
             {
                 // S8 on the read side: the item is an array, the DECLARED element is a
                 // collection — so read into a temp list and let the shared conversion
@@ -5361,15 +5325,8 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             case "any":
                 EmitAnyValueDeserialize(sb, $"{dictVar}[{keyVar}]", indent);
                 break;
-            case "list":
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
             {
                 // S10: the dict VALUE is a collection. Read it into a temp list of the
                 // value's ELEMENT type (NestedProperties[0] describes that element, one level
@@ -5390,7 +5347,7 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine("if (reader.TokenType == TokenType.ArrayStart)");
                 sb.Append(indent);
                 sb.AppendLine("{");
-                if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(elemDesc.ElementTypeKind))
+                if (PicoSerDe.Gen.CollectionKinds.IsSequence(elemDesc.ElementTypeKind))
                 {
                     // The value's element is itself a collection: reuse the nested-list reader
                     // (it declares one List per item and adds it to the accumulator).
@@ -6488,91 +6445,6 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         typeName.Contains("ValueTuple") || typeName.StartsWith("(")
             ? $"default({typeName})"
             : $"new {typeName}()";
-
-    /// <summary>Emits the temp-List to concrete-collection conversion for array-like kinds.</summary>
-    private static void EmitCollectionConversion(
-        StringBuilder sb,
-        string kind,
-        string listVar,
-        string assignTarget,
-        string elemType,
-        string indent
-    )
-    {
-        switch (kind)
-        {
-            case "array":
-                sb.Append(indent);
-                sb.Append(assignTarget);
-                sb.Append(" = ");
-                sb.Append(listVar);
-                sb.AppendLine(".ToArray();");
-                break;
-            case "hashset":
-                sb.Append(indent);
-                sb.Append(assignTarget);
-                sb.Append(" = new System.Collections.Generic.HashSet<");
-                sb.Append(elemType);
-                sb.Append(">(");
-                sb.Append(listVar);
-                sb.AppendLine(");");
-                break;
-            case "queue":
-                sb.Append(indent);
-                sb.Append(assignTarget);
-                sb.Append(" = new System.Collections.Generic.Queue<");
-                sb.Append(elemType);
-                sb.Append(">(");
-                sb.Append(listVar);
-                sb.AppendLine(");");
-                break;
-            case "linkedlist":
-                sb.Append(indent);
-                sb.Append(assignTarget);
-                sb.Append(" = new System.Collections.Generic.LinkedList<");
-                sb.Append(elemType);
-                sb.Append(">(");
-                sb.Append(listVar);
-                sb.AppendLine(");");
-                break;
-            case "stack":
-                sb.Append(indent);
-                sb.Append("var __stk = new System.Collections.Generic.Stack<");
-                sb.Append(elemType);
-                sb.AppendLine(">();");
-                sb.Append(indent);
-                sb.Append("for (int __i = ");
-                sb.Append(listVar);
-                sb.AppendLine(".Count - 1; __i >= 0; __i--)");
-                sb.Append(indent);
-                sb.Append("    __stk.Push(");
-                sb.Append(listVar);
-                sb.AppendLine("[__i]);");
-                sb.Append(indent);
-                sb.Append(assignTarget);
-                sb.AppendLine(" = __stk;");
-                break;
-            case "immutablearray":
-                sb.Append(indent);
-                sb.Append(assignTarget);
-                sb.Append(" = System.Collections.Immutable.ImmutableArray.CreateRange(");
-                sb.Append(listVar);
-                sb.AppendLine(");");
-                break;
-            case "memory":
-            case "readonlymemory":
-                sb.Append(indent);
-                sb.Append(assignTarget);
-                sb.Append(" = new System.");
-                sb.Append(kind == "memory" ? "Memory" : "ReadOnlyMemory");
-                sb.Append("<");
-                sb.Append(elemType);
-                sb.Append(">(");
-                sb.Append(listVar);
-                sb.AppendLine(".ToArray());");
-                break;
-        }
-    }
 
     /// <summary>Emits a write statement for the extended scalar family. False when the kind is not one.</summary>
     private static bool EmitExtendedScalarWrite(

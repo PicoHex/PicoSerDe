@@ -873,15 +873,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine("yw.WriteNull();");
                 }
                 break;
-            case "list":
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                 // Nested sequences get one block per level (see
                 // EmitYamlSequenceWrite); everything else keeps the flat shape.
                 // The extended collection kinds (S7) are sequences on the wire, so they
@@ -951,15 +944,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 }
                 switch (p.ElementTypeKind)
                 {
-                    case "list":
-                    case "array":
-                    case "hashset":
-                    case "queue":
-                    case "stack":
-                    case "linkedlist":
-                    case "immutablearray":
-                    case "memory":
-                    case "readonlymemory":
+                    // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+                    case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                         // Same S10 value position as the member arm: the inline inner helper
                         // writes an object's members, so a dict-of-collections member of a
                         // NESTED object goes through here.
@@ -2035,7 +2021,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind))
+        if (PicoSerDe.Gen.CollectionKinds.IsSequence(p.TypeKind))
         {
             // Extended collection kinds (S7) are sequences on the wire, so they write the
             // same block/flow sequence a List<T> writes. Spelling `is "list" or "array"`
@@ -2075,12 +2061,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append("foreach (var __item in ");
                 s.Append(
-                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                    PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(
                         p.TypeKind,
                         target + "." + p.Name
                     )
                 );
-                if (!PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(p.TypeKind))
+                if (!PicoSerDe.Gen.CollectionKinds.IsNullableSequence(p.TypeKind))
                 {
                     // Struct sequence (ImmutableArray/Memory/ReadOnlyMemory): no null to
                     // guard, so no `??` at all.
@@ -2095,7 +2081,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(p.ElementTypeNameAnnotated ?? elemTypeName);
                     s.AppendLine(">())");
                 }
-                else if (PicoSerDe.Gen.GenInfrastructure.IsExtendedCollectionKind(p.TypeKind))
+                else if (PicoSerDe.Gen.CollectionKinds.IsExtendedCollection(p.TypeKind))
                 {
                     // Target-typed by the `??` left operand: the empty value of the
                     // collection the kind names (a `new List<T>(0)` fallback would not
@@ -2140,12 +2126,12 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.Append("foreach (var __item in ");
                 s.Append(
-                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(
+                    PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(
                         p.TypeKind,
                         target + "." + p.Name
                     )
                 );
-                if (!PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(p.TypeKind))
+                if (!PicoSerDe.Gen.CollectionKinds.IsNullableSequence(p.TypeKind))
                 {
                     // Struct sequence: no `??` (see the array-of-objects branch above).
                     s.AppendLine(")");
@@ -2154,7 +2140,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 {
                     s.AppendLine(" ?? [])");
                 }
-                else if (PicoSerDe.Gen.GenInfrastructure.IsExtendedCollectionKind(p.TypeKind))
+                else if (PicoSerDe.Gen.CollectionKinds.IsExtendedCollection(p.TypeKind))
                 {
                     // See above: `?? []` is the only empty value that works for every
                     // reference-type extended collection.
@@ -2281,15 +2267,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             }
             switch (p.ElementTypeKind)
             {
-                case "list":
-                case "array":
-                case "hashset":
-                case "queue":
-                case "stack":
-                case "linkedlist":
-                case "immutablearray":
-                case "memory":
-                case "readonlymemory":
+                // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+                case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                     // S10: the dict VALUE is a collection, written as one block sequence
                     // under the entry's own key (see EmitYamlDictValueSequenceWrite).
                     EmitYamlDictValueSequenceWrite(s, p, ind);
@@ -2873,7 +2852,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             return;
         }
 
-        if (PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind))
+        if (PicoSerDe.Gen.CollectionKinds.IsSequence(p.TypeKind))
         {
             // Nested sequences (List<List<T>>, List<T[]>, ...) decode level by level;
             // the flat shapes below stay byte-identical for every other list member.
@@ -3094,7 +3073,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(pad);
             s.AppendLine("if (!r.Read()) break; // document ended here");
             s.Append(pad);
-            var sequenceValue = PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind);
+            var sequenceValue = PicoSerDe.Gen.CollectionKinds.IsSequence(p.ElementTypeKind);
             s.AppendLine("if (r.TokenType == TokenType.ObjectStart) {");
             s.Append(pad);
             if (sequenceValue)
@@ -3221,15 +3200,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     EmitTgt();
                     s.AppendLine("[__dk] = __dv;");
                     break;
-                case "list":
-                case "array":
-                case "hashset":
-                case "queue":
-                case "stack":
-                case "linkedlist":
-                case "immutablearray":
-                case "memory":
-                case "readonlymemory":
+                // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+                case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                 {
                     // S10: the dict VALUE is a collection. Read the block/flow sequence into
                     // a temp list of the value's ITEM type and convert it to the declared
@@ -3832,7 +3804,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         p.TypeKind == "object" && (p.NestedProperties.Length > 0 || p.IsRecursiveRef);
 
     private static bool IsYamlNestedList(PropertyInfo p) =>
-        PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.ElementTypeKind)
+        PicoSerDe.Gen.CollectionKinds.IsSequence(p.ElementTypeKind)
         && p.NestedProperties.Length > 0;
 
     /// <summary>
@@ -3948,8 +3920,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.Append("foreach (var ");
         s.Append(itemVar);
         s.Append(" in ");
-        s.Append(PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(valueKind, accessor));
-        if (!PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(valueKind))
+        s.Append(PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(valueKind, accessor));
+        if (!PicoSerDe.Gen.CollectionKinds.IsNullableSequence(valueKind))
         {
             // ImmutableArray<T>/Memory<T>/ReadOnlyMemory<T> are STRUCTS: neither `?? []`
             // nor `?? new List<T>(0)` compiles on them, and there is no null to guard.
@@ -3992,13 +3964,13 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             EmitSerializeListElement(s, level, ind, itemVar);
             return;
         }
-        var countExpr = PicoSerDe.Gen.GenInfrastructure.SequenceCountExpression(
+        var countExpr = PicoSerDe.Gen.CollectionKinds.SequenceCountExpression(
             level.ElementTypeKind,
             itemVar
         );
         s.Append(ind);
         s.Append("if (");
-        if (PicoSerDe.Gen.GenInfrastructure.IsNullableSequenceKind(level.ElementTypeKind))
+        if (PicoSerDe.Gen.CollectionKinds.IsNullableSequence(level.ElementTypeKind))
         {
             s.Append(itemVar);
             s.Append(" is null || ");
@@ -4245,7 +4217,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         // The item's elements are in itemVar. When the level IS an extended collection,
         // the declared element type is that collection — convert before adding.
         var converted = itemVar;
-        if (PicoSerDe.Gen.GenInfrastructure.IsExtendedCollectionKind(level.ElementTypeKind))
+        if (PicoSerDe.Gen.CollectionKinds.IsExtendedCollection(level.ElementTypeKind))
         {
             var convVar =
                 "__seq" + depth.ToString(System.Globalization.CultureInfo.InvariantCulture) + "c";

@@ -1287,21 +1287,14 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.Append(EnumTextExpr(acc));
                 s.Append(")");
                 break;
-            case "list":
-            case "array":
             // R2 Task 6: the SEVEN extended collection kinds (S7) are the same
             // comma-separated line a List<T> is — spec §6 says S7 x ini is
             // representable, and it is: the wire has no notion of "collection kind",
             // only the declared type on the way back has. Spelling `is "list" or
             // "array"` here is what sent HashSet<int> to the scalar fallback
             // (`value.H.ToString()`, i.e. "System.Collections.Generic.HashSet`1[...]").
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                 // Self-sufficiency, not style. The header this file emits (a few lines up) is
                 // `System`, `System.Buffers`, `System.Text`, `System.Runtime.CompilerServices`,
                 // `PicoSerDe.Core`, `PicoIni` and the model's namespace — and NEVER
@@ -1390,11 +1383,13 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     /// <c>Memory&lt;T&gt;</c>/<c>ReadOnlyMemory&lt;T&gt;</c> are VIEWS, not sequences: they have
     /// to be materialised before <c>string.Join</c> can see them. Every other kind
     /// (List, array, HashSet, Queue, Stack, LinkedList, ImmutableArray) enumerates as
-    /// itself, which is why this is the only difference the sequence arm has to know.
+    /// itself, which is why this is the only difference the sequence arm has to know — and
+    /// which kinds need it is <see cref="PicoSerDe.Gen.CollectionKinds.RequiresSpan"/>, not a
+    /// pair spelled here.
     /// </para>
     /// </summary>
     private static string IniSequenceSource(PropertyInfo p, string acc) =>
-        p.TypeKind is "memory" or "readonlymemory" ? acc + ".ToArray()" : acc;
+        PicoSerDe.Gen.CollectionKinds.RequiresSpan(p.TypeKind) ? acc + ".ToArray()" : acc;
 
     /// <summary>
     /// Does a DICTIONARY value have to be turned into text here, instead of being handed to a
@@ -1612,7 +1607,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         // C-30: a null literal must not reach the scalar parsers. A sequence member is
         // not a scalar: its empty value keeps the "empty collection" meaning (list, array
         // and the seven extended kinds alike), so only real scalars take the guard.
-        var __scalar = !PicoSerDe.Gen.GenInfrastructure.IsSequenceKind(p.TypeKind);
+        var __scalar = !PicoSerDe.Gen.CollectionKinds.IsSequence(p.TypeKind);
         if (__scalar)
             NullGuardEmit.EmitMemberNullGuard(
                 s,
@@ -1883,14 +1878,8 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             // only in how the temp list becomes the DECLARED type, and that half is
             // GenInfrastructure.EmitCollectionFromList — the same helper the other four
             // formats use, so a new kind is added there and nowhere here.
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // array plus the seven rebuilt kinds: CollectionKinds.RequiresListConversion, not a list of eight.
+            case var __kind when PicoSerDe.Gen.CollectionKinds.RequiresListConversion(__kind):
                 s.Append(pad);
                 s.Append("var __tmpList_");
                 s.Append(p.Name);

@@ -807,7 +807,7 @@ file static class __PicoMsgPackBulk {
         }
         s.Append(ind);
         s.Append("foreach (var __i in ");
-        s.Append(PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(sequence.TypeKind, a));
+        s.Append(PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(sequence.TypeKind, a));
         s.AppendLine(") {");
         WriteSerElem(s, element, "__i", ind + "    ", ref c);
         s.Append(ind);
@@ -1755,21 +1755,14 @@ file static class __PicoMsgPackBulk {
                     ".ToString(\"HH:mm:ss.fffffff\", System.Globalization.CultureInfo.InvariantCulture));"
                 );
                 break;
-            case "list":
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                 // Extended collection kinds (S7) are sequences on the wire — the count and
                 // the enumeration come from the shared helpers so Memory<T> (.Span) and
                 // array (.Length) do not need a case of their own here.
                 s.Append(ind);
                 s.Append("mw.WriteStartArray(");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.SequenceCountExpression(p.TypeKind, a));
+                s.Append(PicoSerDe.Gen.CollectionKinds.SequenceCountExpression(p.TypeKind, a));
                 s.AppendLine(");");
                 EmitSequenceBody(s, p, p, a, ind, ref c);
                 s.Append(ind);
@@ -2075,15 +2068,8 @@ file static class __PicoMsgPackBulk {
                 s.Append(a);
                 s.AppendLine(");");
                 break;
-            case "list":
-            case "array":
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
             {
                 // S8: the element is itself a sequence. The descriptor chain the extractor
                 // builds (NestedProperties[0]) names the INNER item kind, so this level
@@ -2100,7 +2086,7 @@ file static class __PicoMsgPackBulk {
                 s.Append(ind);
                 s.Append("mw.WriteStartArray(");
                 s.Append(
-                    PicoSerDe.Gen.GenInfrastructure.SequenceCountExpression(p.ElementTypeKind, a)
+                    PicoSerDe.Gen.CollectionKinds.SequenceCountExpression(p.ElementTypeKind, a)
                 );
                 s.AppendLine(");");
                 s.Append(ind);
@@ -2108,7 +2094,7 @@ file static class __PicoMsgPackBulk {
                 s.Append(vn);
                 s.Append(" in ");
                 s.Append(
-                    PicoSerDe.Gen.GenInfrastructure.SequenceItemsExpression(p.ElementTypeKind, a)
+                    PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(p.ElementTypeKind, a)
                 );
                 s.AppendLine(") {");
                 WriteSerElem(s, innerElem, vn, ind + "    ", ref c);
@@ -2981,13 +2967,8 @@ file static class __PicoMsgPackBulk {
             case "extension":
                 EmitScalarRead(s, "extension", p.TypeFullName, t, ind, ref c);
                 break;
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // The rebuilt-from-a-temp-list kinds: CollectionKinds.IsExtendedCollection (list/array have their own arms).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsExtendedCollection(__kind):
             {
                 // S7 on the read side: the wire is an array, the declared member is an
                 // extended collection — read into a temp List and convert through the shared
@@ -3645,13 +3626,8 @@ file static class __PicoMsgPackBulk {
                 s.AppendLine(".Deserialize(ref reader));");
                 break;
             }
-            case "hashset":
-            case "queue":
-            case "stack":
-            case "linkedlist":
-            case "immutablearray":
-            case "memory":
-            case "readonlymemory":
+            // The rebuilt-from-a-temp-list kinds: CollectionKinds.IsExtendedCollection (list/array have their own arms).
+            case var __kind when PicoSerDe.Gen.CollectionKinds.IsExtendedCollection(__kind):
             {
                 // S8 on the read side: one array level, then the shared conversion turns
                 // the temp list into the declared collection before it is added.
