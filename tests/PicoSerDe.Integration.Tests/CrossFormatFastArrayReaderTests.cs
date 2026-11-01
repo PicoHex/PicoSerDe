@@ -136,6 +136,58 @@ public class CrossFormatFastArrayReaderTests
             .IsEqualTo((long)payload.IndexOf(", 3", StringComparison.Ordinal) - 1L);
     }
 
+    /// <summary>
+    /// The other end of the int64 range, and the one asymmetry in
+    /// <c>FastArrayReaders.TryReadInt64Array</c>'s doc comment: <c>-9223372036854775808</c> is a
+    /// magnitude of 2^63, one past <see cref="long.MaxValue"/>, and that scan deliberately has no
+    /// "a negative sign buys one more step" branch — unlike the int32 scan above it, which does.
+    /// So the literal is legal input but never a fast-path element: every format must bail,
+    /// consume nothing, and hand the list to the validated reader.
+    /// <para>
+    /// What is asserted is the bail-out, not <c>long.MinValue</c> coming back from the fast path,
+    /// because the hand-off IS the contract: asserting the value here would pin a behaviour the
+    /// file explicitly promises not to have (and would pass under a broken overflow guard that
+    /// lets the accumulate wrap around). That is also why the second half exists — the three
+    /// formats must still agree on the value through the validated path, or the same document
+    /// would deserialize differently depending on which format read it.
+    /// </para>
+    /// <para>
+    /// <see cref="Cases"/>'s <c>Int64_bounds</c> pins <see cref="long.MaxValue"/>; nothing in
+    /// this file reached the value one past the negative end before.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Long_min_value_is_past_the_fast_path_in_every_format_and_still_reads_back()
+    {
+        const string payload = "[-9223372036854775808]";
+
+        var j = ReadInt64(Format.Json, payload);
+        var t = ReadInt64(Format.Toml, payload);
+        var y = ReadInt64(Format.Yaml, payload);
+        await Agree("long-min", "int64", j, t, y);
+
+        await Assert
+            .That(j.Count)
+            .IsEqualTo(0)
+            .Because("long.MinValue is past the int64 fast path in every format");
+        await Assert.That(j.Delta).IsEqualTo(0L).Because("a bail-out consumes nothing");
+
+        // The value is not lost with the fast path: the validated read still answers it, and all
+        // three formats answer the same thing.
+        await Assert
+            .That(ValidatedInt64(Format.Json, payload))
+            .IsEqualTo(long.MinValue)
+            .Because("JSON validated path");
+        await Assert
+            .That(ValidatedInt64(Format.Toml, payload))
+            .IsEqualTo(long.MinValue)
+            .Because("TOML validated path");
+        await Assert
+            .That(ValidatedInt64(Format.Yaml, payload))
+            .IsEqualTo(long.MinValue)
+            .Because("YAML validated path");
+    }
+
     // ── the three formats, positioned just past '[' ──
 
     static byte[] Bytes(Format format, string array) =>
@@ -257,6 +309,50 @@ public class CrossFormatFastArrayReaderTests
                 var buf = new bool[destLength];
                 int n = reader.TryReadBoolArrayFast(buf);
                 return (n, buf[..n], reader.BytesConsumed - start);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The validated (non-fast) read of this literal's first element — the path a caller falls
+    /// back to when <c>TryReadInt64ArrayFast</c> answers 0. Positioned exactly like the fast-path
+    /// helpers above, so the two ask the same question of the same bytes.
+    /// </summary>
+    static long ValidatedInt64(Format format, string array)
+    {
+        var bytes = Bytes(format, array);
+        switch (format)
+        {
+            case Format.Json:
+            {
+                var reader = new JsonReader(bytes);
+                reader.Read(); // array start
+                if (!reader.Read() || !reader.TryGetInt64(out var v))
+                    throw new InvalidOperationException(
+                        "JSON validated read of the element failed"
+                    );
+                return v;
+            }
+            case Format.Toml:
+            {
+                var reader = new TomlReader(bytes);
+                reader.Read(); // property name — advances past '['
+                reader.Read(); // array start
+                if (!reader.Read() || !reader.TryGetInt64(out var v))
+                    throw new InvalidOperationException(
+                        "TOML validated read of the element failed"
+                    );
+                return v;
+            }
+            default:
+            {
+                var reader = new YamlReader(bytes);
+                reader.Read(); // flow-sequence start (YAML has no ArrayStart token)
+                if (!reader.Read() || !reader.TryGetInt64(out var v))
+                    throw new InvalidOperationException(
+                        "YAML validated read of the element failed"
+                    );
+                return v;
             }
         }
     }
