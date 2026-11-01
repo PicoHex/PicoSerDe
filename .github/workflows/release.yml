@@ -17,8 +17,63 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
 
 jobs:
+  # The release gate. v2026.11.0 shipped while CI had been red for three days,
+  # because this workflow used to be `pack -> publish` with nothing between the
+  # tag and NuGet. `pack` now needs this job, so a red test here stops the release
+  # before a single .nupkg is built.
+  #
+  # One platform, deliberately. The steps below are the linux-x64 leg of ci.yml,
+  # command for command: same restore, same Release build, same per-project
+  # `dotnet run` shape (TUnit on Microsoft.Testing.Platform; see the tunit-runner
+  # skill). The question this gate answers is "are the packed bits wrong?", and
+  # the shipped source is platform-neutral -- no `#if WINDOWS/OSX/LINUX` in the
+  # tree, and no OperatingSystem/RuntimeInformation use in product or test code --
+  # so a second OS would re-run the same managed tests on a slower runner. The
+  # five-platform matrix, the AOT validation and the benchmark canary stay in CI,
+  # where they belong: they are the axes whose red can be the runner's environment
+  # rather than the release's correctness. CI is still the pre-tag check (see
+  # AGENTS.md, "Releasing"); this job is the backstop that makes a red tag
+  # impossible to publish.
+  verify:
+    runs-on: ubuntu-latest
+    # Same ceiling as the ci.yml matrix leg, so a hung test cannot eat GitHub's 6h default.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore
+        run: |
+          mkdir -p ./artifacts/nupkg
+          dotnet restore -p:UseProjectReferences=true
+      - run: dotnet build --configuration Release --no-restore -p:UseProjectReferences=true
+      - name: Run PicoSerDe.Core tests
+        run: dotnet run --project PicoSerDe.Core/tests/PicoSerDe.Core.Tests/PicoSerDe.Core.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoJetson.Unit tests
+        run: dotnet run --project PicoJetson/tests/PicoJetson.Unit.Tests/PicoJetson.Unit.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoJetson.Integration tests
+        run: dotnet run --project PicoJetson/tests/PicoJetson.Integration.Tests/PicoJetson.Integration.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoJetson.Functional tests
+        run: dotnet run --project PicoJetson/tests/PicoJetson.Functional.Tests/PicoJetson.Functional.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoIni tests
+        run: dotnet run --project PicoIni/tests/PicoIni.Tests/PicoIni.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoMsgPack tests
+        run: dotnet run --project PicoMsgPack/tests/PicoMsgPack.Tests/PicoMsgPack.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoToml tests
+        run: dotnet run --project PicoToml/tests/PicoToml.Tests/PicoToml.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run PicoYaml tests
+        run: dotnet run --project PicoYaml/tests/PicoYaml.Tests/PicoYaml.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run cross-format integration tests
+        run: dotnet run --project tests/PicoSerDe.Integration.Tests/PicoSerDe.Integration.Tests.csproj -c Release --no-build -p:PublishAot=false
+      - name: Run benchmark protocol tests
+        run: dotnet run --project tests/PicoBench.Protocol.Tests/PicoBench.Protocol.Tests.csproj -c Release --no-build -p:PublishAot=false
+
   pack:
     runs-on: ubuntu-latest
+    needs: verify
     permissions:
       contents: read
     steps:
