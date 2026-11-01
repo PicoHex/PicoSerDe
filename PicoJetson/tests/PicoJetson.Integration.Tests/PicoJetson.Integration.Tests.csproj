@@ -42,5 +42,9 @@
          Test-only: linked, not referenced — see shared/TestText.cs and TestTextUniformTests
          in the integration suite. -->
     <Compile Include="..\..\..\shared\TestText.cs" Link="TestText.cs" />
+    <!-- The Roslyn reference-set fixture (shared/RoslynProbe.cs) - linked, not referenced, for the
+         same reason as shared/TestText.cs: three test projects drive a generator in-proc and each
+         used to carry its own copy of the same 20-line PlatformReferences(). Test-only. -->
+    <Compile Include="..\..\..\shared\RoslynProbe.cs" Link="RoslynProbe.cs" />
   </ItemGroup>
 </Project>

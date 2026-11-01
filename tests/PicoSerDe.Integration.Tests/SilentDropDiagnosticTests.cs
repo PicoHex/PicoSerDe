@@ -4,6 +4,7 @@ using PicoIni.Gen;
 using PicoJetson.Gen;
 using PicoMsgPack.Gen;
 using PicoSerDe.Gen;
+using PicoSerDe.TestSupport;
 using PicoToml.Gen;
 using PicoYaml.Gen;
 
@@ -1154,7 +1155,7 @@ public class SilentDropDiagnosticTests
         var compilation = CSharpCompilation.Create(
             "SilentDropDiagAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
-            PlatformReferences(),
+            AllFormatReferences.References(),
             // allowUnsafe: the anonymous-type sample (D-10) cannot be generated without it —
             // the interceptor reads the anonymous layout through pointers. It changes nothing
             // for the named-DTO samples: unsafe code is only ever EMITTED for that path.
@@ -1165,45 +1166,4 @@ public class SilentDropDiagnosticTests
         return driver.RunGenerators(compilation).GetRunResult();
     }
 
-    private static string AssemblyPath(System.Reflection.Assembly assembly) =>
-        Path.Combine(AppContext.BaseDirectory, assembly.GetName().Name + ".dll");
-
-    internal static IEnumerable<MetadataReference> PlatformReferences()
-    {
-        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
-        foreach (var path in tpa.Split(Path.PathSeparator))
-        {
-            var name = Path.GetFileName(path);
-            if (
-                name
-                is "System.Private.CoreLib.dll"
-                    or "System.Runtime.dll"
-                    or "System.Collections.dll"
-                    or "netstandard.dll"
-                    or "System.Memory.dll"
-            )
-                yield return MetadataReference.CreateFromFile(path);
-        }
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(PicoIni.IniSerializer).Assembly)
-        );
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(PicoJetson.JsonSerializer).Assembly)
-        );
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(PicoMsgPack.MsgPackSerializer).Assembly)
-        );
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(PicoYaml.YamlSerializer).Assembly)
-        );
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(PicoToml.TomlSerializer).Assembly)
-        );
-        // [PicoSerializable(IncludeFields = true)] lives in PicoSerDe.Core: without this
-        // reference the attribute binds to an error type, ForAttributeWithMetadataName
-        // finds nothing, and the public-field extraction path is never reached.
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(PicoSerDe.Core.PicoSerializableAttribute).Assembly)
-        );
-    }
 }

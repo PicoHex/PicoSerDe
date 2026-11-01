@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using PicoJetson.Gen;
+using PicoSerDe.TestSupport;
 
 namespace PicoJetson.Tests;
 
@@ -484,7 +485,10 @@ public class JsonFusedElementEmissionTests
         var compilation = CSharpCompilation.Create(
             "JsonEmissionAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
-            PlatformReferences(),
+            // Every platform assembly, not a hand-picked five: the generator resolves each
+            // member's full type (List<int>, HashSet<int>, Dictionary<string, List<int>>), and a
+            // reference set that is merely "enough to parse" silently degrades those members.
+            RoslynProbe.AllPlatformReferences(typeof(JsonSerializer).Assembly, typeof(PicoSerDe.Core.SerializerExtensions).Assembly),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
         );
 
@@ -506,22 +510,6 @@ public class JsonFusedElementEmissionTests
             );
 
         return run.GeneratedTrees.Select(tree => tree.GetText().ToString()).ToArray();
-    }
-
-    static IEnumerable<MetadataReference> PlatformReferences()
-    {
-        // Every platform assembly, not a hand-picked five: the generator resolves each member's full
-        // type (List<int>, HashSet<int>, Dictionary<string, List<int>>), and a reference set that is
-        // merely "enough to parse" silently degrades those members.
-        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
-        foreach (var path in tpa.Split(Path.PathSeparator))
-            yield return MetadataReference.CreateFromFile(path);
-        yield return MetadataReference.CreateFromFile(
-            Path.Combine(AppContext.BaseDirectory, "PicoJetson.dll")
-        );
-        yield return MetadataReference.CreateFromFile(
-            Path.Combine(AppContext.BaseDirectory, "PicoSerDe.Core.dll")
-        );
     }
 
     static string[] BaselineFiles()

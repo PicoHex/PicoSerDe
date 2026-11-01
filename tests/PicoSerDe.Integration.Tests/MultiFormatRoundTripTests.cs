@@ -6,6 +6,16 @@ namespace PicoSerDe.Integration.Tests;
 /// <summary>
 /// Cross-format model with property types supported by all 5 PicoSerDe formats.
 /// Annotated with [PicoSerializable] to trigger all format source generators.
+/// <para>
+/// <b>Deliberately not the same type as <c>PicoCrossValidation.ComplexModel</c></b>
+/// (shared/CrossValidationModels.cs, used by the JSON cross-validation suite). Audit C8 read
+/// the two as one thing written twice; they are 18 members here against 21 there. The four
+/// that exist only there (<c>IntList</c>, <c>IntArray</c>, <c>StringDict</c>,
+/// <c>NestedList</c>) are exactly the collection shapes INI/TOML/YAML cannot express, so a
+/// single model shared by all five formats would either drop members silently or break the
+/// round-trip assertions below. Both inventories are pinned by
+/// <see cref="AllFormatsModelInventoryTests"/> and <c>CrossValidationModelInventoryTests</c>.
+/// </para>
 /// </summary>
 [PicoSerializable]
 public class AllFormatsModel

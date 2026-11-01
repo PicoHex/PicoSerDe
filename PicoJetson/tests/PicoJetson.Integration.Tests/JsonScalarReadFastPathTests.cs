@@ -1,3 +1,4 @@
+using PicoSerDe.TestSupport;
 using System.Globalization;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -532,7 +533,9 @@ public class JsonScalarReadFastPathTests
         var compilation = CSharpCompilation.Create(
             "JsonFastPathEmitAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
-            PlatformReferences(),
+            // The whole shared framework (see shared/RoslynProbe.cs): this harness must not fail
+            // for a reference-set reason — it asks about the emitted fast path, not about bindings.
+            RoslynProbe.AllPlatformReferences(typeof(JsonSerializer).Assembly, typeof(PicoSerDe.Core.SerializerExtensions).Assembly),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
         );
         var driver = CSharpGeneratorDriver.Create(new JsonSerializerGenerator());
@@ -551,19 +554,6 @@ public class JsonScalarReadFastPathTests
             );
 
         return run.GeneratedTrees.Select(tree => tree.GetText().ToString()).ToArray();
-    }
-
-    static IEnumerable<MetadataReference> PlatformReferences()
-    {
-        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
-        foreach (var path in tpa.Split(Path.PathSeparator))
-            yield return MetadataReference.CreateFromFile(path);
-        yield return MetadataReference.CreateFromFile(
-            Path.Combine(AppContext.BaseDirectory, "PicoJetson.dll")
-        );
-        yield return MetadataReference.CreateFromFile(
-            Path.Combine(AppContext.BaseDirectory, "PicoSerDe.Core.dll")
-        );
     }
 
     sealed class ChunkyStream(byte[] data, int chunkSize) : Stream

@@ -21,10 +21,9 @@
       ReferenceOutputAssembly="false"
     />
     <ProjectReference Include="..\..\..\PicoSerDe.Core\src\PicoSerDe.Core.csproj" />
-    <Compile Include="..\..\..\shared\CrossValidationModels.cs" Link="CrossValidationModels.cs" />
     <!-- The line-ending-neutral comparison for text read from disk (here: PicoMsgPack's own
          sources, which carry the checkout's line endings). Test-only, same mechanism as
-         shared/CrossValidationModels.cs — see TestTextUniformTests in the integration suite. -->
+         shared/RoslynProbe.cs — see TestTextUniformTests in the integration suite. -->
     <Compile Include="..\..\..\shared\TestText.cs" Link="TestText.cs" />
   </ItemGroup>
 </Project>
