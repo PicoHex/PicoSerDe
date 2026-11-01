@@ -16,6 +16,8 @@ Shared serialization infrastructure for the PicoSerDe framework. Provides unifie
 | `TextHelpers` | `IsDigit`, `Trim`, `TrimEnd`, case-insensitive byte-span `Eq` |
 | `SerializerExtensions` | `RentWriter()` (ThreadStatic pooled), `ThrowNoSerializer<T>` |
 | `DeserializerExtensions` | `Stream`, `PipeReader`, `string`, `byte[]` convenience overloads |
+| `IFusedTokenReader` | Opt-in fused-read capability of `ITokenReader`: a token is classified and its value decoded in one dispatch (`TryReadInt32/Int64/Float64/Bool`, `TryGetCollectionCount`). Implementing `ITokenReader` alone stays unaffected |
+| `TokenReaderFused` | Reference semantics of the fused reads - each method is literally `Read() && TryGetX(out value)`, so a format that does not optimize one forwards here instead of re-deriving the pair |
 
 ## Usage
 

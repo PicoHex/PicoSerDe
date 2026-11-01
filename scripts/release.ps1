@@ -18,25 +18,32 @@ surface of the LAST RELEASE, so it is refreshed as part of the release commit.
 
 What the tag actually does. Pushing a v* tag is the release trigger, and
 .github/workflows/release.yml is the only workflow it starts. That workflow has
-exactly two jobs:
+three jobs, chained:
 
-    pack     (ubuntu-latest)                packs the projects listed in the
-                                            workflow at the tag version and
-                                            uploads the .nupkg artifacts
-    publish  (ubuntu-latest, needs: pack)   pushes those artifacts to NuGet and
-                                            creates the GitHub release
+    verify   (ubuntu-latest)                 restores, builds Release and runs
+                                             every test project in the tree
+    pack     (ubuntu-latest, needs: verify)  packs the projects listed in the
+                                             workflow at the tag version and
+                                             uploads the .nupkg artifacts
+    publish  (ubuntu-latest, needs: pack)    pushes those artifacts to NuGet and
+                                             creates the GitHub release
 
 The pack list is hand-maintained inside release.yml; it is not derived from the
-project scan this script performs. There is no test job and no dependency on the
-CI workflow, so a tag pointing at a commit with a red CI run publishes exactly
-like a green one - v2026.11.0 went out while CI had been red for three days.
-Neither this script nor the release workflow invokes the test suite: this script
-only builds (dotnet build -c Release) and diffs the public surface. The gate is
-manual and belongs to whoever cuts the release:
+project scan this script performs. The test run, however, is not optional any
+more: verify runs all ten test projects on ubuntu-latest and pack declares
+`needs: verify`, so a tag whose tests fail stops before a single .nupkg is
+built - v2026.11.0 went out while CI had been red for three days, which is the
+failure that gate exists to prevent.
 
-  - main must already be green BEFORE the tag is created; nothing downstream
-    checks it for you.
-  - confirm the CI verdict yourself before packing, e.g.
+This script itself still runs no tests: it only builds (dotnet build -c Release)
+and diffs the public surface. verify is one platform and build + tests only (the
+five-platform matrix, the AOT validation and the benchmark canary stay in CI),
+so the tag is still the wrong place to discover a first failure. Two gates then,
+and the manual one comes first:
+
+  - main must already be green in the FULL CI run before the tag is created;
+    verify is a backstop, not a substitute - it re-runs one platform only.
+  - confirm the CI verdict yourself anyway, e.g.
         gh run list --workflow=ci.yml --limit 1
     and expect a completed / success conclusion for the commit you are tagging.
 
@@ -63,7 +70,7 @@ Baseline directory relative to RepoRoot. Default: api
 
 .PARAMETER Push
 After tagging, push the branch and the tag (this triggers the release workflow,
-which publishes the packages without running the tests).
+where verify runs the tests first and only then do pack and publish ship).
 
 .PARAMETER ResetOnYearChange
 Reset x and y when the year changes instead of carrying them forward.
