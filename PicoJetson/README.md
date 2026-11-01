@@ -67,8 +67,7 @@ reference-type targets (list elements and dictionary values) yield `null`.
 - **Top-level scalar / `Nullable<T>` targets** — `Serialize<Guid>(...)`, `Deserialize<int?>(...)` etc. fail loudly with `InvalidOperationException` instead of emitting an empty object
 - `KeyValuePair<K,V>` and `Tuple<...>` members
 - extended scalars used as **dictionary keys** (e.g. `Dictionary<DateTimeOffset, int>`)
-- extended collections nested as **list elements** or **dictionary values** (e.g. `List<HashSet<int>>`)
-- all of the types above in the **INI / TOML / YAML / MessagePack** formats (JSON only for now)
+- the extended **scalars** above and `ConcurrentDictionary<K,V>` in the **INI / TOML / YAML / MessagePack** formats (JSON only for now). The extended **collections** are not JSON-only: all five generators resolve the kind and write it as a plain sequence, so a `HashSet<int>` **member** round-trips in JSON, MsgPack, TOML and YAML, and so does an **element** position (`List<HashSet<int>>`) — INI drops that member with `PICOSERDE004` (`ExtendedKindCollectionTests`)
 
 ## Limits
 
@@ -78,11 +77,10 @@ nullable elements (`List<List<int?>>`, `null` elements included) and recursive m
 round-trip. `PICOSERDE003` never fires for this format, and the JSON writer is the only one that
 can emit a collection of anonymous types (`PICOSERDE005`).
 
-The JSON-specific gap is the **extended type family** listed above (extended collections nested as
-list elements or dictionary values, extended scalars used as dictionary keys,
-`KeyValuePair<K,V>` / `Tuple<...>` members). Those members are dropped **without** a
-`PICOSERDE` diagnostic — the ids cover the section-based-format shapes in the matrix, not this
-family. A **top-level scalar** target (`Serialize<Guid>()`, `Deserialize<int?>()`) fails loudly
+The JSON-specific gap is the **extended type family** listed above (extended scalars as members and
+used as dictionary keys, `ConcurrentDictionary<K,V>`, `KeyValuePair<K,V>` / `Tuple<...>` members).
+Those members are dropped **without** a `PICOSERDE` diagnostic — the ids cover the
+section-based-format shapes in the matrix, not this family. A **top-level scalar** target (`Serialize<Guid>()`, `Deserialize<int?>()`) fails loudly
 with `InvalidOperationException` rather than emitting an empty object.
 
 See the [root README](../README.md#format-limits-what-each-wire-format-cannot-express) for the
@@ -92,6 +90,7 @@ same matrix across all five formats.
 
 ```csharp
 using PicoJetson;
+using PicoSerDe.Core;   // PicoIgnoreCondition lives here, not in PicoJetson (CS0103 without it)
 
 // Compact (default) — optimal for data transfer
 byte[] data = JsonSerializer.SerializeToUtf8Bytes(model);
@@ -126,6 +125,7 @@ var result = JsonSerializer.Deserialize<MyModel>(json,
 | `PropertyNamingPolicy` | `null` | `JsonNamingPolicy.CamelCase`, `.SnakeCaseLower`, `.KebabCaseLower`, `.PascalCase` |
 | `DefaultIgnoreCondition` | `Never` | `PicoIgnoreCondition` (`PicoSerDe.Core`): `Never` / `WhenWritingNull` / `WhenWritingDefault` |
 | `NumberHandling` | `Strict` | `AllowNamedFloatingPointLiterals` (NaN/Inf; also admits an out-of-range literal such as `1e400` as ±∞, which Strict rejects) |
+| `IncludeFields` | `false` | Serialize public fields in addition to properties |
 | `AllowTrailingCommas` | `false` | Accept trailing commas |
 | `ReadCommentHandling` | `Disallow` | `Skip` — ignore `//` and `/* */` |
 | `UnmappedMemberHandling` | `Skip` | `Disallow` — throw on unknown properties |
@@ -198,7 +198,7 @@ await foreach (var p in JsonSerializer.DeserializeAsyncEnumerable<Person>(
 | `[JsonCamelCase]` | camelCase naming per class |
 | `[JsonConverter(typeof(T))]` | Custom converter |
 | `[JsonConstructor]` | Constructor for immutable deserialization |
-| `[JsonDateTimeFormat("format")]` | Custom DateTime format |
+| `[DateTimeFormat("format")]` | Custom DateTime format |
 
 ## Performance
 

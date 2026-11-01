@@ -125,7 +125,11 @@ written (see [Null Handling](#null-handling)).
 Not representable, dropped at generation time with a warning (never emitted as code that would
 not compile):
 
-- a **recursive member** (`Node Child` on `Node`) reports `PICOSERDE003`.
+- a **recursive collection element** (`List<Node>` on `Node`) or a **recursive dict value**
+  (`Dictionary<string, Node>` on `Node`) reports `PICOSERDE003` as a `⏸` debt — YAML can carry the
+  cycle, the emitter has no route for a block sequence inside an array yet. A recursive **plain
+  member** (`Node Child` on `Node`) is supported and round-trips as nested mappings
+  (`RecursionRoundTripTests.Yaml_SelfRecursion_RoundTripsTheWholeSpine`).
 
 The generator diagnostic is the authority for your build — `dotnet build 2>&1 | grep PICOSERDE`.
 The full five-format matrix lives in the
