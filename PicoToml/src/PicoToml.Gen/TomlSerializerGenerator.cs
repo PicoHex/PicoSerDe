@@ -141,22 +141,20 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 if (ctors.Length == 1 && !ctors[0].IsImplicitlyDeclared)
                     hasCtor = true;
             }
+            // [TomlConstructor]. `null` is the "no namespace filter" argument, not an
+            // oversight: the hand-written scan this replaces compared the attribute NAME
+            // only (pinned by the N2 equivalence corpus).
             if (!hasCtor)
             {
                 foreach (var ctor in namedType.Constructors)
                 {
                     if (ctor.DeclaredAccessibility != Accessibility.Public)
                         continue;
-                    foreach (var attr in ctor.GetAttributes())
+                    if (AttributeLookup.Has(ctor, null, "TomlConstructorAttribute"))
                     {
-                        if (attr.AttributeClass?.Name == "TomlConstructorAttribute")
-                        {
-                            hasCtor = true;
-                            break;
-                        }
-                    }
-                    if (hasCtor)
+                        hasCtor = true;
                         break;
+                    }
                 }
             }
         }

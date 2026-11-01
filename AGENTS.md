@@ -95,8 +95,9 @@ the corpus shows has changed", never "nothing has changed". Cite it **with its c
 exercised, these are not); a bare "96 baseline files … hash for hash" is an unproven claim wearing a proof's
 clothes.
 
-1. **The counter-example this section exists for.** `60e090a` collapsed twenty-seven hand-written attribute
-   lookups across the five generators into one `shared/Gen/AttributeLookup.cs`, and cited as its evidence
+1. **The counter-example this section exists for.** `60e090a` collapsed twenty-eight hand-written attribute
+   lookups — INI 8, JSON 5, TOML 5, YAML 5 (twenty-three across those four) plus five inline copies in
+   MessagePack — into one `shared/Gen/AttributeLookup.cs`, and cited as its evidence
    "the generated output is byte-identical: 96 baseline files … hash for hash". The corpus those files come
    from (`tests/FormatCapabilities.Probe/generated-baseline/`) is **deliberately attribute-free** —
    `tests/FormatCapabilities.Probe/Models.cs:15-19` says why ("The models are deliberately plain POCOs …

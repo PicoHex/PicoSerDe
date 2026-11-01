@@ -141,22 +141,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 if (ctors.Length == 1 && !ctors[0].IsImplicitlyDeclared)
                     hasCtor = true;
             }
+            // [YamlConstructor]. `null` is the "no namespace filter" argument, not an
+            // oversight: the hand-written scan this replaces compared the attribute NAME
+            // only (pinned by the N2 equivalence corpus).
             if (!hasCtor)
             {
                 foreach (var ctor in namedType.Constructors)
                 {
                     if (ctor.DeclaredAccessibility != Accessibility.Public)
                         continue;
-                    foreach (var attr in ctor.GetAttributes())
+                    if (AttributeLookup.Has(ctor, null, "YamlConstructorAttribute"))
                     {
-                        if (attr.AttributeClass?.Name == "YamlConstructorAttribute")
-                        {
-                            hasCtor = true;
-                            break;
-                        }
-                    }
-                    if (hasCtor)
+                        hasCtor = true;
                         break;
+                    }
                 }
             }
         }
@@ -188,20 +186,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         if (namedType is null)
             return ti;
 
-        foreach (var attr in namedType.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "YamlTagAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoYaml"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is string tag
-            )
-            {
-                return ti with { TypeTag = tag };
-            }
-        }
-
-        return ti;
+        // [YamlTag]. "PicoYaml" is a REAL filter here, unlike the constructor scans above:
+        // the hand-written loop this replaces checked the declaring namespace, and the N2
+        // corpus pins that a foreign-namespace [YamlTag] stays ignored.
+        var tag = AttributeLookup.GetString(namedType, "PicoYaml", "YamlTagAttribute", Arity.One);
+        return tag is null ? ti : ti with { TypeTag = tag };
     }
 
     // ── Attribute helpers ──
