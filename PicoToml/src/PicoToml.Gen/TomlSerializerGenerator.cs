@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
 using Arity = PicoSerDe.Gen.AttributeArity;
 using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
+using NullGuardEmit = PicoSerDe.Gen.NullGuardEmit;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -2811,7 +2812,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             // object members keep their existing empty-value behavior.
             var __scalar = p.TypeKind is not ("dict" or "object");
             if (__scalar)
-                EmitNullLiteralGuard(s, p, EmitAssign, pad);
+                NullGuardEmit.EmitMemberNullGuard(s, p, EmitAssign, pad, "r");
             switch (p.TypeKind)
             {
                 case "string":
@@ -3243,53 +3244,6 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine("}");
             }
         }
-    }
-
-    /// <summary>
-    /// Review C-30: emits the null-literal guard that protects the scalar parse
-    /// branch. A nullable member takes <c>null</c>, a non-nullable value type
-    /// fails loudly, and a non-nullable string keeps the existing NRT-lenient
-    /// contract (<c>null!</c>). The guard opens an <c>else</c> block the caller
-    /// must close after the parse branch.
-    /// </summary>
-    private static void EmitNullLiteralGuard(
-        StringBuilder s,
-        PropertyInfo p,
-        System.Action emitTarget,
-        string pad
-    )
-    {
-        s.Append(pad);
-        s.AppendLine("if (r.IsNullLiteral)");
-        s.Append(pad);
-        s.AppendLine("{");
-        if (p.IsNullable || p.IsNullableReference)
-        {
-            s.Append(pad);
-            s.Append("    ");
-            emitTarget();
-            s.AppendLine(" = null;");
-        }
-        else if (PicoSerDe.Gen.GenInfrastructure.IsValueTypeKind(p.TypeKind))
-        {
-            s.Append(pad);
-            s.Append("    throw new System.FormatException($\"null value for non-nullable member ");
-            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.AppendLine("\");");
-        }
-        else
-        {
-            s.Append(pad);
-            s.Append("    ");
-            emitTarget();
-            s.AppendLine(" = null!;");
-        }
-        s.Append(pad);
-        s.AppendLine("}");
-        s.Append(pad);
-        s.AppendLine("else");
-        s.Append(pad);
-        s.AppendLine("{");
     }
 
     private static void EmitDeserializeListElementTemp(
