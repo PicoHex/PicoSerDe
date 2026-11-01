@@ -54,16 +54,11 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     private bool _inFlowSeq;
     private bool _flowSeqStartEmitted;
     private bool _docStartPending;
-    private byte[]? _rentedBuffer;
-    private byte[]? _rb0,
-        _rb1,
-        _rb2,
-        _rb3,
-        _rb4,
-        _rb5,
-        _rb6,
-        _rb7;
-    private int _bufCount;
+
+    // Every pooled array a published span points into. The retention policy (eight slots,
+    // which one is reclaimed when, what Dispose means) lives in ByteBufferRing and is not
+    // YAML's business: nothing about it depends on YAML's grammar.
+    private ByteBufferRing _buffers;
 
     // Anchor/alias support — inline storage, zero heap allocation
     private const int MaxAnchors = 4;
@@ -332,9 +327,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _inFlow = false;
         _flowStartEmitted = false;
         _docStartPending = false;
-        _rentedBuffer = null;
-        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
-        _bufCount = 0;
+        _buffers = default;
         _maxDepth = 256;
         _tokenCount = 0;
     }
@@ -369,9 +362,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _inFlow = false;
         _flowStartEmitted = false;
         _docStartPending = false;
-        _rentedBuffer = null;
-        _rb0 = _rb1 = _rb2 = _rb3 = _rb4 = _rb5 = _rb6 = _rb7 = null;
-        _bufCount = 0;
+        _buffers = default;
         _maxDepth = 256;
         _tokenCount = 0;
     }
@@ -787,25 +778,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             ArrayPool<byte>.Shared.Return(_chunkCopy);
             _chunkCopy = null;
         }
-        ReturnBuf(ref _rb0);
-        ReturnBuf(ref _rb1);
-        ReturnBuf(ref _rb2);
-        ReturnBuf(ref _rb3);
-        ReturnBuf(ref _rb4);
-        ReturnBuf(ref _rb5);
-        ReturnBuf(ref _rb6);
-        ReturnBuf(ref _rb7);
-        _bufCount = 0;
-        _rentedBuffer = null;
-    }
-
-    private static void ReturnBuf(ref byte[]? buf)
-    {
-        if (buf is not null)
-        {
-            ArrayPool<byte>.Shared.Return(buf);
-            buf = null;
-        }
+        _buffers.Dispose();
     }
 
     // ── Span-mode Read ──
@@ -1162,11 +1135,11 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 baseIndent++;
                 _position++;
             }
-            // Rent buffer for composed output — use RentBuf so the buffer
-            // is tracked in _rb* and stays alive until Dispose(), preventing
-            // use-after-free when callers access _valueSpan after Read() returns.
+            // Rent buffer for composed output — through the ring, so the buffer is
+            // tracked and stays alive until Dispose(), preventing use-after-free when
+            // callers access _valueSpan after Read() returns.
             int estSize = _data.Length - _position + 256;
-            var buf = RentBuf(estSize);
+            var buf = _buffers.Rent(estSize);
             int di = 0;
             bool firstLine = true;
             while (_position < _data.Length)
@@ -1704,7 +1677,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     {
         // Every escape sequence is at least as many bytes as its UTF-8 output, so a
         // buffer of src.Length is always large enough (\uXXXX 6→4, \UXXXXXXXX 10→4).
-        var buf = RentBuf(src.Length);
+        var buf = _buffers.Rent(src.Length);
         int di = 0;
         int si = 0;
         while (si < src.Length)
@@ -1819,7 +1792,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (!hasDoubleQuote)
             return content;
         // Compact '' → '
-        var buf = RentBuf(content.Length);
+        var buf = _buffers.Rent(content.Length);
         int di = 0;
         int si = 0;
         while (si < content.Length)
@@ -1851,7 +1824,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     /// </summary>
     private ReadOnlySpan<byte> ReadDoubleQuotedStringSeq()
     {
-        var buf = RentBuf(256);
+        var buf = _buffers.Rent(256);
         int di = 0;
         bool hasEscape = false;
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)'"')
@@ -1888,7 +1861,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     {
         if (buf.Length > 131072)
             throw new FormatException("YAML double-quoted string exceeds maximum length");
-        var nb = RentBuf(buf.Length * 2);
+        var nb = _buffers.Rent(buf.Length * 2);
         buf.AsSpan(0, di).CopyTo(nb);
         return nb;
     }
@@ -2010,7 +1983,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             )
             {
                 _seqReader.Advance(2);
-                var buf = RentBuf(256);
+                var buf = _buffers.Rent(256);
                 int di = 0;
                 while (
                     !_seqReader.End
@@ -2036,7 +2009,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                     && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
                 )
                     _seqReader.Advance(1);
-                var ckBuf = RentBuf(256);
+                var ckBuf = _buffers.Rent(256);
                 int ckd = 0;
                 while (
                     !_seqReader.End
@@ -2065,7 +2038,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                         && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' '
                     )
                         _seqReader.Advance(1);
-                    var cvBuf = RentBuf(256);
+                    var cvBuf = _buffers.Rent(256);
                     int cvd = 0;
                     while (
                         !_seqReader.End
@@ -2098,7 +2071,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             }
             else
             {
-                var keyBuf = RentBuf(256);
+                var keyBuf = _buffers.Rent(256);
                 int kd = 0;
                 while (
                     !_seqReader.End
@@ -2137,7 +2110,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 else if (b == (byte)'&')
                 {
                     _seqReader.Advance(1);
-                    var anchorBuf = RentBuf(64);
+                    var anchorBuf = _buffers.Rent(64);
                     int ad = 0;
                     while (
                         !_seqReader.End
@@ -2174,7 +2147,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)'*')
             {
                 _seqReader.Advance(1);
-                var aliasBuf = RentBuf(64);
+                var aliasBuf = _buffers.Rent(64);
                 int ad = 0;
                 while (
                     !_seqReader.End
@@ -2221,7 +2194,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 return true;
             }
 
-            var valBuf = RentBuf(256);
+            var valBuf = _buffers.Rent(256);
             int vd = 0;
             if (
                 !_seqReader.End
@@ -2288,7 +2261,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             return true;
         }
 
-        var keyBuf = RentBuf(256);
+        var keyBuf = _buffers.Rent(256);
         int di = 0;
         while (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] != (byte)':')
         {
@@ -2300,7 +2273,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (!_seqReader.End && _seqReader.CurrentSpan[_seqReader.CurrentSpanIndex] == (byte)' ')
             _seqReader.Advance(1);
 
-        var valBuf = RentBuf(256);
+        var valBuf = _buffers.Rent(256);
         di = 0;
         if (
             !_seqReader.End
@@ -2361,40 +2334,6 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     }
 
     // ── Helpers ──
-    private byte[] RentBuf(int size)
-    {
-        var buf = ArrayPool<byte>.Shared.Rent(size);
-        switch (_bufCount++)
-        {
-            case 0:
-                _rb0 = buf;
-                break;
-            case 1:
-                _rb1 = buf;
-                break;
-            case 2:
-                _rb2 = buf;
-                break;
-            case 3:
-                _rb3 = buf;
-                break;
-            case 4:
-                _rb4 = buf;
-                break;
-            case 5:
-                _rb5 = buf;
-                break;
-            case 6:
-                _rb6 = buf;
-                break;
-            default:
-                ReturnBuf(ref _rb7);
-                _rb7 = buf;
-                break;
-        }
-        _rentedBuffer = buf;
-        return buf;
-    }
 
     private void PushIndent(int i)
     {
