@@ -1,4 +1,28 @@
-// Shared complex model for cross-validation tests across all PicoSerDe formats.
+// The rich model the JSON cross-validation suite compares PicoJetson against System.Text.Json
+// with. Linked into ONE test project (PicoJetson.Integration.Tests) by <Compile Include>; it lives
+// in shared/ because that is where this repository keeps source-linked test assets, and because
+// the design of record (docs/superpowers/specs/2026-09-14-extraction-consolidation-master-
+// design.md §145) makes these test models a component the format-agnostic suites consume later.
+// It is never compiled into a shipping assembly.
+//
+// ── Why this is NOT merged with MultiFormatRoundTripTests.AllFormatsModel (audit C8) ──────────
+// They look like the same thing and they are not. Measured: 21 members vs 18.
+//
+//   only here (JSON only)          | only there      | shared name, different type
+//   -------------------------------+-----------------+-------------------------------
+//   IntList    List<int>           | Count   int     | Nested: SubModel? vs AllFormatsSub?
+//   IntArray   int[]               |                 |
+//   StringDict Dictionary<str,str> |                 |
+//   NestedList List<SubModel>?     |                 |
+//
+// The four members that exist only here are exactly the collection surface INI/TOML/YAML cannot
+// express (PICOSERDE003/PICOSERDE005 territory), so one model used by all five formats would
+// either drop members silently or fail the multi-format round-trip assertions; merging the other
+// way would delete four members from the JSON regression surface. The factories also differ on
+// purpose: this one leaves NullableString/NullableInt null (the null paths),
+// AllFormatsModelFactory.Create() sets them (the value paths) and CreateWithNulls() covers nulls.
+// Both inventories are pinned by tests (CrossValidationModelInventoryTests,
+// AllFormatsModelInventoryTests), so "they look alike, merge them" cannot quietly shrink either.
 
 namespace PicoCrossValidation;
 

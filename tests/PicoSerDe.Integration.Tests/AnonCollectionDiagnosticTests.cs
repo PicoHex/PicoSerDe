@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using PicoIni.Gen;
 using PicoJetson.Gen;
 using PicoMsgPack.Gen;
+using PicoSerDe.TestSupport;
 using PicoToml.Gen;
 using PicoYaml.Gen;
 
@@ -472,7 +473,10 @@ public class AnonCollectionDiagnosticTests
         var compilation = CSharpCompilation.Create(
             "AnonCollectionDiagAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
-            PlatformReferences(formatAssembly),
+            RoslynProbe.PlatformReferences(
+                formatAssembly,
+                typeof(PicoSerDe.Core.SerializerExtensions).Assembly
+            ),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true)
         );
 
@@ -481,30 +485,4 @@ public class AnonCollectionDiagnosticTests
         return result.Diagnostics.ToArray();
     }
 
-    private static string AssemblyPath(System.Reflection.Assembly assembly) =>
-        Path.Combine(AppContext.BaseDirectory, assembly.GetName().Name + ".dll");
-
-    private static IEnumerable<MetadataReference> PlatformReferences(
-        System.Reflection.Assembly formatAssembly
-    )
-    {
-        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
-        foreach (var path in tpa.Split(Path.PathSeparator))
-        {
-            var name = Path.GetFileName(path);
-            if (
-                name
-                is "System.Private.CoreLib.dll"
-                    or "System.Runtime.dll"
-                    or "System.Collections.dll"
-                    or "netstandard.dll"
-                    or "System.Memory.dll"
-            )
-                yield return MetadataReference.CreateFromFile(path);
-        }
-        yield return MetadataReference.CreateFromFile(AssemblyPath(formatAssembly));
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(PicoSerDe.Core.SerializerExtensions).Assembly)
-        );
-    }
 }

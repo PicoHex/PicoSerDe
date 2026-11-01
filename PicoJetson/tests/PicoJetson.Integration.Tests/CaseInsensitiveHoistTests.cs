@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using PicoJetson.Gen;
+using PicoSerDe.TestSupport;
 
 namespace PicoJetson.Tests;
 
@@ -89,7 +90,7 @@ public class CaseInsensitiveHoistShapeTests
         var compilation = CSharpCompilation.Create(
             "CaseInsensitiveHoistAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
-            PlatformReferences(),
+            RoslynProbe.PlatformReferences(typeof(JsonSerializer).Assembly, typeof(PicoSerDe.Core.SerializerExtensions).Assembly),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true)
         );
 
@@ -119,36 +120,6 @@ public class CaseInsensitiveHoistShapeTests
             public static HoistShape? Run(byte[] data) => JsonSerializer.Deserialize<HoistShape>(data);
         }
         """;
-
-    private static IEnumerable<MetadataReference> PlatformReferences()
-    {
-        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
-        foreach (var path in tpa.Split(Path.PathSeparator))
-        {
-            var name = Path.GetFileName(path);
-            if (
-                name
-                is "System.Private.CoreLib.dll"
-                    or "System.Runtime.dll"
-                    or "System.Collections.dll"
-                    or "netstandard.dll"
-                    or "System.Memory.dll"
-            )
-                yield return MetadataReference.CreateFromFile(path);
-        }
-        yield return MetadataReference.CreateFromFile(
-            Path.Combine(
-                AppContext.BaseDirectory,
-                typeof(JsonSerializer).Assembly.GetName().Name + ".dll"
-            )
-        );
-        yield return MetadataReference.CreateFromFile(
-            Path.Combine(
-                AppContext.BaseDirectory,
-                typeof(PicoSerDe.Core.SerializerExtensions).Assembly.GetName().Name + ".dll"
-            )
-        );
-    }
 }
 
 public class CaseInsensitiveHoistBehaviourTests

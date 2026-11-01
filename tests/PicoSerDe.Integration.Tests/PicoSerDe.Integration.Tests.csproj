@@ -73,12 +73,15 @@
 
   <!-- Shared models -->
   <ItemGroup>
-    <Compile Include="..\..\shared\CrossValidationModels.cs" Link="CrossValidationModels.cs" />
     <!-- The line-ending-neutral comparison for block-literal expectations (shared/TestText.cs
          — see TestTextUniformTests for the three contracts it must keep). Test-only: linked
          here and into the other test projects that pin a multi-line block, never into a
          shipping assembly (shared/TextHelpers.cs is the production file). -->
     <Compile Include="..\..\shared\TestText.cs" Link="TestText.cs" />
+    <!-- The Roslyn reference-set fixture (shared/RoslynProbe.cs) - linked, not referenced, for the
+         same reason as shared/TestText.cs: three test projects drive a generator in-proc and each
+         used to carry its own copy of the same 20-line PlatformReferences(). Test-only. -->
+    <Compile Include="..\..\shared\RoslynProbe.cs" Link="RoslynProbe.cs" />
     <!-- The capability model is compiled from the SAME source the five generators
          link, so the tests assert against the real tables (no InternalsVisibleTo:
          the file is linked into five assemblies, so "internal" would be five copies). -->

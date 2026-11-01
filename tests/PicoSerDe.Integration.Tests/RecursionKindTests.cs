@@ -1,3 +1,4 @@
+using PicoSerDe.TestSupport;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -296,7 +297,7 @@ public class RecursionKindTests
         var compilation = CSharpCompilation.Create(
             "RecursionKindFixture",
             [CSharpSyntaxTree.ParseText(Models, new CSharpParseOptions(LanguageVersion.Latest))],
-            PlatformReferences(),
+            RoslynProbe.MinimalPlatformReferences(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
         );
         var errors = compilation
@@ -313,16 +314,5 @@ public class RecursionKindTests
             .OfType<INamedTypeSymbol>()
             .Where(s => s.ContainingType is null)
             .ToDictionary(s => s.Name, s => s);
-    }
-
-    private static IEnumerable<MetadataReference> PlatformReferences()
-    {
-        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
-        foreach (var path in tpa.Split(Path.PathSeparator))
-        {
-            var name = Path.GetFileName(path);
-            if (name is "System.Private.CoreLib.dll" or "System.Runtime.dll" or "netstandard.dll")
-                yield return MetadataReference.CreateFromFile(path);
-        }
     }
 }

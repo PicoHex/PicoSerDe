@@ -11,6 +11,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using PicoJetson.Gen;
+using PicoSerDe.TestSupport;
 
 namespace PicoJetson.Tests;
 
@@ -248,7 +249,7 @@ public sealed class GeneratorHintNameTests
         var compilation = CSharpCompilation.Create(
             "HintNameAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
-            PlatformReferences(),
+            RoslynProbe.PlatformReferences(typeof(JsonSerializer).Assembly, typeof(PicoSerDe.Core.SerializerExtensions).Assembly),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
         );
 
@@ -257,30 +258,4 @@ public sealed class GeneratorHintNameTests
         return result.GeneratedTrees.Select(t => Path.GetFileName(t.FilePath)).Distinct().ToArray();
     }
 
-    private static string AssemblyPath(System.Reflection.Assembly assembly) =>
-        Path.Combine(AppContext.BaseDirectory, assembly.GetName().Name + ".dll");
-
-    private static IEnumerable<MetadataReference> PlatformReferences()
-    {
-        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
-        foreach (var path in tpa.Split(Path.PathSeparator))
-        {
-            var name = Path.GetFileName(path);
-            if (
-                name
-                is "System.Private.CoreLib.dll"
-                    or "System.Runtime.dll"
-                    or "System.Collections.dll"
-                    or "netstandard.dll"
-                    or "System.Memory.dll"
-            )
-                yield return MetadataReference.CreateFromFile(path);
-        }
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(JsonSerializer).Assembly)
-        );
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(PicoSerDe.Core.SerializerExtensions).Assembly)
-        );
-    }
 }

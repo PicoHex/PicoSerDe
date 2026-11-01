@@ -583,7 +583,8 @@ public class GeneratedCodeSelfSufficiencyGuardTests
 
     /// <summary>
     /// The <b>whole</b> shared framework — deliberately wider than
-    /// <see cref="SilentDropDiagnosticTests.PlatformReferences"/>: <c>System.Linq.dll</c> has to be
+    /// <see cref="AllFormatReferences.References"/> (and than
+    /// <see cref="PicoSerDe.TestSupport.RoslynProbe.PlatformReferences"/>): <c>System.Linq.dll</c> has to be
     /// referenced for this check to be about <b>usings</b>. With the extension methods absent from
     /// the reference set, a bare <c>.Select(</c> would fail here for the wrong reason and the guard
     /// would be measuring the reference list instead of self-sufficiency. Nothing adds

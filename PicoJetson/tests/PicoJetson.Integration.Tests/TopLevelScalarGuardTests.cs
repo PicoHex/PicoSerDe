@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using PicoJetson.Gen;
+using PicoSerDe.TestSupport;
 
 namespace PicoJetson.Tests;
 
@@ -26,7 +27,7 @@ public class TopLevelScalarGuardTests
         var compilation = CSharpCompilation.Create(
             "ProbeAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
-            PlatformReferences(),
+            RoslynProbe.PlatformReferences(typeof(JsonSerializer).Assembly, typeof(PicoSerDe.Core.SerializerExtensions).Assembly),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true)
         );
 
@@ -51,30 +52,4 @@ public class TopLevelScalarGuardTests
             .Throws<InvalidOperationException>();
     }
 
-    private static string AssemblyPath(System.Reflection.Assembly assembly) =>
-        Path.Combine(AppContext.BaseDirectory, assembly.GetName().Name + ".dll");
-
-    private static IEnumerable<MetadataReference> PlatformReferences()
-    {
-        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
-        foreach (var path in tpa.Split(Path.PathSeparator))
-        {
-            var name = Path.GetFileName(path);
-            if (
-                name
-                is "System.Private.CoreLib.dll"
-                    or "System.Runtime.dll"
-                    or "System.Collections.dll"
-                    or "netstandard.dll"
-                    or "System.Memory.dll"
-            )
-                yield return MetadataReference.CreateFromFile(path);
-        }
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(JsonSerializer).Assembly)
-        );
-        yield return MetadataReference.CreateFromFile(
-            AssemblyPath(typeof(PicoSerDe.Core.SerializerExtensions).Assembly)
-        );
-    }
 }

@@ -302,7 +302,7 @@ public class ShapeCompilationTests
         var compilation = CSharpCompilation.Create(
             "ShapeCompilationAsm",
             [CSharpSyntaxTree.ParseText(source, parseOptions)],
-            SilentDropDiagnosticTests.PlatformReferences(),
+            AllFormatReferences.References(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
         );
 
