@@ -86,6 +86,39 @@ instead of surfacing later as a mysteriously empty property (`README.md:494-501`
 - **Verdict glyphs, diagnostics and capability answers have exactly one home** — extend the model, not a
   message (`VerdictMarkerGuardTests`).
 
+## Evidence (a baseline is a gate, not a proof)
+
+**A byte-identical baseline proves only the shapes its corpus covers**, and that is the whole rule: the corpus
+decides which branches of the changed code the gate can even reach, so a branch it never enters comes back
+green because it was not looked at, not because it was looked at and found equal. A pass is a *gate* — "nothing
+the corpus shows has changed", never "nothing has changed". Cite it **with its coverage** (these branches are
+exercised, these are not); a bare "96 baseline files … hash for hash" is an unproven claim wearing a proof's
+clothes.
+
+1. **The counter-example this section exists for.** `60e090a` collapsed twenty-seven hand-written attribute
+   lookups across the five generators into one `shared/Gen/AttributeLookup.cs`, and cited as its evidence
+   "the generated output is byte-identical: 96 baseline files … hash for hash". The corpus those files come
+   from (`tests/FormatCapabilities.Probe/generated-baseline/`) is **deliberately attribute-free** —
+   `tests/FormatCapabilities.Probe/Models.cs:15-19` says why ("The models are deliberately plain POCOs …
+   Adding an attribute here would multiply the emitted code by five"), and the receipt is one command:
+   `grep -c '^\s*\[' tests/FormatCapabilities.Probe/Models.cs` → `0`. So every replaced lookup
+   (`GetIniDateTimeFormat`, `GetJsonPropertyName`, `GetTomlConverter`, `GetYamlConverter`, `GetMsgPackKey`, …)
+   returned null for every one of the probe's 216 symbols: the gate exercised those lookups' **negative path
+   and nothing else**. The merge was still safe, but not for the reason it gave — the proof was a differential
+   harness kept outside the tree (1200 comparisons over three corpora, plus four mutants that each turned it
+   red).
+2. **When a change lands on a path the corpus never enters, the baseline is empty there — add evidence of
+   another kind, and name it.** A differential comparison, a targeted unit test, a mutant that proves the
+   harness can go red. Then put the gap in the commit message, in these words or their equivalent: "the
+   baseline cannot see this; the evidence is X". A green gate with no coverage behind it is worse than no
+   gate, because the next reader believes it.
+3. **A blind spot gets written down where the next reader runs into it.** `Models.cs:15-19` is why the probe
+   corpus is narrow; `docs/fused-emission-registry.md` is the same lesson for "implemented, never called" and
+   `FusedMemberEmissionGuardTests` keeps that register honest. This rule is that register's cousin — both turn
+   an invisible gap into a line somebody has to read. Nothing in the tree re-hashes `generated-baseline/`
+   against a stored manifest either, so before/after sha256 is a *manual* step: it can be blind and silent at
+   the same time.
+
 ## Releasing
 
 - `pwsh -NoProfile -File scripts/release.ps1 -DryRun` first; read `API changed` / `next version` before touching
