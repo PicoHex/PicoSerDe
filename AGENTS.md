@@ -130,12 +130,19 @@ clothes.
   worktree — a second copy carrying the same `PackageId` — aborted releases with *duplicate PackageId across
   packable projects* until `b55c14f` made the scan skip `.worktrees/`, `.superpowers/`, `artifacts/` and every
   dot-prefixed directory (`scripts/release.ps1:110-122`). That exclusion is a safety net, not a licence.
-- **Docs and skills ship in the release commit.** The tag workflow runs **no tests at all** — the `pack` job
-  (`.github/workflows/release.yml:20`) only calls `dotnet pack`, and `publish` (`:123`) hangs off `needs: pack`
-  (`:125`) — so `main` must be green **before** the tag, and the API diff is walked before it too. Note the
-  script's own header still says the workflow "runs the tests" (`scripts/release.ps1:19-20`); the file is what
-  counts. The skills (`picohex-*`) live outside this repository: nothing here fails when one goes stale, which
-  is why `picohex-release`'s step 4 makes them part of the release.
+- **Docs and skills ship in the release commit.** The gate is the `verify` job in `release.yml`
+  (`.github/workflows/release.yml:37`): restore, Release build, and all ten test projects, on `ubuntu-latest`.
+  `pack` waits on it (`jobs.pack.needs: verify`, `release.yml:76`) and `publish` on `pack`
+  (`release.yml:180`), so a red test is a failed release rather than a published one — v2026.11.0 went out
+  while CI had been red for three days, which is what this job exists to stop.
+- **The tag is still the wrong place to discover a first failure, so keep the manual check as the first of the
+  two gates.** `verify` is one platform and build+tests only; the five-platform matrix, `aot-validation` and
+  `benchmark-aot` are CI's job. Before tagging: `main` green in the full CI run
+  (`gh run list --workflow=ci.yml --limit 1` → `completed / success` for the commit you are tagging), and the
+  API diff walked (`-DryRun`). Note the script's own header still describes the pre-gate workflow — *"There is
+  no test job and no dependency on the CI workflow"* (`scripts/release.ps1:30-41`); the file is what counts. The
+  skills (`picohex-*`) live outside this repository: nothing here fails when one goes stale, which is why
+  `picohex-release`'s step 4 makes them part of the release.
 
 ## Environment quirks (this developer machine)
 
