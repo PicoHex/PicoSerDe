@@ -29,7 +29,8 @@ public class MsgPackOptions : SerOptions
     /// Controls when properties are skipped based on their value. Default:
     /// <see cref="PicoIgnoreCondition.Never"/> (a null member is written as
     /// <c>nil</c>). <see cref="PicoIgnoreCondition.WhenWritingNull"/> omits the
-    /// member instead.
+    /// member instead. <see cref="PicoIgnoreCondition.Always"/> has no global meaning:
+    /// as a default it behaves like <see cref="PicoIgnoreCondition.Never"/>.
     /// </summary>
     public PicoIgnoreCondition DefaultIgnoreCondition { get; set; } = PicoIgnoreCondition.Never;
 

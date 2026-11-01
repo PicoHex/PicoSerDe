@@ -149,6 +149,9 @@ public class JsonOptions : SerOptions
     /// <see cref="PicoIgnoreCondition.Never"/>. Uses the suite-wide
     /// <see cref="PicoIgnoreCondition"/> so this setting and the per-property
     /// <see cref="PicoIgnoreAttribute.Condition"/> share one enum.
+    /// <see cref="PicoIgnoreCondition.Always"/> has no global meaning: it strips a property
+    /// everywhere at attribute level, but as a default here it behaves like
+    /// <see cref="PicoIgnoreCondition.Never"/> and writes every member.
     /// </summary>
     public PicoIgnoreCondition DefaultIgnoreCondition { get; set; } = PicoIgnoreCondition.Never;
 

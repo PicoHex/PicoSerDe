@@ -187,6 +187,25 @@ added line:
 Expected delta: **`+5 / -26`** over the five format archives (`-21` enum rows, `-5`/`+5` for the retyped
 properties); `api/PicoSerDe.Core.public.txt` is untouched.
 
+### What the rename costs, beyond the rename
+
+Every row above is "old name -> new name", and that is only half of the migration. Two things a consumer
+hits the moment the package is upgraded, neither of which a rename table can show:
+
+| # | The trap | The fix |
+|---|---|---|
+| M-1 | **`PicoIgnoreCondition` lives in `PicoSerDe.Core`, not in the format package.** The old name came into scope with the `using PicoJetson;` (and friends) every consumer already had; the new one does not, so a file that only swapped the type name fails with `CS0103: The name 'PicoIgnoreCondition' does not exist in the current context`. PicoSerDe's own sample is the proof rather than the anecdote: this change added `global using PicoSerDe.Core;` next to the type swap in the sample's global usings file. | Add `using PicoSerDe.Core;` - every consumer already references that package, which is where the enum has lived since `v2026.11.0` - or spell it out as `PicoSerDe.Core.PicoIgnoreCondition`. The `using` is the option that survives copy-paste from the old code. |
+| M-2 | **The integer values moved under unchanged names.** Anything that stored the enum as a *number* - a config file, a database column, a `(int)` cast, a numeric comparison - flips meaning silently instead of failing to compile. The bullet below proves the library never reads these numbers; that is exactly why nothing will tell you the stored value now means something else. | Re-map the stored numbers (table below) or, better, stop storing numbers: persist the member *name* and read it back with `Enum.Parse<PicoIgnoreCondition>("WhenWritingNull")`. No member was renamed, so every stored name still parses. |
+
+What a stored number now means:
+
+| Stored | `v2026.11.0` | `v2026.12.0` |
+|--:|---|---|
+| `0` | `Never` (write everything) | `Always` - at options level still writes everything, but as an attribute condition it now **strips** the member, because that is what `Always` has always meant there |
+| `1` | `WhenWritingNull` | `Never` - null members are written again |
+| `2` | `WhenWritingDefault` (JSON only; the other four had no such member) | `WhenWritingNull` - null is skipped, `default(T)` is written |
+| `3` | did not exist | `WhenWritingDefault` |
+
 ### Why it is safe to merge into one enum
 
 - **Same member names, same meanings.** `Never` = never skip, `WhenWritingNull` = skip when null,
