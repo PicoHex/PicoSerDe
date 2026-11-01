@@ -6,6 +6,8 @@ using AnonPipelineConfig = PicoSerDe.Gen.AnonPipelineConfig;
 using Arity = PicoSerDe.Gen.AttributeArity;
 using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
 using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
+using DefaultLiteralRow = PicoSerDe.Gen.DefaultLiteralRow;
+using DefaultLiterals = PicoSerDe.Gen.DefaultLiterals;
 using GenPipeline = PicoSerDe.Gen.GenPipeline;
 using NullGuardEmit = PicoSerDe.Gen.NullGuardEmit;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
@@ -555,7 +557,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 // CS8600 in the generated code; every non-string parameter is
                 // overwritten before the constructor call, so the suppression is
                 // accurate — mirroring the poly path's initializer.
-                var def = cp.TypeKind == "string" ? "\"\"" : "default!";
+                var def = DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTempNoZeroes);
                 s.Append("        ");
                 s.Append(tn);
                 s.Append(" __cp_");
@@ -575,19 +577,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(" {");
                 foreach (var rp in reqProps)
                 {
-                    s.Append("            ");
-                    s.Append(rp.Name);
-                    s.Append(" = ");
-                    switch (rp.TypeKind)
-                    {
-                        case "string":
-                            s.Append("\"\"");
-                            break;
-                        default:
-                            s.Append("default");
-                            break;
-                    }
-                    s.AppendLine(",");
+                    DefaultLiterals.EmitRequiredMemberLine(s, rp, "            ");
                 }
                 s.Append("        };");
             }
@@ -870,7 +860,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             {
                 s.Append(rp.Name);
                 s.Append(" = ");
-                s.Append(rp.TypeKind == "string" ? "\"\"" : "default");
+                s.Append(DefaultLiterals.For(rp.TypeKind, DefaultLiteralRow.RequiredMember));
                 s.Append(", ");
             }
             s.Append("}");
@@ -2131,25 +2121,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     s.Append(" __cp_");
                     s.Append(ci);
                     s.Append(" = ");
-                    s.Append(
-                        cp.TypeKind switch
-                        {
-                            "string" => "\"\"",
-                            "int32"
-                            or "int64"
-                            or "int16"
-                            or "uint16"
-                            or "sbyte"
-                            or "byte"
-                            or "uint32"
-                            or "uint64"
-                            or "float32"
-                            or "float64"
-                            or "decimal" => "0",
-                            "boolean" => "false",
-                            _ => "default!",
-                        }
-                    );
+                    s.Append(DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTempWider));
                     // This is a statement, not an argument list: the missing ';'
                     // made every polymorphic constructor type fail to compile.
                     s.AppendLine(";");
