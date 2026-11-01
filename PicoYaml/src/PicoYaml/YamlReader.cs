@@ -2932,177 +2932,20 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     }
 
     // ── Fast path array reading (used by source generators) ──
+    // The scan itself lives in FastArrayReaders (PicoSerDe.Core): this format's flow array and
+    // the other two text formats' are the same '[a, b, c]' grammar, so there is one
+    // implementation. Reader state (_data / _position / _isSequence) stays here — reaching the
+    // element list is each format's own business, scanning it is not.
 
-    public int TryReadInt32ArrayFast(scoped Span<int> dest)
-    {
-        if (_isSequence)
-            return 0;
-        var p = _position;
-        var d = _data;
-        var len = d.Length;
-        if (p >= len)
-            return 0;
+    /// <summary>Fast path: read int32 array from raw buffer (span mode only). Returns count read, or 0 to fallback.</summary>
+    public int TryReadInt32ArrayFast(scoped Span<int> dest) =>
+        FastArrayReaders.TryReadInt32Array(_data, ref _position, _isSequence, dest);
 
-        int count = 0;
-        while (p < len && count < dest.Length)
-        {
-            byte b = d[p];
-            if (b <= 32)
-            {
-                p = SimdHelpers.SkipWhitespace(d, p);
-                continue;
-            }
-            if (b == (byte)']')
-            {
-                p++;
-                break;
-            }
-            if (b == (byte)',')
-            {
-                p++;
-                continue;
-            }
-            bool neg = false;
-            if (b == (byte)'-')
-            {
-                neg = true;
-                p++;
-                if (p >= len)
-                    return 0;
-                b = d[p];
-            }
-            if (b < (byte)'0' || b > (byte)'9')
-                return 0;
-            long v = 0;
-            do
-            {
-                v = v * 10 + (b - (byte)'0');
-                // -2147483648 is a legal int32; anything beyond bails out
-                // instead of silently wrapping (review P3-3).
-                if (v > int.MaxValue && !(neg && v == (long)int.MaxValue + 1))
-                    return 0;
-                p++;
-                if (p >= len)
-                    break;
-                b = d[p];
-            } while (b >= (byte)'0' && b <= (byte)'9');
-            dest[count++] = (int)(neg ? -v : v);
-        }
-        _position = p;
-        return count;
-    }
+    /// <summary>Fast path: read int64 array from raw buffer (span mode only). Returns count read, or 0 to fallback.</summary>
+    public int TryReadInt64ArrayFast(scoped Span<long> dest) =>
+        FastArrayReaders.TryReadInt64Array(_data, ref _position, _isSequence, dest);
 
-    public int TryReadInt64ArrayFast(scoped Span<long> dest)
-    {
-        if (_isSequence)
-            return 0;
-        var p = _position;
-        var d = _data;
-        var len = d.Length;
-        if (p >= len)
-            return 0;
-
-        int count = 0;
-        while (p < len && count < dest.Length)
-        {
-            byte b = d[p];
-            if (b <= 32)
-            {
-                p = SimdHelpers.SkipWhitespace(d, p);
-                continue;
-            }
-            if (b == (byte)']')
-            {
-                p++;
-                break;
-            }
-            if (b == (byte)',')
-            {
-                p++;
-                continue;
-            }
-            bool neg = false;
-            if (b == (byte)'-')
-            {
-                neg = true;
-                p++;
-                if (p >= len)
-                    return 0;
-                b = d[p];
-            }
-            if (b < (byte)'0' || b > (byte)'9')
-                return 0;
-            long v = 0;
-            do
-            {
-                int digit = b - (byte)'0';
-                if (v > (long.MaxValue - digit) / 10)
-                    return 0; // overflow — fall back to the validated reader
-                v = v * 10 + digit;
-                p++;
-                if (p >= len)
-                    break;
-                b = d[p];
-            } while (b >= (byte)'0' && b <= (byte)'9');
-            dest[count++] = neg ? -v : v;
-        }
-        _position = p;
-        return count;
-    }
-
-    public int TryReadBoolArrayFast(scoped Span<bool> dest)
-    {
-        if (_isSequence)
-            return 0;
-        var p = _position;
-        var d = _data;
-        var len = d.Length;
-        if (p >= len)
-            return 0;
-
-        int count = 0;
-        while (p < len && count < dest.Length)
-        {
-            byte b = d[p];
-            if (b <= 32)
-            {
-                p = SimdHelpers.SkipWhitespace(d, p);
-                continue;
-            }
-            if (b == (byte)']')
-            {
-                p++;
-                break;
-            }
-            if (b == (byte)',')
-            {
-                p++;
-                continue;
-            }
-            if (b == (byte)'t')
-            {
-                if (p + 3 >= len || d[p + 1] != 'r' || d[p + 2] != 'u' || d[p + 3] != 'e')
-                    return 0;
-                p += 4;
-                dest[count++] = true;
-            }
-            else if (b == (byte)'f')
-            {
-                if (
-                    p + 4 >= len
-                    || d[p + 1] != 'a'
-                    || d[p + 2] != 'l'
-                    || d[p + 3] != 's'
-                    || d[p + 4] != 'e'
-                )
-                    return 0;
-                p += 5;
-                dest[count++] = false;
-            }
-            else
-                return 0;
-        }
-        _position = p;
-        return count;
-    }
+    /// <summary>Fast path: read bool array from raw buffer (span mode only). Returns count read, or 0 to fallback.</summary>
+    public int TryReadBoolArrayFast(scoped Span<bool> dest) =>
+        FastArrayReaders.TryReadBoolArray(_data, ref _position, _isSequence, dest);
 }
