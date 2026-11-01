@@ -2,6 +2,8 @@ namespace PicoIni.Gen;
 
 using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
+using Arity = PicoSerDe.Gen.AttributeArity;
+using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
 using CtorParamInfo = PicoSerDe.Gen.CtorParamInfo;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
@@ -315,121 +317,29 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
 
     // ── Attribute helpers ──
 
-    private static bool HasIniCamelCase(ITypeSymbol type)
-    {
-        foreach (var attr in type.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "IniCamelCaseAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-            )
-                return true;
-        }
-        return false;
-    }
+    private static bool HasIniCamelCase(ITypeSymbol type) =>
+        AttributeLookup.Has(type, "PicoIni", "IniCamelCaseAttribute");
 
-    private static string? GetIniKey(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "IniKeyAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is string name
-            )
-                return name;
-        }
-        return null;
-    }
+    private static string? GetIniKey(IPropertySymbol prop) =>
+        AttributeLookup.GetString(prop, "PicoIni", "IniKeyAttribute", Arity.One);
 
-    private static bool HasIniIgnore(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "IniIgnoreAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-            )
-                return true;
-        }
-        return false;
-    }
+    private static bool HasIniIgnore(IPropertySymbol prop) =>
+        AttributeLookup.Has(prop, "PicoIni", "IniIgnoreAttribute");
 
-    private static string? GetIniConverter(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "IniConverterAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is INamedTypeSymbol ct
-            )
-                return ct.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        }
-        return null;
-    }
+    private static string? GetIniConverter(IPropertySymbol prop) =>
+        AttributeLookup.GetTypeName(prop, "PicoIni", "IniConverterAttribute", Arity.One);
 
-    private static string? GetIniDateTimeFormat(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "IniDateTimeFormatAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-                && attr.ConstructorArguments.Length >= 1
-                && attr.ConstructorArguments[0].Value is string fmt
-            )
-                return fmt;
-        }
-        return null;
-    }
+    private static string? GetIniDateTimeFormat(IPropertySymbol prop) =>
+        AttributeLookup.GetString(prop, "PicoIni", "IniDateTimeFormatAttribute", Arity.AtLeastOne);
 
-    private static string? GetIniSection(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "IniSectionAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is string name
-            )
-                return name;
-        }
-        return null;
-    }
+    private static string? GetIniSection(IPropertySymbol prop) =>
+        AttributeLookup.GetString(prop, "PicoIni", "IniSectionAttribute", Arity.One);
 
-    private static string? GetIniComment(ITypeSymbol type)
-    {
-        foreach (var attr in type.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "IniCommentAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is string text
-            )
-                return text;
-        }
-        return null;
-    }
+    private static string? GetIniComment(ITypeSymbol type) =>
+        AttributeLookup.GetString(type, "PicoIni", "IniCommentAttribute", Arity.One);
 
-    private static string? GetIniPropertyComment(IPropertySymbol prop)
-    {
-        foreach (var attr in prop.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "IniCommentAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoIni"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is string text
-            )
-                return text;
-        }
-        return null;
-    }
+    private static string? GetIniPropertyComment(IPropertySymbol prop) =>
+        AttributeLookup.GetString(prop, "PicoIni", "IniCommentAttribute", Arity.One);
 
     // ── Source generation ──
 

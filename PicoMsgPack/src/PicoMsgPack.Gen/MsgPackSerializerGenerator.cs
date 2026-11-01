@@ -2,6 +2,8 @@ namespace PicoMsgPack.Gen;
 
 using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
+using Arity = PicoSerDe.Gen.AttributeArity;
+using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
 using FusedEmit = PicoSerDe.Gen.FusedEmit;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
@@ -256,16 +258,11 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
                 {
                     if (ctor.DeclaredAccessibility != Accessibility.Public)
                         continue;
-                    foreach (var attr in ctor.GetAttributes())
+                    if (AttributeLookup.Has(ctor, null, "MsgPackConstructorAttribute"))
                     {
-                        if (attr.AttributeClass?.Name == "MsgPackConstructorAttribute")
-                        {
-                            hasCtor = true;
-                            break;
-                        }
-                    }
-                    if (hasCtor)
+                        hasCtor = true;
                         break;
+                    }
                 }
             }
         }
@@ -325,49 +322,21 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
 
     // ── Attribute helpers ──
 
-    static bool HasMsgPackIgnore(IPropertySymbol p)
-    {
-        foreach (var a in p.GetAttributes())
-            if (a.AttributeClass?.Name == "MsgPackIgnoreAttribute")
-                return true;
-        return false;
-    }
+    // MessagePack passes a null namespace throughout: its attributes have never been checked for a
+    // declaring namespace (the other four formats require their own), and this refactor does not get
+    // to change which attributes the format honours. null is the "no filter" argument, not an
+    // oversight -- do not fill it in without a behaviour change to argue for.
+    static bool HasMsgPackIgnore(IPropertySymbol p) =>
+        AttributeLookup.Has(p, null, "MsgPackIgnoreAttribute");
 
-    static string? GetMsgPackConverter(IPropertySymbol p)
-    {
-        foreach (var a in p.GetAttributes())
-            if (
-                a.AttributeClass?.Name == "MsgPackConverterAttribute"
-                && a.ConstructorArguments.Length >= 1
-                && a.ConstructorArguments[0].Value is INamedTypeSymbol ct
-            )
-                return ct.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        return null;
-    }
+    static string? GetMsgPackConverter(IPropertySymbol p) =>
+        AttributeLookup.GetTypeName(p, null, "MsgPackConverterAttribute", Arity.AtLeastOne);
 
-    static byte? GetMsgPackExtensionTag(IPropertySymbol p)
-    {
-        foreach (var a in p.GetAttributes())
-            if (
-                a.AttributeClass?.Name == "MsgPackExtensionTagAttribute"
-                && a.ConstructorArguments.Length == 1
-                && a.ConstructorArguments[0].Value is byte tag
-            )
-                return tag;
-        return null;
-    }
+    static byte? GetMsgPackExtensionTag(IPropertySymbol p) =>
+        AttributeLookup.GetValue<byte>(p, null, "MsgPackExtensionTagAttribute", Arity.One);
 
-    static int? GetMsgPackKey(IPropertySymbol p)
-    {
-        foreach (var a in p.GetAttributes())
-            if (
-                a.AttributeClass?.Name == "MsgPackKeyAttribute"
-                && a.ConstructorArguments.Length == 1
-                && a.ConstructorArguments[0].Value is int k
-            )
-                return k;
-        return null;
-    }
+    static int? GetMsgPackKey(IPropertySymbol p) =>
+        AttributeLookup.GetValue<int>(p, null, "MsgPackKeyAttribute", Arity.One);
 
     // ── Source generation ──
 

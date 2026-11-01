@@ -2,6 +2,8 @@ namespace PicoYaml.Gen;
 
 using Microsoft.CodeAnalysis.CSharp;
 using AnonFieldInfo = PicoSerDe.Gen.AnonFieldInfo;
+using Arity = PicoSerDe.Gen.AttributeArity;
+using AttributeLookup = PicoSerDe.Gen.AttributeLookup;
 using PropertyInfo = PicoSerDe.Gen.PropertyInfo;
 using TypeInfo = PicoSerDe.Gen.TypeInfo;
 
@@ -314,76 +316,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
     // ── Attribute helpers ──
 
-    private static string? GetYamlKey(IPropertySymbol p)
-    {
-        foreach (var attr in p.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "YamlKeyAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoYaml"
-                && attr.ConstructorArguments.Length == 1
-                && attr.ConstructorArguments[0].Value is string key
-            )
-                return key;
-        }
-        return null;
-    }
+    private static string? GetYamlKey(IPropertySymbol p) =>
+        AttributeLookup.GetString(p, "PicoYaml", "YamlKeyAttribute", Arity.One);
 
-    private static bool HasYamlIgnore(IPropertySymbol p)
-    {
-        foreach (var attr in p.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "YamlIgnoreAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoYaml"
-            )
-                return true;
-        }
-        return false;
-    }
+    private static bool HasYamlIgnore(IPropertySymbol p) =>
+        AttributeLookup.Has(p, "PicoYaml", "YamlIgnoreAttribute");
 
-    private static string? GetYamlConverter(IPropertySymbol p)
-    {
-        foreach (var attr in p.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "YamlConverterAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoYaml"
-                && attr.ConstructorArguments.Length >= 1
-                && attr.ConstructorArguments[0].Value is INamedTypeSymbol nts
-            )
-                return nts.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        }
-        return null;
-    }
+    private static string? GetYamlConverter(IPropertySymbol p) =>
+        AttributeLookup.GetTypeName(p, "PicoYaml", "YamlConverterAttribute", Arity.AtLeastOne);
 
-    private static bool HasYamlCamelCase(ITypeSymbol type)
-    {
-        foreach (var attr in type.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "YamlCamelCaseAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoYaml"
-            )
-                return true;
-        }
-        return false;
-    }
+    private static bool HasYamlCamelCase(ITypeSymbol type) =>
+        AttributeLookup.Has(type, "PicoYaml", "YamlCamelCaseAttribute");
 
-    private static string? GetYamlDateTimeFormat(IPropertySymbol p)
-    {
-        foreach (var attr in p.GetAttributes())
-        {
-            if (
-                attr.AttributeClass?.Name == "YamlDateTimeFormatAttribute"
-                && attr.AttributeClass.ContainingNamespace?.ToDisplayString() == "PicoYaml"
-                && attr.ConstructorArguments.Length >= 1
-                && attr.ConstructorArguments[0].Value is string fmt
-            )
-                return fmt;
-        }
-        return null;
-    }
+    private static string? GetYamlDateTimeFormat(IPropertySymbol p) =>
+        AttributeLookup.GetString(p, "PicoYaml", "YamlDateTimeFormatAttribute", Arity.AtLeastOne);
 
     // ── Source generation ──
 
