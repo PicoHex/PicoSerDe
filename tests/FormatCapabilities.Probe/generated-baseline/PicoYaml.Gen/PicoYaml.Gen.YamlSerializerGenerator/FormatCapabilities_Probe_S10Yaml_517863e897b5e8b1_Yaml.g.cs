@@ -54,9 +54,9 @@ file readonly struct S10Yaml_YD : IDeserializer<S10Yaml> {
                         {
                             // The document ended at this key: there is no sequence to read.
                         }
-                        else if (r.TokenType == TokenType.ObjectStart)
+                        else if (r.TokenType == TokenType.ArrayStart)
                         {
-                            // Indented block sequence: the wrapper ObjectStart was consumed.
+                            // Indented block sequence: the wrapper ArrayStart was consumed.
                             __more = r.Read();
                             while (__more && r.TokenType == TokenType.String)
                             {
@@ -64,7 +64,7 @@ file readonly struct S10Yaml_YD : IDeserializer<S10Yaml> {
                                 __dvl.Add(__ev);
                                 __more = r.Read();
                             }
-                            if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                            if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                         }
                         else if (r.TokenType == TokenType.String)
                         {
@@ -126,9 +126,9 @@ S10Yaml? result) {
                         {
                             // The document ended at this key: there is no sequence to read.
                         }
-                        else if (r.TokenType == TokenType.ObjectStart)
+                        else if (r.TokenType == TokenType.ArrayStart)
                         {
-                            // Indented block sequence: the wrapper ObjectStart was consumed.
+                            // Indented block sequence: the wrapper ArrayStart was consumed.
                             __more = r.Read();
                             while (__more && r.TokenType == TokenType.String)
                             {
@@ -136,7 +136,7 @@ S10Yaml? result) {
                                 __dvl.Add(__ev);
                                 __more = r.Read();
                             }
-                            if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                            if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                         }
                         else if (r.TokenType == TokenType.String)
                         {

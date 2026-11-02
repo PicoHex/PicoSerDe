@@ -1035,6 +1035,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    // NOT REACHED: nothing calls this method (the dispatch that ships is EmitDeserialize).
+    // Its sequence arm below still spells the pre-fix wire shape (ObjectStart wrapper); it is
+    // left as-is on purpose rather than half-updated. Wire it up and it must learn ArrayStart.
     private static void EmitDeserializeInline(
         StringBuilder s,
         PropertyInfo p,
@@ -2856,7 +2859,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(">(16);");
             s.Append(pad);
             s.AppendLine("bool __more;");
-            // The wrapper `ObjectStart` is optional: `Items:` followed by a sibling
+            // The wrapper `ArrayStart` is optional: `Items:` followed by a sibling
             // property has no wrapper at all, while an indented block sequence has
             // one. Probing it must never consume the sibling `PropertyName` — that
             // is C-21 — so the read is only kept when it really is the wrapper,
@@ -2874,11 +2877,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(pad);
             s.AppendLine("}");
             s.Append(pad);
-            s.AppendLine("else if (r.TokenType == TokenType.ObjectStart)");
+            s.AppendLine("else if (r.TokenType == TokenType.ArrayStart)");
             s.Append(pad);
             s.AppendLine("{");
             s.Append(pad);
-            s.AppendLine("    // Indented block sequence: the wrapper ObjectStart was consumed.");
+            s.AppendLine("    // Indented block sequence: the wrapper ArrayStart was consumed.");
             if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -2925,16 +2928,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             }
             s.Append(pad);
             s.AppendLine(
-                "    // Skip the wrapper ObjectEnd — but only when the loop really stopped on"
+                "    // Skip the wrapper ArrayEnd — but only when the loop really stopped on"
             );
             s.Append(pad);
             s.AppendLine(
                 "    // it. `__more` then reports whether a member token is still available."
             );
             s.Append(pad);
-            s.AppendLine(
-                "    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();"
-            );
+            s.AppendLine("    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();");
             s.Append(pad);
             s.AppendLine("}");
             s.Append(pad);
@@ -3059,7 +3060,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append(pad);
             if (sequenceValue)
             {
-                // A SEQUENCE value arm ends on the wrapper's ObjectEnd, one Read away from
+                // A SEQUENCE value arm ends on the wrapper's ArrayEnd, one Read away from
                 // the next key, while every scalar arm never reads and leaves the reader ON
                 // the current "key: value" token. `__dkHaveNext` lets the entry loop accept
                 // both alignments; without it the loop either eats a key after every
@@ -3199,7 +3200,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     __tgtSb.Append("[__dk]");
                     EmitYamlDictValueSequenceRead(s, p, __tgtSb.ToString(), pad + "        ");
                     s.Append(pad);
-                    // The sequence arm ends on the wrapper's ObjectEnd, one Read away from
+                    // The sequence arm ends on the wrapper's ArrayEnd, one Read away from
                     // the next key: tell the entry loop so it does not eat that token.
                     s.AppendLine("        __dkHaveNext = true;");
                     break;
@@ -3759,10 +3760,10 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     //       - 1
     //       - 2
     //
-    // YamlReader has no ArrayStart/ArrayEnd token: a sequence is one String token per
-    // item line, and a deeper indentation opens a synthetic ObjectStart block. So a
-    // nested item is the bare dash line (empty unquoted value, IsNestedSequenceItem)
-    // followed by its block, or the "- []" flow marker (IsEmptySequenceMarker) for an
+    // A sequence is delimited by ArrayStart/ArrayEnd and a mapping by ObjectStart/ObjectEnd;
+    // inside a sequence each item is one String token (one per item line). So a nested item
+    // is the bare dash line (empty unquoted value, IsNestedSequenceItem) followed by its
+    // ArrayStart-delimited block, or the "- []" flow marker (IsEmptySequenceMarker) for an
     // empty one. Both halves of the wire are therefore readable from plain token types.
 
     /// <summary>
@@ -3815,7 +3816,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     /// <paramref name="assignTarget"/> (already spelled <c>obj.Map[__dk]</c>).
     /// <para>
     /// Same four-way token probe as <see cref="EmitYamlNestedListDeserialize"/> — wrapper
-    /// <c>ObjectStart</c>, bare first item, empty, or end of document — because YAML's
+    /// <c>ArrayStart</c>, bare first item, empty, or end of document — because YAML's
     /// sequence encoding does not depend on WHERE the sequence sits. The one difference is
     /// the trailing behavior: a member may <c>break</c> out of its dispatch loop, a dict
     /// entry must not, so the reader is simply left on the next token.
@@ -3847,14 +3848,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.Append(pad);
         s.AppendLine("}");
         s.Append(pad);
-        s.AppendLine("else if (r.TokenType == TokenType.ObjectStart)");
+        s.AppendLine("else if (r.TokenType == TokenType.ArrayStart)");
         s.Append(pad);
         s.AppendLine("{");
         s.Append(pad);
-        s.AppendLine("    // Indented block sequence: the wrapper ObjectStart was consumed.");
+        s.AppendLine("    // Indented block sequence: the wrapper ArrayStart was consumed.");
         EmitYamlSequenceReadLoop(s, level, "__dvl", pad + "    ", 1, readFirst: true);
         s.Append(pad);
-        s.AppendLine("    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();");
+        s.AppendLine("    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();");
         s.Append(pad);
         s.AppendLine("}");
         s.Append(pad);
@@ -4015,14 +4016,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.Append(pad);
         s.AppendLine("}");
         s.Append(pad);
-        s.AppendLine("else if (r.TokenType == TokenType.ObjectStart)");
+        s.AppendLine("else if (r.TokenType == TokenType.ArrayStart)");
         s.Append(pad);
         s.AppendLine("{");
         s.Append(pad);
-        s.AppendLine("    // Indented block sequence: the wrapper ObjectStart was consumed.");
+        s.AppendLine("    // Indented block sequence: the wrapper ArrayStart was consumed.");
         EmitYamlSequenceReadLoop(s, p, "__tmpList", pad + "    ", 1, readFirst: true);
         s.Append(pad);
-        s.AppendLine("    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();");
+        s.AppendLine("    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();");
         s.Append(pad);
         s.AppendLine("}");
         s.Append(pad);
@@ -4147,7 +4148,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.Append(pad);
         s.AppendLine("    }");
         s.Append(pad);
-        s.AppendLine("    else if (r.TokenType != TokenType.ObjectStart)");
+        s.AppendLine("    else if (r.TokenType != TokenType.ArrayStart)");
         s.Append(pad);
         s.AppendLine("    {");
         s.Append(pad);
@@ -4166,9 +4167,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    {");
         EmitYamlSequenceReadLoop(s, inner, itemVar, pad + "        ", depth + 1, readFirst: true);
         s.Append(pad);
-        s.AppendLine(
-            "        if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();"
-        );
+        s.AppendLine("        if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();");
         s.Append(pad);
         s.AppendLine("    }");
         s.Append(pad);

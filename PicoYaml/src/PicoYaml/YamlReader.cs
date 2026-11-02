@@ -9,6 +9,7 @@ public struct YamlReaderState
     internal SequencePosition Position;
     internal int StackCount;
     internal int[]? IndentStack;
+    internal bool[]? FrameIsSeq;
     internal bool InFlow;
     internal bool FlowStartEmitted;
     internal bool InFlowSeq;
@@ -43,6 +44,12 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     private int _depth;
     private readonly int _maxDepth;
     private int[] _indentStack;
+
+    // One kind flag per open container, parallel to _indentStack: false = mapping,
+    // true = sequence. A frame is the only thing that remembers WHAT it opened, so the
+    // closing token can be that kind's own (ObjectEnd vs ArrayEnd) instead of always
+    // ObjectEnd — the distinction a consumer needs to tell a sequence from a mapping.
+    private bool[] _frameIsSeq;
     private int _stackCount;
     private bool _inFlow;
     private bool _flowStartEmitted;
@@ -206,6 +213,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     private ParserMark _mark;
     private ParserMark _readMark;
     private int[]? _markIndentStack;
+    private bool[]? _markFrameIsSeq;
 
     private struct ParserMark
     {
@@ -261,6 +269,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         {
             _markIndentStack ??= new int[64];
             Array.Copy(_indentStack, _markIndentStack, _stackCount);
+            _markFrameIsSeq ??= new bool[64];
+            Array.Copy(_frameIsSeq, _markFrameIsSeq, _stackCount);
         }
     }
 
@@ -290,6 +300,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _nextAnchorName = m.NextAnchorName;
         if (m.StackCount > 0 && _markIndentStack is not null)
             Array.Copy(_markIndentStack, _indentStack, m.StackCount);
+        if (m.StackCount > 0 && _markFrameIsSeq is not null)
+            Array.Copy(_markFrameIsSeq, _frameIsSeq, m.StackCount);
         _keySpan = default;
         _valueSpan = default;
         _needsMoreData = false;
@@ -323,6 +335,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _valueSpan = default;
         _depth = 0;
         _indentStack = new int[64];
+        _frameIsSeq = new bool[64];
         _stackCount = 0;
         _inFlow = false;
         _flowStartEmitted = false;
@@ -358,6 +371,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _valueSpan = default;
         _depth = 0;
         _indentStack = new int[64];
+        _frameIsSeq = new bool[64];
         _stackCount = 0;
         _inFlow = false;
         _flowStartEmitted = false;
@@ -452,6 +466,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         {
             s.IndentStack = new int[_stackCount];
             Array.Copy(_indentStack, s.IndentStack, _stackCount);
+            s.FrameIsSeq = new bool[_stackCount];
+            Array.Copy(_frameIsSeq, s.FrameIsSeq, _stackCount);
         }
         return s;
     }
@@ -478,6 +494,11 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         {
             _indentStack = new int[64];
             Array.Copy(state.IndentStack, _indentStack, state.StackCount);
+        }
+        if (state.FrameIsSeq is not null)
+        {
+            _frameIsSeq = new bool[64];
+            Array.Copy(state.FrameIsSeq, _frameIsSeq, state.StackCount);
         }
     }
 
@@ -700,8 +721,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     }
 
     /// <summary>
-    /// YAML has no collection token at all (spec §3.3: <see cref="TokenType.ArrayStart"/> is never assigned by
-    /// this reader — a sequence is one String token per item line), so a count has neither a source nor a
+    /// YAML carries no element count (spec §3.3): a sequence opens with <see cref="TokenType.ArrayStart"/>
+    /// but the number of items is only known by reading them, so a count has neither a source nor a
     /// consumer. Declared, not hinted — with <see langword="false"/> the contract (§3.1) requires
     /// <see cref="TryGetCollectionCount"/> to answer <see langword="false"/> for every token.
     /// </summary>
@@ -724,7 +745,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     /// <c>ref this</c> is <c>CS1605</c> (spec §3.1 last paragraph).
     /// <para>
     /// YAML never overrides a fused read: spec §3.3 and §6 S4 leave this format unoptimized, because a
-    /// sequence is one String token per item line and there is no collection token to fuse.
+    /// sequence's container token carries no count (its items are one String token each) and there is
+    /// nothing for a fused read to skip.
     /// </para>
     /// </summary>
     public bool TryReadInt32(out int value) => TokenReaderFused.TryReadInt32(ref this, out value);
@@ -797,8 +819,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 // mapping; the synthetic ObjectEnd must wait for them.
                 if (!_isFinalBlock)
                     throw new IncompleteInputException();
-                PopIndent();
-                _tokenType = TokenType.ObjectEnd;
+                _tokenType = PopIndent();
                 _depth--;
                 return true;
             }
@@ -848,8 +869,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             if (_stackCount > 0)
             {
                 // End current document
-                PopIndent();
-                _tokenType = TokenType.ObjectEnd;
+                _tokenType = PopIndent();
                 _depth--;
             }
             else
@@ -872,8 +892,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _position = _data.Length; // stop reading this document
             if (_stackCount > 0)
             {
-                PopIndent();
-                _tokenType = TokenType.ObjectEnd;
+                _tokenType = PopIndent();
                 _depth--;
                 return true;
             }
@@ -882,28 +901,29 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (_docStartPending)
         {
             _docStartPending = false;
-            PushIndent(lineIndent);
+            bool docIsSeq = IsBlockDashAt(_position);
+            PushIndent(lineIndent, docIsSeq);
             _depth++;
-            _tokenType = TokenType.ObjectStart;
             _position = lineStart;
+            _tokenType = docIsSeq ? TokenType.ArrayStart : TokenType.ObjectStart;
             return true;
         }
         if (_stackCount == 0 && lineIndent > 0)
         {
+            bool rootIsSeq = IsBlockDashAt(_position);
             _position = lineStart;
-            PushIndent(lineIndent);
+            PushIndent(lineIndent, rootIsSeq);
             if (_depth >= _maxDepth)
                 throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
-            _tokenType = TokenType.ObjectStart;
+            _tokenType = rootIsSeq ? TokenType.ArrayStart : TokenType.ObjectStart;
             _depth++;
             return true;
         }
         if (_stackCount > 0 && lineIndent < _indentStack[_stackCount - 1])
         {
             _position = lineStart;
-            PopIndent();
+            _tokenType = PopIndent();
             FinalizeMappingAnchor();
-            _tokenType = TokenType.ObjectEnd;
             _depth--;
             return true;
         }
@@ -950,11 +970,43 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         }
         if (_stackCount > 0 && lineIndent > _indentStack[_stackCount - 1])
         {
+            bool blockIsSeq = IsBlockDashAt(_position);
             _position = lineStart;
-            PushIndent(lineIndent);
+            PushIndent(lineIndent, blockIsSeq);
             if (_depth >= _maxDepth)
                 throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
-            _tokenType = TokenType.ObjectStart;
+            _tokenType = blockIsSeq ? TokenType.ArrayStart : TokenType.ObjectStart;
+            _depth++;
+            return true;
+        }
+
+        // A block sequence that needs no indentation wrapper: the document root (`- 1` at
+        // indent 0 with no frame at all) or a sequence written at its key's own indentation
+        // (`A:` on one line, `- 1` at the same column on the next). Neither is visible to the
+        // indentation branches above, so it is decided here, from the line itself: everything
+        // reaching this point sits at the top frame's own indentation, which means a dash line
+        // OPENS a sequence frame and any other line CLOSES the one that is open. Without this
+        // pair a flat sequence carried no container token at all — the shape that made two
+        // adjacent sequence values indistinguishable from two mappings.
+        bool lineIsDash = IsBlockDashAt(_position);
+        if (_stackCount > 0 && _frameIsSeq[_stackCount - 1])
+        {
+            if (!lineIsDash)
+            {
+                _position = lineStart;
+                _tokenType = PopIndent();
+                FinalizeMappingAnchor();
+                _depth--;
+                return true;
+            }
+        }
+        else if (lineIsDash)
+        {
+            _position = lineStart;
+            PushIndent(lineIndent, isSeq: true);
+            if (_depth >= _maxDepth)
+                throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
+            _tokenType = TokenType.ArrayStart;
             _depth++;
             return true;
         }
@@ -1384,8 +1436,8 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
 
     /// <summary>
     /// Tokenizes a flow sequence (<c>[1, 2, 3]</c>) into the same shape a block
-    /// sequence produces: an <c>ObjectStart</c> wrapper, one <c>String</c> token per
-    /// element, then <c>ObjectEnd</c>. The generated deserializer therefore needs no
+    /// sequence produces: an <c>ArrayStart</c> wrapper, one <c>String</c> token per
+    /// element, then <c>ArrayEnd</c>. The generated deserializer therefore needs no
     /// change - it already consumes that shape.
     /// </summary>
     private bool ReadFlowSeqSpan()
@@ -1393,7 +1445,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (!_flowSeqStartEmitted)
         {
             _flowSeqStartEmitted = true;
-            _tokenType = TokenType.ObjectStart;
+            _tokenType = TokenType.ArrayStart;
             return true;
         }
 
@@ -1428,7 +1480,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _valueSpan = default;
             _valueWasQuoted = false;
             _seqItemWasBareDash = false;
-            _tokenType = TokenType.ObjectEnd;
+            _tokenType = TokenType.ArrayEnd;
             return true;
         }
 
@@ -1441,7 +1493,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _valueWasQuoted = false;
             _seqItemWasBareDash = false;
             SkipNewlineSpan();
-            _tokenType = TokenType.ObjectEnd;
+            _tokenType = TokenType.ArrayEnd;
             return true;
         }
 
@@ -1865,6 +1917,10 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     }
 
     // ── Sequence-mode Read ──
+    // NOT REACHED: _isSequence is false in both constructors, so every read goes through
+    // ReadSpan. This half still opens every block container as a mapping (PushIndent without
+    // a kind) and therefore does not implement the sequence/array distinction; whoever wires it
+    // up must port the kind-aware push/pop and the flat-sequence pair from ReadSpan.
     private bool ReadSeq()
     {
         if (_inFlow)
@@ -2332,23 +2388,47 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     // ── Helpers ──
 
     // ONE frame per open container, and that is the whole rule: every PushIndent that is
-    // followed by an ObjectStart is matched by exactly one PopIndent that emits exactly one
+    // followed by a container-start is matched by exactly one PopIndent that emits exactly one
     // ObjectEnd and one _depth--. The first open of an indented document used to push TWO
     // frames (a level-0 sentinel, then the real level) while emitting a single ObjectStart,
     // so the sentinel's pop manufactured a closing token nobody had opened: the stream ran
     // one ObjectEnd long and the walk finished at Depth == -1. A frame is a container, not
     // an indentation bookmark — keep push == open and pop == close.
-    private void PushIndent(int i)
+    private void PushIndent(int i, bool isSeq = false)
     {
         if (_stackCount < 64)
-            _indentStack[_stackCount++] = i;
+        {
+            _indentStack[_stackCount] = i;
+            _frameIsSeq[_stackCount] = isSeq;
+            _stackCount++;
+        }
     }
 
-    private void PopIndent()
+    // A close reports the KIND it closes: a mapping ends with ObjectEnd, a sequence with
+    // ArrayEnd. Nothing else about the pairing changes (push == open, pop == close), so the
+    // balance the previous fix established still holds — the token's kind is simply no longer
+    // the same for both containers.
+    private TokenType PopIndent()
     {
+        bool isSeq = false;
         if (_stackCount > 0)
+        {
             _stackCount--;
+            isSeq = _frameIsSeq[_stackCount];
+        }
+        return isSeq ? TokenType.ArrayEnd : TokenType.ObjectEnd;
     }
+
+    /// <summary>
+    /// True when the line whose first non-space byte sits at <paramref name="pos"/> is a BLOCK
+    /// SEQUENCE entry: a dash followed by a separator (space, line break, or end of input). The same
+    /// predicate the item branch uses, factored out so the container-open decision and the item
+    /// decision can never disagree about what a sequence is.
+    /// </summary>
+    private bool IsBlockDashAt(int pos) =>
+        pos < _data.Length
+        && _data[pos] == (byte)'-'
+        && (pos + 1 >= _data.Length || _data[pos + 1] is (byte)' ' or (byte)'\n' or (byte)'\r');
 
     private static ReadOnlySpan<byte> TrimEnd(ReadOnlySpan<byte> s)
     {

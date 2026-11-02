@@ -39,17 +39,17 @@ file readonly struct S1Yaml_YD : IDeserializer<S1Yaml> {
                 {
                     // The document ended at this key: there is no list to read.
                 }
-                else if (r.TokenType == TokenType.ObjectStart)
+                else if (r.TokenType == TokenType.ArrayStart)
                 {
-                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    // Indented block sequence: the wrapper ArrayStart was consumed.
                     while ((__more = r.Read()) && r.TokenType == TokenType.String)
                     {
                         if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
                         __tmpList.Add(__ev);
                     }
-                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // Skip the wrapper ArrayEnd — but only when the loop really stopped on
                     // it. `__more` then reports whether a member token is still available.
-                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                 }
                 else if (r.TokenType == TokenType.String)
                 {
@@ -103,17 +103,17 @@ S1Yaml? result) {
                 {
                     // The document ended at this key: there is no list to read.
                 }
-                else if (r.TokenType == TokenType.ObjectStart)
+                else if (r.TokenType == TokenType.ArrayStart)
                 {
-                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    // Indented block sequence: the wrapper ArrayStart was consumed.
                     while ((__more = r.Read()) && r.TokenType == TokenType.String)
                     {
                         if (!r.TryGetInt32(out var __ev)) throw new System.FormatException($"Expected an integer at offset {r.BytesConsumed}");
                         __tmpList.Add(__ev);
                     }
-                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // Skip the wrapper ArrayEnd — but only when the loop really stopped on
                     // it. `__more` then reports whether a member token is still available.
-                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                 }
                 else if (r.TokenType == TokenType.String)
                 {

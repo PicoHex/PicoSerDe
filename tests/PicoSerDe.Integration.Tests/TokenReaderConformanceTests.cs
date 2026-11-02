@@ -73,6 +73,9 @@ public class TokenReaderConformanceTests
     private static string BalanceWitness<TReader>(TReader reader)
         where TReader : ITokenReader, allows ref struct
     {
+        // Both container KINDS count: a sequence opens ArrayStart/ArrayEnd and a mapping
+        // ObjectStart/ObjectEnd, so a witness that only counted the object pair would stop
+        // noticing a sequence that opens without closing.
         int opens = 0,
             closes = 0,
             negativeDepthAt = -1,
@@ -81,9 +84,9 @@ public class TokenReaderConformanceTests
         {
             if (reader.Depth < 0 && negativeDepthAt < 0)
                 negativeDepthAt = tokens;
-            if (reader.TokenType == TokenType.ObjectStart)
+            if (reader.TokenType is TokenType.ObjectStart or TokenType.ArrayStart)
                 opens++;
-            else if (reader.TokenType == TokenType.ObjectEnd)
+            else if (reader.TokenType is TokenType.ObjectEnd or TokenType.ArrayEnd)
                 closes++;
             tokens++;
         }

@@ -55,9 +55,9 @@ file readonly struct S4Yaml_YD : IDeserializer<S4Yaml> {
                 {
                     // The document ended at this key: there is no list to read.
                 }
-                else if (r.TokenType == TokenType.ObjectStart)
+                else if (r.TokenType == TokenType.ArrayStart)
                 {
-                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    // Indented block sequence: the wrapper ArrayStart was consumed.
                     __more = r.Read();
                     while (__more && r.TokenType == TokenType.String)
                     {
@@ -77,7 +77,7 @@ file readonly struct S4Yaml_YD : IDeserializer<S4Yaml> {
                                 // and the streaming dispatcher decides whether to wait for more.
                                 __more = false;
                             }
-                            else if (r.TokenType != TokenType.ObjectStart)
+                            else if (r.TokenType != TokenType.ArrayStart)
                             {
                                 // A dash with no indented block below it ("-", "- # note"): the item has no
                                 // value, so it reads like an empty inner sequence instead of failing.
@@ -90,7 +90,7 @@ file readonly struct S4Yaml_YD : IDeserializer<S4Yaml> {
                                     __seq1.Add(global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r));
                                     __more = r.Read();
                                 }
-                                if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                                if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                             }
                         }
                         else if (r.IsNullLiteral)
@@ -104,7 +104,7 @@ file readonly struct S4Yaml_YD : IDeserializer<S4Yaml> {
                         }
                         __tmpList.Add(__seq1);
                     }
-                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                 }
                 else if (r.TokenType == TokenType.String)
                 {
@@ -127,7 +127,7 @@ file readonly struct S4Yaml_YD : IDeserializer<S4Yaml> {
                                 // and the streaming dispatcher decides whether to wait for more.
                                 __more = false;
                             }
-                            else if (r.TokenType != TokenType.ObjectStart)
+                            else if (r.TokenType != TokenType.ArrayStart)
                             {
                                 // A dash with no indented block below it ("-", "- # note"): the item has no
                                 // value, so it reads like an empty inner sequence instead of failing.
@@ -140,7 +140,7 @@ file readonly struct S4Yaml_YD : IDeserializer<S4Yaml> {
                                     __seq1.Add(global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r));
                                     __more = r.Read();
                                 }
-                                if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                                if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                             }
                         }
                         else if (r.IsNullLiteral)
@@ -195,9 +195,9 @@ S4Yaml? result) {
                 {
                     // The document ended at this key: there is no list to read.
                 }
-                else if (r.TokenType == TokenType.ObjectStart)
+                else if (r.TokenType == TokenType.ArrayStart)
                 {
-                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    // Indented block sequence: the wrapper ArrayStart was consumed.
                     __more = r.Read();
                     while (__more && r.TokenType == TokenType.String)
                     {
@@ -217,7 +217,7 @@ S4Yaml? result) {
                                 // and the streaming dispatcher decides whether to wait for more.
                                 __more = false;
                             }
-                            else if (r.TokenType != TokenType.ObjectStart)
+                            else if (r.TokenType != TokenType.ArrayStart)
                             {
                                 // A dash with no indented block below it ("-", "- # note"): the item has no
                                 // value, so it reads like an empty inner sequence instead of failing.
@@ -230,7 +230,7 @@ S4Yaml? result) {
                                     __seq1.Add(global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r));
                                     __more = r.Read();
                                 }
-                                if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                                if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                             }
                         }
                         else if (r.IsNullLiteral)
@@ -244,7 +244,7 @@ S4Yaml? result) {
                         }
                         __tmpList.Add(__seq1);
                     }
-                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                 }
                 else if (r.TokenType == TokenType.String)
                 {
@@ -267,7 +267,7 @@ S4Yaml? result) {
                                 // and the streaming dispatcher decides whether to wait for more.
                                 __more = false;
                             }
-                            else if (r.TokenType != TokenType.ObjectStart)
+                            else if (r.TokenType != TokenType.ArrayStart)
                             {
                                 // A dash with no indented block below it ("-", "- # note"): the item has no
                                 // value, so it reads like an empty inner sequence instead of failing.
@@ -280,7 +280,7 @@ S4Yaml? result) {
                                     __seq1.Add(global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r));
                                     __more = r.Read();
                                 }
-                                if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                                if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                             }
                         }
                         else if (r.IsNullLiteral)

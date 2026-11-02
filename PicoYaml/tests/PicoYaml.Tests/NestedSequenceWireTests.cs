@@ -93,7 +93,15 @@ public class NestedSequenceWireTests
         var grid = tokens.FindIndex(t => t.Kind == TokenType.PropertyName && t.Value == "Grid");
         await Assert.That(grid).IsGreaterThan(-1).Because("tokens=" + string.Join(",", tokens));
 
-        var aliasItem = tokens[grid + 1];
+        // The sequence VALUE opens with ArrayStart, so the item sits one token further
+        // than the key: `Grid` PropertyName, ArrayStart, then the item token.
+        var arrayAt = tokens.FindIndex(grid, t => t.Kind == TokenType.ArrayStart);
+        await Assert
+            .That(arrayAt)
+            .IsEqualTo(grid + 1)
+            .Because("tokens=" + string.Join(",", tokens));
+
+        var aliasItem = tokens[arrayAt + 1];
         await Assert.That(aliasItem.Kind).IsEqualTo(TokenType.String).Because("item=" + aliasItem);
         await Assert.That(aliasItem.Value).IsEqualTo("").Because("item=" + aliasItem);
         await Assert.That(aliasItem.IsNested).IsFalse().Because("item=" + aliasItem);
