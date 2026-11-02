@@ -625,7 +625,11 @@ public ref struct JsonWriter
             return;
         }
 
-        Ensure(n + 3);
+        // Four bytes around the name, not three: the optional separator is only 0 or 1, but
+        // the comma arm writes all four, and Ensure refills only when less than what it is
+        // asked for is left — so a reservation of n + 3 lets one byte run past the span.
+        // (BU-1: `{"aaa…":0,"aaa…":1}` threw IndexOutOfRangeException at the colon.)
+        Ensure(n + 4);
         var start = _spanPos;
         var pos = start;
         if (comma)
