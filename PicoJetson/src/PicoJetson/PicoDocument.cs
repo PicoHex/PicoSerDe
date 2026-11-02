@@ -478,24 +478,39 @@ public class PicoDocument
 
     /// <summary>
     /// Validates JSON document structure beyond token-level syntax:
-    /// container matching, property/value grammar, single root value,
+    /// container matching, property/value grammar, separators, single root value,
     /// and no trailing content. The token reader only checks token validity
     /// and bracket depth; this validator enforces the full document grammar.
+    /// <para>
+    /// Requires a span-mode reader: the ',' between two members/elements is a
+    /// swallowed separator, not a token, so the validator inspects the raw gap
+    /// itself (see <c>ConsumeSeparator</c>).
+    /// </para>
     /// </summary>
     private struct JsonStructureValidator(int maxDepth)
     {
-        // Expectation per open container: 0 = expect value-or-end (array),
-        // 1 = expect property-name-or-end (object), 2 = expect value (after
-        // a property name). Kind per container: 0 = object, 1 = array.
+        // What the innermost open container accepts next. Kind per container:
+        // 0 = object, 1 = array.
+        private const byte ExpectValueOrEnd = 0; // array, first element position
+        private const byte ExpectNameOrEnd = 1; // object, first property position
+        private const byte ExpectValue = 2; // after a property name
+        private const byte ExpectSeparatorOrEnd = 3; // after a completed value
+
         private readonly byte[] _expects = new byte[maxDepth];
         private readonly byte[] _kinds = new byte[maxDepth];
         private int _depth;
         private bool _rootDone;
 
-        public void Accept(TokenType t)
+        public void Accept(TokenType t, ReadOnlySpan<byte> src, int tokenStart)
         {
             if (_rootDone)
                 throw new FormatException("Unexpected data after the document root.");
+
+            // A completed value leaves its container expecting ',' or the closing
+            // bracket. Settle that before the token is interpreted, so the states
+            // below only ever describe a first-element position.
+            if (_depth > 0 && _expects[_depth - 1] == ExpectSeparatorOrEnd)
+                ConsumeSeparator(t, src, tokenStart);
 
             switch (t)
             {
@@ -505,12 +520,12 @@ public class PicoDocument
                     if (_depth >= _expects.Length)
                         throw new FormatException("Maximum nesting depth exceeded.");
                     _kinds[_depth] = t == TokenType.ObjectStart ? (byte)0 : (byte)1;
-                    _expects[_depth] = t == TokenType.ObjectStart ? (byte)1 : (byte)0;
+                    _expects[_depth] =
+                        t == TokenType.ObjectStart ? ExpectNameOrEnd : ExpectValueOrEnd;
                     _depth++;
-                    // If this container is the value of an object property,
-                    // the parent's "expect value" obligation is now satisfied.
-                    if (_depth > 1 && _kinds[_depth - 2] == 0)
-                        _expects[_depth - 2] = 1;
+                    // The parent's "expect value" obligation is not settled here:
+                    // it becomes "expect separator-or-end" when this container
+                    // closes, because until then the parent state is not consulted.
                     break;
                 case TokenType.ObjectEnd:
                 case TokenType.ArrayEnd:
@@ -520,34 +535,68 @@ public class PicoDocument
                     byte kind = t == TokenType.ObjectEnd ? (byte)0 : (byte)1;
                     if (_kinds[_depth - 1] != kind)
                         throw new FormatException("Mismatched closing bracket.");
-                    if (_expects[_depth - 1] == 2)
+                    if (_expects[_depth - 1] == ExpectValue)
                         throw new FormatException("Expected a value after the property name.");
                     _depth--;
                     if (_depth == 0)
                         _rootDone = true;
+                    else
+                        _expects[_depth - 1] = ExpectSeparatorOrEnd; // value consumed
                     break;
                 }
                 case TokenType.PropertyName:
-                    if (_depth == 0 || _kinds[_depth - 1] != 0 || _expects[_depth - 1] != 1)
+                    if (
+                        _depth == 0
+                        || _kinds[_depth - 1] != 0
+                        || _expects[_depth - 1] != ExpectNameOrEnd
+                    )
                         throw new FormatException(
                             "A property name is only allowed inside an object."
                         );
-                    _expects[_depth - 1] = 2;
+                    _expects[_depth - 1] = ExpectValue;
                     break;
                 default: // scalar value tokens
                     EnsureCanStartValue();
                     if (_depth > 0)
-                    {
-                        if (_kinds[_depth - 1] == 0)
-                            _expects[_depth - 1] = 1; // property value consumed
-                        // arrays keep expecting value-or-end
-                    }
+                        _expects[_depth - 1] = ExpectSeparatorOrEnd; // value consumed
                     else
-                    {
                         _rootDone = true; // top-level scalar
-                    }
                     break;
             }
+        }
+
+        /// <summary>
+        /// The container just completed a value: the next token must be its closing
+        /// bracket or follow a ','. The reader swallows the comma without emitting a
+        /// token, so the raw byte gap decides — a missing separator has no token of
+        /// its own, and this is the only place that can see it.
+        /// </summary>
+        private void ConsumeSeparator(TokenType t, ReadOnlySpan<byte> src, int tokenStart)
+        {
+            if (t is TokenType.ObjectEnd or TokenType.ArrayEnd)
+                return; // no separator before the closing bracket
+            if (!HasComma(src, tokenStart))
+                throw new FormatException("Expected ',' between values.");
+            _expects[_depth - 1] = _kinds[_depth - 1] == 0 ? ExpectNameOrEnd : ExpectValueOrEnd;
+        }
+
+        /// <summary>
+        /// True when a ',' sits between the previous token and the first
+        /// non-whitespace byte of the current one. A gap holds at most one comma:
+        /// the reader already rejects leading, doubled and trailing commas before
+        /// any later token is emitted.
+        /// </summary>
+        private static bool HasComma(ReadOnlySpan<byte> src, int tokenStart)
+        {
+            for (int i = tokenStart; i < src.Length; i++)
+            {
+                byte b = src[i];
+                if (b == (byte)',')
+                    return true;
+                if (b is not ((byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r'))
+                    return false;
+            }
+            return false;
         }
 
         private void EnsureCanStartValue()
@@ -556,11 +605,11 @@ public class PicoDocument
                 return; // root value not yet read
             if (_kinds[_depth - 1] == 1)
             {
-                if (_expects[_depth - 1] != 0)
+                if (_expects[_depth - 1] != ExpectValueOrEnd)
                     throw new FormatException("Unexpected value in array.");
                 return;
             }
-            if (_expects[_depth - 1] != 2)
+            if (_expects[_depth - 1] != ExpectValue)
                 throw new FormatException(
                     "A value is only allowed after a property name in an object."
                 );
@@ -659,7 +708,7 @@ public class PicoDocument
         ref JsonStructureValidator validator
     )
     {
-        validator.Accept(reader.TokenType);
+        validator.Accept(reader.TokenType, reader.RawBuffer, (int)reader.TokenStart);
         switch (reader.TokenType)
         {
             case TokenType.ObjectStart:
@@ -783,7 +832,7 @@ public class PicoDocument
                 var validator = new JsonStructureValidator(256);
                 do
                 {
-                    validator.Accept(r.TokenType);
+                    validator.Accept(r.TokenType, r.RawBuffer, (int)r.TokenStart);
                 } while (r.Read());
                 validator.EnsureComplete();
                 return true;
