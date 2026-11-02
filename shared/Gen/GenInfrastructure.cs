@@ -301,6 +301,26 @@ internal static class GenInfrastructure
     private const string UnresolvableTypeReason =
         "no shape could be resolved for its declared type";
 
+    /// <summary>
+    /// The ⏸ gate that has a reason of its own because it has a way OUT
+    /// (<see cref="TypeKindResolver.EmptyObjectBlock.FormatHasNoEmptyForm"/>): the member's type
+    /// declares no public instance member, so its only shape is the empty object, and OUR writer
+    /// has no form for one in this format (yaml today — the table's own doc explains why). The
+    /// generic <see cref="UnresolvableTypeReason"/> ("no shape could be resolved") is the symptom
+    /// here, and it left the reader with nothing to do: the shape IS resolvable, it is the empty
+    /// object, and a reader who needs it on the wire has two moves — give the type a member that
+    /// is actually written, or write it with a format that has the empty-object form. Both are
+    /// said out loud because a ⏸ with no exit is a dead end.
+    /// <para>
+    /// Deliberately NOT folded into the shared ⏸ template (<c>UnsupportedTypeDeferredWarning</c>):
+    /// that template also carries "the base class still carries members", recursion positions and
+    /// emitter gaps, where an empty-object workaround would be false advice. Only the wording
+    /// changes here — marker, verdict (⏸) and template stay exactly what they were.
+    /// </para>
+    /// </summary>
+    private const string EmptyObjectNoFormReason =
+        "it declares no public instance member, so its only shape is the empty object, and this writer has no form for an empty object yet; give the type a member that is actually written (a placeholder scalar, if the type is only a marker) or write it with a format that has the empty-object form";
+
     private const string RecursiveFieldReason = "it closes a type cycle";
 
     /// <summary>
@@ -743,6 +763,12 @@ internal static class GenInfrastructure
         // class still carries members) really are reopenable and keep it.
         return TypeKindResolver.EmptyObjectBlockOf(type, formatTag) switch
         {
+            // The one empty-object gate that is neither terminal nor symptom-only: our writer
+            // has no form for the empty object, and the message names the way out.
+            EmptyObjectBlock.FormatHasNoEmptyForm => (
+                EmptyObjectNoFormReason,
+                DropVerdict.GeneratorGap
+            ),
             EmptyObjectBlock.Abstract => (AbstractTypeReason, DropVerdict.TypeUnconstructible),
             EmptyObjectBlock.StaticClass => (
                 StaticClassTypeReason,

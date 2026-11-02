@@ -312,6 +312,62 @@ jw.WriteEndObject();
 
 All `WriteNumber` overloads format with `CultureInfo.InvariantCulture` — output never depends on the ambient culture. `WriteNumber(float)` emits the shortest round-trippable single-precision text, so a `float` keeps its own precision instead of being widened to `double` and printing the widened value.
 
+### Closing a container is the commit point
+
+`JsonWriter` is a `ref struct` with **no `Dispose`, no `Complete` and no public `Flush`**. A token is
+written into a private span cache, and those bytes reach the caller's `IBufferWriter` at only a few
+places: the outermost `WriteEndObject` / `WriteEndArray` (when the depth returns to 0), a `Buffer`
+read (that is how `IJsonConverter` and `SerializeCustom` hand over), a span refill every 256 B, and
+one commit per token while no container is open. So the contract is: **every container you open must
+be closed** — on the happy path *and* on every early return from inside it. Leaving one open is not
+something the writer can report: a `ref struct` has no scope hook, and there is no `using` to write.
+
+| What the caller does | Bytes that reach the buffer |
+|---|---|
+| `WriteStartObject(); WritePropertyName("x"u8); WriteNumber(1);` and never `WriteEndObject()` | `{` — a 1-byte document (the only token written at depth 0) |
+| the same with ~40 members, so the 256-B span refilled several times | the document truncated at the **last block that was flushed** (measured: 502 B ending in `,"prop":`) |
+
+That is the whole failure mode: **the tail is never committed**. A small document degrades to `{`;
+a large one stops at the last boundary that happened to be committed. Nothing throws, and
+`PicoDocument.IsValid` reports `false` on the fragment.
+
+Close from a `finally` when an early exit can skip it:
+
+```csharp
+static void WriteUser(ref JsonWriter jw, User user)
+{
+    jw.WriteStartObject();
+    try
+    {
+        jw.WritePropertyName("name"u8);
+        jw.WriteString(user.Name);
+        if (user.Id is { } id)              // an early exit INSIDE the container
+        {
+            jw.WritePropertyName("id"u8);
+            jw.WriteNumber(id);
+        }
+    }
+    finally
+    {
+        // This line IS the commit: skipping it leaves the tail (the closing brace
+        // included) in the writer's span cache, where no caller can ever see it.
+        jw.WriteEndObject();
+    }
+}
+```
+
+Two things that follow from it:
+
+- **An exception mid-document cannot be repaired by closing.** Closing would emit a container whose
+  value never arrived (or throw on the pending property name), so the rule is to write into a
+  scratch `IBufferWriter<byte>` and publish it only once the outermost close has run — never hand
+  the writer the stream or response body you are about to send. Our generated serializers write
+  straight into the caller's buffer, so a `Serialize(IBufferWriter<byte>, T)` that throws leaves
+  that buffer holding a broken prefix.
+- **The probe is one comparison.** `BytesWritten` counts the bytes *written into* the writer,
+  committed or not, so `writer.BytesWritten != buffer.WrittenSpan.Length` means the writer is
+  holding bytes back — a document that was never closed (or a writer that was copied by value).
+
 ## Packages
 
 | Package | Description |

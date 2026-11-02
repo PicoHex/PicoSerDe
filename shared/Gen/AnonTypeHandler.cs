@@ -1134,6 +1134,23 @@ internal static class AnonTypeHandler
             sb.AppendLine("        if (__depth >= __maxDepth)");
             sb.AppendLine("            throw new FormatException(\"MaxDepth exceeded\");");
         }
+        // The pair the nested object was missing. The top-level interceptor writes its own
+        // (AnonymousSerialize, above); this helper wrote its members BARE, so
+        // `new { Outer = new { X = 1 } }` came out as `{"Outer":,"X":1}` — a document no
+        // reader accepts — and MsgPack lost its map header entirely (the count is the same
+        // "members actually written" answer the top-level header uses). One pair per helper,
+        // so a nested object opens and closes exactly once; only writers that expose a
+        // count-free or counted object pair get one, which is why INI/TOML are untouched
+        // (their nested content is a section/table name, not a bracketed container).
+        if (afc.ObjectStartMethod is not null)
+        {
+            if (afc.ObjectStartNeedsCount)
+                sb.AppendLine(
+                    $"        {wv}.{afc.ObjectStartMethod}({scope.EmittedFieldCount(info)});"
+                );
+            else
+                sb.AppendLine($"        {wv}.{afc.ObjectStartMethod}();");
+        }
         int fi = 0;
         foreach (var f in info.Fields)
         {
@@ -1153,6 +1170,8 @@ internal static class AnonTypeHandler
                 emitField
             );
         }
+        if (afc.ObjectEndMethod is not null)
+            sb.AppendLine($"        {wv}.{afc.ObjectEndMethod}();");
         sb.AppendLine("    }");
         sb.AppendLine("}");
         return sb.ToString();

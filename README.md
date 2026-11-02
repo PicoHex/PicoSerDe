@@ -451,6 +451,12 @@ var result = JsonSerializer.Deserialize<SessionEntry>(json);
 
 Schema-less JSON inspection without `System.Text.Json`. Zero-copy.
 
+`Parse` takes a `byte[]` (`Parse(byte[])` / `Parse(byte[], int maxDepth)`) and owns it — there is no
+`string` overload, so a `string` document does not compile
+(`CS1503: Argument 1: cannot convert from 'string' to 'byte[]'`); encode it first with
+`Encoding.UTF8.GetBytes(json)`. `IsValid` is the other way round: it takes a `ReadOnlySpan<byte>`, so
+a `u8` literal goes in as-is while `Parse` needs `.ToArray()`.
+
 ```csharp
 var doc = PicoDocument.Parse("""{"name":"Alice","age":30}"""u8.ToArray());
 
@@ -562,6 +568,23 @@ writer, recorded as a debt with a `reopen:` pointer, never as a limit of the for
 that *cannot be instantiated at all* (abstract, a static class, or no accessible parameterless
 constructor) is a different verdict: it is dropped with a **terminal** `⛔`, because no format and no
 generator change can build an instance of it.
+
+**If you need that shape in YAML today**, give the type one member that is actually written — a
+placeholder scalar when the type is only a marker. That member forces the parent to emit a mapping
+instead of a bare key, so the wire carries a real shape and the instance reads back:
+
+```csharp
+[PicoYamlSerializable]
+public sealed class Mark { public int Shape { get; set; } }   // `Mark:` + one key, not `Mark:` alone
+```
+
+Marking that placeholder `[PicoIgnore]` does **not** work for YAML (measured on `v2026.12.1`): with
+every member ignored the type has nothing left to write, so the writer emits `Mark:` — YAML for
+`null`, not for `{}` — and the parent's generated read path is emitted as though the member were a
+string, which fails the build with `CS0029: Cannot implicitly convert type 'string' to 'Mark'`. JSON,
+MsgPack, TOML and INI need no workaround at all: they write their own empty object. The `PICOSERDE001`
+warning itself names the same two moves (it is `⏸` with a `reopen:` pointer, and the reason slot says
+what to give the type or which kind of format to use instead).
 
 The wire shape behind each ✅ is documented per format: [PicoToml](PicoToml/README.md#limits)
 (`[[Table]]`, `G = [[1, 2], [3]]`), [PicoYaml](PicoYaml/README.md#limits) (block sequences, `- []` vs
