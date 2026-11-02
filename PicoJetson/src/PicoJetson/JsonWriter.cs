@@ -9,6 +9,19 @@ public ref struct JsonWriter
     private readonly JsonOptions? _options;
     private int _depth;
     private ulong _needsComma;
+
+    /// <summary>Container kind per nesting level: bit set = object, clear = array.</summary>
+    /// <remarks>
+    /// One bit per level, indexed by depth exactly like <see cref="_needsComma"/>: bit
+    /// <c>_depth</c> is the kind of the container that is open right now, and bit 0 is never set,
+    /// because a container records its kind only once it has been entered (depth >= 1). A value
+    /// therefore needs a property name iff bit <c>_depth</c> is set — one mask test, no branch on
+    /// depth, and the root case falls out for free. One word for a depth limit of 63
+    /// (the constructor's <c>maxDepth</c> is capped at 63 for that reason: the deepest
+    /// container is bit 63).
+    /// </remarks>
+    private ulong _kinds;
+
     private bool _afterPropertyName;
 
     /// <summary>Bytes handed out by <see cref="_buffer"/> and not yet committed.</summary>
@@ -20,6 +33,18 @@ public ref struct JsonWriter
     /// <summary>Minimum span the writer asks for, so short tokens amortise one fetch.</summary>
     private const int MinSpanSize = 256;
 
+    /// <summary>
+    /// Bytes this writer has written, including the ones still staged in the writer's own span and
+    /// therefore not yet handed to <see cref="Buffer"/>.
+    /// </summary>
+    /// <remarks>
+    /// The counter moves when a byte lands in the span, not when the span is committed, so its name
+    /// reads as "bytes written to the writer", not "bytes the buffer received". While a container is
+    /// open the two legitimately differ — the outermost close, a top-level token, or any read of
+    /// <see cref="Buffer"/> is what commits — which makes
+    /// <c>BytesWritten != buffer.WrittenSpan.Length</c> a cheap probe for "this document still has
+    /// bytes pending", the state a writer left open (or closed once too often) hides in.
+    /// </remarks>
     public long BytesWritten => _bytesWritten;
 
     /// <summary>Exposes the underlying buffer for converter support in nested helpers.</summary>
@@ -77,6 +102,7 @@ public ref struct JsonWriter
         _options = options;
         _depth = 0;
         _needsComma = 0UL;
+        _kinds = 0UL;
         _afterPropertyName = false;
         _span = default;
         _spanPos = 0;
@@ -128,8 +154,12 @@ public ref struct JsonWriter
             _afterPropertyName = false;
         else
         {
-            comma = (_needsComma & (1UL << _depth)) != 0;
-            _needsComma |= 1UL << _depth;
+            // The number path stages its own separator, so it asks the same two questions here;
+            // the depth mask is shifted once instead of twice.
+            var bit = 1UL << _depth;
+            ThrowIfValueInObjectWithoutName(bit);
+            comma = (_needsComma & bit) != 0;
+            _needsComma |= bit;
         }
         // One slot for the separator plus the value's worst case, in one reservation.
         Ensure(maxBytes + 1);
@@ -607,6 +637,12 @@ public ref struct JsonWriter
     /// </remarks>
     public void WritePropertyName(scoped ReadOnlySpan<byte> utf8Name)
     {
+        // Two names in a row would stage a separator for a value that never comes
+        // ({"a":,"b":1}); the closing brace's guard catches the same mistake from the other end.
+        if (_afterPropertyName)
+            throw new InvalidOperationException(
+                "Cannot write a JSON property name following another property name: the first one's value is missing."
+            );
         var comma = (_needsComma & (1UL << _depth)) != 0;
         _needsComma |= (1UL << _depth);
 
@@ -683,10 +719,16 @@ public ref struct JsonWriter
         BeforeWriteValue();
         WriteByte((byte)'{');
         _depth++;
+        _kinds |= 1UL << _depth;
     }
 
     public void WriteEndObject()
     {
+        // Checked before any mutation, so a close with nothing to close leaves neither a written
+        // brace nor a depth below zero behind. Without it the close decrements to -1, where the
+        // comma mask's shift wraps onto bit 63 and the document's tail silently stops committing.
+        if (_depth == 0)
+            throw new InvalidOperationException("'}' is invalid without a matching open.");
         ThrowIfPropertyNamePending("object");
         _needsComma &= ~(1UL << _depth);
         _depth--;
@@ -704,10 +746,19 @@ public ref struct JsonWriter
         BeforeWriteValue();
         WriteByte((byte)'[');
         _depth++;
+        _kinds &= ~(1UL << _depth);
     }
 
     public void WriteEndArray()
     {
+        if (_depth == 0)
+            throw new InvalidOperationException("']' is invalid without a matching open.");
+        // The open container at this depth is an object: ']' would close the wrong shape, which
+        // used to come out as "{]".
+        if ((_kinds & (1UL << _depth)) != 0)
+            throw new InvalidOperationException(
+                "']' is invalid without a matching open array: the container open at this depth is an object."
+            );
         ThrowIfPropertyNamePending("array");
         _needsComma &= ~(1UL << _depth);
         _depth--;
@@ -733,6 +784,17 @@ public ref struct JsonWriter
             );
     }
 
+    /// <summary>
+    /// Writes the separator a value needs (or consumes the pending property name), and rejects a
+    /// value written straight into an object.
+    /// </summary>
+    /// <remarks>
+    /// A value inside an object is only legal after <see cref="WritePropertyName"/>; without that
+    /// question the writer emitted <c>{"x"}</c> — illegal JSON, no exception, left for the consumer
+    /// to discover. The kind mask answers it in the same word the comma bit comes from: bit
+    /// <c>_depth</c> set means an object is open, and at depth 0 the bit is never set, so a
+    /// top-level scalar is not affected.
+    /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void BeforeWriteValue()
     {
@@ -741,9 +803,22 @@ public ref struct JsonWriter
             _afterPropertyName = false;
             return;
         }
-        if ((_needsComma & (1UL << _depth)) != 0)
+        var bit = 1UL << _depth;
+        ThrowIfValueInObjectWithoutName(bit);
+        if ((_needsComma & bit) != 0)
             WriteByte((byte)',');
-        _needsComma |= (1UL << _depth);
+        _needsComma |= bit;
+    }
+
+    /// <summary>Rejects a value written inside an object with no property name pending.</summary>
+    /// <param name="depthBit">The current depth as one bit (<c>1UL &lt;&lt; _depth</c>).</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private readonly void ThrowIfValueInObjectWithoutName(ulong depthBit)
+    {
+        if ((_kinds & depthBit) != 0)
+            throw new InvalidOperationException(
+                "Cannot write a JSON value within an object without a property name: call WritePropertyName first."
+            );
     }
 
     /// <summary>

@@ -240,8 +240,28 @@ public class JsonWriterSpanCacheTests
                     w.WriteStartObject();
                     w.WritePropertyName("raw"u8);
                     w.WriteRawValue("{\"x\":1}"u8);
-                    w.WriteRawValue(ReadOnlySpan<char>.Empty);
                     w.WriteEndObject();
+                }
+            ),
+            false
+        );
+        yield return (
+            "raw value, char overload",
+            (WriterAction)((ref JsonWriter w) => w.WriteRawValue("{\"y\":2}".AsSpan())),
+            false
+        );
+        // The empty char-span overload stages no bytes; it sat as a second object member here,
+        // which is a value with no property name — the misuse the writer now rejects (before
+        // the guard it left a stray comma behind: {"raw":{"x":1},}). As the first array element
+        // it still exercises the same overload and leaves "[]" untouched.
+        yield return (
+            "raw value, empty char span",
+            (WriterAction)(
+                (ref JsonWriter w) =>
+                {
+                    w.WriteStartArray();
+                    w.WriteRawValue(ReadOnlySpan<char>.Empty);
+                    w.WriteEndArray();
                 }
             ),
             false
