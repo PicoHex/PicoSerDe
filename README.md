@@ -551,6 +551,18 @@ alone** with `PICOSERDE004` — its sections carry no nesting at all (`DictValue
 **top-level scalar** target is refused outright — `Serialize<Guid>()`, `Deserialize<int?>()` and
 friends throw `InvalidOperationException` ("no serializer registered").
 
+One more shape has no row here, because it has no spec §6 id — and it is still a shape you can
+write: a **zero-member type** (`public sealed class Mark { }`). Four formats write it as *their* empty
+object and the member round-trips — JSON `{}`, MsgPack an empty map, TOML a header with no keys
+(`[Mark]`; `tomllib.loads('[Mark]')` → `{'Mark': {}}`), INI an empty section (`[Mark]`). **YAML still
+drops it** (`PICOSERDE001`, `⏸`): the *format* holds it — PyYAML reads `a: {}` as `{'a': {}}` and our
+own `YamlReader` tokenizes the empty flow mapping — but `YamlWriter` has no empty-mapping form (a block
+mapping with no members writes no bytes, and `Mark:` is YAML for null), so what is missing is our
+writer, recorded as a debt with a `reopen:` pointer, never as a limit of the format. A zero-member type
+that *cannot be instantiated at all* (abstract, a static class, or no accessible parameterless
+constructor) is a different verdict: it is dropped with a **terminal** `⛔`, because no format and no
+generator change can build an instance of it.
+
 The wire shape behind each ✅ is documented per format: [PicoToml](PicoToml/README.md#limits)
 (`[[Table]]`, `G = [[1, 2], [3]]`), [PicoYaml](PicoYaml/README.md#limits) (block sequences, `- []` vs
 `- "[]"`), [PicoIni](PicoIni/README.md#limits), [PicoJetson](PicoJetson/README.md#limits),

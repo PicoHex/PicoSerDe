@@ -1114,6 +1114,20 @@ public class SilentDropDiagnosticTests
         string source
     ) => Run(new JsonSerializerGenerator(), source);
 
+    /// <summary>
+    /// <see cref="RunJson"/> over a compilation that carries EXTRA metadata references. One caller
+    /// needs it: the N-4 test that a zero-member type arriving from a REFERENCED assembly
+    /// (metadata only) keeps its drop even when its parameterless constructor is <c>internal</c>,
+    /// because the generated code cannot call it — compiling that library in memory is the only
+    /// way to have such a symbol. A separate overload, not an optional parameter: a method group
+    /// with a default argument does not convert to <c>Func&lt;string, …&gt;</c>, and the drivers
+    /// table passes these methods as delegates.
+    /// </summary>
+    internal static (string[] DiagnosticIds, string Generated, string[] Messages) RunJsonWithRefs(
+        string source,
+        IEnumerable<MetadataReference> extraReferences
+    ) => Run(new JsonSerializerGenerator(), source, extraReferences);
+
     internal static (string[] DiagnosticIds, string Generated, string[] Messages) RunMsgPack(
         string source
     ) => Run(new MsgPackSerializerGenerator(), source);
@@ -1128,10 +1142,11 @@ public class SilentDropDiagnosticTests
 
     private static (string[] DiagnosticIds, string Generated, string[] Messages) Run(
         IIncrementalGenerator generator,
-        string source
+        string source,
+        IEnumerable<MetadataReference>? extraReferences = null
     )
     {
-        var result = RunGenerator(generator, source);
+        var result = RunGenerator(generator, source, extraReferences);
         var ids = result.Diagnostics.Select(d => d.Id).ToArray();
         var messages = result.Diagnostics.Select(d => d.GetMessage()).ToArray();
         var generated = string.Join(
@@ -1156,13 +1171,16 @@ public class SilentDropDiagnosticTests
     /// </summary>
     internal static GeneratorDriverRunResult RunGenerator(
         IIncrementalGenerator generator,
-        string source
+        string source,
+        IEnumerable<MetadataReference>? extraReferences = null
     )
     {
         var compilation = CSharpCompilation.Create(
             "SilentDropDiagAsm",
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
-            AllFormatReferences.References(),
+            extraReferences is null
+                ? AllFormatReferences.References()
+                : AllFormatReferences.References().Concat(extraReferences),
             // allowUnsafe: the anonymous-type sample (D-10) cannot be generated without it —
             // the interceptor reads the anonymous layout through pointers. It changes nothing
             // for the named-DTO samples: unsafe code is only ever EMITTED for that path.

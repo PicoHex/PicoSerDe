@@ -3,6 +3,49 @@
 
 namespace PicoSerDe.Gen;
 
+/// <summary>
+/// Which gate of the empty-object arm said no — or that none did
+/// (<see cref="None"/>: the type's shape IS the empty object of this format).
+/// <para>
+/// The gates split into two classes, and <c>GenInfrastructure</c> turns the split into the
+/// diagnostic marker: the three that make the type IMPOSSIBLE TO INSTANTIATE are terminal (no
+/// generator change can write a shape whose instance cannot be created), while "our writer has
+/// no empty form" and "the base contributes members" are our own reopenable gaps. Naming the
+/// gate, rather than answering a bool, is what keeps the verdict and the decision in step
+/// (AGENTS.md rule 3: a debt must not be called terminal, and a terminal fact must not be
+/// written up as a debt to wait for).
+/// </para>
+/// </summary>
+internal enum EmptyObjectBlock
+{
+    /// <summary>No gate fired: this type is the empty object of this format.</summary>
+    None,
+
+    /// <summary>The type DECLARES public instance data — it is not a zero-member type.</summary>
+    NotZeroMember,
+
+    /// <summary>
+    /// ⏸ our writer has no form for an empty object in this format
+    /// (<c>FormatCapabilities.EmptyObjectSupported</c>). Reopenable: the FORMAT can hold it.
+    /// </summary>
+    FormatHasNoEmptyForm,
+
+    /// <summary>⛔ abstract: <c>new T()</c> is CS0144 in every format.</summary>
+    Abstract,
+
+    /// <summary>⛔ a static class is not a value at all: <c>new T()</c> is CS0712.</summary>
+    StaticClass,
+
+    /// <summary>
+    /// ⏸ the base class is not <c>object</c>/<c>ValueType</c>, so it still carries members —
+    /// a separate extraction question, not a fact about this type.
+    /// </summary>
+    BaseContributesMembers,
+
+    /// <summary>⛔ no accessible parameterless constructor: <c>new T()</c> is CS7036.</summary>
+    NotConstructible,
+}
+
 internal static class TypeKindResolver
 {
     /// <param name="format">
@@ -198,12 +241,9 @@ internal static class TypeKindResolver
             && type is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } ntsObj
         )
         {
-            // Whether the type DECLARES any public instance data at all — see the empty-object
-            // arm below, which must only ever answer for a type that declares NONE. It is not
-            // the same question as the loop's ("is there a member we can SERIALIZE"): a get-only
-            // property is a member we decline to serialize, and a type made only of those
-            // (`KeyValuePair<,>`, `Tuple<,>`) is a real shape, not an empty one.
-            bool declaresPublicInstanceData = false;
+            // Does the type declare a member we can SERIALIZE? That is a different question
+            // from "does it declare public instance data at all", which is the empty-object
+            // arm's precondition (<see cref="DeclaresPublicInstanceData"/>).
             foreach (var member in ntsObj.GetMembers())
             {
                 if (
@@ -214,7 +254,6 @@ internal static class TypeKindResolver
                     } ps
                 )
                 {
-                    declaresPublicInstanceData = true;
                     if (
                         !ps.IsIndexer
                         && ps.GetMethod is not null
@@ -234,7 +273,6 @@ internal static class TypeKindResolver
                     }
                 )
                 {
-                    declaresPublicInstanceData = true;
                     return ("object", false, null);
                 }
             }
@@ -247,34 +285,14 @@ internal static class TypeKindResolver
             // read `{"SessionCapabilities":{}}` where the user's model said
             // `{"SessionCapabilities":{"List":{}}}`.
             //
-            // Five conditions, each one a way the empty object could become a LIE:
-            //   * the FORMAT must have the form — asked of the capability model, never
-            //     assumed (I-3, `FormatCapabilities.EmptyObjectSupported`);
-            //   * the type must be instantiable: the reader's `new T()` is CS0144 on an
-            //     abstract type (I-2), so a zero-member ABSTRACT type keeps today's drop;
-            //   * a static class is not a value at all and `new T()` on it is CS0712;
-            //   * a public parameterless constructor must exist, or `new T()` is CS7036;
-            //   * nothing may INHERIT into the shape — a type that derives from anything but
-            //     `object`/`ValueType` would get `{}` for a shape the base still carries
-            //     (`Opaque : Exception` would silently lose `Message`). That case needs the
-            //     base's members, which is a separate extraction question, so it keeps
-            //     today's loud drop rather than becoming a silent empty object.
-            // ZERO MEMBERS is a narrower claim than "nothing the loop accepted": the type must
-            // declare no public instance property at ALL (a get-only one included — `KeyValuePair`
-            // and `Tuple` are made only of those, and writing `{}` for them would silently drop
-            // data the loud PICOSERDE001 drop keeps visible) and no public instance field.
-            if (
-                !declaresPublicInstanceData
-                && FormatCapabilities.EmptyObjectSupported(format)
-                && !ntsObj.IsAbstract
-                && !ntsObj.IsStatic
-                && ntsObj.BaseType
-                    is null
-                        or {
-                            SpecialType: SpecialType.System_Object or SpecialType.System_ValueType
-                        }
-                && HasParameterlessConstructor(ntsObj)
-            )
+            // The five gates are NOT inlined here: they live in <see cref="EmptyObjectBlockOf"/>,
+            // because the DROP VERDICT is decided from the same list (N-1/N-4). Three of the
+            // gates are terminal (abstract / static class / no accessible parameterless
+            // constructor — CS0144 / CS0712 / CS7036 in every format, so no generator change
+            // can help) and two are our own reopenable gaps (the format's writer has no empty
+            // form; the base class still carries members). A verdict that re-derived those
+            // gates would be a second copy of this decision.
+            if (EmptyObjectBlockOf(ntsObj, format) == EmptyObjectBlock.None)
                 return ("object", false, null);
         }
 
@@ -282,15 +300,115 @@ internal static class TypeKindResolver
     }
 
     /// <summary>
-    /// Can the generated `new T()` create this type — is there a PUBLIC parameterless
+    /// Does this type declare any PUBLIC INSTANCE data at all — a property (get-only and
+    /// indexers included) or a field?
+    /// <para>
+    /// The empty-object arm answers only for a type that declares NONE, and this is a narrower
+    /// claim than the member loop's "is there a member we can SERIALIZE": a get-only property is
+    /// a member we decline to serialize, and a type made only of those
+    /// (<c>KeyValuePair&lt;,&gt;</c>, <c>Tuple&lt;,&gt;</c>) is a real shape, not an empty one —
+    /// writing <c>{}</c> for it would silently drop data the loud PICOSERDE001 drop keeps
+    /// visible.
+    /// </para>
+    /// </summary>
+    private static bool DeclaresPublicInstanceData(INamedTypeSymbol type)
+    {
+        // No LINQ here on purpose: this file is linked into the netstandard2.0 generator
+        // projects with no `using` list of its own (see the head of the file).
+        foreach (var member in type.GetMembers())
+        {
+            if (
+                member is IPropertySymbol
+                {
+                    DeclaredAccessibility: Accessibility.Public,
+                    IsStatic: false
+                }
+            )
+                return true;
+            if (
+                member is IFieldSymbol
+                {
+                    DeclaredAccessibility: Accessibility.Public,
+                    IsStatic: false
+                }
+            )
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The gates of the empty-object arm, in ONE place, answering WHICH gate said no
+    /// (<see cref="EmptyObjectBlock.None"/> means this type IS the empty object of this format).
+    /// <para>
+    /// Extracted so that the DROP VERDICT is decided by the same code that made the decision
+    /// (N-1/N-4). The gates are not one class of fact:
+    /// </para>
+    /// <list type="number">
+    /// <item>a type that DECLARES public instance data is not zero-member at all — the
+    ///       precondition of the empty object, not a gate on it;</item>
+    /// <item>the FORMAT must have the form — our writer's gap (yaml today), reopenable ⇒
+    ///       <see cref="EmptyObjectBlock.FormatHasNoEmptyForm"/>;</item>
+    /// <item>abstract: the reader's <c>new T()</c> is CS0144 ⇒ terminal;</item>
+    /// <item>static class: not a value at all, <c>new T()</c> is CS0712 ⇒ terminal;</item>
+    /// <item>a base class other than <c>object</c>/<c>ValueType</c> still carries members — a
+    ///       separate EXTRACTION question, reopenable ⇒
+    ///       <see cref="EmptyObjectBlock.BaseContributesMembers"/>. Writing <c>{}</c> for it
+    ///       would silently lose <c>Message</c> on <c>Opaque : Exception</c>;</item>
+    /// <item>no accessible parameterless constructor: <c>new T()</c> is CS7036 ⇒ terminal.</item>
+    /// </list>
+    /// <para>
+    /// The order is the order the gates used to be written in, so a type that fails several of
+    /// them reports the first one a reader can act on. ③④⑥ are what
+    /// <c>GenInfrastructure</c> turns into the terminal ⛔ wording
+    /// (<c>DropVerdict.TypeUnconstructible</c>); ②⑤ keep the ⏸ debt wording.
+    /// </para>
+    /// </summary>
+    internal static EmptyObjectBlock EmptyObjectBlockOf(ITypeSymbol type, string format)
+    {
+        if (type is not INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } nts)
+            return EmptyObjectBlock.NotZeroMember;
+        if (DeclaresPublicInstanceData(nts))
+            return EmptyObjectBlock.NotZeroMember;
+        if (!FormatCapabilities.EmptyObjectSupported(format))
+            return EmptyObjectBlock.FormatHasNoEmptyForm;
+        if (nts.IsAbstract)
+            return EmptyObjectBlock.Abstract;
+        if (nts.IsStatic)
+            return EmptyObjectBlock.StaticClass;
+        if (
+            nts.BaseType is { } baseType
+            && baseType.SpecialType != SpecialType.System_Object
+            && baseType.SpecialType != SpecialType.System_ValueType
+        )
+            return EmptyObjectBlock.BaseContributesMembers;
+        if (!HasParameterlessConstructor(nts))
+            return EmptyObjectBlock.NotConstructible;
+
+        return EmptyObjectBlock.None;
+    }
+
+    /// <summary>
+    /// Can the generated `new T()` create this type — is there an ACCESSIBLE parameterless
     /// constructor, implicit or declared?
     /// <para>
-    /// The empty-object arm above hands the emitters an ordinary object shape, and every one of
-    /// them creates the instance by calling <c>new &lt;Type&gt;()</c> on the read path. A type
-    /// whose only constructors take parameters has no such call, so it keeps the unresolved
-    /// drop instead of emitting code that does not compile (invariant I-2). A struct always
-    /// answers yes: <c>new S()</c> is legal even when every declared constructor takes
-    /// parameters.
+    /// The empty-object arm hands the emitters an ordinary object shape, and every one of them
+    /// creates the instance by calling <c>new &lt;Type&gt;()</c> on the read path. A type whose
+    /// only constructors take parameters has no such call, so it keeps the loud drop instead of
+    /// emitting code that does not compile (invariant I-2). A struct always answers yes:
+    /// <c>new S()</c> is legal even when every declared constructor takes parameters.
+    /// </para>
+    /// <para>
+    /// N-4: <c>internal</c> counts too, because the generated code lands in the CONSUMER
+    /// assembly, so a parameterless <c>internal</c> constructor of a type declared THERE is
+    /// <c>new T()</c>-callable from it. The exception is a type that comes from METADATA only (a
+    /// referenced package): its <c>internal</c> constructor is not reachable from the assembly we
+    /// generate into, so only <c>public</c> counts there. "Declared in this compilation" is the
+    /// right oracle for that, and a generator sees exactly one compilation, so a symbol with
+    /// source declarations IS a type the generated code is compiled alongside. <c>protected</c>,
+    /// <c>protected internal</c> and <c>private protected</c> all need a derived type or the
+    /// declaring class — generated code is neither, so none of them counts.
     /// </para>
     /// </summary>
     private static bool HasParameterlessConstructor(INamedTypeSymbol type)
@@ -298,11 +416,19 @@ internal static class TypeKindResolver
         if (type.IsValueType)
             return true;
 
+        bool declaredInThisCompilation = !type.DeclaringSyntaxReferences.IsEmpty;
+
         // No LINQ here on purpose: this file is linked into the netstandard2.0 generator
         // projects with no `using` list of its own (see the head of the file).
         foreach (var ctor in type.InstanceConstructors)
-            if (ctor.Parameters.Length == 0 && ctor.DeclaredAccessibility == Accessibility.Public)
+        {
+            if (ctor.Parameters.Length != 0)
+                continue;
+            if (ctor.DeclaredAccessibility == Accessibility.Public)
                 return true;
+            if (declaredInThisCompilation && ctor.DeclaredAccessibility == Accessibility.Internal)
+                return true;
+        }
 
         return false;
     }

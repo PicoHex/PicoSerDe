@@ -38,6 +38,8 @@
 // The attribute pipeline the report used is driven in-proc at the bottom of the file.
 
 using System.Text;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace PicoSerDe.Integration.Tests;
 
@@ -367,6 +369,388 @@ public class ZeroMemberObjectShapeTests
             .That(message.Contains("\u26D4", StringComparison.Ordinal))
             .IsFalse()
             .Because("a ⛔ here would tell the reader to change a perfectly expressible type");
+    }
+
+    // ══ N-1: the three boundaries no generator change can cross ══════════════════════
+    //
+    // BU-4 rescued the types that DECLARE nothing. Three neighbours stay dropped because C#
+    // itself refuses to build them — abstract (CS0144), a static class (CS0712), a type whose
+    // only constructors take parameters (CS7036) — and until N-1 they were reported with the ⏸
+    // wording ("The json format can express this shape, but this generator has not implemented it
+    // yet … reopen: …"), i.e. a member we will NEVER implement was written up as a debt to wait
+    // for. AGENTS.md rule 3 forbids that in BOTH directions: ⏸ promises a reopen that cannot
+    // happen, and the ⛔ template for a FORMAT fact would claim "the json format cannot represent
+    // it" — false, json holds `{}` (the tests above prove it); it is the TYPE that has no
+    // instance.
+    //
+    // The three fixtures below therefore assert the same contract: PICOSERDE001, the TERMINAL ⛔
+    // marker, no ⏸, the actual cause named, and no advice the reader cannot follow ("use a format
+    // that can" is a five-way dead end: no format can call `new T()` here).
+
+    private const string Impossible = "\u26D4";
+    private const string Deferred = "\u23F8";
+
+    /// <summary>
+    /// Abstract: the reader's <c>new ShapeMark()</c> is CS0144, so the member cannot round-trip in
+    /// any format. Terminal — and it must SAY so instead of promising a reopen.
+    /// </summary>
+    [Test]
+    public async Task AbstractZeroMemberType_IsATerminalDrop_NotADebt()
+    {
+        const string source = """
+            using PicoJetson;
+
+            public abstract class ShapeMark { }
+
+            [PicoJsonSerializable]
+            public partial class ShapeDoc
+            {
+                public string Name { get; set; } = "";
+                public ShapeMark? Mark { get; set; }
+            }
+            """;
+
+        await AssertTerminalDrop(
+            SilentDropDiagnosticTests.RunJson(source),
+            "ShapeDoc.Mark",
+            "ShapeMark",
+            "abstract"
+        );
+    }
+
+    /// <summary>
+    /// Only <c>Mark(int)</c>: no parameterless constructor exists, so <c>new T()</c> is CS7036.
+    /// This is the N-1 fixture that is NOT about the class being abstract — the type is perfectly
+    /// concrete and still impossible to build from a document.
+    /// </summary>
+    [Test]
+    public async Task ZeroMemberTypeWithOnlyAParameterizedConstructor_IsATerminalDrop_NotADebt()
+    {
+        const string source = """
+            using PicoJetson;
+
+            public sealed class ShapeMark
+            {
+                public ShapeMark(int seed) { _ = seed; }
+            }
+
+            [PicoJsonSerializable]
+            public partial class ShapeDoc
+            {
+                public string Name { get; set; } = "";
+                public ShapeMark? Mark { get; set; }
+            }
+            """;
+
+        await AssertTerminalDrop(
+            SilentDropDiagnosticTests.RunJson(source),
+            "ShapeDoc.Mark",
+            "ShapeMark",
+            "no accessible parameterless constructor"
+        );
+    }
+
+    /// <summary>
+    /// A static class is not a value at all: <c>new T()</c> is CS0712 (and the member declaration
+    /// itself is CS0723 — the generator still extracts it, which is exactly the build-time moment
+    /// this wording is read in).
+    /// </summary>
+    [Test]
+    public async Task StaticClassMemberType_IsATerminalDrop_NotADebt()
+    {
+        const string source = """
+            using PicoJetson;
+
+            public static class ShapeMark
+            {
+                public static int Value => 1;
+            }
+
+            [PicoJsonSerializable]
+            public partial class ShapeDoc
+            {
+                public string Name { get; set; } = "";
+                public ShapeMark? Mark { get; set; }
+            }
+            """;
+
+        await AssertTerminalDrop(
+            SilentDropDiagnosticTests.RunJson(source),
+            "ShapeDoc.Mark",
+            "ShapeMark",
+            "static class"
+        );
+    }
+
+    /// <summary>
+    /// The positive control that keeps N-1 from becoming a blanket ⛔: the SAME model with the one
+    /// keyword that makes the type constructible is not reported at all and still reaches the wire
+    /// as <c>{}</c>. Without this pair, "the drop is terminal" could be satisfied by terminalising
+    /// every zero-member drop.
+    /// </summary>
+    [Test]
+    public async Task TheConcreteTwinOfTheTerminalFixtures_IsStillTheEmptyObject()
+    {
+        const string source = """
+            using PicoJetson;
+
+            public sealed class ShapeMark { }
+
+            [PicoJsonSerializable]
+            public partial class ShapeDoc
+            {
+                public string Name { get; set; } = "";
+                public ShapeMark? Mark { get; set; }
+            }
+            """;
+
+        var (ids, generated, messages) = SilentDropDiagnosticTests.RunJson(source);
+
+        await Assert
+            .That(ids)
+            .DoesNotContain(UnresolvableTypeId)
+            .Because(
+                "a zero-member type that CAN be built is the empty object, not a drop: "
+                    + string.Join(" | ", messages)
+            );
+        await Assert
+            .That(generated)
+            .Contains("ShapeMark")
+            .Because("the member must reach the generated serializer");
+    }
+
+    // ══ N-4: `internal` counts when the type is compiled ALONGSIDE us ════════════════
+    //
+    // The generated code lands in the CONSUMER assembly, so `new ShapeMark()` on a type declared
+    // there with an `internal` parameterless constructor compiles — demanding `public` dropped a
+    // shape that was one keyword away from working. The allowance is "declared in this
+    // compilation", not "internal": a type from a REFERENCED package keeps its drop, because that
+    // constructor is not callable from the assembly we generate into.
+
+    [Test]
+    public async Task ZeroMemberTypeWithAnInternalParameterlessConstructor_IsTheEmptyObject()
+    {
+        const string source = """
+            using PicoJetson;
+
+            public sealed class ShapeMark
+            {
+                internal ShapeMark() { }
+            }
+
+            [PicoJsonSerializable]
+            public partial class ShapeDoc
+            {
+                public string Name { get; set; } = "";
+                public ShapeMark? Mark { get; set; }
+            }
+            """;
+
+        var (ids, generated, messages) = SilentDropDiagnosticTests.RunJson(source);
+
+        await Assert
+            .That(ids)
+            .DoesNotContain(UnresolvableTypeId)
+            .Because(
+                "`new ShapeMark()` is callable from the generated code — both live in the "
+                    + $"consumer assembly: {string.Join(" | ", messages)}"
+            );
+        await Assert
+            .That(generated)
+            .Contains("ShapeMark")
+            .Because("the member must reach the generated serializer");
+    }
+
+    /// <summary>
+    /// The other half of N-4, and the reason the widening is conditional: a zero-member type whose
+    /// only constructor is <c>internal</c> and which arrives from METADATA (a referenced package)
+    /// cannot be built by the generated code at all, so it must keep the loud terminal drop
+    /// instead of emitting <c>new LibMark()</c> into a CS1729.
+    /// </summary>
+    [Test]
+    public async Task ZeroMemberTypeWithAnInternalConstructorFromMetadata_StaysATerminalDrop()
+    {
+        var reference = InternalCtorLibrary();
+        const string source = """
+            using PicoJetson;
+
+            [PicoJsonSerializable]
+            public partial class ShapeDoc
+            {
+                public string Name { get; set; } = "";
+                public MetadataLib.LibMark? Mark { get; set; }
+            }
+            """;
+
+        await AssertTerminalDrop(
+            SilentDropDiagnosticTests.RunJsonWithRefs(source, [reference]),
+            "ShapeDoc.Mark",
+            "LibMark",
+            "no accessible parameterless constructor"
+        );
+    }
+
+    /// <summary>
+    /// One assertion set for every N-1 fixture: the id, the ⛔ marker, the ABSENCE of ⏸ and of the
+    /// reopen pointer, the cause named in the message, the advice that actually exists, and the
+    /// member missing from the generated code (which is why it has to be reported).
+    /// </summary>
+    private static async Task AssertTerminalDrop(
+        (string[] Ids, string Generated, string[] Messages) run,
+        string member,
+        string typeName,
+        string cause
+    )
+    {
+        await Assert
+            .That(run.Ids)
+            .Contains(UnresolvableTypeId)
+            .Because($"{member} is still dropped, so it must be reported");
+
+        var message = run.Messages.FirstOrDefault(m =>
+            m.Contains(member, StringComparison.Ordinal)
+        );
+
+        await Assert
+            .That(message)
+            .IsNotNull()
+            .Because($"the message must name the member: {string.Join(" | ", run.Messages)}");
+
+        await Assert
+            .That(message!.StartsWith(Impossible, StringComparison.Ordinal))
+            .IsTrue()
+            .Because(
+                "N-1: no instance of the type can be created in ANY format, so the verdict is "
+                    + $"terminal (⛔), never a reopenable debt (⏸): {message}"
+            );
+        await Assert
+            .That(message.Contains(Deferred, StringComparison.Ordinal))
+            .IsFalse()
+            .Because("⏸ would tell the reader to wait for us about a member we cannot implement");
+        await Assert
+            .That(message.Contains("not implemented yet", StringComparison.Ordinal))
+            .IsFalse()
+            .Because($"the old wording claimed a gap to reopen: {message}");
+        await Assert
+            .That(message.Contains("reopen:", StringComparison.Ordinal))
+            .IsFalse()
+            .Because(
+                $"there is nothing to reopen — the type, not the emitter, is the limit: {message}"
+            );
+        await Assert
+            .That(message)
+            .Contains(cause)
+            .Because("the message has to name the actual cause, not the symptom");
+        await Assert
+            .That(message.Contains("use a format that can", StringComparison.Ordinal))
+            .IsFalse()
+            .Because(
+                "every format holds the empty object; none can call `new` on this type, so that "
+                    + "advice is a five-way dead end"
+            );
+        await Assert
+            .That(run.Generated)
+            .DoesNotContain(typeName)
+            .Because("the member is not emitted — that is exactly why it must be reported");
+    }
+
+    /// <summary>
+    /// An in-memory assembly declaring <c>MetadataLib.LibMark</c> with ONLY an internal
+    /// parameterless constructor — the shape that is legal in a library and unbuildable from the
+    /// assembly we generate into. Compiled rather than hand-written because only a metadata symbol
+    /// has no source declarations, which is the oracle <c>HasParameterlessConstructor</c> reads.
+    /// </summary>
+    private static MetadataReference InternalCtorLibrary()
+    {
+        var compilation = CSharpCompilation.Create(
+            "InternalCtorLib",
+            [
+                CSharpSyntaxTree.ParseText(
+                    "namespace MetadataLib { public sealed class LibMark { internal LibMark() { } } }",
+                    new CSharpParseOptions(LanguageVersion.Latest)
+                ),
+            ],
+            AllFormatReferences.References(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+        );
+
+        using var stream = new MemoryStream();
+        var emitted = compilation.Emit(stream);
+
+        if (!emitted.Success)
+            throw new InvalidOperationException(
+                "the N-4 metadata fixture must compile: "
+                    + string.Join(" | ", emitted.Diagnostics.Select(d => d.ToString()))
+            );
+
+        return MetadataReference.CreateFromImage(stream.ToArray());
+    }
+
+    // ══ N-5: TOML's empty-object predicate asks what extraction SAW ══════════════════
+    //
+    // `IsEmptyObjectShape(p) => p.NestedProperties.Length == 0 && !p.IsRecursiveRef` is "we saw no
+    // member", not "the type declares no member", and the review was right that the two differ: a
+    // type whose only member is DROPPED (a KeyValuePair-shaped one) also comes back with no nested
+    // properties. Measured, that is the correct arm: TOML writes `[Mark]`, exactly what json's
+    // `{}` says about the same model, AND the dropped member keeps its own PICOSERDE001 — so the
+    // empty table is never a silent loss. The alternative (the scalar arm) writes the OBJECT as
+    // the value, a compile error in the consumer's build; that is the bug the predicate closed.
+    // The question "does the type declare zero members?" is the RESOLVER's
+    // (`DeclaresPublicInstanceData`), which is where it decides the shape and, since N-1, the
+    // verdict.
+
+    [Test]
+    public async Task Toml_TypeWhoseMembersWereAllDropped_IsStillAnEmptyTable_AndTheDropIsLoud()
+    {
+        const string source = """
+            using PicoToml;
+
+            public sealed class ShapeMark
+            {
+                public System.Collections.Generic.KeyValuePair<int, int> Pair { get; set; }
+            }
+
+            [PicoTomlSerializable]
+            public partial class ShapeDoc
+            {
+                public string Name { get; set; } = "";
+                public ShapeMark? Mark { get; set; }
+            }
+            """;
+
+        var (ids, generated, messages) = SilentDropDiagnosticTests.RunToml(source);
+
+        await Assert
+            .That(ids)
+            .Contains(UnresolvableTypeId)
+            .Because(
+                "the drop of the only member must stay loud — that is what makes the empty table "
+                    + $"acceptable: {string.Join(" | ", messages)}"
+            );
+        await Assert
+            .That(
+                messages.Any(m =>
+                    m.Contains("ShapeMark.Pair", StringComparison.Ordinal)
+                    && m.StartsWith(Deferred, StringComparison.Ordinal)
+                )
+            )
+            .IsTrue()
+            .Because(
+                $"the message must name the member that was dropped: {string.Join(" | ", messages)}"
+            );
+        await Assert
+            .That(generated)
+            .Contains("WriteNestedTable(\"Mark\"u8)")
+            .Because(
+                $"an empty table is TOML's empty object, so the nested-table arm is right: no member of ShapeMark reached the emitter"
+            );
+        await Assert
+            .That(generated)
+            .DoesNotContain("WriteKeyValue(\"Mark\"u8, ")
+            .Because(
+                "the scalar arm would write the OBJECT as a value — a compile error in the "
+                    + "consumer's build, which is the bug IsEmptyObjectShape closed"
+            );
     }
 
     /// <summary>

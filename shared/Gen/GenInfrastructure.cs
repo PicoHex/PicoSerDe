@@ -90,8 +90,8 @@ internal readonly record struct TypeInfo(
 }
 
 /// <summary>
-/// Why a member was dropped — THREE classes, because "dropped" has three different
-/// causes and only one of them is about the FORMAT (spec C4, defects D-4 ② / I-2).
+/// Why a member was dropped — FOUR classes, because "dropped" has four different
+/// causes and only one of them is about the FORMAT (spec C4, defects D-4 ② / I-2 / N-1).
 /// <para>
 /// ⛔ <see cref="DropVerdict.FormatCannot"/> — the FORMAT cannot express the shape: terminal, the
 /// reader has to change the format or the type. ⏸ <see cref="GeneratorGap"/> — the format
@@ -99,7 +99,19 @@ internal readonly record struct TypeInfo(
 /// reopenable, and the reader must not be told to change anything. ⚠
 /// <see cref="MemberUnreadable"/> — neither: no format can serialize a value it cannot
 /// read, so the member itself has to change (it is not a format limit and it is not our
-/// debt; sending the reader to another format would be a dead end).
+/// debt; sending the reader to another format would be a dead end). ⛔
+/// <see cref="TypeUnconstructible"/> — the third TERMINAL class: the type cannot be
+/// INSTANTIATED (abstract / a static class / no accessible parameterless constructor), so the
+/// emitted reader's <c>new T()</c> is CS0144 / CS0712 / CS7036 in EVERY format.
+/// </para>
+/// <para>
+/// The two ⛔ classes share one property and only that one: <b>no generator change can help</b>
+/// (AGENTS.md rule 1, the terminal half). They differ in what the reader must change —
+/// another format for <see cref="FormatCannot"/>, another TYPE for
+/// <see cref="TypeUnconstructible"/> — which is why they are two members and two templates:
+/// a ⏸ here would say "wait for us" about a member we will never implement, and the single
+/// ⛔ template would say "the json format cannot represent it", which is false (json holds
+/// <c>{}</c>; it is the type that has no instance).
 /// </para>
 /// The verdict is decided at the extraction site — the only place that knows WHICH rule
 /// fired — by asking the facts table (<see cref="FormatCapabilities.CanRepresent"/>) for
@@ -113,6 +125,17 @@ internal enum DropVerdict
 
     /// <summary>⏸ The format can express it; this generator has not implemented it yet.</summary>
     GeneratorGap,
+
+    /// <summary>
+    /// ⛔ The TYPE cannot be instantiated, so no emitted reader can build it: abstract (CS0144),
+    /// a static class (CS0712), or no accessible parameterless constructor (CS7036). Terminal
+    /// for the same reason <see cref="FormatCannot"/> is — no generator change can create an
+    /// instance that does not exist — but the way out is a different TYPE, not a different
+    /// format (every format holds the empty object shape; none can call <c>new T()</c> on this
+    /// one). Produced only by the unresolvable-TYPE channel (PICOSERDE001): PICOSERDE004 is a
+    /// question about a RESOLVED shape and can never raise it.
+    /// </summary>
+    TypeUnconstructible,
 
     /// <summary>⚠ The member itself is not serializable in ANY format (no getter to read).</summary>
     MemberUnreadable,
@@ -281,6 +304,22 @@ internal static class GenInfrastructure
     private const string RecursiveFieldReason = "it closes a type cycle";
 
     /// <summary>
+    /// The three terminal reasons (N-1): each one is why no instance of the member's type can be
+    /// created, which no format and no generator change can fix. They travel in the same {3}
+    /// slot as <see cref="UnresolvableTypeReason"/>, so the message names the ACTUAL cause
+    /// instead of repeating "no shape could be resolved", which is the symptom rather than the
+    /// reason.
+    /// </summary>
+    private const string AbstractTypeReason =
+        "it is abstract, so no instance of it can ever be created";
+
+    private const string StaticClassTypeReason =
+        "it is a static class, which is not a value at all";
+
+    private const string UnconstructibleTypeReason =
+        "it has no accessible parameterless constructor, so no instance of it can be created";
+
+    /// <summary>
     /// A set-only property has no getter, so there is no value to write out — the member
     /// never reaches the generated code. Silent until now (spec review W4 read R2
     /// literally: every dropped member reports).
@@ -333,6 +372,33 @@ internal static class GenInfrastructure
         title: "Member dropped: not implemented yet (this format can hold it)",
         messageFormat: FormatCapabilities.DeferredMarker
             + " Member '{0}' (declared type '{1}') was dropped by the {2} source generator: {3}. The {2} format can express this shape, but this generator has not implemented it yet — the drop is a recorded gap, not a format limit. reopen: the condition is tracked as debt in the format-capabilities matrix (spec §3/§6).",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// ⛔ the TERMINAL sibling for a drop that is not the format's fault (N-1): the type cannot
+    /// be INSTANTIATED — abstract (CS0144), a static class (CS0712), or no accessible
+    /// parameterless constructor (CS7036). The old wording here was
+    /// <see cref="UnsupportedTypeDeferredWarning"/>'s: "the {format} format can express this
+    /// shape, but this generator has not implemented it yet … reopen: …", i.e. a member we will
+    /// NEVER implement was written up as a gap to wait for — AGENTS.md rule 3's "calling a fact
+    /// a debt is wrong too", and the exact mirror of D-4 ②.
+    /// <para>
+    /// What the glyph borrows from <see cref="UnsupportedTypeImpossibleWarning"/> is
+    /// TERMINALITY, not the blame: the template says out loud that the <i>format</i> holds the
+    /// shape and the <i>type</i> does not, so it never claims "the json format cannot represent
+    /// it" (false — json writes <c>{}</c> for a zero-member type, BU-4) and never offers "use a
+    /// format that can" (a five-way dead end: no format can call <c>new T()</c> on an abstract
+    /// type). The way out it names is the only one that exists: change the member's type.
+    /// </para>
+    /// </summary>
+    private static readonly DiagnosticDescriptor UnsupportedTypeUninstantiableWarning = new(
+        id: "PICOSERDE001",
+        title: "Member dropped: its type cannot be instantiated (no generator change can help)",
+        messageFormat: FormatCapabilities.ImpossibleMarker
+            + " Member '{0}' (declared type '{1}') was dropped by the {2} source generator: {3}. Nothing on the generator side can change that, and no other format will help either: the {2} format holds the empty-object shape, but generated code would have to call `new` on this type to read it back, and no instance of it can be created. Change the member's type to a concrete, constructible one, or remove the member.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
@@ -540,6 +606,7 @@ internal static class GenInfrastructure
         verdict switch
         {
             DropVerdict.FormatCannot => UnsupportedTypeImpossibleWarning,
+            DropVerdict.TypeUnconstructible => UnsupportedTypeUninstantiableWarning,
             DropVerdict.MemberUnreadable => UnsupportedTypeMemberErrorWarning,
             _ => UnsupportedTypeDeferredWarning,
         };
@@ -658,11 +725,36 @@ internal static class GenInfrastructure
     /// formats, so an unresolvable chain cannot be judged the wrong way round.
     /// </para>
     /// </summary>
-    private static DropVerdict UnresolvableDropVerdict(ITypeSymbol type, string formatTag) =>
-        ElementIsItselfACollection(type)
-        && !FormatCapabilities.CanRepresent(formatTag, Decision.ExtendedKindAsElement)
-            ? DropVerdict.FormatCannot
-            : DropVerdict.GeneratorGap;
+    private static (string Reason, DropVerdict Verdict) UnresolvableDropVerdict(
+        ITypeSymbol type,
+        string formatTag
+    )
+    {
+        if (
+            ElementIsItselfACollection(type)
+            && !FormatCapabilities.CanRepresent(formatTag, Decision.ExtendedKindAsElement)
+        )
+            return (UnresolvableTypeReason, DropVerdict.FormatCannot);
+
+        // N-1: the empty-object arm's gates, asked of the SAME code that made the decision
+        // (`TypeKindResolver.EmptyObjectBlockOf`). Three of them are terminal — no generator
+        // change can construct an instance that C# forbids — and they must not borrow the
+        // ⏸ "wait for us" wording; the other two (our writer has no empty form; the base
+        // class still carries members) really are reopenable and keep it.
+        return TypeKindResolver.EmptyObjectBlockOf(type, formatTag) switch
+        {
+            EmptyObjectBlock.Abstract => (AbstractTypeReason, DropVerdict.TypeUnconstructible),
+            EmptyObjectBlock.StaticClass => (
+                StaticClassTypeReason,
+                DropVerdict.TypeUnconstructible
+            ),
+            EmptyObjectBlock.NotConstructible => (
+                UnconstructibleTypeReason,
+                DropVerdict.TypeUnconstructible
+            ),
+            _ => (UnresolvableTypeReason, DropVerdict.GeneratorGap),
+        };
+    }
 
     /// <summary>
     /// True when <paramref name="type"/> is a collection whose element is itself a collection
@@ -1894,13 +1986,17 @@ internal static class GenInfrastructure
                     // format fact (DecisionTables.EncodingOnlyDecisions). The one
                     // exception is a collection whose element is itself a collection —
                     // see <see cref="UnresolvableDropVerdict"/>.
+                    var (fieldReason, fieldVerdict) = UnresolvableDropVerdict(
+                        field.Type,
+                        formatTag
+                    );
                     droppedMembers?.Add(
                         type.ToDisplayString(DeclaringTypeNameFormat),
                         field.Name,
                         DeclaredTypeOf(field.Type),
-                        UnresolvableTypeReason,
+                        fieldReason,
                         SourceLocationOf(field),
-                        UnresolvableDropVerdict(field.Type, formatTag)
+                        fieldVerdict
                     );
                     continue;
                 }
@@ -2043,13 +2139,14 @@ internal static class GenInfrastructure
                 // ⏸: see the field site above — "not resolvable here" is our gap, except
                 // for the collection-of-collections shape (S8 x ini) whose element-position
                 // cell IS a format fact (review I-1, spec §3).
+                var (propReason, propVerdict) = UnresolvableDropVerdict(prop.Type, formatTag);
                 droppedMembers?.Add(
                     type.ToDisplayString(DeclaringTypeNameFormat),
                     prop.Name,
                     DeclaredTypeOf(prop.Type),
-                    UnresolvableTypeReason,
+                    propReason,
                     SourceLocationOf(prop),
-                    UnresolvableDropVerdict(prop.Type, formatTag)
+                    propVerdict
                 );
                 continue;
             }
