@@ -146,7 +146,8 @@ JsonSerializer.Deserialize<Model>("{\"score\":1e400}"u8);      // throws: number
 ```
 
 `PicoDocument.IsValid` performs full structural validation (container
-matching, property/value grammar, single root, no trailing content).
+matching, property/value grammar, the `,` between members and elements, single root, no trailing
+content).
 
 ## JSON Lines (JSONL)
 
@@ -367,6 +368,88 @@ Two things that follow from it:
 - **The probe is one comparison.** `BytesWritten` counts the bytes *written into* the writer,
   committed or not, so `writer.BytesWritten != buffer.WrittenSpan.Length` means the writer is
   holding bytes back — a document that was never closed (or a writer that was copied by value).
+
+### Misuse throws instead of emitting illegal JSON
+
+Four call shapes used to be accepted silently and then write a document **no reader accepts** — the
+same four `System.Text.Json.Utf8JsonWriter` rejects with `InvalidOperationException`. They now throw at
+the call site, and they throw *before* a single byte of the offending token is staged, so the caller is
+never handed a half-built document to debug:
+
+| Misuse | Bytes it used to write | Now |
+|---|---|---|
+| a **value inside an object with no property name pending** (`WriteStartObject(); WriteString("x")`) | `{"x"}` — a member with no name | `InvalidOperationException`: *Cannot write a JSON value within an object without a property name: call WritePropertyName first.* |
+| **two `WritePropertyName` in a row** (`"a":` immediately followed by `"b":1`) | `{"a":,"b":1}` — the second name even collected a separator, so the bytes were illegal rather than merely odd | *Cannot write a JSON property name following another property name: the first one's value is missing.* |
+| an **`End*` with no matching open** (one `WriteEndObject` / `WriteEndArray` too many, i.e. depth would go to −1) | the extra close was swallowed — `{"a":1}` plus one `}` **read as valid JSON** — and with depth at −1 every later `}` failed to commit | *'}' is invalid without a matching open.* (or *']' …*) |
+| **`WriteEndArray` closing an object** (`{]`) | `{]` — the writer never knew which container was open | *']' is invalid without a matching open array: the container open at this depth is an object.* |
+
+Each row removes a failure a reader cannot tell from a correct document. The third is the worst of
+them: `{"a":1}` followed by one stray `}` *was* the valid document, so nothing downstream could notice
+that the caller's bookkeeping had already gone wrong.
+
+Two of the four need to know **which container is open**, and that is one bit per nesting level in the
+same `ulong` word the comma bookkeeping already reads (`_kinds`: bit `_depth` set = an object is open,
+clear = an array). Bit 0 is never set, so a top-level scalar needs no branch, and one word is enough
+because `MaxDepth` is capped at 63 — the deepest container sits on bit 63, which is exactly the
+boundary where a mask one bit too narrow would report a phantom kind error.
+
+Evidence is `JsonWriterMisuseGuardTests` — one test per misuse, in the table's order, plus the reverse
+protection (a guard that fires on correct code is the same bug from the other side):
+
+- W1 — `W1_Value_written_inside_an_object_without_a_property_name_throws`;
+  `W1_Number_written_inside_an_object_without_a_property_name_throws` (the number path stages its own
+  separator, so it asks the same question); `W1_Rejection_happens_before_anything_is_written` (the
+  buffer still holds the `{` that precedes the mistake).
+- W2 — `W2_Two_property_names_in_a_row_throw`.
+- W3 — `W3_EndObject_without_a_matching_open_throws`;
+  `W3_Extra_EndObject_after_a_complete_document_throws`;
+  `W3_EndArray_without_a_matching_open_throws`.
+- W4 — `W4_EndArray_closing_an_object_throws`.
+- Correct code is untouched — `Legal_uses_of_every_container_kind_still_write_the_same_bytes` (one
+  document mixing all three container positions, byte for byte),
+  `Top_level_values_still_write_without_any_container`,
+  `The_deepest_supported_nesting_still_writes_objects_and_arrays` (`MaxDepth = 63`).
+
+The guard sites are `JsonWriter.cs:642-645` (two names), `:730-731` and `:754-761` (unmatched or
+wrong-kind close) and `:813-822` (a value with no pending name), with the kind bit set at `:722` and
+cleared at `:749`. The change landed in `bfe8251` (merge `65e31c0`).
+
+This does not soften the commit-point rule above: a container you leave open still commits only the
+prefix that happened to be flushed, and no guard can see that. What changed is the other half — a call
+that is illegal *by itself* now fails at the call site instead of at the reader.
+
+### `PicoDocument.IsValid` requires the separator
+
+`IsValid` is the ruler this repository (and its downstream) uses for "is this output correct?", so a
+false positive there is worse than a wrong writer: it **certifies the wrong bytes**. It used to report
+`{"a":1"b":2}` and `[1 2]` as valid — an object accepted a property name whenever the previous token was
+a value, and an array kept expecting "value or end", so the `,` between two members was never required.
+RFC 8259 requires it, and it is required now: after a completed value (a scalar, or a container
+closing) the next token must be `,` or the closing bracket. That also settles the container cases —
+`[{"a":1}2]`, `{"a":{}{"b":2}}` and `[[1][2]]` are `false`, because a closed container is a consumed
+value like any other.
+
+Comma *misuse* is still rejected (leading, doubled and trailing commas are the reader's business; the
+separator state machine reads the same byte gap and keeps the reader's answer), and a
+`\uFEFF`-prefixed document gets the same verdict as the same bytes without the BOM.
+Evidence is `PicoDocumentSeparatorTests` — `IsValid_MissingCommaBetweenObjectProperties_ReturnsFalse`,
+`IsValid_MissingCommaBetweenArrayElements_ReturnsFalse`,
+`IsValid_MissingCommaBetweenContainerElements_ReturnsFalse`,
+`IsValid_ScalarAfterContainerWithoutComma_ReturnsFalse`,
+`IsValid_MissingCommaInNestedContainers_ReturnsFalse`, `IsValid_SeparatedDocuments_ReturnTrue` (the
+no-tightening half), `IsValid_BomPrefixedDocuments_StillDetectMissingComma` and
+`Parse_MissingComma_Throws`. The new expectation is one extra state in the existing machine
+(`ExpectSeparatorOrEnd`, `PicoDocument.cs:497`), and the comma is resolved from the raw byte gap the
+validator is handed (`PicoDocument.cs:578-589`), because the reader swallows `,` without emitting a
+token.
+
+**What it costs.** `2.8 %`–`6.0 %` more per call (`ns/call`; Release, same process, position-balanced
+ABBA rounds, 100k iterations, 1 KB and 100 KB payloads, compact and pretty) against a verbatim copy of
+the pre-fix state machine, with a same-code control run in the same session to size that machine's
+noise — real, and under the 10 % line. **The allocation delta is 0 B/call**: the pre-existing
+560 B/call (the validator's two `byte[maxDepth]` arrays) is unchanged, so a hot path that validates
+every message pays time, not GC pressure. Verdict and cost were measured together in `3c83308` (merge
+`bdfd527`).
 
 ## Packages
 
