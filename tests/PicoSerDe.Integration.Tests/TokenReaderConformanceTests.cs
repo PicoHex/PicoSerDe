@@ -30,6 +30,77 @@ public class TokenReaderConformanceTests
         await Assert.That(ok).IsTrue();
     }
 
+    /// <summary>
+    /// The container-balance half of the contract on <b>nested</b> documents.
+    /// <para>
+    /// <see cref="Reader_ReadsTokens_AndDepthReturnsToZero"/> asserts <c>Depth == 0</c> after the walk, but its
+    /// YAML argument is <c>a: 1</c> — a document with no container token at all, so the assertion held while the
+    /// reader was unbalanced: every indented document used to push TWO indent frames (the level-0 sentinel plus
+    /// the real level) for ONE <see cref="TokenType.ObjectStart"/>, and each frame popped emitted its own
+    /// <see cref="TokenType.ObjectEnd"/>. The stream therefore carried one closing token more than it opened and
+    /// finished at <c>Depth == -1</c>.
+    /// </para>
+    /// <para>
+    /// The assertion is <c>opens == closes</c> plus <c>Depth == 0</c> plus "no token ever reports a negative
+    /// Depth": token ORDER and CONTENT are the reader's business and are covered by the format's own tests — what
+    /// is asserted here is the pairing the shared contract promises. Both shapes of the reader are walked (span
+    /// and <see cref="ReadOnlySequence{T}"/>), because the indent stack is maintained twice.
+    /// </para>
+    /// </summary>
+    [Test]
+    [Arguments("A:\n  B: 1\n")]
+    [Arguments("A:\n  - x\n")]
+    [Arguments("Items:\n  - name: x\n    port: 1\n")]
+    [Arguments("Root:\n  A:\n    B:\n      C: 1\n")]
+    [Arguments("Items:\n  - name: x\n    tags:\n      - a\n")]
+    public async Task Yaml_NestedDocument_ClosesEveryContainerItOpens(string data)
+    {
+        var bytes = Encoding.UTF8.GetBytes(data);
+        var spanWitness = BalanceWitness(new YamlReader(bytes));
+        var seqWitness = BalanceWitness(
+            new YamlReader(new System.Buffers.ReadOnlySequence<byte>(bytes))
+        );
+        await Assert
+            .That($"span: {spanWitness}|seq: {seqWitness}")
+            .IsEqualTo("span: |seq: ")
+            .Because(
+                "a nested YAML document must open exactly as many containers as it closes and end at Depth 0"
+            );
+    }
+
+    // Sync helper: ref structs cannot cross into async methods, and TUnit assertions only execute when
+    // awaited — the walk runs here and the single awaited assertion reports the result.
+    private static string BalanceWitness<TReader>(TReader reader)
+        where TReader : ITokenReader, allows ref struct
+    {
+        int opens = 0,
+            closes = 0,
+            negativeDepthAt = -1,
+            tokens = 0;
+        while (reader.Read())
+        {
+            if (reader.Depth < 0 && negativeDepthAt < 0)
+                negativeDepthAt = tokens;
+            if (reader.TokenType == TokenType.ObjectStart)
+                opens++;
+            else if (reader.TokenType == TokenType.ObjectEnd)
+                closes++;
+            tokens++;
+        }
+
+        var problems = new List<string>();
+        if (tokens == 0)
+            problems.Add("the document produced no token");
+        if (opens != closes)
+            problems.Add($"opens {opens} != closes {closes}");
+        if (reader.Depth != 0)
+            problems.Add($"end Depth {reader.Depth} != 0");
+        if (negativeDepthAt >= 0)
+            problems.Add($"Depth went negative at token {negativeDepthAt}");
+
+        return string.Join("; ", problems);
+    }
+
     // Sync helper returning bool: ref structs cannot cross into async methods,
     // and TUnit assertions only execute when awaited — the checks run here
     // synchronously and the single awaited assertion reports the result.

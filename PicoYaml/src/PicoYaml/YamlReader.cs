@@ -882,8 +882,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (_docStartPending)
         {
             _docStartPending = false;
-            PushIndent(0);
-            PushIndent(lineIndent > 0 ? lineIndent : 0);
+            PushIndent(lineIndent);
             _depth++;
             _tokenType = TokenType.ObjectStart;
             _position = lineStart;
@@ -892,7 +891,6 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (_stackCount == 0 && lineIndent > 0)
         {
             _position = lineStart;
-            PushIndent(0);
             PushIndent(lineIndent);
             if (_depth >= _maxDepth)
                 throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
@@ -1941,8 +1939,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             if (_docStartPending)
             {
                 _docStartPending = false;
-                PushIndent(0);
-                PushIndent(lineIndent > 0 ? lineIndent : 0);
+                PushIndent(lineIndent);
                 _depth++;
                 _tokenType = TokenType.ObjectStart;
                 return true;
@@ -1950,7 +1947,6 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
 
             if (_stackCount == 0 && lineIndent > 0)
             {
-                PushIndent(0);
                 PushIndent(lineIndent);
                 if (_depth >= _maxDepth)
                     throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
@@ -2335,6 +2331,13 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
 
     // ── Helpers ──
 
+    // ONE frame per open container, and that is the whole rule: every PushIndent that is
+    // followed by an ObjectStart is matched by exactly one PopIndent that emits exactly one
+    // ObjectEnd and one _depth--. The first open of an indented document used to push TWO
+    // frames (a level-0 sentinel, then the real level) while emitting a single ObjectStart,
+    // so the sentinel's pop manufactured a closing token nobody had opened: the stream ran
+    // one ObjectEnd long and the walk finished at Depth == -1. A frame is a container, not
+    // an indentation bookmark — keep push == open and pop == close.
     private void PushIndent(int i)
     {
         if (_stackCount < 64)
