@@ -4,10 +4,13 @@ The only YAML library in this comparison that maps **typed POCOs** under NativeA
 reflection-free source generation with `ref struct` readers/writers. Supports indentation-based
 block mappings/sequences, anchors & aliases, and multi-document streams.
 
-**Coverage:** Core YAML 1.2 subset. Complex block scalar combinations,
-advanced merge key patterns, full tag resolution, and flow sequences (`[a, b]`)
-are not yet supported (the writer only emits the empty-sequence marker `[]`, which the
-reader accepts). Flow mappings (`{key: value}`) are partially supported.
+**Coverage:** Core YAML 1.2 subset. Complex block scalar combinations, advanced merge key
+patterns and full tag resolution are not yet supported. Flow sequences (`[a, b]`) are
+**read** — one line, trailing comma and line breaks inside the brackets included, with
+nested flow `[[1, 2], [3]]` failing loudly (`FormatException`) — but never **written**: the
+writer emits only the empty-sequence marker `[]`. Flow mappings (`{key: value}`) are
+partially supported. The reader's own stream is documented under
+[Token stream](#token-stream-itokenreader).
 
 [![NuGet](https://img.shields.io/nuget/v/PicoYaml)](https://www.nuget.org/packages/PicoYaml)
 
@@ -51,9 +54,102 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 - **Anchors & aliases** — `&name` / `*name` with self-referencing support
 - **Multi-document** — `---` separator support
 - **Complex keys** — `? key\n: value` syntax
-- **Flow mappings** — inline `{key: value}` blocks (partial; `[...]` flow sequences are not supported yet)
+- **Flow collections** — inline `{key: value}` mappings (partial) and `[1, 2, 3]` sequences on the
+  **read** side; the writer emits block sequences and the `[]` marker only (see
+  [Token stream](#token-stream-itokenreader))
 - **SIMD-accelerated** whitespace skipping
 - **Dual-mode** reader: `ReadOnlySpan<byte>` + `ReadOnlySequence<byte>`
+
+## Token stream (`ITokenReader`)
+
+The generated serializers are not the only consumer: `YamlReader` implements `ITokenReader`
+(`PicoSerDe.Core`), so anything reading the stream itself needs to know what it emits. Two things
+matter — **which container token** a shape produces, and **what `Depth` says** while it does.
+
+### A sequence is an array, a mapping is an object
+
+| YAML shape | Container tokens |
+|---|---|
+| mapping — block, or flow `{k: v}` | `ObjectStart` … `ObjectEnd` |
+| sequence — block (`- x`), flow `[1, 2]` / `[]`, or a document whose root is a sequence | `ArrayStart` … `ArrayEnd` |
+
+Both shapes used to open `ObjectStart`/`ObjectEnd`, so nothing on the wire told "`A:` is a list" from
+"`A:` is a map" and a consumer had to guess from whatever followed. The reported symptom: two adjacent
+sequence values flattened to the same path — `B`'s elements came out as `0:0` and the key vanished.
+Sequences now open and close the array pair at every position: a value (`A:\n  - 1`), dashes at the
+key's own indentation (`A:\n- 1`, which used to carry no container token at all), the document root
+(`- 1`), inside another sequence (`Grid:\n-\n  - 1`) and in the flow form. Mappings are untouched.
+Sequence **items** are unchanged: one `String` token per item line, with `IsNestedSequenceItem` set for
+a bare dash (a `-` alone on its line, whose value is the indented block below). The array pair is a
+wrapper around that shape, not a promise about element encoding.
+
+Tests: `YamlSequenceTokenKindTests` — one exact stream per form
+(`MappingValueSequence_IsArrayDelimited_AndSiblingMappingIsAnObject`,
+`TwoAdjacentSequenceValues_KeepBothKeys_EachWithItsOwnArray` is the reported symptom as a stream,
+`FlatSequenceAtKeyIndentation_IsArrayDelimited`, `TopLevelBlockSequence_IsArrayDelimited`,
+`NestedBlockSequence_OpensAnArrayPerLevel`, `FlowSequence_IsArrayDelimited`,
+`FlowMapping_StaysAnObject`, `MultiDocument_EachSequenceDocumentIsClosed`) plus the end-to-end version
+(`GenericConsumer_KeepsBothKeys_WhenTheDistinctionIsOnTheWire` → `A[0]=1 A[1]=2 B[0]=3`).
+
+### Depth is balanced: opens == closes, and the walk ends at 0
+
+Every container that opens has its own closing token — an array pair for a sequence, an object pair
+for a mapping — and a walk over the whole document ends at `Depth == 0`, in both reader forms
+(`ReadOnlySpan<byte>` and `ReadOnlySequence<byte>`; the sequence constructor copies the sequence into
+one rented buffer and leaves `_isSequence = false` — `YamlReader.cs:348-367` — so "both forms" is
+this same span-mode reader reached two ways, and the unreached `ReadSeq` half says as much at
+`:1920-1923`). A frame is a container, not an indentation bookmark (push == open, pop == close). It
+used to be otherwise: the first indent of an indented document pushed two frames for one
+`ObjectStart`, so *every* nested document carried one `ObjectEnd` too many and finished at
+`Depth == -1` — something downstream had already worked around by hand (PicoCfg's flattener drops a
+trailing `ObjectEnd`). Fixed in `1b5f92f`.
+
+Tests: `TokenReaderConformanceTests.Yaml_NestedDocument_ClosesEveryContainerItOpens` (five nested
+shapes × both reader forms, counting both container kinds and rejecting a negative depth),
+`YamlSequenceTokenKindTests.EveryContainerCloses_AndEndsAtDepthZero` (eight shapes × both reader
+forms), and the flat case in `TokenReaderConformanceTests.Reader_ReadsTokens_AndDepthReturnsToZero` —
+whose YAML argument (`a: 1`) is why the invariant went unnoticed for so long: that document has no
+container token at all.
+
+### Known shapes a consumer must handle
+
+Two wire forms put more than one YAML structure into a **single `String` token**, and a generic consumer
+has to know it before it flattens anything:
+
+| YAML | Tokens |
+|---|---|
+| `- name: x` — the **first inline member** of a sequence item | `ArrayStart`, `String("name: x")`, … — the item's first member is one token holding the raw `name: x` text; the item's continuation lines are normal tokens, so `- name: x\n  v: 1\n` reads as `ArrayStart`, `String("name: x")`, `ObjectStart`, `PropertyName(v)`, `ObjectEnd`, `ArrayEnd` |
+| `- - 1` — an **inline nested sequence** | `String("- 1")` — the inner dash and its scalar are one item token, not an `ArrayStart`. The writer never emits this form (it puts the dash alone on its line), the reader accepts it |
+
+That is **allowed by the `ITokenReader` contract**: the contract fixes the container kinds and the
+balance invariants and leaves a format's token *shapes* to the format, and the generated deserializer
+reads these forms correctly. What it costs a generic consumer is the assumption "every member arrives
+as `PropertyName` followed by a value" — for an item's first inline member, it does not.
+
+Tests: `YamlSequenceTokenKindTests.SequenceOfMappingsUnderKey_WrapperIsAnArray_ItemBodyIsAnObject` and
+`YamlSequenceTokenKindTests.TopLevelSequenceOfMappings_IsArrayDelimited_AndItemsStayObjects` pin
+`String(name: a)`; the item text is "the rest of the line", captured at
+`PicoYaml/src/PicoYaml/YamlReader.cs:1069-1079` — the same mechanism that yields `"- 1"` for an inner
+dash.
+
+### Flow collections do not move `Depth`
+
+`A: [1, 2, 3]` and `A: {x: 1}` emit their container pair and their elements, but the flow readers never
+touch the depth counter: every token of a root-level flow collection reports `Depth == 0` — the
+enclosing level — instead of one level deeper. **The pairing still holds** (one pair, as many closes as
+opens, the document still ends where it started), so a balance check is unaffected; what is missing is
+the *level*, and only for the flow forms. A consumer that answers "am I inside a collection?" from
+`Depth` alone has to use the container tokens there instead.
+
+Tokens: `YamlSequenceTokenKindTests.FlowSequence_IsArrayDelimited` and
+`YamlSequenceTokenKindTests.FlowMapping_StaysAnObject`. The accounting gap itself is in the code:
+`ReadFlowSeqSpan` (`PicoYaml/src/PicoYaml/YamlReader.cs:1443-1500`) and `ReadFlowSpan`
+(`PicoYaml/src/PicoYaml/YamlReader.cs:1535`) emit their start and end tokens without a single `_depth`
+write, unlike every block path (`YamlReader.cs:905-1010`).
+
+One more thing the stream cannot tell you: **no element count**. `HasCountedCollections` is `false` and
+`TryGetCollectionCount` answers `false` for every token (`YamlReader.cs:723-739`), because YAML's wire
+form carries no count — you read the items.
 
 ## Customization
 

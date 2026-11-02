@@ -376,7 +376,8 @@ Deserialization validates input shape and types instead of silently producing de
 - **Missing `required` members throw** — C# `required` properties are enforced at runtime across
   object, nested, streaming and polymorphic paths
 - **`PicoDocument.IsValid` validates structure, not just tokens** — mismatched brackets, bare values
-  in objects, missing property values and multiple root values are all rejected
+  in objects, missing property values, a missing `,` between members or elements, and multiple root
+  values are all rejected (`PicoDocumentSeparatorTests`)
 - **Arrays**: `null` elements are allowed for reference-type elements and throw for value-type
   elements; wrong-typed elements throw
 - **Comments** (`ReadCommentHandling.Skip`): malformed comment syntax (`/x`) and unterminated block
