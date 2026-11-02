@@ -589,7 +589,17 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             }
         }
         if (sec.Count > 0 || dicts.Count > 0)
+        {
             s.AppendLine("        int __sec = -1;");
+            // CS0219 guard: the section cursor is ASSIGNED for every section but READ only by
+            // the member dispatch of a section that HAS members (or by a dict section). A type
+            // whose sections are all EMPTY objects (BU-4: `[Mark]` with no keys) therefore
+            // generated a local that is assigned and never used - a warning in the consumer's
+            // build, from code they cannot edit. One discard makes the local "read" and changes
+            // nothing on the wire.
+            if (dicts.Count == 0 && !sec.Any(x => x.NestedProperties.Length > 0))
+                s.AppendLine("        _ = __sec;");
+        }
         EmitIniWhileLoop(s, type, hasCtor, top, sec, dicts, streaming: false);
         if (hasCtor)
         {
@@ -872,7 +882,17 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         s.AppendLine(";");
         s.AppendLine("        result = obj;");
         if (sec.Count > 0 || dicts.Count > 0)
+        {
             s.AppendLine("        int __sec = -1;");
+            // CS0219 guard: the section cursor is ASSIGNED for every section but READ only by
+            // the member dispatch of a section that HAS members (or by a dict section). A type
+            // whose sections are all EMPTY objects (BU-4: `[Mark]` with no keys) therefore
+            // generated a local that is assigned and never used - a warning in the consumer's
+            // build, from code they cannot edit. One discard makes the local "read" and changes
+            // nothing on the wire.
+            if (dicts.Count == 0 && !sec.Any(x => x.NestedProperties.Length > 0))
+                s.AppendLine("        _ = __sec;");
+        }
         // Reuse the sync loop emission with per-read marks; every NeedMoreData
         // return rewinds to the last mark (a member or section header start).
         EmitIniWhileLoop(s, type, hasCtor: false, top, sec, dicts, streaming: true);

@@ -1802,8 +1802,24 @@ file static class __PicoMsgPackBulk {
                         s.AppendLine(");");
                         break;
                     }
+                    // BU-4: an object whose type declares ZERO members is still an object — the
+                    // empty MAP (`WriteStartObject(0)`), not the null literal. `mw.WriteNull()`
+                    // was the only arm here, so an empty-object member reached the wire as a null
+                    // value and the reader handed back a null member.
+                    var __emptySn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        "MsgPackInner",
+                        p.TypeFullName!
+                    );
                     s.Append(ind);
-                    s.AppendLine("mw.WriteNull();");
+                    s.Append("if (");
+                    s.Append(a);
+                    s.AppendLine(" == null) mw.WriteNull();");
+                    s.Append(ind);
+                    s.Append("else ");
+                    s.Append(__emptySn);
+                    s.Append(".Serialize(ref mw, ");
+                    s.Append(a);
+                    s.AppendLine(");");
                     break;
                 }
                 s.Append(ind);
@@ -3106,9 +3122,35 @@ file static class __PicoMsgPackBulk {
                         s.AppendLine(".Deserialize(ref reader);");
                         break;
                     }
-                    s.Append(ind);
-                    s.Append(t);
-                    s.AppendLine(" = default!;");
+                    // BU-4: read the empty object back through its helper. `= default!` was the
+                    // only arm here, which threw away the value the writer now emits an empty map
+                    // for.
+                    var __emptyDesSn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        "MsgPackInner",
+                        p.TypeFullName!
+                    );
+                    if (p.IsNullable)
+                    {
+                        s.Append(ind);
+                        s.AppendLine("if (reader.TokenType == TokenType.Null)");
+                        s.Append(ind);
+                        s.Append(t);
+                        s.AppendLine(" = null;");
+                        s.Append(ind);
+                        s.Append("else ");
+                        s.Append(t);
+                        s.Append(" = ");
+                        s.Append(__emptyDesSn);
+                        s.AppendLine(".Deserialize(ref reader);");
+                    }
+                    else
+                    {
+                        s.Append(ind);
+                        s.Append(t);
+                        s.Append(" = ");
+                        s.Append(__emptyDesSn);
+                        s.AppendLine(".Deserialize(ref reader);");
+                    }
                     break;
                 }
                 var __oid = c++;

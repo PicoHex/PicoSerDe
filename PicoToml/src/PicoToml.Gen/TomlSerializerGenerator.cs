@@ -738,11 +738,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
         // Arrays of tables are collected into a list first (arrays have no Add).
         var tomlArrayObjProps = t
-            .Properties.Where(x =>
-                x.TypeKind == "array"
-                && x.ElementTypeKind == "object"
-                && x.NestedProperties.Length > 0
-            )
+            .Properties.Where(x => x.TypeKind == "array" && IsArrayOfTablesMember(x))
             .ToArray();
         int TomlCtorIndex(string name) =>
             ctorMap is not null && ctorMap.TryGetValue(name, out var idx) ? idx : -1;
@@ -761,14 +757,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         // Scalar types, flat lists AND dicts handled via PropertyName dispatch.
         // Only complex-object lists (ArrayStart/[[key]]) and nested objects (ObjectStart/[key]) excluded.
         var scalarProps = t
-            .Properties.Where(x =>
-                x.TypeKind != "object"
-                && !(
-                    (x.TypeKind == "list" || x.TypeKind == "array")
-                    && x.ElementTypeKind == "object"
-                    && x.NestedProperties.Length > 0
-                )
-            )
+            .Properties.Where(x => x.TypeKind != "object" && !IsArrayOfTablesMember(x))
             .ToImmutableArray();
         EmitPropertyDispatch(
             s,
@@ -784,13 +773,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("            }");
         var objProps = t.Properties.Where(x => x.TypeKind == "object").ToImmutableArray();
         var dictProps = t.Properties.Where(x => x.TypeKind == "dict").ToImmutableArray();
-        var listObjProps = t
-            .Properties.Where(x =>
-                (x.TypeKind == "list" || x.TypeKind == "array")
-                && x.ElementTypeKind == "object"
-                && x.NestedProperties.Length > 0
-            )
-            .ToImmutableArray();
+        var listObjProps = t.Properties.Where(x => IsArrayOfTablesMember(x)).ToImmutableArray();
         // ObjectStart branch (dicts and nested objects)
         if (objProps.Length > 0 || dictProps.Length > 0)
         {
@@ -1065,14 +1048,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
         s.AppendLine("                var k = r.KeySpan;");
         var simpleProps = t
-            .Properties.Where(x =>
-                x.TypeKind != "object"
-                && !(
-                    (x.TypeKind == "list" || x.TypeKind == "array")
-                    && x.ElementTypeKind == "object"
-                    && x.NestedProperties.Length > 0
-                )
-            )
+            .Properties.Where(x => x.TypeKind != "object" && !IsArrayOfTablesMember(x))
             .ToImmutableArray();
         EmitPropertyDispatch(
             s,
@@ -1129,13 +1105,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("                continue;");
             s.AppendLine("            }");
         }
-        var listObjProps = t
-            .Properties.Where(x =>
-                (x.TypeKind == "list" || x.TypeKind == "array")
-                && x.ElementTypeKind == "object"
-                && x.NestedProperties.Length > 0
-            )
-            .ToImmutableArray();
+        var listObjProps = t.Properties.Where(x => IsArrayOfTablesMember(x)).ToImmutableArray();
         if (listObjProps.Length > 0)
         {
             s.AppendLine("            if (r.TokenType == TokenType.ArrayStart) {");
@@ -1345,7 +1315,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
         s.AppendLine("        var __opts = (global::PicoToml.TomlOptions?)options;");
         s.AppendLine("        var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);");
-        if (ek == "object" && elemP.NestedProperties.Length > 0)
+        if (ek == "object" && IsObjectTableElement(elemP))
         {
             // Array of tables: [[data]] per element
             s.AppendLine("        foreach (var __item in v) {");
@@ -1379,7 +1349,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.Append("        var __tmpList = new List<");
         s.Append(et);
         s.AppendLine(">(16);");
-        if (ek == "object" && elemP.NestedProperties.Length > 0)
+        if (ek == "object" && IsObjectTableElement(elemP))
         {
             // Array of tables: one `[[data]]` per element (the write side writes exactly that name).
             //
@@ -1582,9 +1552,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             // written before the sibling values and those land INSIDE the sub-table.
             "object" => IsNestedTableMember(p) ? 1 : 0,
             "dict" => 1,
-            "list" or "array" => p.ElementTypeKind == "object" && p.NestedProperties.Length > 0
-                ? 1
-                : 0,
+            "list" or "array" => IsArrayOfTablesMember(p) ? 1 : 0,
             _ => 0,
         };
 
@@ -1632,7 +1600,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 indent
             );
             // Array of tables ([[key]]) for List<ComplexObject>
-            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            if (IsArrayOfTablesMember(p))
             {
                 var elemTypeName = p.ElementTypeName ?? "object";
                 var innerSn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
@@ -1924,7 +1892,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             );
             return;
         }
-        if (op.NestedProperties.Length > 0)
+        if (op.NestedProperties.Length > 0 || IsEmptyObjectShape(op))
         {
             var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", op.TypeFullName!);
             s.Append(pad);
@@ -2457,7 +2425,47 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
     /// for it while the table said the format can hold a cycle.
     /// </summary>
     private static bool IsNestedTableMember(PropertyInfo p) =>
-        p.TypeKind == "object" && (p.NestedProperties.Length > 0 || p.IsRecursiveRef);
+        p.TypeKind == "object"
+        && (p.NestedProperties.Length > 0 || p.IsRecursiveRef || IsEmptyObjectShape(p));
+
+    /// <summary>
+    /// An object whose serialized shape is EMPTY — the type declares no public member, so there
+    /// is nothing to put under its table header and no cycle target to delegate to (BU-4).
+    /// TOML already HAS the form: a table header with no keys, <c>[Mark]</c>, which is what an
+    /// empty table is (measured: <c>tomllib.loads('[Mark]')</c> → <c>{'Mark': {}}</c>). Before
+    /// this predicate the member had no emit branch at all and fell through to the scalar one,
+    /// which wrote the OBJECT itself as the value (<c>tw.WriteKeyValue(key, v.Mark)</c>) — a
+    /// compile error in the consumer's build instead of a document.
+    /// </summary>
+    private static bool IsEmptyObjectShape(PropertyInfo p) =>
+        p.NestedProperties.Length == 0 && !p.IsRecursiveRef;
+
+    /// <summary>
+    /// Does this member carry object ELEMENTS as their own table — an object list written as an
+    /// array of tables (<c>[[Marks]]</c>)?
+    /// <para>
+    /// The answer used to be "the element has members" (<c>NestedProperties.Length &gt; 0</c>),
+    /// which is the same question only while an empty element is unrepresentable: for a
+    /// ZERO-member element the length is 0, the member fell through to the INLINE-ARRAY emitter,
+    /// and each element went through the scalar accessor (a compile error). <c>[[Marks]]</c> with
+    /// nothing under it is exactly one empty table (measured:
+    /// <c>tomllib.loads('[[Marks]]')</c> → <c>{'Marks': [{}]}</c>), so the array-of-tables path
+    /// is the right one for it too.
+    /// </para>
+    /// </summary>
+    private static bool IsArrayOfTablesMember(PropertyInfo p) =>
+        (p.TypeKind is "list" or "array")
+        && p.ElementTypeKind == "object"
+        && IsObjectTableElement(p);
+
+    /// <summary>
+    /// The element-position half of <see cref="IsArrayOfTablesMember"/>: every object element is
+    /// its own table EXCEPT a cycle-truncated one, whose members live in the target type's helper
+    /// (<see cref="PropertyInfo.IsRecursiveRef"/>).
+    /// </summary>
+    private static bool IsObjectTableElement(PropertyInfo element) =>
+        element.NestedProperties.Length > 0
+        || (element.NestedProperties.Length == 0 && !element.IsRecursiveRef);
 
     private static bool IsNestedCollectionMember(PropertyInfo p) =>
         PicoSerDe.Gen.CollectionKinds.IsSequence(p.TypeKind)
@@ -2593,7 +2601,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append(p.ElementTypeNameAnnotated ?? p.ElementTypeName ?? "object");
             s.AppendLine(">(16);");
             // Array of tables ([[key]]) for List<ComplexObject>
-            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            if (IsArrayOfTablesMember(p))
             {
                 // Loop: each ArrayStart from [[key]] is one item; read its properties inline.
                 var elemTypeName = p.ElementTypeName ?? "object";
@@ -3521,12 +3529,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                         __polyCtorMap[dti.CtorParams[ci].Name!] = ci;
             var __polyScalars = dti
                 .Properties.Where(x =>
-                    !PicoSerDe.Gen.GenInfrastructure.IsComplexMember(x)
-                    && !(
-                        (x.TypeKind == "list" || x.TypeKind == "array")
-                        && x.ElementTypeKind == "object"
-                        && x.NestedProperties.Length > 0
-                    )
+                    !PicoSerDe.Gen.GenInfrastructure.IsComplexMember(x) && !IsArrayOfTablesMember(x)
                 )
                 .ToImmutableArray();
             EmitPropertyDispatch(
@@ -3615,11 +3618,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             if (!hasCtor)
             {
                 var __polyListObjs = dti
-                    .Properties.Where(x =>
-                        (x.TypeKind == "list" || x.TypeKind == "array")
-                        && x.ElementTypeKind == "object"
-                        && x.NestedProperties.Length > 0
-                    )
+                    .Properties.Where(x => IsArrayOfTablesMember(x))
                     .ToImmutableArray();
                 if (__polyListObjs.Length > 0)
                 {

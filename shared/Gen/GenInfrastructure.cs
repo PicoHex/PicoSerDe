@@ -138,10 +138,20 @@ internal readonly record struct SkippedMember(
 
 /// <summary>
 /// One member that never reached the generated code because its declared type is
-/// not resolvable for the current format (a class with no public members, a
-/// collection whose element kind this format cannot express, a cycle the format
-/// cannot hold, ...). These are exactly the values the PICOSERDE001 message
-/// needs, so the diagnostic can name the member, the reason and the way out.
+/// not resolvable for the current format (a type whose only members are ones we
+/// decline to serialize — `KeyValuePair<,>`, `Tuple<,>` — a collection whose element
+/// kind this format cannot express, a cycle the format cannot hold, an empty type that
+/// cannot be built (abstract, or without a parameterless constructor), ...). These are
+/// exactly the values the PICOSERDE001 message needs, so the diagnostic can name the
+/// member, the reason and the way out.
+/// <para>
+/// BU-4 removed the first item of that list from the general case: a type that declares NO
+/// public instance member at all is not unresolvable — its shape is the EMPTY OBJECT, which
+/// `TypeKindResolver.Resolve` now names for every format in
+/// `DecisionTables.EmptyObjectFormats`. What is left here is the narrowing around it (types
+/// whose members exist but are get-only, types that cannot be instantiated, types whose base
+/// contributes members), and those still drop loudly.
+/// </para>
 /// </summary>
 internal readonly record struct UnsupportedTypeMember(
     string TypeName,

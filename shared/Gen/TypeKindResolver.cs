@@ -198,21 +198,32 @@ internal static class TypeKindResolver
             && type is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } ntsObj
         )
         {
+            // Whether the type DECLARES any public instance data at all — see the empty-object
+            // arm below, which must only ever answer for a type that declares NONE. It is not
+            // the same question as the loop's ("is there a member we can SERIALIZE"): a get-only
+            // property is a member we decline to serialize, and a type made only of those
+            // (`KeyValuePair<,>`, `Tuple<,>`) is a real shape, not an empty one.
+            bool declaresPublicInstanceData = false;
             foreach (var member in ntsObj.GetMembers())
             {
                 if (
-                    member
-                        is IPropertySymbol
-                        {
-                            DeclaredAccessibility: Accessibility.Public,
-                            IsStatic: false,
-                            IsIndexer: false
-                        } ps
-                    && ps.GetMethod is not null
-                    && !(ps.IsReadOnly && ps.SetMethod is null)
+                    member is IPropertySymbol
+                    {
+                        DeclaredAccessibility: Accessibility.Public,
+                        IsStatic: false
+                    } ps
                 )
                 {
-                    return ("object", false, null);
+                    declaresPublicInstanceData = true;
+                    if (
+                        !ps.IsIndexer
+                        && ps.GetMethod is not null
+                        && !(ps.IsReadOnly && ps.SetMethod is null)
+                    )
+                    {
+                        return ("object", false, null);
+                    }
+                    continue;
                 }
                 // Also accept public instance fields (ref structs commonly use fields)
                 if (
@@ -223,12 +234,77 @@ internal static class TypeKindResolver
                     }
                 )
                 {
+                    declaresPublicInstanceData = true;
                     return ("object", false, null);
                 }
             }
+
+            // BU-4: a class/struct that declares NO public instance member is not
+            // "unresolvable" — its serialized shape is the EMPTY OBJECT, and every format
+            // whose capability table says so has a form for it (`{}`, an empty map,
+            // `[Name]`). Without this arm the whole MEMBER disappeared with PICOSERDE001 ⏸
+            // ("this format can express it, we have not implemented it"), so the document
+            // read `{"SessionCapabilities":{}}` where the user's model said
+            // `{"SessionCapabilities":{"List":{}}}`.
+            //
+            // Five conditions, each one a way the empty object could become a LIE:
+            //   * the FORMAT must have the form — asked of the capability model, never
+            //     assumed (I-3, `FormatCapabilities.EmptyObjectSupported`);
+            //   * the type must be instantiable: the reader's `new T()` is CS0144 on an
+            //     abstract type (I-2), so a zero-member ABSTRACT type keeps today's drop;
+            //   * a static class is not a value at all and `new T()` on it is CS0712;
+            //   * a public parameterless constructor must exist, or `new T()` is CS7036;
+            //   * nothing may INHERIT into the shape — a type that derives from anything but
+            //     `object`/`ValueType` would get `{}` for a shape the base still carries
+            //     (`Opaque : Exception` would silently lose `Message`). That case needs the
+            //     base's members, which is a separate extraction question, so it keeps
+            //     today's loud drop rather than becoming a silent empty object.
+            // ZERO MEMBERS is a narrower claim than "nothing the loop accepted": the type must
+            // declare no public instance property at ALL (a get-only one included — `KeyValuePair`
+            // and `Tuple` are made only of those, and writing `{}` for them would silently drop
+            // data the loud PICOSERDE001 drop keeps visible) and no public instance field.
+            if (
+                !declaresPublicInstanceData
+                && FormatCapabilities.EmptyObjectSupported(format)
+                && !ntsObj.IsAbstract
+                && !ntsObj.IsStatic
+                && ntsObj.BaseType
+                    is null
+                        or {
+                            SpecialType: SpecialType.System_Object or SpecialType.System_ValueType
+                        }
+                && HasParameterlessConstructor(ntsObj)
+            )
+                return ("object", false, null);
         }
 
         return (kind, false, null);
+    }
+
+    /// <summary>
+    /// Can the generated `new T()` create this type — is there a PUBLIC parameterless
+    /// constructor, implicit or declared?
+    /// <para>
+    /// The empty-object arm above hands the emitters an ordinary object shape, and every one of
+    /// them creates the instance by calling <c>new &lt;Type&gt;()</c> on the read path. A type
+    /// whose only constructors take parameters has no such call, so it keeps the unresolved
+    /// drop instead of emitting code that does not compile (invariant I-2). A struct always
+    /// answers yes: <c>new S()</c> is legal even when every declared constructor takes
+    /// parameters.
+    /// </para>
+    /// </summary>
+    private static bool HasParameterlessConstructor(INamedTypeSymbol type)
+    {
+        if (type.IsValueType)
+            return true;
+
+        // No LINQ here on purpose: this file is linked into the netstandard2.0 generator
+        // projects with no `using` list of its own (see the head of the file).
+        foreach (var ctor in type.InstanceConstructors)
+            if (ctor.Parameters.Length == 0 && ctor.DeclaredAccessibility == Accessibility.Public)
+                return true;
+
+        return false;
     }
 
     /// <summary>Display format that keeps reference-type nullable annotations ("?").</summary>
