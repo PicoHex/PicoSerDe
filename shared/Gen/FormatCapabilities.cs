@@ -317,6 +317,28 @@ internal static class FormatCapabilities
         DecisionTables.InlineNestedLeafKindsByFormat.ContainsKey(formatTag);
 
     /// <summary>
+    /// Can this format's generated code write an object with ZERO members — a
+    /// <c>[PicoSerializable]</c> type that declares no public instance member, held as a
+    /// member or as a collection element?
+    /// <para>
+    /// The question BU-4 was hiding: without it the shape resolver had no answer for a type
+    /// with no members, so the whole MEMBER disappeared and PICOSERDE001 said ⏸ ("this format
+    /// can hold it, we have not implemented it"). The answer is a per-format value in
+    /// <see cref="DecisionTables.EmptyObjectFormats"/>, read through THIS entry point, so no
+    /// generator compares a format tag (I-3) and no second copy of the list exists. Four of the
+    /// five are in; yaml is a registered debt (its writer has no empty-mapping form), which the
+    /// table's own doc explains — and a missing format is never a claim that the FORMAT cannot.
+    /// </para>
+    /// <para>
+    /// A <c>false</c> is not a verdict on its own: the shape resolver keeps the member
+    /// unresolvable, i.e. the drop and its diagnostic are exactly what they are today (⏸ for a
+    /// format that can hold it, ⛔ never). This method answers "does our code have the form".
+    /// </para>
+    /// </summary>
+    internal static bool EmptyObjectSupported(string formatTag) =>
+        DecisionTables.EmptyObjectFormats.Contains(formatTag);
+
+    /// <summary>
     /// Does this format's ANONYMOUS-TYPE emitter have a form for a COLLECTION member?
     /// <para>
     /// The question the anonymous interceptor path (the sixth emit surface, spec D-8) used to

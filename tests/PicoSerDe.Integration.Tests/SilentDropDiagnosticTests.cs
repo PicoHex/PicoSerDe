@@ -183,9 +183,16 @@ public class SilentDropDiagnosticTests
     // ── PICOSERDE001 (D-6): an unresolvable TYPE must not vanish silently ─────────────
 
     /// <summary>
-    /// <c>Opaque</c> has no public member, so <c>TypeKindResolver</c> resolves nothing
-    /// for it: the property could never be emitted. Before Task 5 the extractor pushed
-    /// a diagnostic into a list nobody passed — the member simply disappeared.
+    /// <c>Opaque</c> can never be resolved: an ABSTRACT type has no instance to build, so its
+    /// reader would be `new Opaque()` — CS0144 (I-2) — and the property is dropped instead.
+    /// Before Task 5 the extractor pushed a diagnostic into a list nobody passed, so the member
+    /// simply disappeared.
+    /// <para>
+    /// The fixture used to be a CONCRETE empty class, which is no longer unresolvable: BU-4 made
+    /// "declares no public instance member" an EMPTY OBJECT shape (`{}`), so it now emits instead
+    /// of dropping (see `ZeroMemberObjectShapeTests`). Abstract is the boundary that keeps this
+    /// drop alive, and it is the one this file is about.
+    /// </para>
     /// </summary>
     [Test]
     public async Task Unresolvable_property_type_reports_PICOSERDE001()
@@ -193,7 +200,7 @@ public class SilentDropDiagnosticTests
         const string source = """
             using PicoJetson;
 
-            public class Opaque { }
+            public abstract class Opaque { }
 
             [PicoJsonSerializable]
             public partial class Doc
@@ -234,7 +241,7 @@ public class SilentDropDiagnosticTests
         const string source = """
             using PicoSerDe.Core;
 
-            public class Opaque { }
+            public abstract class Opaque { }
 
             [PicoSerializable(IncludeFields = true)]
             public sealed class Doc
@@ -270,7 +277,7 @@ public class SilentDropDiagnosticTests
             using PicoJetson;
             using PicoSerDe.Core;
 
-            public class Opaque { }
+            public abstract class Opaque { }
 
             [PicoSerializable]
             [PicoJsonSerializable]
@@ -329,7 +336,7 @@ public class SilentDropDiagnosticTests
         const string source = """
             using PicoJetson;
 
-            public class Opaque { }
+            public abstract class Opaque { }
 
             [PicoJsonSerializable]
             public partial class Doc
@@ -1165,5 +1172,4 @@ public class SilentDropDiagnosticTests
         var driver = CSharpGeneratorDriver.Create(generator);
         return driver.RunGenerators(compilation).GetRunResult();
     }
-
 }
