@@ -44,9 +44,9 @@ file readonly struct S5Yaml_YD : IDeserializer<S5Yaml> {
                 {
                     // The document ended at this key: there is no list to read.
                 }
-                else if (r.TokenType == TokenType.ObjectStart)
+                else if (r.TokenType == TokenType.ArrayStart)
                 {
-                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    // Indented block sequence: the wrapper ArrayStart was consumed.
                     while ((__more = r.Read()) && r.TokenType == TokenType.String)
                     {
                         if (r.IsNullLiteral)
@@ -59,9 +59,9 @@ file readonly struct S5Yaml_YD : IDeserializer<S5Yaml> {
                             __tmpList.Add(__ev);
                         }
                     }
-                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // Skip the wrapper ArrayEnd — but only when the loop really stopped on
                     // it. `__more` then reports whether a member token is still available.
-                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                 }
                 else if (r.TokenType == TokenType.String)
                 {
@@ -122,9 +122,9 @@ S5Yaml? result) {
                 {
                     // The document ended at this key: there is no list to read.
                 }
-                else if (r.TokenType == TokenType.ObjectStart)
+                else if (r.TokenType == TokenType.ArrayStart)
                 {
-                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    // Indented block sequence: the wrapper ArrayStart was consumed.
                     while ((__more = r.Read()) && r.TokenType == TokenType.String)
                     {
                         if (r.IsNullLiteral)
@@ -137,9 +137,9 @@ S5Yaml? result) {
                             __tmpList.Add(__ev);
                         }
                     }
-                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // Skip the wrapper ArrayEnd — but only when the loop really stopped on
                     // it. `__more` then reports whether a member token is still available.
-                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                 }
                 else if (r.TokenType == TokenType.String)
                 {

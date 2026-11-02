@@ -44,18 +44,18 @@ file readonly struct S14Yaml_YD : IDeserializer<S14Yaml> {
                 {
                     // The document ended at this key: there is no list to read.
                 }
-                else if (r.TokenType == TokenType.ObjectStart)
+                else if (r.TokenType == TokenType.ArrayStart)
                 {
-                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    // Indented block sequence: the wrapper ArrayStart was consumed.
                     while ((__more = r.Read()) && r.TokenType == TokenType.String)
                     {
                         if (r.IsNullLiteral && !r.IsNestedSequenceItem) { __tmpList.Add(null!); continue; }
                         var __item = global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r); // Deserialize reads ObjectStart(item) internally
                         __tmpList.Add(__item);
                     }
-                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // Skip the wrapper ArrayEnd — but only when the loop really stopped on
                     // it. `__more` then reports whether a member token is still available.
-                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                 }
                 else if (r.TokenType == TokenType.String)
                 {
@@ -112,18 +112,18 @@ S14Yaml? result) {
                 {
                     // The document ended at this key: there is no list to read.
                 }
-                else if (r.TokenType == TokenType.ObjectStart)
+                else if (r.TokenType == TokenType.ArrayStart)
                 {
-                    // Indented block sequence: the wrapper ObjectStart was consumed.
+                    // Indented block sequence: the wrapper ArrayStart was consumed.
                     while ((__more = r.Read()) && r.TokenType == TokenType.String)
                     {
                         if (r.IsNullLiteral && !r.IsNestedSequenceItem) { __tmpList.Add(null!); continue; }
                         var __item = global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.Deserialize(ref r); // Deserialize reads ObjectStart(item) internally
                         __tmpList.Add(__item);
                     }
-                    // Skip the wrapper ObjectEnd — but only when the loop really stopped on
+                    // Skip the wrapper ArrayEnd — but only when the loop really stopped on
                     // it. `__more` then reports whether a member token is still available.
-                    if (__more && r.TokenType == TokenType.ObjectEnd) __more = r.Read();
+                    if (__more && r.TokenType == TokenType.ArrayEnd) __more = r.Read();
                 }
                 else if (r.TokenType == TokenType.String)
                 {

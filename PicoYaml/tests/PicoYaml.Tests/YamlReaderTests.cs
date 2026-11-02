@@ -79,10 +79,12 @@ public class YamlReaderTests
         r.Read();
         var tEnd = r.TokenType;
         await Assert.That(k1).IsEqualTo("tags");
-        await Assert.That(t2).IsEqualTo(TokenType.ObjectStart);
+        // A sequence opens an ARRAY, not an object: the two containers used to share
+        // ObjectStart/ObjectEnd, so no consumer could tell them apart.
+        await Assert.That(t2).IsEqualTo(TokenType.ArrayStart);
         await Assert.That(v1).IsEqualTo("dev");
         await Assert.That(v2).IsEqualTo("runner");
-        await Assert.That(tEnd).IsEqualTo(TokenType.ObjectEnd);
+        await Assert.That(tEnd).IsEqualTo(TokenType.ArrayEnd);
     }
 
     [Test]
