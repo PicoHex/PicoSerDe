@@ -63,9 +63,15 @@ public class VerdictMarkerGuardTests
     /// the only one with NO marker, so the counts here (3) were the reason it slipped — this
     /// guard could only see templates that already carried a glyph. 3 → 4 is the D-10 fix
     /// becoming visible to the guard.
+    /// <para>
+    /// 4 → 5 is N-1: PICOSERDE001 needed a SECOND ⛔ template, for the drop that is terminal for
+    /// the TYPE instead of for the format (abstract / static / no accessible parameterless
+    /// constructor — <c>DropVerdict.TypeUnconstructible</c>). Same id, same glyph, different
+    /// sentence: one of them must not borrow the other's blame. The count moving here is the
+    /// visibility the guard was built to give a new template.
     /// </para>
     /// </summary>
-    private const int ImpossibleTemplateCount = 4;
+    private const int ImpossibleTemplateCount = 5;
 
     private const int DeferredTemplateCount = 4;
 
@@ -190,7 +196,7 @@ public class VerdictMarkerGuardTests
             .That(references.GetValueOrDefault(ImpossibleName))
             .IsEqualTo(ImpossibleTemplateCount)
             .Because(
-                "the four ⛔ templates (PICOSERDE001/003/004/005) must each reference "
+                "the five ⛔ templates (PICOSERDE001 x2 /003/004/005) must each reference "
                     + "FormatCapabilities.ImpossibleMarker; a template that builds its glyph "
                     + "another way is the drift this guard exists for"
             );

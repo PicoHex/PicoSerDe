@@ -2429,13 +2429,35 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         && (p.NestedProperties.Length > 0 || p.IsRecursiveRef || IsEmptyObjectShape(p));
 
     /// <summary>
-    /// An object whose serialized shape is EMPTY — the type declares no public member, so there
-    /// is nothing to put under its table header and no cycle target to delegate to (BU-4).
-    /// TOML already HAS the form: a table header with no keys, <c>[Mark]</c>, which is what an
-    /// empty table is (measured: <c>tomllib.loads('[Mark]')</c> → <c>{'Mark': {}}</c>). Before
-    /// this predicate the member had no emit branch at all and fell through to the scalar one,
-    /// which wrote the OBJECT itself as the value (<c>tw.WriteKeyValue(key, v.Mark)</c>) — a
-    /// compile error in the consumer's build instead of a document.
+    /// An object whose serialized shape is EMPTY — nothing was extracted under its table header
+    /// and there is no cycle target to delegate to (BU-4).
+    /// <para>
+    /// N-5 asked whether the predicate is too wide. It asks "did extraction SEE any member?", not
+    /// "does the type declare zero members?", and the two differ: a type whose members are all
+    /// dropped (only <c>KeyValuePair</c>-shaped / unresolvable members) or all
+    /// <c>[PicoIgnore]</c>d also comes back with no nested properties. Measured, that is not a
+    /// misfire, and the difference is deliberate:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>the dropped member keeps its own loud PICOSERDE001 (⏸) naming it, so the empty table
+    ///       is never a SILENT loss — json has written <c>{}</c> for exactly the same model since
+    ///       long before BU-4, so tightening this predicate would make TOML the odd one out;</item>
+    /// <item>the alternative branch is the SCALAR one, which writes the object itself as the value
+    ///       (<c>tw.WriteKeyValue(key, v.Mark)</c>) — a compile error in the consumer's build
+    ///       instead of a document. That is the bug this predicate closed;</item>
+    /// <item>an all-<c>[PicoIgnore]</c> type is not lossy at all: not serializing those members was
+    ///       the user's instruction, so <c>{}</c> IS the shape.</item>
+    /// </list>
+    /// <para>
+    /// The question "does the type declare zero members?" belongs to the RESOLVER, where it decides
+    /// the empty-object shape (<c>TypeKindResolver.DeclaresPublicInstanceData</c>, and since N-1 the
+    /// same gates decide the diagnostic verdict through <c>EmptyObjectBlockOf</c>). This predicate
+    /// answers the EMITTER's question — what did we get to write? — and it is the right one here.
+    /// </para>
+    /// <para>
+    /// TOML has the form: a table header with no keys, <c>[Mark]</c>, which is what an empty table
+    /// is (measured: <c>tomllib.loads('[Mark]')</c> → <c>{'Mark': {}}</c>).
+    /// </para>
     /// </summary>
     private static bool IsEmptyObjectShape(PropertyInfo p) =>
         p.NestedProperties.Length == 0 && !p.IsRecursiveRef;
