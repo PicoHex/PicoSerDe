@@ -729,6 +729,15 @@ public ref struct JsonWriter
         // comma mask's shift wraps onto bit 63 and the document's tail silently stops committing.
         if (_depth == 0)
             throw new InvalidOperationException("'}' is invalid without a matching open.");
+        // The open container at this depth is an array: '}' would close the wrong shape. The
+        // symmetric half of the guard in WriteEndArray, and it was the missing one —
+        // `WriteStartArray(); WriteEndObject();` produced `[}` with no exception at all, so the
+        // caller's mistake became an illegal document for the consumer to discover. Kind is the
+        // one bit the writer already tracks for the "value needs a property name" question.
+        if ((_kinds & (1UL << _depth)) == 0)
+            throw new InvalidOperationException(
+                "'}' is invalid without a matching open object: the container open at this depth is an array."
+            );
         ThrowIfPropertyNamePending("object");
         _needsComma &= ~(1UL << _depth);
         _depth--;
