@@ -11,6 +11,7 @@ F:PicoMsgPack.MsgPackDateTimeFormat.value__ : int
 F:PicoMsgPack.MsgPackSerializer.ContentType : string = "application/msgpack" const
 I:PicoMsgPack.MsgPackReader : PicoSerDe.Core.IFusedTokenReader
 I:PicoMsgPack.MsgPackReader : PicoSerDe.Core.ITokenReader
+I:PicoMsgPack.MsgPackWriter : System.IDisposable
 M:PicoMsgPack.IMsgPackConverter`1.Read(ref PicoMsgPack.MsgPackReader reader) : T abstract
 M:PicoMsgPack.IMsgPackConverter`1.Write(System.Buffers.IBufferWriter`1<byte> writer, T value) : void abstract
 M:PicoMsgPack.MsgPackConstructorAttribute..ctor() : void
@@ -62,6 +63,8 @@ M:PicoMsgPack.MsgPackSerializer.StreamingFunc`1.BeginInvoke(ref PicoMsgPack.MsgP
 M:PicoMsgPack.MsgPackSerializer.StreamingFunc`1.EndInvoke(ref PicoMsgPack.MsgPackReader reader, out T result, System.IAsyncResult __result) : PicoSerDe.Core.ReadStatus virtual
 M:PicoMsgPack.MsgPackSerializer.StreamingFunc`1.Invoke(ref PicoMsgPack.MsgPackReader reader, out T result) : PicoSerDe.Core.ReadStatus virtual
 M:PicoMsgPack.MsgPackWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, PicoMsgPack.MsgPackOptions options = null) : void
+M:PicoMsgPack.MsgPackWriter.Dispose() : void override
+M:PicoMsgPack.MsgPackWriter.Flush() : void
 M:PicoMsgPack.MsgPackWriter.WriteBoolean(bool value) : void
 M:PicoMsgPack.MsgPackWriter.WriteBytes(System.ReadOnlySpan`1<byte> value) : void
 M:PicoMsgPack.MsgPackWriter.WriteDateTime(System.DateTime value) : void

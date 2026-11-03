@@ -61,6 +61,7 @@ M:PicoYaml.YamlSerializer.Serialize``1(T value, PicoYaml.YamlOptions options = n
 M:PicoYaml.YamlTagAttribute..ctor(string tag) : void
 M:PicoYaml.YamlWriter..ctor(System.Buffers.IBufferWriter`1<byte> buffer, int maxDepth = 256, bool indented = false) : void
 M:PicoYaml.YamlWriter.WriteBoolean(bool value) : void
+M:PicoYaml.YamlWriter.WriteBooleanProperty(System.ReadOnlySpan`1<byte> utf8Name, bool value) : void
 M:PicoYaml.YamlWriter.WriteComment(string text) : void
 M:PicoYaml.YamlWriter.WriteDouble(double value) : void
 M:PicoYaml.YamlWriter.WriteEmptySequenceItem() : void
@@ -69,7 +70,11 @@ M:PicoYaml.YamlWriter.WriteEndSequence() : void
 M:PicoYaml.YamlWriter.WriteEndSequenceBlock() : void
 M:PicoYaml.YamlWriter.WriteInt64(long value) : void
 M:PicoYaml.YamlWriter.WriteNull() : void
+M:PicoYaml.YamlWriter.WriteNullProperty(System.ReadOnlySpan`1<byte> utf8Name) : void
 M:PicoYaml.YamlWriter.WriteNumber(int value) : void
+M:PicoYaml.YamlWriter.WriteNumberProperty(System.ReadOnlySpan`1<byte> utf8Name, double value) : void
+M:PicoYaml.YamlWriter.WriteNumberProperty(System.ReadOnlySpan`1<byte> utf8Name, int value) : void
+M:PicoYaml.YamlWriter.WriteNumberProperty(System.ReadOnlySpan`1<byte> utf8Name, long value) : void
 M:PicoYaml.YamlWriter.WritePropertyName(System.ReadOnlySpan`1<byte> utf8Name) : void
 M:PicoYaml.YamlWriter.WritePropertyName(System.ReadOnlySpan`1<char> name) : void
 M:PicoYaml.YamlWriter.WriteSequenceItem(System.ReadOnlySpan`1<byte> utf8Value) : void
@@ -82,6 +87,8 @@ M:PicoYaml.YamlWriter.WriteStartSequence() : void
 M:PicoYaml.YamlWriter.WriteStartSequenceBlock() : void
 M:PicoYaml.YamlWriter.WriteString(System.ReadOnlySpan`1<byte> utf8Value) : void
 M:PicoYaml.YamlWriter.WriteString(System.ReadOnlySpan`1<char> value) : void
+M:PicoYaml.YamlWriter.WriteStringProperty(System.ReadOnlySpan`1<byte> utf8Name, System.ReadOnlySpan`1<byte> utf8Value) : void
+M:PicoYaml.YamlWriter.WriteStringProperty(System.ReadOnlySpan`1<byte> utf8Name, System.ReadOnlySpan`1<char> value) : void
 M:PicoYaml.YamlWriter.WriteTag(string tag) : void
 M:PicoYaml.YamlWriter.WriteUInt64(ulong value) : void
 P:PicoYaml.YamlKeyAttribute.Key : string { get; }
