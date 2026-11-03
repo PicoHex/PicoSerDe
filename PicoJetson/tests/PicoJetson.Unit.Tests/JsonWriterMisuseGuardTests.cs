@@ -174,6 +174,47 @@ public class JsonWriterMisuseGuardTests
         await Assert.That(ex.Message).Contains("']' is invalid without a matching open");
     }
 
+    [Test]
+    public async Task W4_EndObject_closing_an_array_throws()
+    {
+        // The symmetric half of W4, and the one that was missing: `WriteStartArray()` then
+        // `WriteEndObject()` produced the document `[}` with no exception at all — illegal
+        // JSON handed to the consumer, discovered by PicoDocument.IsValid, not by the caller.
+        // WriteEndArray has asked "is the open container really an array?" from the start;
+        // WriteEndObject never asked the same question about an object.
+        var ex = Throws(
+            (ref JsonWriter w) =>
+            {
+                w.WriteStartArray();
+                w.WriteEndObject();
+            }
+        );
+        await Assert.That(ex.Message).Contains("'}' is invalid without a matching open");
+    }
+
+    [Test]
+    public async Task W4_EndObject_closing_an_array_writes_nothing()
+    {
+        // Same contract as every other guard: the question is asked before any mutation, so a
+        // rejected close leaves the buffer with exactly the bytes that were legitimately
+        // written — the `[` — and the depth untouched (the array is still open for its own
+        // `]`).
+        var buf = new ArrayBufferWriter<byte>(8);
+        var threw = false;
+        try
+        {
+            var w = new JsonWriter(buf);
+            w.WriteStartArray();
+            w.WriteEndObject();
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+        await Assert.That(threw).IsTrue();
+        await Assert.That(Encoding.UTF8.GetString(buf.WrittenSpan)).IsEqualTo("[");
+    }
+
     // -------------------------------------------------- reverse protection
 
     [Test]

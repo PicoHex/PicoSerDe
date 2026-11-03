@@ -1,6 +1,10 @@
 namespace PicoJetson;
 
-public ref struct JsonWriter
+// `IDisposable` on a ref struct is the scope hook this writer was missing (C# 13+ allows it,
+// and the readers in this repository already implement their token-reader interfaces this way).
+// It is what makes `using var w = new JsonWriter(buf);` mean "commit the tail on every exit",
+// including the early `return` and the exception path that used to strand it.
+public ref struct JsonWriter : IDisposable
 {
     private readonly IBufferWriter<byte> _buffer;
     private long _bytesWritten;
@@ -40,8 +44,8 @@ public ref struct JsonWriter
     /// <remarks>
     /// The counter moves when a byte lands in the span, not when the span is committed, so its name
     /// reads as "bytes written to the writer", not "bytes the buffer received". While a container is
-    /// open the two legitimately differ — the outermost close, a top-level token, or any read of
-    /// <see cref="Buffer"/> is what commits — which makes
+    /// open the two legitimately differ — the outermost close, a top-level token, a read of
+    /// <see cref="Buffer"/>, or an explicit <see cref="Flush"/> is what commits — which makes
     /// <c>BytesWritten != buffer.WrittenSpan.Length</c> a cheap probe for "this document still has
     /// bytes pending", the state a writer left open (or closed once too often) hides in.
     /// </remarks>
@@ -712,6 +716,112 @@ public ref struct JsonWriter
         }
     }
 
+    // ---------------------------------------------------------------------------------
+    // name + value in one call
+    //
+    // A member used to take two calls — WritePropertyName then WriteX — and a helper that
+    // wrapped that pair had to take `ref JsonWriter` to survive the span cache, which every
+    // downstream author got wrong at least once (the by-value copy swallowed the bytes, silently:
+    // 2026.10 lost the separator, 2026.11+ the whole member). One call that cannot be split is
+    // the fix at the root, and the overload list is chosen rather than exhaustive: string (UTF-8
+    // and UTF-16), int, long, double, bool, null — the six kinds a member is made of in this
+    // stack, each with a WriteX sibling to delegate to. `float` deliberately has no twin: it
+    // would widen into the double overload and print 0.10000000149011612 where
+    // WriteNumber(float) prints 0.1, and a quiet digit change is exactly the failure class these
+    // helpers remove. decimal/Guid/DateTime and the rest of the numeric family are the same
+    // argument one step weaker (no byte shift, only surface), so they stay out for now: a caller
+    // holding one keeps the two-call form, which still works.
+    // ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Writes <c>"name": null</c> as one call.
+    /// </summary>
+    /// <remarks>
+    /// The whole family obeys two rules. <b>Byte identity</b>: for every legal use the fused
+    /// call writes exactly the bytes <see cref="WritePropertyName(ReadOnlySpan{byte})"/> +
+    /// <see cref="WriteNull"/> write — separator, escapes, indentation, number formatting and
+    /// failure behaviour included — because it delegates to them instead of re-staging the
+    /// bytes. <b>An object is required</b>: at the root or inside an array <c>"a":</c> is not
+    /// JSON at all, so these throw before staging anything, where the two-call form emitted the
+    /// bare member silently. That narrowing is the point of a member-shaped entry point.
+    /// </remarks>
+    public void WriteNullProperty(scoped ReadOnlySpan<byte> utf8Name)
+    {
+        BeforeMember(utf8Name);
+        WriteNull();
+    }
+
+    /// <summary>Writes <c>"name": true|false</c> as one call.</summary>
+    public void WriteBooleanProperty(scoped ReadOnlySpan<byte> utf8Name, bool value)
+    {
+        BeforeMember(utf8Name);
+        WriteBoolean(value);
+    }
+
+    /// <summary>Writes <c>"name": int</c> as one call, through <see cref="WriteNumber(int)"/>.</summary>
+    public void WriteNumberProperty(scoped ReadOnlySpan<byte> utf8Name, int value)
+    {
+        BeforeMember(utf8Name);
+        WriteNumber(value);
+    }
+
+    /// <summary>Writes <c>"name": long</c> as one call, through <see cref="WriteNumber(long)"/>.</summary>
+    public void WriteNumberProperty(scoped ReadOnlySpan<byte> utf8Name, long value)
+    {
+        BeforeMember(utf8Name);
+        WriteNumber(value);
+    }
+
+    /// <summary>
+    /// Writes <c>"name": double</c> as one call, through <see cref="WriteNumber(double)"/> — so
+    /// the invariant formatting and the <see cref="JsonOptions.NumberHandling"/> policy (NaN,
+    /// ±Infinity, and the exception when the policy forbids them) are the sibling's, not a
+    /// second implementation of them.
+    /// </summary>
+    public void WriteNumberProperty(scoped ReadOnlySpan<byte> utf8Name, double value)
+    {
+        BeforeMember(utf8Name);
+        WriteNumber(value);
+    }
+
+    /// <summary>Writes <c>"name": "value"</c> as one call from pre-encoded UTF-8 bytes.</summary>
+    public void WriteStringProperty(
+        scoped ReadOnlySpan<byte> utf8Name,
+        scoped ReadOnlySpan<byte> utf8Value
+    )
+    {
+        BeforeMember(utf8Name);
+        WriteString(utf8Value);
+    }
+
+    /// <summary>Writes <c>"name": "value"</c> as one call from UTF-16 text.</summary>
+    public void WriteStringProperty(
+        scoped ReadOnlySpan<byte> utf8Name,
+        scoped ReadOnlySpan<char> value
+    )
+    {
+        BeforeMember(utf8Name);
+        WriteString(value);
+    }
+
+    /// <summary>Stages <c>"name":</c> for a member, refusing the places a member cannot exist.</summary>
+    /// <remarks>
+    /// The only difference between a <c>Write*Property</c> call and its two-call equivalent:
+    /// the pair is refused at the root and inside an array. The kind mask answers it in the same
+    /// word the comma bit comes from — bit <c>_depth</c> set means an object is open, and bit 0
+    /// is never set, so the root reads as "not an object" for free. Refusal happens before any
+    /// byte is staged, so the buffer keeps exactly what was already written.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void BeforeMember(scoped ReadOnlySpan<byte> utf8Name)
+    {
+        if ((_kinds & (1UL << _depth)) == 0)
+            throw new InvalidOperationException(
+                "Cannot write a property outside an object: a member needs an object to belong to, and this writer is at the root or inside an array."
+            );
+        WritePropertyName(utf8Name);
+    }
+
     public void WriteStartObject()
     {
         if (_depth >= _maxDepth)
@@ -729,6 +839,15 @@ public ref struct JsonWriter
         // comma mask's shift wraps onto bit 63 and the document's tail silently stops committing.
         if (_depth == 0)
             throw new InvalidOperationException("'}' is invalid without a matching open.");
+        // The open container at this depth is an array: '}' would close the wrong shape. The
+        // symmetric half of the guard in WriteEndArray, and it was the missing one —
+        // `WriteStartArray(); WriteEndObject();` produced `[}` with no exception at all, so the
+        // caller's mistake became an illegal document for the consumer to discover. Kind is the
+        // one bit the writer already tracks for the "value needs a property name" question.
+        if ((_kinds & (1UL << _depth)) == 0)
+            throw new InvalidOperationException(
+                "'}' is invalid without a matching open object: the container open at this depth is an array."
+            );
         ThrowIfPropertyNamePending("object");
         _needsComma &= ~(1UL << _depth);
         _depth--;
@@ -837,16 +956,31 @@ public ref struct JsonWriter
         }
     }
 
-    /// <summary>Commits the bytes sitting in <see cref="_span"/> and drops the span.</summary>
+    /// <summary>
+    /// Commits the bytes written so far to the underlying buffer — "I am done with what I have
+    /// written", sayable at any point, and the answer to a document left open on an early exit.
+    /// </summary>
     /// <remarks>
-    /// Dropping it is not optional: the buffer owns those bytes now, so keeping the span
+    /// <para>
+    /// The public contract has three parts. It <b>commits</b>: everything staged in the span
+    /// cache reaches <see cref="Buffer"/>, so <c>BytesWritten == buffer.WrittenSpan.Length</c>
+    /// afterwards. It does <b>not close the container</b>: no brace is invented, nothing is
+    /// popped from the depth, and the bytes stay a legal prefix of the document the caller can
+    /// keep writing into — that is the difference between this and the outermost
+    /// <see cref="WriteEndObject"/> / <see cref="WriteEndArray"/>, which close as well. And it
+    /// <b>never throws</b>, which is what lets it sit in a <c>finally</c> next to the code that
+    /// failed.
+    /// </para>
+    /// <para>
+    /// Dropping the span is not optional: the buffer owns those bytes now, so keeping the span
     /// would let the next write land in memory that has already been committed — a double
     /// commit, i.e. duplicated bytes. An empty span never fits <see cref="Ensure"/>, so the
     /// next write refetches; that is also why <c>Ensure(n)</c> with <c>n &gt;= 1</c> cannot
     /// spin.
+    /// </para>
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void Flush()
+    public void Flush()
     {
         if (_spanPos > 0)
         {
@@ -855,6 +989,34 @@ public ref struct JsonWriter
         }
         _span = default;
     }
+
+    /// <summary>
+    /// Commits the pending bytes and says nothing else — the scope hook, so
+    /// <c>using var w = new JsonWriter(buf);</c> hands the tail over on every exit path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Commits, never closes, never throws.</b> All three are deliberate, and the third is
+    /// what makes the second possible: a <c>Dispose</c> that threw would break the exception
+    /// path it exists for, and one that closed the container would have to invent a brace —
+    /// over a pending property name that is the illegal <c>{"a":}</c>, and over a caller who
+    /// meant to keep writing it is a lie about where the document ends. What a caller gets
+    /// back is therefore exactly the bytes they wrote: a legal document when they closed it, an
+    /// honest prefix of one when they did not.
+    /// </para>
+    /// <para>
+    /// Idempotent, and it does not end the writer's life: the only state it touches is the span
+    /// cache, so a second call commits nothing and a later write refetches a span and carries
+    /// on. (It is a commit point, not a tombstone.)
+    /// </para>
+    /// <para>
+    /// <see cref="Flush"/> is the same commit without the scope: use it when the container must
+    /// stay open — a converter handing off mid-object, a document assembled in more than one
+    /// pass, or a <c>finally</c> in a <c>ref struct</c>-hostile context.
+    /// </para>
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Dispose() => Flush();
 
     /// <summary>Commits immediately when no container is open.</summary>
     /// <remarks>
