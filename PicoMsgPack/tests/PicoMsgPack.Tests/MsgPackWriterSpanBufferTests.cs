@@ -4,7 +4,7 @@ namespace PicoMsgPack.Tests;
 /// Task 4b guard rails. <see cref="MsgPackWriter"/> no longer commits every token to the
 /// <see cref="IBufferWriter{T}"/>; it writes into a span of its own and touches the buffer
 /// only when that span runs out (<c>Ensure</c>) or when the caller says the value is
-/// finished (<c>FlushToBuffer</c>, the <c>Buffer</c> hand-off, or closing the outermost
+/// finished (<c>Flush</c>, the <c>Buffer</c> hand-off, or closing the outermost
 /// container). Two failure modes are invisible to a round-trip test — a chunk that is
 /// never committed because a flush was forgotten, and a chunk committed twice — so every
 /// test here compares <em>bytes</em>, against goldens recorded from the pre-span-cache
@@ -220,14 +220,14 @@ public class MsgPackWriterSpanBufferTests
         mw.WriteInt32(1);
         mw.WriteString("hi"u8);
         mw.WriteEndObject();
-        mw.FlushToBuffer();
+        mw.Flush();
         return buf.WrittenSpan.ToArray();
     }
 
     /// <summary>
     /// Closing the outermost container commits implicitly, so hand-written code that ends a
     /// complete value (the shape the sample and most of the writer tests use) keeps working
-    /// without calling <c>FlushToBuffer</c>.
+    /// without calling <c>Flush</c>.
     /// </summary>
     [Test]
     public async Task WriteEndAtDepthZero_CommitsImplicitly()
@@ -260,7 +260,7 @@ public class MsgPackWriterSpanBufferTests
 
     /// <summary>Boundary case ⑤: writing after a flush starts over in a fresh span.</summary>
     [Test]
-    public async Task FlushToBuffer_ThenWriteAgain_ProducesTheConcatenation()
+    public async Task Flush_ThenWriteAgain_ProducesTheConcatenation()
     {
         var (bytes, afterBoth, bytesWritten, writtenCount) = BuildTwoMaps();
 
@@ -284,18 +284,18 @@ public class MsgPackWriterSpanBufferTests
         mw.WriteInt32(0);
         mw.WriteInt32(1);
         mw.WriteEndObject();
-        mw.FlushToBuffer();
+        mw.Flush();
         mw.WriteStartObject(1);
         mw.WriteInt32(1);
         mw.WriteInt32(2);
         mw.WriteEndObject();
-        mw.FlushToBuffer();
+        mw.Flush();
 
         var bytes = buf.WrittenSpan.ToArray();
         long written = mw.BytesWritten;
         int count = buf.WrittenCount;
 
-        mw.FlushToBuffer();
+        mw.Flush();
         return (bytes, buf.WrittenSpan.ToArray(), written, count);
     }
 
@@ -412,7 +412,7 @@ public class MsgPackWriterSpanBufferTests
         mw.WriteString("hello"u8);
         mw.WriteInt64(9_000_000_000L);
         mw.WriteEndArray();
-        mw.FlushToBuffer();
+        mw.Flush();
         return (mw.BytesWritten, writer.WrittenCount);
     }
 

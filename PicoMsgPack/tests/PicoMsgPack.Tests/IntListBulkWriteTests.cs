@@ -534,7 +534,7 @@ public class IntListBulkWriteTests
             foreach (var v in values)
                 writer.WriteInt32(v);
         }
-        writer.FlushToBuffer();
+        writer.Flush();
         return (buffer.WrittenSpan.ToArray(), buffer.WrittenCount, writer.BytesWritten);
     }
 
@@ -716,7 +716,7 @@ public class IntListBulkWriteTests
         var buffer = new CountingBufferWriter();
         var writer = new MsgPackWriter(buffer);
         body(writer);
-        writer.FlushToBuffer();
+        writer.Flush();
         return buffer.SpanFetches;
     }
 

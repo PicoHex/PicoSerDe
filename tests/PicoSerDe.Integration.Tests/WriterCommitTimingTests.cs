@@ -541,6 +541,156 @@ public class WriterCommitTimingTests
         return (sink, written, committedBefore);
     }
 
+    // ── The public commit exits: one vocabulary, both writers ──────────────
+
+    /// <summary>
+    /// Both span-caching writers can now <em>say</em> "commit": <c>Flush()</c> for "now, but I may
+    /// keep writing" and <c>Dispose()</c> for "I am done, whatever happened". It is one family, so
+    /// the rules are the same three in both — commits everything staged, does not close the
+    /// container, never throws — and the mid-document flush must change <em>when</em> the bytes
+    /// leave, never <em>what</em> they are.
+    /// </summary>
+    [Test]
+    [Arguments(Json)]
+    [Arguments(MsgPack)]
+    public async Task Flush_publishesTheStagedTail_WithoutChangingTheFinishedBytes(string format)
+    {
+        var flushed = WriteHalfADocument(format, flushInTheMiddle: true);
+        var untouched = WriteHalfADocument(format, flushInTheMiddle: false);
+
+        await Assert
+            .That(flushed.StagedBeforeTheFlush)
+            .IsLessThan((int)flushed.WrittenBeforeTheFlush)
+            .Because("the tail of an open container is staged, not published");
+        await Assert
+            .That(flushed.CommittedAfterTheFlush)
+            .IsEqualTo(flushed.WrittenBeforeTheFlush)
+            .Because("Flush() commits exactly the bytes the writer says it has written");
+        await Assert
+            .That(flushed.CommittedAfterTheFlush)
+            .IsLessThan(flushed.CommittedAtTheEnd)
+            .Because("a commit is not a close: the rest of the document follows it");
+        await Assert
+            .That(flushed.Bytes)
+            .IsEquivalentTo(untouched.Bytes)
+            .Because("a mid-document flush changes when, never what");
+    }
+
+    /// <summary>
+    /// The scope hook, on the exit path that used to lose the tail: a <c>return</c> from inside the
+    /// <c>using</c> block. Each helper reports what the buffer held <em>at</em> the early return
+    /// (nothing, in both writers) and what it holds once the scope ended — so the assertion is a
+    /// statement about <c>Dispose</c> and not about the writer having been tidy by itself.
+    /// </summary>
+    [Test]
+    [Arguments(Json)]
+    [Arguments(MsgPack)]
+    public async Task Dispose_publishesTheStagedTail_onAnEarlyReturn(string format)
+    {
+        var (atTheEarlyReturn, writtenAtTheEarlyReturn, afterTheScope) =
+            WriteHalfADocumentAndReturn(format);
+
+        await Assert
+            .That(atTheEarlyReturn)
+            .IsLessThan((int)writtenAtTheEarlyReturn)
+            .Because("the tail is still in the span cache at the early return");
+        await Assert.That(afterTheScope).IsEqualTo((int)writtenAtTheEarlyReturn);
+    }
+
+    private sealed record HalfDocument(
+        int StagedBeforeTheFlush,
+        long WrittenBeforeTheFlush,
+        int CommittedAfterTheFlush,
+        int CommittedAtTheEnd,
+        byte[] Bytes
+    );
+
+    /// <summary>
+    /// Half a document (an object with one member written, its closing brace still to come), then
+    /// the rest, closing it. <paramref name="flushInTheMiddle"/> is the only difference between the
+    /// two arms, which is what makes their finished bytes comparable.
+    /// </summary>
+    private static HalfDocument WriteHalfADocument(string format, bool flushInTheMiddle)
+    {
+        var sink = new CommitSink();
+        int stagedBeforeTheFlush = 0;
+        long writtenBeforeTheFlush = 0;
+        int committedAfterTheFlush = 0;
+
+        if (format == Json)
+        {
+            var jw = new JsonWriter(sink);
+            jw.WriteStartObject();
+            jw.WritePropertyName("a"u8);
+            jw.WriteNumber(1);
+            stagedBeforeTheFlush = sink.CommittedLength;
+            writtenBeforeTheFlush = jw.BytesWritten;
+            if (flushInTheMiddle)
+                jw.Flush();
+            committedAfterTheFlush = sink.CommittedLength;
+            jw.WritePropertyName("b"u8);
+            jw.WriteNumber(2);
+            jw.WriteEndObject();
+        }
+        else
+        {
+            var mw = new MsgPackWriter(sink);
+            mw.WriteStartObject(2);
+            mw.WriteInt32(0);
+            mw.WriteInt32(42);
+            stagedBeforeTheFlush = sink.CommittedLength;
+            writtenBeforeTheFlush = mw.BytesWritten;
+            if (flushInTheMiddle)
+                mw.Flush();
+            committedAfterTheFlush = sink.CommittedLength;
+            mw.WriteInt32(1);
+            mw.WriteInt32(43);
+            mw.WriteEndObject();
+        }
+
+        return new(
+            stagedBeforeTheFlush,
+            writtenBeforeTheFlush,
+            committedAfterTheFlush,
+            sink.CommittedLength,
+            sink.CommittedBytes
+        );
+    }
+
+    /// <summary>Half a document, a <c>return</c> out of the <c>using</c> block, and what survived it.</summary>
+    private static (
+        int AtTheEarlyReturn,
+        long Written,
+        int AfterTheScope
+    ) WriteHalfADocumentAndReturn(string format)
+    {
+        var sink = new CommitSink();
+        var (atTheEarlyReturn, written) =
+            format == Json ? JsonHalfDocumentAndReturn(sink) : MsgPackHalfDocumentAndReturn(sink);
+        // Read after the helper returned, i.e. after its using block's Dispose ran.
+        return (atTheEarlyReturn, written, sink.CommittedLength);
+    }
+
+    private static (int AtTheEarlyReturn, long Written) JsonHalfDocumentAndReturn(CommitSink sink)
+    {
+        using var jw = new JsonWriter(sink);
+        jw.WriteStartObject();
+        jw.WritePropertyName("a"u8);
+        jw.WriteNumber(1);
+        return (sink.CommittedLength, jw.BytesWritten);
+    }
+
+    private static (int AtTheEarlyReturn, long Written) MsgPackHalfDocumentAndReturn(
+        CommitSink sink
+    )
+    {
+        using var mw = new MsgPackWriter(sink);
+        mw.WriteStartObject(2);
+        mw.WriteInt32(0);
+        mw.WriteInt32(42);
+        return (sink.CommittedLength, mw.BytesWritten);
+    }
+
     // ── Plain snapshots (a ref struct cannot cross an await) ───────────────
 
     /// <summary>Depth taken while the outer container is open, and after it closes.</summary>
