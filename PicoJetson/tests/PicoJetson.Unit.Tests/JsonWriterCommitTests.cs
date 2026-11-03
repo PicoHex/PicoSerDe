@@ -9,11 +9,24 @@ namespace PicoJetson.Tests;
 /// (<c>PicoJetson/README.md</c> → "Closing a container is the commit point").
 /// </summary>
 /// <remarks>
-/// <see cref="JsonWriter.Flush"/> — "commit what I have written so far". It does <em>not</em>
-/// close the container, so the bytes are a legal prefix of the document and the caller may keep
-/// writing afterwards. It never throws, which is what lets it sit in a <c>finally</c>. The
-/// bytes are asserted, not the intent: every test reads <c>buf.WrittenSpan</c>, because "the
-/// writer thinks it committed" is exactly the assumption that failed before.
+/// <para>
+/// Two members close that hole, and their reach differs on purpose:
+/// </para>
+/// <list type="bullet">
+///   <item><see cref="JsonWriter.Flush"/> — "commit what I have written so far". It does
+///   <em>not</em> close the container, so the bytes stay a legal prefix of the document and the
+///   caller may keep writing afterwards.</item>
+///   <item><see cref="JsonWriter.Dispose"/> — "I am done, whatever happened". The same commit
+///   behind a scope hook, so <c>using var w = new JsonWriter(buf);</c> hands the tail over on the
+///   happy path, on an early <c>return</c> and on an exception alike. Neither of them ever
+///   throws, and neither invents a closing token.</item>
+/// </list>
+/// <para>
+/// The bytes are asserted, not the intent: every test reads <c>buf.WrittenSpan</c>, because "the
+/// writer thinks it committed" is exactly the assumption that failed before. No test keeps a
+/// writer across an <c>await</c> — a <c>ref struct</c> forbids it — so the writing lives in a
+/// small synchronous helper and the assertions run after it.
+/// </para>
 /// </remarks>
 public class JsonWriterCommitTests
 {
@@ -155,5 +168,142 @@ public class JsonWriterCommitTests
         w.WriteNumber(3);
         w.WriteEndObject();
         return Str(buf.WrittenSpan);
+    }
+
+    // ── Dispose: commit the tail, never throw, never close ──────────────────
+
+    [Test]
+    public async Task Using_commits_the_tail_when_the_scope_ends_with_a_container_still_open()
+    {
+        // The shape every helper shows: a container opened, no `using` to write, an early exit.
+        var buf = new ArrayBufferWriter<byte>(8);
+        WriteAndNeverCloseTheObject(buf);
+        await Assert.That(Str(buf.WrittenSpan)).IsEqualTo("""{"a":1""");
+    }
+
+    private static void WriteAndNeverCloseTheObject(IBufferWriter<byte> buffer)
+    {
+        using var w = new JsonWriter(buffer);
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+        w.WriteNumber(1);
+    }
+
+    [Test]
+    public async Task Using_commits_the_tail_when_the_scope_exits_with_an_early_return()
+    {
+        var buf = new ArrayBufferWriter<byte>(8);
+        await Assert.That(WriteUserAndReturnEarly(buf)).IsEqualTo("early");
+        await Assert.That(Str(buf.WrittenSpan)).IsEqualTo("""{"name":"ada","id":7""");
+    }
+
+    private static string WriteUserAndReturnEarly(IBufferWriter<byte> buffer)
+    {
+        using var w = new JsonWriter(buffer);
+        w.WriteStartObject();
+        w.WritePropertyName("name"u8);
+        w.WriteString("ada");
+        w.WritePropertyName("id"u8);
+        w.WriteNumber(7);
+        return "early"; // the `WriteEndObject` the happy path would have written
+    }
+
+    [Test]
+    public async Task Using_commits_the_tail_when_the_scope_exits_by_exception()
+    {
+        // The reason Dispose must not throw: it runs on the way out of an exception that is
+        // already unwinding, and it must still hand over what was written.
+        var buf = new ArrayBufferWriter<byte>(8);
+        var threw = false;
+        try
+        {
+            WriteThenThrow(buf);
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+        await Assert.That(threw).IsTrue();
+        await Assert.That(Str(buf.WrittenSpan)).IsEqualTo("{\"a\":\"boom\"");
+    }
+
+    private static void WriteThenThrow(IBufferWriter<byte> buffer)
+    {
+        using var w = new JsonWriter(buffer);
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+        w.WriteString("boom");
+        throw new InvalidOperationException("downstream failure");
+    }
+
+    [Test]
+    public async Task Using_does_not_throw_over_a_pending_property_name()
+    {
+        // A `}` invented here would turn `{"a":` into `{"a":}` — illegal JSON *and* a lie about
+        // what the caller wrote. Dispose commits and says nothing.
+        var buf = new ArrayBufferWriter<byte>(8);
+        WriteANameWithNoValue(buf);
+        await Assert.That(Str(buf.WrittenSpan)).IsEqualTo("""{"a":""");
+    }
+
+    private static void WriteANameWithNoValue(IBufferWriter<byte> buffer)
+    {
+        using var w = new JsonWriter(buffer);
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+    }
+
+    [Test]
+    public async Task Using_a_complete_document_writes_the_same_bytes_and_no_more()
+    {
+        // Dispose must be a commit, not a second commit: the closing brace's own flush already
+        // ran at depth 0, so nothing is pending by then.
+        var buf = new ArrayBufferWriter<byte>(8);
+        WriteAWholeDocument(buf);
+        await Assert.That(Str(buf.WrittenSpan)).IsEqualTo("""{"a":1,"b":[2,3]}""");
+    }
+
+    private static void WriteAWholeDocument(IBufferWriter<byte> buffer)
+    {
+        using var w = new JsonWriter(buffer);
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+        w.WriteNumber(1);
+        w.WritePropertyName("b"u8);
+        w.WriteStartArray();
+        w.WriteNumber(2);
+        w.WriteNumber(3);
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
+    [Test]
+    public async Task Dispose_is_idempotent_safe_on_an_untouched_writer_and_the_writer_stays_usable()
+    {
+        // Three properties in one place, because they are one design decision: Dispose is a
+        // commit, so calling it twice must not duplicate bytes, calling it on a writer that
+        // wrote nothing must not throw, and (unlike a `ref struct` scope hook's usual meaning)
+        // it does not end the writer's life — the state it clears is the span cache only.
+        var (untouched, afterDispose, pending) = DisposeTwiceThenWrite();
+        await Assert.That(untouched).IsEqualTo("");
+        await Assert.That(afterDispose).IsEqualTo("{\"a\":null");
+        await Assert.That(pending).IsEqualTo("");
+    }
+
+    private static (string Untouched, string AfterDispose, string Pending) DisposeTwiceThenWrite()
+    {
+        var buf = new ArrayBufferWriter<byte>(8);
+        var w = new JsonWriter(buf);
+        w.Dispose();
+        w.Dispose();
+        var untouched = Str(buf.WrittenSpan);
+        w.WriteStartObject();
+        w.WritePropertyName("a"u8);
+        w.WriteNull();
+        w.Dispose();
+        w.Dispose();
+        var afterDispose = Str(buf.WrittenSpan);
+        var pending = w.BytesWritten != buf.WrittenCount ? "bytes still pending" : "";
+        return (untouched, afterDispose, pending);
     }
 }
