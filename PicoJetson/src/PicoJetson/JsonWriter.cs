@@ -716,6 +716,112 @@ public ref struct JsonWriter : IDisposable
         }
     }
 
+    // ---------------------------------------------------------------------------------
+    // name + value in one call
+    //
+    // A member used to take two calls — WritePropertyName then WriteX — and a helper that
+    // wrapped that pair had to take `ref JsonWriter` to survive the span cache, which every
+    // downstream author got wrong at least once (the by-value copy swallowed the bytes, silently:
+    // 2026.10 lost the separator, 2026.11+ the whole member). One call that cannot be split is
+    // the fix at the root, and the overload list is chosen rather than exhaustive: string (UTF-8
+    // and UTF-16), int, long, double, bool, null — the six kinds a member is made of in this
+    // stack, each with a WriteX sibling to delegate to. `float` deliberately has no twin: it
+    // would widen into the double overload and print 0.10000000149011612 where
+    // WriteNumber(float) prints 0.1, and a quiet digit change is exactly the failure class these
+    // helpers remove. decimal/Guid/DateTime and the rest of the numeric family are the same
+    // argument one step weaker (no byte shift, only surface), so they stay out for now: a caller
+    // holding one keeps the two-call form, which still works.
+    // ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Writes <c>"name": null</c> as one call.
+    /// </summary>
+    /// <remarks>
+    /// The whole family obeys two rules. <b>Byte identity</b>: for every legal use the fused
+    /// call writes exactly the bytes <see cref="WritePropertyName(ReadOnlySpan{byte})"/> +
+    /// <see cref="WriteNull"/> write — separator, escapes, indentation, number formatting and
+    /// failure behaviour included — because it delegates to them instead of re-staging the
+    /// bytes. <b>An object is required</b>: at the root or inside an array <c>"a":</c> is not
+    /// JSON at all, so these throw before staging anything, where the two-call form emitted the
+    /// bare member silently. That narrowing is the point of a member-shaped entry point.
+    /// </remarks>
+    public void WriteNullProperty(scoped ReadOnlySpan<byte> utf8Name)
+    {
+        BeforeMember(utf8Name);
+        WriteNull();
+    }
+
+    /// <summary>Writes <c>"name": true|false</c> as one call.</summary>
+    public void WriteBooleanProperty(scoped ReadOnlySpan<byte> utf8Name, bool value)
+    {
+        BeforeMember(utf8Name);
+        WriteBoolean(value);
+    }
+
+    /// <summary>Writes <c>"name": int</c> as one call, through <see cref="WriteNumber(int)"/>.</summary>
+    public void WriteNumberProperty(scoped ReadOnlySpan<byte> utf8Name, int value)
+    {
+        BeforeMember(utf8Name);
+        WriteNumber(value);
+    }
+
+    /// <summary>Writes <c>"name": long</c> as one call, through <see cref="WriteNumber(long)"/>.</summary>
+    public void WriteNumberProperty(scoped ReadOnlySpan<byte> utf8Name, long value)
+    {
+        BeforeMember(utf8Name);
+        WriteNumber(value);
+    }
+
+    /// <summary>
+    /// Writes <c>"name": double</c> as one call, through <see cref="WriteNumber(double)"/> — so
+    /// the invariant formatting and the <see cref="JsonOptions.NumberHandling"/> policy (NaN,
+    /// ±Infinity, and the exception when the policy forbids them) are the sibling's, not a
+    /// second implementation of them.
+    /// </summary>
+    public void WriteNumberProperty(scoped ReadOnlySpan<byte> utf8Name, double value)
+    {
+        BeforeMember(utf8Name);
+        WriteNumber(value);
+    }
+
+    /// <summary>Writes <c>"name": "value"</c> as one call from pre-encoded UTF-8 bytes.</summary>
+    public void WriteStringProperty(
+        scoped ReadOnlySpan<byte> utf8Name,
+        scoped ReadOnlySpan<byte> utf8Value
+    )
+    {
+        BeforeMember(utf8Name);
+        WriteString(utf8Value);
+    }
+
+    /// <summary>Writes <c>"name": "value"</c> as one call from UTF-16 text.</summary>
+    public void WriteStringProperty(
+        scoped ReadOnlySpan<byte> utf8Name,
+        scoped ReadOnlySpan<char> value
+    )
+    {
+        BeforeMember(utf8Name);
+        WriteString(value);
+    }
+
+    /// <summary>Stages <c>"name":</c> for a member, refusing the places a member cannot exist.</summary>
+    /// <remarks>
+    /// The only difference between a <c>Write*Property</c> call and its two-call equivalent:
+    /// the pair is refused at the root and inside an array. The kind mask answers it in the same
+    /// word the comma bit comes from — bit <c>_depth</c> set means an object is open, and bit 0
+    /// is never set, so the root reads as "not an object" for free. Refusal happens before any
+    /// byte is staged, so the buffer keeps exactly what was already written.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void BeforeMember(scoped ReadOnlySpan<byte> utf8Name)
+    {
+        if ((_kinds & (1UL << _depth)) == 0)
+            throw new InvalidOperationException(
+                "Cannot write a property outside an object: a member needs an object to belong to, and this writer is at the root or inside an array."
+            );
+        WritePropertyName(utf8Name);
+    }
+
     public void WriteStartObject()
     {
         if (_depth >= _maxDepth)
