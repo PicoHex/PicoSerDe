@@ -40,8 +40,8 @@ public ref struct JsonWriter
     /// <remarks>
     /// The counter moves when a byte lands in the span, not when the span is committed, so its name
     /// reads as "bytes written to the writer", not "bytes the buffer received". While a container is
-    /// open the two legitimately differ — the outermost close, a top-level token, or any read of
-    /// <see cref="Buffer"/> is what commits — which makes
+    /// open the two legitimately differ — the outermost close, a top-level token, a read of
+    /// <see cref="Buffer"/>, or an explicit <see cref="Flush"/> is what commits — which makes
     /// <c>BytesWritten != buffer.WrittenSpan.Length</c> a cheap probe for "this document still has
     /// bytes pending", the state a writer left open (or closed once too often) hides in.
     /// </remarks>
@@ -846,16 +846,31 @@ public ref struct JsonWriter
         }
     }
 
-    /// <summary>Commits the bytes sitting in <see cref="_span"/> and drops the span.</summary>
+    /// <summary>
+    /// Commits the bytes written so far to the underlying buffer — "I am done with what I have
+    /// written", sayable at any point, and the answer to a document left open on an early exit.
+    /// </summary>
     /// <remarks>
-    /// Dropping it is not optional: the buffer owns those bytes now, so keeping the span
+    /// <para>
+    /// The public contract has three parts. It <b>commits</b>: everything staged in the span
+    /// cache reaches <see cref="Buffer"/>, so <c>BytesWritten == buffer.WrittenSpan.Length</c>
+    /// afterwards. It does <b>not close the container</b>: no brace is invented, nothing is
+    /// popped from the depth, and the bytes stay a legal prefix of the document the caller can
+    /// keep writing into — that is the difference between this and the outermost
+    /// <see cref="WriteEndObject"/> / <see cref="WriteEndArray"/>, which close as well. And it
+    /// <b>never throws</b>, which is what lets it sit in a <c>finally</c> next to the code that
+    /// failed.
+    /// </para>
+    /// <para>
+    /// Dropping the span is not optional: the buffer owns those bytes now, so keeping the span
     /// would let the next write land in memory that has already been committed — a double
     /// commit, i.e. duplicated bytes. An empty span never fits <see cref="Ensure"/>, so the
     /// next write refetches; that is also why <c>Ensure(n)</c> with <c>n &gt;= 1</c> cannot
     /// spin.
+    /// </para>
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void Flush()
+    public void Flush()
     {
         if (_spanPos > 0)
         {
