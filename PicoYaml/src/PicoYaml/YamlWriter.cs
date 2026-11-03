@@ -57,6 +57,90 @@ public ref struct YamlWriter
         }
     }
 
+    // ---------------------------------------------------------------------------------
+    // name + value in one call
+    //
+    // A member used to take two calls — WritePropertyName, then WriteX — and any helper that
+    // wrapped that pair had to survive a ref struct's copy semantics and remember `_afterKey`.
+    // The authors who got it wrong lost the separator or a whole line, silently (that is the
+    // phase-1 story on the JSON side, 2026.10 and 2026.11). One call that cannot be split takes
+    // the pair out of the caller's hands.
+    //
+    // The same seven members JSON got, under the same names: a member is the same idea in both
+    // formats even though the grammars spell it differently (`"a":` versus `a:`). The overload
+    // list is chosen, not exhaustive — string (UTF-8 and UTF-16), int, long, double, bool, null:
+    // the six kinds a member is made of, each with a WriteX sibling to delegate to. `float` has
+    // no twin, for JSON's reason: it would widen into the double overload and print
+    // 0.10000000149011612 where the sibling prints 0.1, which is exactly the quiet digit change
+    // this family exists to remove.
+    //
+    // Pure delegation, on purpose: nothing here stages a byte of its own, so quoting, indenta-
+    // tion, the `- ` item prefix, the null literal, the space after the colon and the newline
+    // are the existing paths' — a fused call cannot quietly become a second dialect of the
+    // document, and this class gains no new YAML knowledge.
+    //
+    // ONE difference from JSON's family, and it is an absence, not a narrowing: there is no
+    // "a mapping is required" guard. JSON refuses `"a":` at the root because JSON cannot hold
+    // it; YAML's root IS a mapping — `a: 1` at column 0 is a legal one-line document — so a
+    // guard here would refuse a document the format can express (capability rule 5: a debt, not
+    // a fact). The writer also tracks depth but not container kind, so it holds no state that
+    // could tell a mapping position from a sequence one without inventing state the format does
+    // not need.
+    // ---------------------------------------------------------------------------------
+
+    /// <summary>Writes <c>name: null</c> as one call, through <see cref="WriteNull"/>.</summary>
+    public void WriteNullProperty(ReadOnlySpan<byte> utf8Name)
+    {
+        WritePropertyName(utf8Name);
+        WriteNull();
+    }
+
+    /// <summary>Writes <c>name: true|false</c> as one call, through <see cref="WriteBoolean"/>.</summary>
+    public void WriteBooleanProperty(ReadOnlySpan<byte> utf8Name, bool value)
+    {
+        WritePropertyName(utf8Name);
+        WriteBoolean(value);
+    }
+
+    /// <summary>Writes <c>name: int</c> as one call, through <see cref="WriteNumber"/>.</summary>
+    public void WriteNumberProperty(ReadOnlySpan<byte> utf8Name, int value)
+    {
+        WritePropertyName(utf8Name);
+        WriteNumber(value);
+    }
+
+    /// <summary>Writes <c>name: long</c> as one call, through <see cref="WriteInt64"/>.</summary>
+    public void WriteNumberProperty(ReadOnlySpan<byte> utf8Name, long value)
+    {
+        WritePropertyName(utf8Name);
+        WriteInt64(value);
+    }
+
+    /// <summary>
+    /// Writes <c>name: double</c> as one call, through <see cref="WriteDouble"/> — so the
+    /// invariant formatting and the refusal of NaN/±Infinity (and its exception type and
+    /// message) are the sibling's, not a second implementation of them.
+    /// </summary>
+    public void WriteNumberProperty(ReadOnlySpan<byte> utf8Name, double value)
+    {
+        WritePropertyName(utf8Name);
+        WriteDouble(value);
+    }
+
+    /// <summary>Writes <c>name: value</c> as one call from pre-encoded UTF-8 bytes.</summary>
+    public void WriteStringProperty(ReadOnlySpan<byte> utf8Name, ReadOnlySpan<byte> utf8Value)
+    {
+        WritePropertyName(utf8Name);
+        WriteString(utf8Value);
+    }
+
+    /// <summary>Writes <c>name: value</c> as one call from UTF-16 text.</summary>
+    public void WriteStringProperty(ReadOnlySpan<byte> utf8Name, ReadOnlySpan<char> value)
+    {
+        WritePropertyName(utf8Name);
+        WriteString(value);
+    }
+
     /// <summary>
     /// Writes <c>  name:</c> at the current depth, quoting and escaping the name when it is
     /// not a safe plain scalar.
