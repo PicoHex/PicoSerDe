@@ -7,28 +7,31 @@ namespace PicoMsgPack;
 /// interface calls per <em>chunk</em> instead of two per token.
 /// <para>
 /// Consequence: bytes can still be sitting in the local span when the caller stops
-/// writing. Anything that reads the buffer must first commit the tail — reading
-/// <see cref="Buffer"/> does it, and so do <see cref="WriteEndObject"/> /
-/// <see cref="WriteEndArray"/> when the outermost container closes. Generated
-/// serializers hand off with <c>_ = mw.Buffer;</c> (they compile into the consumer
-/// assembly, so they can only touch the public surface).
+/// writing. Every commit exit says so out loud: <see cref="Flush"/> (and its scope-hook
+/// twin <see cref="Dispose"/>), the <see cref="Buffer"/> hand-off generated serializers use,
+/// and <see cref="WriteEndObject"/> / <see cref="WriteEndArray"/> when the outermost
+/// container closes. Generated serializers hand off with <c>_ = mw.Buffer;</c> (they compile
+/// into the consumer assembly, so they can only touch the public surface).
 /// </para>
 /// <para>
 /// <b>Bare values (no enclosing container).</b> Writing a scalar or a string without
-/// opening or closing a map/array leaves no implicit flush: nothing will ever close the
+/// opening or closing a map/array leaves no implicit commit: nothing will ever close the
 /// outermost container, so the bytes stay uncommitted. Before reading the underlying
-/// buffer you <em>must</em> commit them yourself — <c>_ = mw.Buffer;</c>. This is the one
-/// rule a custom <see cref="ISerializer{T}"/> author has to know:
+/// buffer you <em>must</em> commit them yourself — <c>mw.Flush();</c>, or the equivalent
+/// <c>_ = mw.Buffer;</c>. This is the one rule a custom <see cref="ISerializer{T}"/> author
+/// has to know:
 /// <code>
 /// var mw = new MsgPackWriter(writer);
 /// mw.WriteString("abc"u8);
-/// _ = mw.Buffer; // commits the tail; without it the caller sees 0 bytes
+/// mw.Flush(); // commits the tail; without it the caller sees 0 bytes
 /// </code>
 /// Reading <see cref="Buffer"/> has that side effect on purpose: it is the hand-off point,
-/// both for generated code and for nested writers sharing the same buffer.
+/// both for generated code and for nested writers sharing the same buffer. <see cref="Flush"/>
+/// is the same commit under a name that says what it does, which is what a <c>finally</c>,
+/// an early <c>return</c> and a custom serializer want to write.
 /// </para>
 /// </summary>
-public ref struct MsgPackWriter
+public ref struct MsgPackWriter : IDisposable
 {
     /// <summary>Minimum span the writer asks for, so short tokens amortise one fetch.</summary>
     private const int MinSpanSize = 256;
@@ -97,16 +100,76 @@ public ref struct MsgPackWriter
     }
 
     /// <summary>
-    /// Commits every byte written so far to the underlying buffer.
+    /// Commits every byte written so far to the underlying buffer, and says nothing else —
+    /// "I am done with what I have written", sayable at any point, and the answer to a value
+    /// or a document left unfinished on an early exit.
     /// </summary>
     /// <remarks>
-    /// Deliberately <c>internal</c>: the public surface keeps a single flush exit,
-    /// <see cref="Buffer"/>, whose getter commits the tail — so this optimisation did
-    /// not have to add a public member. Generated serializers run in the consumer
-    /// assembly and therefore hand off with <c>_ = mw.Buffer;</c>; this member stays
-    /// for in-assembly tests that want to say "commit" out loud.
+    /// <para>
+    /// The contract has three parts, the same three the other span-caching writer's pair keeps
+    /// (<see cref="PicoJetson.JsonWriter.Flush"/>): the two writers must not disagree about when
+    /// bytes leave the writer. It <b>commits</b>: everything staged in the span cache reaches
+    /// the underlying buffer, so <c>BytesWritten == buffer.WrittenCount</c> afterwards. It does
+    /// <b>not close the container</b>: no end marker is invented and nothing is popped from the
+    /// depth, so the bytes stay a legal prefix of a document the caller may keep writing — that
+    /// is the difference between this and the outermost <see cref="WriteEndObject"/> /
+    /// <see cref="WriteEndArray"/>, which close as well. And it <b>never throws</b>, which is
+    /// what lets it sit in a <c>finally</c> next to the code that failed.
+    /// </para>
+    /// <para>
+    /// Dropping the span is not optional: the buffer owns those bytes now, so keeping the span
+    /// would let the next write land in memory that has already been committed — a double
+    /// commit, i.e. duplicated bytes. An empty span never fits <see cref="Ensure"/>, so the next
+    /// write refetches; that is also why <c>Ensure(n)</c> with <c>n &gt;= 1</c> cannot spin.
+    /// </para>
+    /// <para>
+    /// This used to be <c>private</c>, with an <c>internal</c> alias for in-assembly tests,
+    /// because the public surface kept a single commit exit (<see cref="Buffer"/>) and the span
+    /// cache was not allowed to add a member. That left a caller unable to <em>say</em> "commit"
+    /// without relying on a getter's side effect, so phase 2 makes it public and drops the alias:
+    /// one meaning, one spelling.
+    /// </para>
     /// </remarks>
-    internal void FlushToBuffer() => Flush();
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining
+    )]
+    public void Flush()
+    {
+        if (_spanPos > 0)
+        {
+            _buffer.Advance(_spanPos);
+            _spanPos = 0;
+        }
+        // The buffer owns those bytes now: keeping the span would let the next write land
+        // in memory that has already been committed (double commit / corruption).
+        // Ensure() refetches on the next write, because an empty span never fits.
+        _span = default;
+    }
+
+    /// <summary>
+    /// Commits the pending bytes and says nothing else — the scope hook, so
+    /// <c>using var mw = new MsgPackWriter(buf);</c> hands the tail over on every exit path,
+    /// including the early <c>return</c> and the exception that used to strand it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Commits, never closes, never throws</b> — the same three, for the same reasons as
+    /// <see cref="Flush"/>: a <c>Dispose</c> that threw would break the exception path it exists
+    /// for, and one that closed the container would have to invent the entry count a MsgPack map
+    /// carries in its <em>header</em>, which is a byte already committed — so "close" here is not
+    /// even expressible. What the caller gets back is therefore exactly the bytes it wrote: a
+    /// complete value when it closed one, an honest prefix when it did not.
+    /// </para>
+    /// <para>
+    /// Idempotent, and it does not end the writer's life: the only state it touches is the span
+    /// cache, so a second call commits nothing and a later write refetches a span and carries on.
+    /// (It is a commit point, not a tombstone.)
+    /// </para>
+    /// </remarks>
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining
+    )]
+    public void Dispose() => Flush();
 
     /// <summary>Makes room for <paramref name="n"/> more bytes in <see cref="_span"/>.</summary>
     [System.Runtime.CompilerServices.MethodImpl(
@@ -119,23 +182,6 @@ public ref struct MsgPackWriter
             Flush();
             _span = _buffer.GetSpan(n < MinSpanSize ? MinSpanSize : n);
         }
-    }
-
-    /// <summary>Commits the span (if anything is pending) and drops it.</summary>
-    [System.Runtime.CompilerServices.MethodImpl(
-        System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining
-    )]
-    private void Flush()
-    {
-        if (_spanPos > 0)
-        {
-            _buffer.Advance(_spanPos);
-            _spanPos = 0;
-        }
-        // The buffer owns those bytes now: keeping the span would let the next write land
-        // in memory that has already been committed (double commit / corruption).
-        // Ensure() refetches on the next write, because an empty span never fits.
-        _span = default;
     }
 
     public void WriteNull()
