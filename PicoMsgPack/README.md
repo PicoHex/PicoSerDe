@@ -71,8 +71,15 @@ and recursive members. `PICOSERDE003` never fires for this format.
 The drops that do happen come from rules shared with the other formats: the JSON-only **extended
 scalars** (`char`, `DateTimeOffset`, `Uri`, `Version`, `Half`, `BigInteger`, `Int128`, `UInt128`,
 `nint`) and `ConcurrentDictionary<K,V>` are dropped without a diagnostic; an anonymous-type
-**collection** member is dropped with `PICOSERDE005` (the map/array headers need an element count
-up front, so only the JSON writer can emit those). A **top-level scalar** target fails loudly
+**collection** member is dropped with `PICOSERDE005` — a gap in **this generator's
+anonymous-type emitter**, not a property of this format. MessagePack holds such a collection
+exactly like the shapes above (`List<Dto>`, `List<List<int>>`), and the element count is known
+before a byte is written (`List<T>.Count`), so a counted map/array header has nothing missing to
+announce — the anonymous-type emitter simply has no collection form for it yet. That is a
+recorded debt (⏸, carrying a `reopen:` pointer in the diagnostic), pinned as
+`AnonCollectionFormats = { "json" }` in `shared/Gen/DecisionTables.cs:383-386` and read through
+`AnonCollectionSupported` / `AnonCollectionIsFormatFact` in
+`shared/Gen/FormatCapabilities.cs:342-352`. A **top-level scalar** target fails loudly
 instead (`Serialize<Guid>()` throws `InvalidOperationException`).
 
 See the [root README](../README.md#format-limits-what-each-wire-format-cannot-express) for the
