@@ -57,6 +57,13 @@ instead of surfacing later as a mysteriously empty property (`README.md:494-501`
    root README's cell and footnote ² said otherwise (`YamlNullLiteralTests`,
    `YamlNestedListDiagnosticTests.Yaml_NestedNullableElementMember_IsEmittedWithTheNullBranch`,
    `NestedNullableElementTests.cs:85`, matrix footnote ² at `README.md:528-532`).
+6. **"This is how it is" is only allowed about the format standard.** A sentence that is true because *we*
+   chose it — a fusion, a shortcut, a shape we happen to emit — is a ⏸ debt or an ordinary design choice,
+   never a format fact; item 3 fixes where a verdict may be written, this fixes which verdict a sentence is.
+   One question decides it: **would a conforming encoder or decoder of this format have to do the same?** If
+   not, *we* did it. Today's instance: `- name: x` in a sequence is a block mapping in the YAML grammar, so a
+   conforming token stream owes `ObjectStart`/`PropertyName`/value, yet we emit a bare `String("name: x")`
+   (`YamlReader.cs:1069-1079`, pinned in `YamlSequenceTokenKindTests`) ⇒ our fusion, ⏸, not "contract-legal".
 
 ## Working rules
 
