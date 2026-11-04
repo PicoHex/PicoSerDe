@@ -98,7 +98,12 @@ public class AnonNullableTests
     public async Task NonJson_AnonNullCollection_EmitsNothing()
     {
         await Assert.That(TomlSerializer.Serialize(new { A = (List<int>?)null }).Trim()).IsEmpty();
-        await Assert.That(YamlSerializer.Serialize(new { A = (List<int>?)null }).Trim()).IsEmpty();
+        // yaml is the one non-JSON format whose empty OBJECT has a form of its own, so the
+        // document is the empty mapping rather than nothing at all — the MEMBER is what the
+        // test is about and it is still absent (json writes `{}` for the same model).
+        await Assert
+            .That(YamlSerializer.Serialize(new { A = (List<int>?)null }).Trim())
+            .IsEqualTo("{}");
         await Assert.That(IniSerializer.Serialize(new { A = (List<int>?)null }).Trim()).IsEmpty();
     }
 

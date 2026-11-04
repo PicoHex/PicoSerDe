@@ -27,6 +27,9 @@ internal enum EmptyObjectBlock
     /// <summary>
     /// ⏸ our writer has no form for an empty object in this format
     /// (<c>FormatCapabilities.EmptyObjectSupported</c>). Reopenable: the FORMAT can hold it.
+    /// No format answers false today (yaml was the last one, closed when
+    /// <c>YamlWriter.WriteEndMapping</c> learned the empty-mapping flow form); the gate stays
+    /// because the next format starts here.
     /// </summary>
     FormatHasNoEmptyForm,
 
@@ -348,8 +351,8 @@ internal static class TypeKindResolver
     /// <list type="number">
     /// <item>a type that DECLARES public instance data is not zero-member at all — the
     ///       precondition of the empty object, not a gate on it;</item>
-    /// <item>the FORMAT must have the form — our writer's gap (yaml today), reopenable ⇒
-    ///       <see cref="EmptyObjectBlock.FormatHasNoEmptyForm"/>;</item>
+    /// <item>the FORMAT must have the form — our writer's gap (no format today),
+    ///       reopenable ⇒ <see cref="EmptyObjectBlock.FormatHasNoEmptyForm"/>;</item>
     /// <item>abstract: the reader's <c>new T()</c> is CS0144 ⇒ terminal;</item>
     /// <item>static class: not a value at all, <c>new T()</c> is CS0712 ⇒ terminal;</item>
     /// <item>a base class other than <c>object</c>/<c>ValueType</c> still carries members — a

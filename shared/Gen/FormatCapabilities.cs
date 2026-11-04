@@ -325,9 +325,10 @@ internal static class FormatCapabilities
     /// with no members, so the whole MEMBER disappeared and PICOSERDE001 said ⏸ ("this format
     /// can hold it, we have not implemented it"). The answer is a per-format value in
     /// <see cref="DecisionTables.EmptyObjectFormats"/>, read through THIS entry point, so no
-    /// generator compares a format tag (I-3) and no second copy of the list exists. Four of the
-    /// five are in; yaml is a registered debt (its writer has no empty-mapping form), which the
-    /// table's own doc explains — and a missing format is never a claim that the FORMAT cannot.
+    /// generator compares a format tag (I-3) and no second copy of the list exists. All five
+    /// formats answer yes today (yaml was the last, once its writer grew the empty-mapping
+    /// flow form), which the table's own doc explains — and a missing format is never a claim
+    /// that the FORMAT cannot.
     /// </para>
     /// <para>
     /// A <c>false</c> is not a verdict on its own: the shape resolver keeps the member

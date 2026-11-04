@@ -234,20 +234,26 @@ public class EmptySequenceTests
     [Test]
     public async Task NestedObjectEmptyListMember_KeepsFollowingKeys()
     {
-        // Control: a nested object without any collection already ends its block with a
-        // blank line before the enclosing key. That blank line predates F2 and is left
-        // exactly as it was, so the snapshots below only differ by the list lines.
+        // Control: a nested object without any collection. The snapshot used to carry a
+        // BLANK LINE before the enclosing key, and that blank line was a bug rather than a
+        // shape: the generated code emitted a no-op `WriteStartMapping(); WriteEndMapping();`
+        // after calling the nested type's helper, and `YamlWriter` is a ref struct passed BY
+        // VALUE to that helper, so the copy consumed the pending key (`_afterKey`) while the
+        // caller's copy still had it — the pair then wrote one stray newline and nothing else.
+        // The pair is gone (a memberless mapping is now the flow form `{}`, so the same pair
+        // would write a stray ` {}` line instead of a no-op), and the blank line went with it.
+        // Both documents below are therefore one line shorter than they were.
         var control = YamlSerializer.Serialize(new PlainNested());
         await Assert
             .That(control)
-            .IsEqualTo("Inner:\n  A: 1\n\nTotal: 9\n")
+            .IsEqualTo("Inner:\n  A: 1\nTotal: 9\n")
             .Because("actual=" + control);
 
         var text = YamlSerializer.Serialize(new OuterEmptySeq());
         await Assert.That(text).DoesNotContain("D:Count").Because("actual=" + text);
         await Assert
             .That(text)
-            .IsEqualTo("Inner:\n  D: []\n  Count: 5\n\nTotal: 9\n")
+            .IsEqualTo("Inner:\n  D: []\n  Count: 5\nTotal: 9\n")
             .Because("actual=" + text);
 
         var back = YamlSerializer.Deserialize<OuterEmptySeq>(Encoding.UTF8.GetBytes(text));

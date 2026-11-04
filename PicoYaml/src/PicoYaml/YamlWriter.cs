@@ -17,6 +17,14 @@ public ref struct YamlWriter
     private int _sequenceDepth;
     private ulong _sequenceWroteContent;
 
+    // WriteStartMapping()/WriteEndMapping() bookkeeping, two facts about the innermost open
+    // mapping: has it written anything since it was opened, and is the `key:` line that
+    // introduced it still open (waiting to learn whether the mapping has members at all)?
+    // Together they are what WriteEndMapping() needs to close a memberless mapping with the
+    // FLOW form `{}` on the key's own line — see WriteEndMapping().
+    private bool _mappingEmpty;
+    private bool _keyLineOpen;
+
     public long BytesWritten => _bytesWritten;
 
     public YamlWriter(IBufferWriter<byte> buffer, int maxDepth = 256, bool indented = false)
@@ -29,10 +37,14 @@ public ref struct YamlWriter
         _indented = indented;
         _sequenceDepth = 0;
         _sequenceWroteContent = 0;
+        _mappingEmpty = false;
+        _keyLineOpen = false;
     }
 
     public void WriteComment(string text)
     {
+        FlushKeyLine();
+        MarkMappingContent();
         for (int i = 0; i < _depth; i++)
             WriteRaw("  "u8);
         WriteRaw("# "u8);
@@ -156,6 +168,8 @@ public ref struct YamlWriter
     /// </summary>
     private void WriteName(scoped ReadOnlySpan<byte> utf8Name)
     {
+        FlushKeyLine();
+        MarkMappingContent();
         for (int i = 0; i < _depth; i++)
             WriteRaw("  "u8);
         // A leading '-' is the one indicator the VALUE rule deliberately allows (a dash
@@ -360,31 +374,109 @@ public ref struct YamlWriter
         WriteNewLine();
     }
 
+    /// <summary>
+    /// Opens a mapping. After a key the <c>key:</c> line is left OPEN (no newline yet): a
+    /// mapping with members starts on the next line, and a mapping with none has to end on
+    /// the key's own line as <c>key: {}</c> — the newline is written by whichever comes
+    /// first (<see cref="FlushKeyLine"/> from the first member, or
+    /// <see cref="WriteEndMapping"/> for an empty one).
+    /// </summary>
     public void WriteStartMapping()
     {
         if (_depth >= _maxDepth)
             throw new FormatException($"Maximum depth of {_maxDepth} exceeded");
-        if (_afterKey)
-        {
-            WriteNewLine();
-            _afterKey = false;
-        }
+        _keyLineOpen = _afterKey;
+        _afterKey = false;
         _depth++;
+        _mappingEmpty = true;
     }
 
+    /// <summary>
+    /// Closes the mapping opened by <see cref="WriteStartMapping"/>. A mapping with no members
+    /// writes nothing of its own as a BLOCK — and that is not an empty mapping on the wire:
+    /// <c>Mark:</c> with nothing under it is YAML for NULL, which is why a zero-member object
+    /// used to reach the reader as a missing value. So the empty case writes the form the
+    /// grammar does have for "a mapping, zero members": the FLOW pair <c>{}</c>, on the key's
+    /// own line (<c>Mark: {}</c>) — or, where there is no key to sit on (a block-sequence item),
+    /// on its own indented line.
+    /// <para>
+    /// This is the mapping twin of <see cref="WriteEndSequence"/>'s <c> []</c>: an empty
+    /// container has to occupy its key's line, because an empty <c>Key:</c> means null. The
+    /// document it emits is what PyYAML reads back as an empty mapping (<c>Mark: {}</c> →
+    /// <c>{'Mark': {}}</c>) and what <see cref="YamlReader"/> tokenizes as
+    /// <c>ObjectStart,ObjectEnd</c>.
+    /// </para>
+    /// <para>
+    /// A mapping that wrote a member is byte-identical to what it always wrote: the deferred
+    /// newline is written by the first member instead of by <see cref="WriteStartMapping"/>, so
+    /// no existing document changes.
+    /// </para>
     public void WriteEndMapping()
     {
+        if (_mappingEmpty)
+        {
+            if (_keyLineOpen)
+            {
+                // The key owns the line: `Mark: {}`.
+                _keyLineOpen = false;
+                WriteByte((byte)' ');
+            }
+            else
+            {
+                // No key to sit on (a block-sequence item, or a mapping opened by hand):
+                // `_depth` still counts this mapping's own level, which is exactly the
+                // indent the members of a non-empty mapping sit at.
+                for (int i = 0; i < _depth; i++)
+                    WriteRaw("  "u8);
+            }
+            WriteRaw("{}"u8);
+            WriteNewLine();
+        }
+        else
+        {
+            // Defensive: a mapping that wrote anything flushed its key line already, so this
+            // is a no-op on the happy path — and the one repair that keeps a member from
+            // gluing onto the key line if a future writer forgets its own flush.
+            FlushKeyLine();
+        }
+        // Whatever this mapping wrote is content of the ENCLOSING one. The levels nest
+        // strictly and a closing mapping always writes its own bytes (members, or the `{}`
+        // line), so one bool answers for every level.
+        _mappingEmpty = false;
         _depth--;
     }
 
+    /// <summary>
+    /// Writes the newline a nested mapping deferred when it was opened after a key: the
+    /// <c>key:</c> line ends HERE, at the first thing written under it. A no-op when no key
+    /// line is pending, so every writer can call it unconditionally.
+    /// </summary>
+    private void FlushKeyLine()
+    {
+        if (!_keyLineOpen)
+            return;
+        _keyLineOpen = false;
+        WriteNewLine();
+    }
+
+    /// <summary>
+    /// Records that the innermost open mapping has written something, so
+    /// <see cref="WriteEndMapping"/> knows it is not empty. Called from every writer that can
+    /// lay down a member line or a child container's first byte; a call with no mapping open is
+    /// harmless (it only clears a flag the next <see cref="WriteStartMapping"/> sets again).
+    /// </summary>
+    private void MarkMappingContent() => _mappingEmpty = false;
+
     public void WriteSequenceItem(ReadOnlySpan<byte> utf8Value)
     {
+        MarkMappingContent();
         MarkSequenceContent();
         if (_afterKey)
         {
             WriteNewLine();
             _afterKey = false;
         }
+        FlushKeyLine();
         var pad = _depth + (_indented ? 1 : 0);
         for (var i = 0; i < pad; i++)
             WriteRaw("  "u8);
@@ -426,12 +518,14 @@ public ref struct YamlWriter
 
     private void WriteSequencePrefix()
     {
+        MarkMappingContent();
         MarkSequenceContent();
         if (_afterKey)
         {
             WriteNewLine();
             _afterKey = false;
         }
+        FlushKeyLine();
         var pad = _depth + (_indented ? 1 : 0);
         for (var i = 0; i < pad; i++)
             WriteRaw("  "u8);
@@ -529,12 +623,14 @@ public ref struct YamlWriter
     /// </summary>
     public void WriteStartSequenceBlock()
     {
+        MarkMappingContent();
         MarkSequenceContent();
         if (_afterKey)
         {
             WriteNewLine();
             _afterKey = false;
         }
+        FlushKeyLine();
         var pad = _depth + (_indented ? 1 : 0);
         for (var i = 0; i < pad; i++)
             WriteRaw("  "u8);
@@ -553,6 +649,8 @@ public ref struct YamlWriter
     /// <summary>Writes an explicit tag like !person on its own line before a block mapping.</summary>
     public void WriteTag(string tag)
     {
+        FlushKeyLine();
+        MarkMappingContent();
         WriteRaw(Encoding.UTF8.GetBytes(tag));
         WriteByte((byte)'\n');
     }
