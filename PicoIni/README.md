@@ -85,13 +85,19 @@ var ini = IniSerializer.Serialize(config);
 
 ## Limits
 
-- **No object-list *members*.** INI has no array-of-tables syntax, so a `List<SomeDto>` property
-  cannot be represented and is dropped with a `PICOSERDE004` warning
+- **An object-list *member* is a `⏸` debt of ours, not an INI limit.** A `List<SomeDto>` property is
+  dropped with a `PICOSERDE004` warning
   (`SilentDropDiagnosticTests.Ini_ObjectListMember_ReportsDiagnostic`) — visible in the build log,
-  never silent. If you need an object list inside a DTO, use **TOML**, **YAML** or **JSON**
-  instead.
+  never silent. The reason is that **only the top-level form is implemented**, not that INI cannot
+  hold the shape: an ordinary section header carries an object, and the next bullet is that same
+  header shape on the wire. Reopening it is generator work — one numbered section per item, exactly
+  the form the top-level path already writes — so the verdict that belongs here is `⏸` (our debt,
+  reopenable), not `⛔` (a format fact). Until then, use **TOML**, **YAML** or **JSON** for an object
+  list inside a DTO.
 - **A top-level `List<SomeDto>` does round-trip** — each item is written as a numbered section
-  (`[0]`, `[1]`, ...).
+  (`[0]`, `[1]`, ...): a plain section header plus key/value lines, with no extension to the INI
+  grammar. **That is the evidence for the bullet above** — the format can hold the shape, so a
+  member-level object list is unimplemented, not unrepresentable.
 - **Nested lists, nullable elements and recursion are reported.** `List<List<int>>`, `List<int?>`
   and a recursive member (`Node Child` on `Node`) are dropped with `PICOSERDE004` /
   `PICOSERDE003` — visible in the build log, not silent.
