@@ -125,7 +125,9 @@ Neither shape is what **YAML** asks for, and the difference is the format's own 
 preference. `- name: x` is a sequence whose entry **is** a block mapping: the YAML reference reading of
 `- name: x\n  v: 1\n` is `[{'name': 'x', 'v': 1}]` (PyYAML, `yaml.safe_load`), so a spec-shaped token
 stream opens the mapping on the same line the dash does — `ObjectStart`, `PropertyName(name)`,
-`String(x)`, `ObjectEnd`, and only then the item's continuation members. We emit one fused
+`String(x)`, then the item's continuation members (`PropertyName(v)`, `String(1)`), and only **last** the
+`ObjectEnd` that closes the mapping: `ArrayStart`, `ObjectStart`, `PropertyName(name)`, `String(x)`,
+`PropertyName(v)`, `String(1)`, `ObjectEnd`, `ArrayEnd` in full. We emit one fused
 `String("name: x")` instead because this reader takes "the rest of the line after the dash" as a single
 scalar (`PicoYaml/src/PicoYaml/YamlReader.cs:1069-1079`). The second row is that same shortcut, not a
 different rule: `- - 1` is a sequence inside a sequence (`[[1]]`), whose inner dash should open its own
@@ -138,7 +140,8 @@ not a format's token *shapes*, so it does not **forbid** the fused form — but 
 forbid it" is not "the format asks for it". The generated deserializer reads the fused forms
 correctly, which is why the shortcut stayed invisible this long; that is a property of our
 deserializer, not a licence. **Reopen: emit mapping tokens for an item's first inline member** —
-`ObjectStart`, `PropertyName(name)`, `String(x)`, `ObjectEnd` — **plus the matching `ArrayStart` for an
+`ObjectStart`, `PropertyName(name)`, `String(x)`, then the continuation members (`PropertyName(v)`,
+`String(1)`), and the `ObjectEnd` **last** — **plus the matching `ArrayStart` for an
 inline nested sequence**. That is an **x-axis (wire contract) change**, not a cosmetic one: consumers,
 generated readers and the tests below are all written against the fused shape today. What it costs a
 generic consumer *until* then is the assumption "every member arrives as `PropertyName` followed by a
