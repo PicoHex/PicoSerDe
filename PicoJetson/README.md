@@ -74,8 +74,17 @@ reference-type targets (list elements and dictionary values) yield `null`.
 JSON expresses every shape in the framework's format-limits matrix — object lists (`List<Dto>`),
 nested primitive lists (`List<List<int>>`), nested object lists (`List<List<Dto>>`), nested
 nullable elements (`List<List<int?>>`, `null` elements included) and recursive members all
-round-trip. `PICOSERDE003` never fires for this format, and the JSON writer is the only one that
-can emit a collection of anonymous types (`PICOSERDE005`).
+round-trip. `PICOSERDE003` never fires for this format.
+
+The other four formats skip a collection of **anonymous types** (`PICOSERDE005`) because **our
+anonymous-type emitter** has a collection form for JSON only. That asymmetry is **our** debt, not a
+JSON capability: a `List<T>` count is known before the first byte is written, so every format's
+array/map header can announce that shape (`List<int>` = `S1`, ✅ in all five formats per spec §3,
+measured in `tests/FormatCapabilities.Probe/baseline-cells.txt`). The skip is therefore a recorded
+debt, not a format fact — ⏸, and the diagnostic carries a `reopen:` pointer. One table decides it:
+`AnonCollectionFormats = { "json" }` in `shared/Gen/DecisionTables.cs:383-386`, read through
+`AnonCollectionSupported` / `AnonCollectionIsFormatFact` in
+`shared/Gen/FormatCapabilities.cs:353-354,367-368`.
 
 The JSON-specific gap is the **extended type family** listed above (extended scalars as members and
 used as dictionary keys, `ConcurrentDictionary<K,V>`, `KeyValuePair<K,V>` / `Tuple<...>` members).
