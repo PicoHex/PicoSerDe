@@ -305,7 +305,8 @@ internal static class GenInfrastructure
     /// The ⏸ gate that has a reason of its own because it has a way OUT
     /// (<see cref="TypeKindResolver.EmptyObjectBlock.FormatHasNoEmptyForm"/>): the member's type
     /// declares no public instance member, so its only shape is the empty object, and OUR writer
-    /// has no form for one in this format (yaml today — the table's own doc explains why). The
+    /// has no form for one in this format (no format today — the last one, yaml, closed when
+    /// its writer learned the empty-mapping form; the gate stays for the next format). The
     /// generic <see cref="UnresolvableTypeReason"/> ("no shape could be resolved") is the symptom
     /// here, and it left the reader with nothing to do: the shape IS resolvable, it is the empty
     /// object, and a reader who needs it on the wire has two moves — give the type a member that

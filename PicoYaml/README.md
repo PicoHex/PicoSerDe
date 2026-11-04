@@ -210,6 +210,15 @@ syntax on the write side):
   not an empty sequence.
 - `List<List<Dto>>` (objects at the innermost level) round-trips the same way.
 
+A **zero-member type** (`public sealed class Mark { }`) is **supported** in both positions, because a
+mapping with no members is still a mapping: the writer closes it with the flow pair on the key's own
+line (`Mark: {}`), never as a bare `Mark:` — a key with no value is YAML for null, so that spelling
+would reach the reader as a missing value. A list of them is one `-` line per element whose value is
+the same flow pair (`Marks: [{}]` semantically). PyYAML reads both back as `{'Marks': [{}]}`; our own
+reader tokenizes the member as `PropertyName,ObjectStart,ObjectEnd`, i.e. the ordinary mapping stream
+with no members, so no consumer of the token stream needs a special case. Mappings that have members
+are byte-for-byte what they always were — the writer only supplies the form it owed an empty one.
+
 Nullable leaves are **supported** in both directions. The writer emits the YAML null literal —
 `- null` as a sequence item (inside the dash block of a nested sequence too) — so `List<int?>`,
 `List<string?>`, `List<Dto?>`, `List<List<int?>>`, `List<List<MyEnum?>>`, `List<List<Dto?>>` and

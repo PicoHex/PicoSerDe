@@ -558,34 +558,23 @@ alone** with `PICOSERDE004` — its sections carry no nesting at all (`DictValue
 **top-level scalar** target is refused outright — `Serialize<Guid>()`, `Deserialize<int?>()` and
 friends throw `InvalidOperationException` ("no serializer registered").
 
-One more shape has no row here, because it has no spec §6 id — and it is still a shape you can
-write: a **zero-member type** (`public sealed class Mark { }`). Four formats write it as *their* empty
-object and the member round-trips — JSON `{}`, MsgPack an empty map, TOML a header with no keys
-(`[Mark]`; `tomllib.loads('[Mark]')` → `{'Mark': {}}`), INI an empty section (`[Mark]`). **YAML still
-drops it** (`PICOSERDE001`, `⏸`): the *format* holds it — PyYAML reads `a: {}` as `{'a': {}}` and our
-own `YamlReader` tokenizes the empty flow mapping — but `YamlWriter` has no empty-mapping form (a block
-mapping with no members writes no bytes, and `Mark:` is YAML for null), so what is missing is our
-writer, recorded as a debt with a `reopen:` pointer, never as a limit of the format. A zero-member type
+One more shape has no row here, because it has no spec §6 id — and it is a shape every format can
+write: a **zero-member type** (`public sealed class Mark { }`). **All five** formats write it as
+*their* empty object, in member position and as a list element, and the instance round-trips
+(`ZeroMemberObjectShapeTests`, `YamlZeroMemberObjectTests`) — JSON `{}`, MsgPack an empty map, TOML a
+header with no keys (`[Mark]`; `tomllib.loads('[Mark]')` → `{'Mark': {}}`), INI an empty section
+(`[Mark]`), and YAML the flow form on the key's own line (`Mark: {}`; PyYAML reads it as
+`{'Mark': {}}`, and our own `YamlReader` tokenizes it as `ObjectStart,ObjectEnd`).
+
+YAML was the last one in, and the missing half was never the format: PyYAML and our reader have always
+held an empty mapping, while the *writer* had no form for one — a block mapping with no members writes
+no bytes, and a bare `Mark:` is YAML for **null**, not for `{}`, which is why the member used to reach
+the reader as a missing value. `YamlWriter.WriteEndMapping` now closes a memberless mapping with the
+flow pair, exactly as `WriteEndSequence` has always closed an empty sequence with `[]`, so no public
+API moved and nothing about the write side changes for a mapping that has members. A zero-member type
 that *cannot be instantiated at all* (abstract, a static class, or no accessible parameterless
 constructor) is a different verdict: it is dropped with a **terminal** `⛔`, because no format and no
 generator change can build an instance of it.
-
-**If you need that shape in YAML today**, give the type one member that is actually written — a
-placeholder scalar when the type is only a marker. That member forces the parent to emit a mapping
-instead of a bare key, so the wire carries a real shape and the instance reads back:
-
-```csharp
-[PicoYamlSerializable]
-public sealed class Mark { public int Shape { get; set; } }   // `Mark:` + one key, not `Mark:` alone
-```
-
-Marking that placeholder `[PicoIgnore]` does **not** work for YAML (measured on `v2026.12.1`): with
-every member ignored the type has nothing left to write, so the writer emits `Mark:` — YAML for
-`null`, not for `{}` — and the parent's generated read path is emitted as though the member were a
-string, which fails the build with `CS0029: Cannot implicitly convert type 'string' to 'Mark'`. JSON,
-MsgPack, TOML and INI need no workaround at all: they write their own empty object. The `PICOSERDE001`
-warning itself names the same two moves (it is `⏸` with a `reopen:` pointer, and the reason slot says
-what to give the type or which kind of format to use instead).
 
 The wire shape behind each ✅ is documented per format: [PicoToml](PicoToml/README.md#limits)
 (`[[Table]]`, `G = [[1, 2], [3]]`), [PicoYaml](PicoYaml/README.md#limits) (block sequences, `- []` vs

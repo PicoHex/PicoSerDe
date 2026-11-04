@@ -391,25 +391,28 @@ internal static class DecisionTables
     /// as a collection ELEMENT? The ONE place BU-4 is answered: <c>GenInfrastructure</c> asks it
     /// through <see cref="FormatCapabilities.EmptyObjectSupported"/> before it names the shape.
     /// <para>
-    /// Four formats are in, and each cell is a form of that format's own grammar rather than an
+    /// ALL FIVE formats are in, and each cell is a form of that format's own grammar rather than an
     /// encoding trick (the iron rule): json <c>{}</c>, msgpack an EMPTY MAP (<c>0x80</c>), TOML a
     /// table header with nothing under it — <c>[Mark]</c> for a member, <c>[[Marks]]</c> for an
     /// element (measured: <c>tomllib.loads('[[Marks]]')</c> → <c>{'Marks': [{}]}</c>), ini a
-    /// section header with no keys (<c>[Name]</c>), which its reader turns back into an instance.
+    /// section header with no keys (<c>[Name]</c>), and yaml the FLOW form of an empty block
+    /// mapping — <c>Mark:</c> followed by an indented <c>{}</c>, which <c>YamlWriter.WriteEndMapping</c>
+    /// emits when the mapping it closes wrote no member (measured: PyYAML reads it back as
+    /// <c>{'Mark': {}}</c>, and our own <c>YamlReader</c> tokenizes it as
+    /// <c>ObjectStart,ObjectEnd</c>).
     /// </para>
     /// <para>
-    /// YAML is MISSING on purpose, and it is a DEBT, not a fact about the format: PyYAML holds the
-    /// empty mapping (<c>yaml.safe_load('a: {}')</c> → <c>{'a': {}}</c>) and our own reader reads
-    /// one, but <c>YamlWriter</c> has no empty-mapping form — its block mapper writes NOTHING for a
-    /// mapping with no members, and <c>Mark:</c> is YAML for null, not for <c>{}</c>. Giving it one
-    /// is a RUNTIME change (<c>api/PicoYaml.public.txt</c> moves with it), so this set keeps yaml
-    /// out and the member keeps its ⏸ "we have not implemented it" drop — the verdict the facts
-    /// require, never ⛔. When <c>WriteEmptyMapping</c> exists, add "yaml" here and nothing else.
+    /// yaml was the last one in, and it was a DEBT until it landed, not a fact about the format:
+    /// PyYAML held the empty mapping and our reader read one all along, while <c>YamlWriter</c> had
+    /// no empty-mapping FORM — its block mapper wrote NOTHING for a mapping with no members, and
+    /// <c>Mark:</c> alone is YAML for null. The fix was the writer's empty case, so no public API
+    /// moved: <c>WriteEndMapping</c> already existed and now closes an empty mapping with the flow
+    /// pair, exactly as <c>WriteEndSequence</c> closes an empty sequence with <c>[]</c>.
     /// </para>
     /// <para>
-    /// A format missing here keeps TODAY's behaviour: the shape stays unresolvable and the drop is
-    /// reported exactly as it is reported now. The set is therefore safe to shrink as well as to
-    /// grow — it never dresses our gap up as a format fact (spec C1) and never claims a form the
+    /// A format missing here keeps the OLD behaviour: the shape stays unresolvable and the drop is
+    /// reported exactly as it is reported now. The set is therefore still safe to shrink as well as
+    /// to grow — it never dresses our gap up as a format fact (spec C1) and never claims a form the
     /// format does not have (spec C4). A missing entry is not a promise, it is a to-do.
     /// </para>
     /// </summary>
@@ -419,6 +422,7 @@ internal static class DecisionTables
         "msgpack",
         "toml",
         "ini",
+        "yaml",
     };
 
     /// <summary>

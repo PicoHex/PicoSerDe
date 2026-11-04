@@ -230,18 +230,23 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         // Also collect element types from top-level arrays/lists (e.g. YamlAddress for List<YamlAddress>)
         foreach (var t in ts)
         {
-            if (
-                t.ArrayElementKind is "object"
-                && !string.IsNullOrEmpty(t.ArrayElementName)
-                && !t.ArrayElementNestedProps.IsDefaultOrEmpty
-            )
+            if (t.ArrayElementKind is "object" && !string.IsNullOrEmpty(t.ArrayElementName))
             {
                 // Raw FQN keeps this key identical to CollectNestedTypes' so a
                 // type used both as a DTO property and as a top-level array
                 // element shares one helper.
+                //
+                // A ZERO-member element registers its (EMPTY) helper too: that helper IS
+                // the empty mapping on the wire — Serialize writes the WriteStartMapping()
+                // / WriteEndMapping() pair and Deserialize reads the one mapping back — so
+                // skipping it here left the emitted call with no class to call (CS0103)
+                // instead of an empty mapping. IsDefaultOrEmpty stood in for "nothing was
+                // extracted", which is exactly the shape that has a form now.
                 var elemFqn = t.ArrayElementName!;
                 if (!nestedTypes.ContainsKey(elemFqn))
-                    nestedTypes[elemFqn] = t.ArrayElementNestedProps;
+                    nestedTypes[elemFqn] = t.ArrayElementNestedProps.IsDefaultOrEmpty
+                        ? ImmutableArray<PropertyInfo>.Empty
+                        : t.ArrayElementNestedProps;
             }
         }
 
@@ -846,24 +851,24 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine(".ToString()));");
                 break;
             case "object":
-                if (IsYamlNestedMapping(p))
-                {
-                    var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
-                        "YamlInner",
-                        p.TypeFullName!
-                    );
-                    s.Append(ind);
-                    s.Append(sn);
-                    s.Append(".Serialize(yw, ");
-                    s.Append(accessor);
-                    s.AppendLine(");");
-                }
-                else
-                {
-                    s.Append(ind);
-                    s.AppendLine("yw.WriteNull();");
-                }
+            {
+                // Every resolved object member is a MAPPING on the wire — nested,
+                // cycle-truncated, or EMPTY — so there is no WriteNull() fallback left:
+                // a null VALUE is a different fact, and the extractor reports it as one
+                // instead of leaving the writer to guess. The empty case reaches the same
+                // call because the helper's Serialize IS the WriteStartMapping() /
+                // WriteEndMapping() pair, which is the empty mapping (BU-4, YAML half).
+                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                    "YamlInner",
+                    p.TypeFullName!
+                );
+                s.Append(ind);
+                s.Append(sn);
+                s.Append(".Serialize(yw, ");
+                s.Append(accessor);
+                s.AppendLine(");");
                 break;
+            }
             // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
             case var __kind when PicoSerDe.Gen.CollectionKinds.IsSequence(__kind):
                 // Nested sequences get one block per level (see
@@ -2170,33 +2175,27 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
-            if (IsYamlNestedMapping(p))
-            {
-                var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
-                    "YamlInner",
-                    p.TypeFullName!
-                );
-                s.Append(ind);
-                if (nullGuard)
-                    s.Append("    ");
-                s.Append(sn);
-                s.Append(".Serialize(yw, ");
-                s.Append(target);
-                s.Append('.');
-                s.Append(p.Name);
-                s.AppendLine(");");
-            }
+            // No guard on IsYamlNestedMapping: it answers for EVERY resolved object member
+            // (nested, cycle-truncated, or EMPTY), and the empty one is carried by the
+            // helper's WriteStartMapping() / WriteEndMapping() pair. The `else` arm that used
+            // to sit here emitted that same pair inline for a member the predicate called
+            // "not a mapping" — unreachable once the predicate covered the empty shape, and
+            // wrong for a NON-nullable member that WAS a mapping: it wrote a second, empty
+            // mapping after the real one.
+            var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("YamlInner", p.TypeFullName!);
+            s.Append(ind);
+            if (nullGuard)
+                s.Append("    ");
+            s.Append(sn);
+            s.Append(".Serialize(yw, ");
+            s.Append(target);
+            s.Append('.');
+            s.Append(p.Name);
+            s.AppendLine(");");
             if (nullGuard)
             {
                 s.Append(ind);
                 s.AppendLine("}");
-            }
-            else
-            {
-                s.Append(ind);
-                s.AppendLine("yw.WriteStartMapping();");
-                s.Append(ind);
-                s.AppendLine("yw.WriteEndMapping();");
             }
         }
         else if (p.TypeKind is "dict")
@@ -2733,7 +2732,17 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(inner);
                 s.Append("    ");
                 s.Append(sn);
-                s.AppendLine(".SerializeBlock(yw, " + io + ");");
+                // An object WITH members is `-` plus its members, written by the block
+                // helper (the dash already put the item at its indentation, so the helper
+                // must not open a second mapping level). An EMPTY object has no members to
+                // write, and a bare dash is a null value, not an empty mapping — so it goes
+                // through Serialize, whose WriteStartMapping()/WriteEndMapping() pair IS the
+                // flow form `{}` (BU-4, yaml half).
+                s.AppendLine(
+                    (HasEmptyObjectElements(p) ? ".Serialize(yw, " : ".SerializeBlock(yw, ")
+                        + io
+                        + ");"
+                );
                 s.Append(inner);
                 s.AppendLine("yw.WriteEndSequenceBlock();");
                 if (p.ElementIsNullableReference)
@@ -2882,7 +2891,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine("{");
             s.Append(pad);
             s.AppendLine("    // Indented block sequence: the wrapper ArrayStart was consumed.");
-            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            if (p.ElementTypeKind == "object")
             {
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                     "YamlInner",
@@ -2950,7 +2959,7 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(
                 "    // indentation). The probe token belongs to the list, so consume it here."
             );
-            if (p.ElementTypeKind == "object" && p.NestedProperties.Length > 0)
+            if (p.ElementTypeKind == "object")
             {
                 var sn2 = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                     "YamlInner",
@@ -3774,16 +3783,54 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
     /// </summary>
     /// <summary>
     /// True when this member is carried as a nested MAPPING on the wire rather than as a
-    /// scalar: an object with its own members, OR a cycle-truncated member
+    /// scalar: an object with its own members, a cycle-truncated member
     /// (<see cref="PropertyInfo.IsRecursiveRef"/>, whose members live in the TARGET type's own
-    /// helper). R2 Task 5 opened the second case: S11a/S11b are Supported in yaml now, so a
-    /// recursive member has to be written as a nested mapping and read back through the
-    /// inner helper instead of the "object with no members" fallbacks (an empty mapping on
-    /// write, <c>= default!</c> on read — which is what made the generated code assign a
-    /// string to a DTO-typed member, CS0029).
+    /// helper), or an object whose serialized shape is EMPTY (<see cref="IsEmptyObjectShape"/>).
+    /// <para>
+    /// The three cases are ONE answer because all three are the same construct on the wire —
+    /// a mapping — and all three are written and read by the same inner helper. Two of them
+    /// were opened by earlier tasks for the reason the third needs: a member that reaches no
+    /// mapping arm falls through to the SCALAR one and assigns a string to a DTO-typed member
+    /// (CS0029). R2 Task 5 opened the recursive case; BU-4's yaml half opens the empty one,
+    /// whose helper is the <c>WriteStartMapping()</c>/<c>WriteEndMapping()</c> pair — the flow
+    /// form <c>{}</c> — and whose read half is <c>ObjectStart,ObjectEnd</c>.
+    /// </para>
     /// </summary>
     private static bool IsYamlNestedMapping(PropertyInfo p) =>
-        p.TypeKind == "object" && (p.NestedProperties.Length > 0 || p.IsRecursiveRef);
+        p.TypeKind == "object"
+        && (p.NestedProperties.Length > 0 || p.IsRecursiveRef || IsEmptyObjectShape(p));
+
+    /// <summary>
+    /// An object whose serialized shape is EMPTY — nothing was extracted under it and there is
+    /// no cycle target to delegate to (BU-4's YAML half). The same predicate, for the same
+    /// reason, as TOML's <c>IsEmptyObjectShape</c>: it asks what EXTRACTION saw, not what the
+    /// type declares, because that is the emitter's question ("what do I have to write?"). The
+    /// difference matters and is deliberate —
+    /// <list type="bullet">
+    /// <item>a type whose members were ALL dropped also comes back with no nested properties,
+    ///       and writing <c>{}</c> for it is not a silent loss: each dropped member keeps its
+    ///       own loud PICOSERDE001 naming it, and json has written <c>{}</c> for the same model
+    ///       since long before this arm existed;</item>
+    /// <item>an all-<c>[PicoIgnore]</c> type is not lossy at all: not writing those members was
+    ///       the instruction, so <c>{}</c> IS the shape.</item>
+    /// </list>
+    /// <para>
+    /// The question "does the type declare zero members?" belongs to the resolver, where it
+    /// decides the shape and the diagnostic verdict
+    /// (<c>TypeKindResolver.DeclaresPublicInstanceData</c> / <c>EmptyObjectBlockOf</c>).
+    /// </para>
+    /// </summary>
+    private static bool IsEmptyObjectShape(PropertyInfo p) =>
+        p.NestedProperties.Length == 0 && !p.IsRecursiveRef;
+
+    /// <summary>
+    /// True when this LIST/ARRAY member's ELEMENTS are empty objects (their members are the
+    /// member's <c>NestedProperties</c>, so "no nested properties" is "no element members").
+    /// Such an element cannot be written by the block helper — it would emit a bare dash, which
+    /// reads back as a null VALUE — so it is written as <c>-</c> plus the flow pair instead.
+    /// </summary>
+    private static bool HasEmptyObjectElements(PropertyInfo p) =>
+        p.ElementTypeKind == "object" && IsEmptyObjectShape(p);
 
     private static bool IsYamlNestedList(PropertyInfo p) =>
         PicoSerDe.Gen.CollectionKinds.IsSequence(p.ElementTypeKind)

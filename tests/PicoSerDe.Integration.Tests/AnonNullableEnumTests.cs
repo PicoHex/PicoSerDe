@@ -216,7 +216,12 @@ public class AnonNullableEnumTests
     public async Task NonJson_NullableEnumNull_OmitsMember()
     {
         await Assert.That(TomlSerializer.Serialize(new { L = (Level?)null }).Trim()).IsEmpty();
-        await Assert.That(YamlSerializer.Serialize(new { L = (Level?)null }).Trim()).IsEmpty();
+        // See AnonNullableTests.NonJson_AnonNullCollection_EmitsNothing: yaml HAS the empty
+        // mapping, so an anonymous object with every member omitted is `{}` (json parity)
+        // while toml/ini have no root form and emit nothing. The member `L` is absent either way.
+        await Assert
+            .That(YamlSerializer.Serialize(new { L = (Level?)null }).Trim())
+            .IsEqualTo("{}");
         await Assert.That(IniSerializer.Serialize(new { L = (Level?)null }).Trim()).IsEmpty();
 
         var json = JsonSerializer.Serialize(new { A = (Level?)null, B = 42 });

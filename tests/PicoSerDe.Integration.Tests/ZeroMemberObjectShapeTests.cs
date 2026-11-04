@@ -20,16 +20,19 @@
 //   msgpack  empty map        empty map in an array   supported
 //   toml     `[Mark]` header  `[[Marks]]` header      supported
 //   ini      `[Mark]` header  (none: S2 x ini is a format fact)  supported
-//   yaml     — still DROPPED  — still DROPPED         ⏸ DEBT (see below)
+//   yaml     `Mark: {}`       one `-` per element     supported
 //
-// WHY YAML IS NOT FIXED HERE: the format CAN hold it — PyYAML reads `a: {}` as `{'a': {}}`
-// (measured) and our own `YamlReader` reads the empty flow mapping (pinned by
-// `Yaml_Reader_HoldsTheEmptyFlowMapping` below) — but `YamlWriter` has no empty-mapping FORM:
-// its block mapper writes nothing for a mapping with no members and `Mark:` is YAML for null,
-// not for `{}`. Adding one is a runtime change (`api/PicoYaml.public.txt` moves with it), which
-// BU-4 is not allowed to make, so the shape stays a REGISTERED ⏸ debt — never ⛔, because
-// calling our missing writer method a format limit is exactly the lie AGENTS.md rule 3 forbids.
-// `DecisionTables.EmptyObjectFormats` names yaml as missing for that reason and nothing else.
+// YAML WAS THE LAST ⏸ DEBT, AND IT IS CLOSED WITHOUT A NEW PUBLIC API: the format always held
+// the shape — PyYAML reads `Mark: {}` as `{'Mark': {}}` and our own `YamlReader` tokenizes it
+// as `ObjectStart,ObjectEnd` (pinned by `Yaml_Reader_HoldsTheEmptyFlowMapping` below) — what was
+// missing was the WRITE form. `YamlWriter.WriteEndMapping` could not express "a mapping with no
+// members": its block mapper wrote NOTHING, and `Mark:` with nothing under it is YAML for null,
+// which is why the member reached the reader as a missing value. It now closes a memberless
+// mapping with the FLOW pair on the key's own line, exactly as `WriteEndSequence` closes an
+// empty sequence with `[]` — so no public API moved (`api/PicoYaml.public.txt` is unchanged) and
+// `DecisionTables.EmptyObjectFormats` gained "yaml". The wire form and its round trip are pinned
+// in `YamlZeroMemberObjectTests`; what stays HERE is the shared shape question, one assertion per
+// format.
 //
 // The fixtures are attribute-free where the INTERCEPTOR pipeline can carry them (that is how
 // `NestedListOfObjectsTests` drives the same nested-object shapes): a `[PicoSerializable]`
@@ -284,12 +287,13 @@ public class ZeroMemberObjectShapeTests
         await Assert.That(back!.Mark).IsNotNull().Because("`[Mark]` must read back as an instance");
     }
 
-    // ── YAML: the DEBT, measured on both sides ────────────────────────────────────
+    // ── YAML: the READ half, which was never the missing one ──────────────────────
 
     /// <summary>
-    /// The debt's READ half: our own reader already understands the empty flow mapping, so
-    /// "yaml cannot hold an empty object" is false — the missing half is `YamlWriter`'s form
-    /// (see the file header). This is the measurement that keeps the drop a ⏸ and not a ⛔.
+    /// The measurement that kept the old drop a ⏸ debt and never a ⛔ fact: our own reader
+    /// already understood the empty flow mapping, so nothing about the FORMAT was missing —
+    /// the write form was (see the file header). Kept as-is now that the debt is closed,
+    /// because it is the reason the verdict was right while the drop was still in place.
     /// </summary>
     [Test]
     public async Task Yaml_Reader_HoldsTheEmptyFlowMapping()
@@ -320,11 +324,10 @@ public class ZeroMemberObjectShapeTests
     [Test]
     public async Task ZeroMemberObjectMember_IsNoLongerDroppedByTheFormatsThatHoldIt()
     {
+        // All five formats, yaml included: it was the last one out and is the fifth one in
+        // (see the header). A format that regressed to a drop fails here by name.
         foreach (var (format, ns, attr, run) in Drivers())
         {
-            if (format is "yaml")
-                continue; // the registered debt, pinned by the test below
-
             var (ids, generated, messages) = run(ZeroMemberModel(ns, attr));
 
             await Assert
@@ -341,34 +344,33 @@ public class ZeroMemberObjectShapeTests
         }
     }
 
+    /// <summary>
+    /// The debt this file used to register, now a positive: yaml is the fifth format whose
+    /// generator carries the empty object, so the same in-proc driver the other four use
+    /// reports NOTHING for it either. The assertion is deliberately the same one — a member
+    /// that stops being reported has to keep reaching the generated code, or "no diagnostic"
+    /// would just mean "dropped even more quietly".
+    /// </summary>
     [Test]
-    public async Task Yaml_ZeroMemberObjectMember_IsStillADeclaredDebt()
+    public async Task Yaml_ZeroMemberObjectMember_IsNoLongerADeclaredDebt()
     {
-        var (ids, _, messages) = SilentDropDiagnosticTests.RunYaml(
+        var (ids, generated, messages) = SilentDropDiagnosticTests.RunYaml(
             ZeroMemberModel("PicoYaml", "PicoYamlSerializable")
         );
 
         await Assert
             .That(ids)
-            .Contains(UnresolvableTypeId)
+            .DoesNotContain(UnresolvableTypeId)
             .Because(
-                "yaml keeps the drop until YamlWriter has an empty-mapping form — a registered "
-                    + "debt that must stay VISIBLE, not a silent loss"
-            );
-
-        var message = messages.Single(m => m.Contains("ShapeDoc.Mark", StringComparison.Ordinal));
-
-        await Assert
-            .That(message.StartsWith("\u23F8", StringComparison.Ordinal))
-            .IsTrue()
-            .Because(
-                "YAML CAN hold an empty object (PyYAML and our own reader say so), so the drop "
-                    + $"is our debt (⏸) and never a format limit (⛔): {message}"
+                "yaml has the empty-mapping form now, so the drop that named our missing "
+                    + $"writer method is gone: {string.Join(" | ", messages)}"
             );
         await Assert
-            .That(message.Contains("\u26D4", StringComparison.Ordinal))
-            .IsFalse()
-            .Because("a ⛔ here would tell the reader to change a perfectly expressible type");
+            .That(generated)
+            .Contains("ShapeMark")
+            .Because(
+                "the member must reach the generated serializer, not merely stop being reported"
+            );
     }
 
     // ══ N-1: the three boundaries no generator change can cross ══════════════════════
