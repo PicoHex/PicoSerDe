@@ -402,16 +402,16 @@ Null is not portable across the five formats: "write a null" and "read a null" a
 
 | State | On the wire | Behaviour |
 |-------|-------------|-----------|
-| **null** | JSON `"key":null`; MsgPack `nil` (`0xC0`, map/array header adjusted) | written, and round-trips — the only two formats with a null *value* on the wire |
+| **null** | JSON `"key":null`; MsgPack `nil` (`0xC0`, map/array header adjusted) | written as a **member**, and round-trips — a null *member* is on the wire in JSON and MsgPack only; YAML writes the literal for a null *element* / *dict value* (see below) |
 | **empty** | `""`, `[]`, `{}` | always a value, never a null — a quoted scalar is never null, so `"null"` is four characters |
 | **missing** | the member is absent | not an error — the target keeps its default, the property initializer's value when one exists |
 
-**Who supports null.** JSON and MsgPack write an explicit null and read it back. TOML, YAML and INI have no null value on the write side,
-so the member is omitted and **a null does not round-trip** through them. On read all three accept an unquoted empty value as the null
-literal (TOML/INI `Key =`, YAML `Key:`), plus `~` (YAML) and the unquoted word `null` in any case (all three): that assigns `null` to a
-nullable target and throws `FormatException` for a non-nullable value type, never a silent `0` / `false` / `Guid.Empty`. The non-nullable
-`string` column is the generators' NRT-lenient contract — TOML/YAML/INI assign `null!` to an unannotated `string`, while JSON/MsgPack
-require a value token and reject the null.
+**Who supports null — and in which position.** JSON and MsgPack write an explicit null and read it back. TOML, YAML and INI write no null for a **member**: it is omitted, so **a null member does
+not round-trip** through them. That is a *member-position* rule, not a missing null literal — YAML has that literal and our own writer emits it for a null *element* and a null *dictionary value*
+(`- null` / `key: null`, footnote ²), so `List<int?>`, `List<string?>` and `Dictionary<string, int?>` keep their nulls there, while TOML and INI have no null literal *on the write side*, so the
+same shapes cannot keep their nulls there. On read all three accept an unquoted empty value as the null literal (TOML/INI `Key =`, YAML `Key:`), plus `~` (YAML) and the unquoted word `null` in any
+case (all three): that assigns `null` to a nullable target and throws `FormatException` for a non-nullable value type, never a silent `0` / `false` / `Guid.Empty`. The non-nullable `string` column
+is the generators' NRT-lenient contract — TOML/YAML/INI assign `null!` to an unannotated `string`, while JSON/MsgPack require a value token and reject the null.
 
 Scope: scalar members only (string, numeric, temporal, enum, Guid and their nullable forms); collection, object and dictionary branches keep
 their own empty-value semantics, and nullable *elements* belong to [Format limits](#format-limits-what-each-wire-format-cannot-express).
@@ -573,8 +573,8 @@ the reader as a missing value. `YamlWriter.WriteEndMapping` now closes a memberl
 flow pair, exactly as `WriteEndSequence` has always closed an empty sequence with `[]`, so no public
 API moved and nothing about the write side changes for a mapping that has members. A zero-member type
 that *cannot be instantiated at all* (abstract, a static class, or no accessible parameterless
-constructor) is a different verdict: it is dropped with a **terminal** `⛔`, because no format and no
-generator change can build an instance of it.
+constructor) is a different verdict: it is dropped with a **terminal** `⛔` — terminal for the **type**,
+not for the format: all five hold the empty object, but no generator change can call `new` on a type with no instance.
 
 
 One **value-level** limit is INI-only, and it is a format fact rather than a backlog item: a
