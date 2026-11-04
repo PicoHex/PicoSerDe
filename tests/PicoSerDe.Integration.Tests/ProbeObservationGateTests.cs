@@ -30,11 +30,17 @@ namespace PicoSerDe.Integration.Tests;
 /// </para>
 /// <para>
 /// <b>Known limitation, stated instead of implied</b>: the gate compares the RECORDING with
-/// the spec, it does not run the probe (the probe project is not part of
-/// <c>PicoSerDe.slnx</c> and building it from a test would make the suite depend on a
-/// <c>dotnet build</c>). A behaviour change that nobody re-measures is therefore still
-/// possible — but it can no longer be <i>silent</i>, because the recording is now a checked-in
-/// file whose diff is visible in every review.
+/// the spec, it does not run the probe. A behaviour change that nobody re-measures is therefore
+/// still possible — but it can no longer be <i>silent</i>, because the recording is now a
+/// checked-in file whose diff is visible in every review.
+/// <para>
+/// Running the probe is a different question with a different gate:
+/// <see cref="GeneratedBaselineRegenerationGateTests"/> rebuilds the probe project and compares its
+/// generated code byte for byte with the checked-in baseline. That one covers <b>the code the
+/// generators emit</b> (and so keeps this file's sibling guards honest); it says nothing about the
+/// <c>CELL-OBS</c> verdicts — a verdict only changes when somebody runs the probe and records its
+/// output, so the recording still rots if the round-trip behaviour changes. Two different debts, two
+/// different tests, stated here so neither is mistaken for the other.
 /// </para>
 /// </summary>
 public class ProbeObservationGateTests
