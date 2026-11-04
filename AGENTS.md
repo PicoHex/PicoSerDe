@@ -29,10 +29,10 @@ format's grammar. A shape the format cannot hold is **dropped during extraction 
 `PICOSERDE004`, `Warning`, `Location.None`, so `#pragma` cannot silence it) — the drop shows up in the build log
 instead of surfacing later as a mysteriously empty property (`README.md:494-501`, `:511-514`).
 
-1. **⛔ is a format fact, and it is terminal.** `FormatCapabilities.ImpossibleMarker`
-   (`shared/Gen/FormatCapabilities.cs:192`); the diagnostic title is *this format cannot hold a type cycle*
-   (`shared/Gen/GenInfrastructure.cs:373-375`, id `PICOSERDE003`). No generator change can help: the reader's
-   only ways out are a different format or a different type.
+1. **⛔ is terminal: either the format cannot hold the shape, or the type cannot be instantiated at all.**
+   `FormatCapabilities.ImpossibleMarker` (`shared/Gen/FormatCapabilities.cs:192`); the diagnostic title is *this format cannot hold a type cycle*
+   (`shared/Gen/GenInfrastructure.cs:373-375`, id `PICOSERDE003`) — a type with no instance (abstract, a static class, no accessible parameterless
+   ctor, `DropVerdict.TypeUnconstructible`) is ⛔ on the same grounds. No generator change can help: a different format or a different type.
 2. **⏸ is our debt, and it is reopenable.** `FormatCapabilities.DeferredMarker`
    (`shared/Gen/FormatCapabilities.cs:200`); the title is *not implemented yet (this format can hold a
    cycle)* (`shared/Gen/GenInfrastructure.cs:388-390`). It must not blame the format and must not send the
