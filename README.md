@@ -587,6 +587,20 @@ MsgPack, TOML and INI need no workaround at all: they write their own empty obje
 warning itself names the same two moves (it is `⏸` with a `reopen:` pointer, and the reason slot says
 what to give the type or which kind of format to use instead).
 
+One **value-level** limit is INI-only, and it is a format fact rather than a backlog item: a
+**dictionary key** cannot contain `=`, CR or LF. INI has a quoted form for *values* (`Key = "a b"`),
+but its own grammar gives keys none (`key = unquoted-char+`, see the
+[PicoIni design](docs/superpowers/specs/2026-05-26-picoini-design.md)) — `IniWriter.WriteKey` writes
+the key verbatim and the reader's key scan ends at the first `=`, CR or LF. `a=b` is written
+`a=b = v` and read back as key `a` with value `"b = v"` — **silent** when the dictionary's value is a
+string, a `FormatException` when it is an `int` — and a key containing a newline leaves the document
+unreadable (`Invalid INI line: expected '='`). The verdict is a **terminal** `⛔`: no writer or
+generator change can carry it while the dialect has no key form that quotes, so the moves are a
+different format (JSON, MsgPack, TOML and YAML all quote keys) or a different key — never a `⏸` debt,
+because nothing in the generator flips it. Recorded as V-1 in the
+[format-capabilities spec §8.1](docs/superpowers/specs/2026-10-25-format-capabilities-design.md); the
+`CELL|ini|S9` row of `tests/FormatCapabilities.Probe/baseline-cells.txt` pins the wire it produces.
+
 The wire shape behind each ✅ is documented per format: [PicoToml](PicoToml/README.md#limits)
 (`[[Table]]`, `G = [[1, 2], [3]]`), [PicoYaml](PicoYaml/README.md#limits) (block sequences, `- []` vs
 `- "[]"`), [PicoIni](PicoIni/README.md#limits), [PicoJetson](PicoJetson/README.md#limits),
