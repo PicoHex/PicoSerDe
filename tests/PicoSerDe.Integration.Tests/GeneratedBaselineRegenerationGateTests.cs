@@ -258,7 +258,7 @@ public class GeneratedBaselineRegenerationGateTests
 
         // Started with the reason attached: on a machine without the CLI this is the message the reader
         // gets, and "Win32Exception: the system cannot find the file specified" names no file.
-        Process started;
+        Process? started;
         try
         {
             started = Process.Start(startInfo);
@@ -274,7 +274,17 @@ public class GeneratedBaselineRegenerationGateTests
             );
         }
 
-        using var process = started;
+        // `Process?` is what the API hands back: `Process.Start(ProcessStartInfo)` returns null for callers
+        // that ask it to reuse an already-running process. This start sets `UseShellExecute = false`, so it
+        // always launches a child and that null is unreachable — yet if it ever did arrive, nothing was
+        // built and nothing can be compared, the same verdict the catch above reports. Checked here, where
+        // the value enters the method, so the pipe reads below dereference a process the compiler agrees
+        // exists.
+        using var process =
+            started
+            ?? throw new InvalidOperationException(
+                $"`{commandLine}` started no process — the baseline gate rebuilt nothing and compared nothing"
+            );
 
         // Read both pipes before waiting: a full pipe buffer would otherwise block the child forever.
         var stdout = process.StandardOutput.ReadToEndAsync();
