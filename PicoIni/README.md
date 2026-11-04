@@ -85,19 +85,23 @@ var ini = IniSerializer.Serialize(config);
 
 ## Limits
 
-- **An object-list *member* is a `⏸` debt of ours, not an INI limit.** A `List<SomeDto>` property is
-  dropped with a `PICOSERDE004` warning
-  (`SilentDropDiagnosticTests.Ini_ObjectListMember_ReportsDiagnostic`) — visible in the build log,
-  never silent. The reason is that **only the top-level form is implemented**, not that INI cannot
-  hold the shape: an ordinary section header carries an object, and the next bullet is that same
-  header shape on the wire. Reopening it is generator work — one numbered section per item, exactly
-  the form the top-level path already writes — so the verdict that belongs here is `⏸` (our debt,
-  reopenable), not `⛔` (a format fact). Until then, use **TOML**, **YAML** or **JSON** for an object
-  list inside a DTO.
+- **No object-list *members* — `⛔`, a format fact.** A `List<SomeDto>` property is dropped with a
+  `PICOSERDE004` warning
+  (`SilentDropDiagnosticTests.Ini_ObjectListMember_ReportsDiagnostic` for the drop,
+  `….ReportsTheFactVerdict_AndNoReopenPointer` for the verdict) — visible in the
+  build log, never silent. A section is a **flat, member-named** slot: a nested object is written as
+  `iw.WriteSection("<member>")`, so the section name *is* the member's name and there is no second
+  dimension left to carry an item index. The one object-list form this format's convention has is the
+  numbered section at the **top** of the document (`[0]`, `[1]`, …), where no member name is being
+  displaced. A member-level list would need a composite name (`[Rows.0]`) that no INI reader turns
+  back into a list — a new wire convention, not generator plumbing — which is why spec §3 draws the
+  boundary here ("对象列表只在顶层 …；成员内不承载任何嵌套") and the matrix cell is ❌ (root README
+  footnote ¹). If you need an object list inside a DTO, use **TOML**, **YAML** or **JSON**.
 - **A top-level `List<SomeDto>` does round-trip** — each item is written as a numbered section
   (`[0]`, `[1]`, ...): a plain section header plus key/value lines, with no extension to the INI
-  grammar. **That is the evidence for the bullet above** — the format can hold the shape, so a
-  member-level object list is unimplemented, not unrepresentable.
+  grammar. That is the same header shape the bullet above is about, and the difference is of KIND, not
+  of progress: at the top of the document the section-name slot is free, so an index can be spent on
+  it; for a member that slot already carries the member's name.
 - **Nested lists, nullable elements and recursion are reported.** `List<List<int>>`, `List<int?>`
   and a recursive member (`Node Child` on `Node`) are dropped with `PICOSERDE004` /
   `PICOSERDE003` — visible in the build log, not silent.

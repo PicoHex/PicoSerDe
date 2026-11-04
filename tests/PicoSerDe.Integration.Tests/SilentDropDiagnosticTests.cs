@@ -72,6 +72,87 @@ public class SilentDropDiagnosticTests
     }
 
     /// <summary>
+    /// The VERDICT that belongs to that same drop (spec §3 S2 × ini) — the half the test above
+    /// does not check. Six records say it is a format FACT, and they agree word for word:
+    /// spec §3's INI convention ("对象列表只在**顶层**用编号 section … 成员内不承载任何嵌套"),
+    /// spec §3's conclusion ("真正的 ❌ … ① INI 的结构性限制"), the spec §6 terminal matrix, the
+    /// root README's `List<Dto>` cell + footnote ¹, `docs/top-level-list-support.md`, and
+    /// `docs/testing-and-ci.md` — plus `DecisionTables.BuildFacts` (`Row("S2", …, ini: false)`),
+    /// which is what makes `SkippedBy` answer `DropVerdict.FormatCannot` and the message start
+    /// with ⛔.
+    /// <para>
+    /// The ⏸ alternative is NOT a one-line edit, and that is why this test exists. The fact
+    /// table is the only input to the verdict, but it is also the input to TWO derived tables:
+    /// flipping it promotes <c>ObjectListInMember × ini</c> to <c>Supported</c> in
+    /// <c>TargetRules</c> (<c>BuildTargetRules</c>) and therefore moves the TERMINAL matrix
+    /// cell to ✅ — measured, not assumed: `Matrix_cells_are_the_spec_section6_terminal_matrix`
+    /// and `Target_promotes_exactly_the_pairs_that_are_dropped_today` both go red
+    /// (<c>S2: spec §6 says ✅✅✅✅❌, MatrixCells said ✅✅✅✅✅</c>). A ✅ there means "the
+    /// generated code both writes and reads the shape" (README), which INI does not: the
+    /// member is dropped. So a reclassification is a matrix decision — DecisionTables + spec
+    /// §3/§6 + the root README cell + footnote ¹ + these fixtures, in one commit — not a
+    /// verdict swap. Until that decision is made, this test pins what the tree says.
+    /// </para>
+    /// <para>
+    /// The mechanism, for whoever reopens it: an INI section is a FLAT, member-named slot
+    /// (`iw.WriteSection("&lt;member&gt;")` for a nested object, `iw.WriteSection(i.ToString())`
+    /// for the top-level list, where no member name is being displaced). A member-level object
+    /// list needs a composite section name (<c>[Rows.0]</c>) that no INI reader turns back into
+    /// a list — a new wire convention, not generator plumbing (AGENTS.md's format-capability
+    /// iron rule), which is exactly why spec §3 draws the line at the top level.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Ini_ObjectListMember_ReportsTheFactVerdict_AndNoReopenPointer()
+    {
+        var source = $$"""
+            using PicoIni;
+
+            {{PlainRow}}
+
+            [PicoIniSerializable]
+            public partial class ProbeDoc
+            {
+                public string Name { get; set; } = "";
+                public System.Collections.Generic.List<PlainRow> Rows { get; set; } = new();
+            }
+            """;
+
+        var run = RunIni(source);
+        var ini = DropMessage(run, "ProbeDoc.Rows");
+
+        await Assert
+            .That(ini.StartsWith(Impossible, StringComparison.Ordinal))
+            .IsTrue()
+            .Because(
+                $"spec §3 lists a member-level object list among INI's structural limits, so the "
+                    + $"verdict is the terminal one, not a debt: {ini}"
+            );
+        await Assert
+            .That(ini.Contains(Deferred, StringComparison.Ordinal))
+            .IsFalse()
+            .Because($"a format fact must not also claim a debt: {ini}");
+        await Assert
+            .That(ini.Contains("reopen:", StringComparison.Ordinal))
+            .IsFalse()
+            .Because($"a terminal verdict must not promise a reopen (C4): {ini}");
+        await Assert.That(ini).Contains("ini").Because($"I-5: the message names the format: {ini}");
+
+        // …and the promotion it would cause is what the two fixtures above measure, so state
+        // the pair here as well: today's effect and the target are BOTH DropMember.
+        await Assert
+            .That(FormatCapabilities.Decide("ini", Decision.ObjectListInMember))
+            .IsEqualTo(Effect.DropMember);
+        await Assert
+            .That(FormatCapabilities.DecideTarget("ini", Decision.ObjectListInMember))
+            .IsEqualTo(Effect.DropMember)
+            .Because(
+                "the fact table says ini cannot hold S2, so the derived R2 target cannot "
+                    + "promote the pair without moving the terminal matrix cell"
+            );
+    }
+
+    /// <summary>
     /// The debt this fixture used to pin is PAID (R2 Task 2): a <c>HashSet&lt;int&gt;</c> in
     /// ELEMENT position (spec §3 S8) is emitted as a nested array in json, so the drop
     /// diagnostic has to be gone — keeping the old assertion would demand the bug back.
