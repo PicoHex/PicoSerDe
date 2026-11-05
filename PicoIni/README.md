@@ -85,23 +85,38 @@ var ini = IniSerializer.Serialize(config);
 
 ## Limits
 
-- **No object-list *members* — `⛔`, a format fact.** A `List<SomeDto>` property is dropped with a
-  `PICOSERDE004` warning
-  (`SilentDropDiagnosticTests.Ini_ObjectListMember_ReportsDiagnostic` for the drop,
-  `….ReportsTheFactVerdict_AndNoReopenPointer` for the verdict) — visible in the
-  build log, never silent. A section is a **flat, member-named** slot: a nested object is written as
-  `iw.WriteSection("<member>")`, so the section name *is* the member's name and there is no second
-  dimension left to carry an item index. The one object-list form this format's convention has is the
-  numbered section at the **top** of the document (`[0]`, `[1]`, …), where no member name is being
-  displaced. A member-level list would need a composite name (`[Rows.0]`) that no INI reader turns
-  back into a list — a new wire convention, not generator plumbing — which is why spec §3 draws the
-  boundary here ("对象列表只在顶层 …；成员内不承载任何嵌套") and the matrix cell is ❌ (root README
-  footnote ¹). If you need an object list inside a DTO, use **TOML**, **YAML** or **JSON**.
+- **No object-list *members* — `⏸`, a boundary of *our* convention, not a format fact.** A
+  `List<SomeDto>` property is dropped with a `PICOSERDE004` warning
+  (`SilentDropDiagnosticTests.Ini_ObjectListMember_ReportsDiagnostic` pins the drop) — visible in
+  the build log, never silent. **INI has no independent standard implementation to appeal to**
+  (`configparser` accepts any input as a string), so the boundary of this dialect is **what this
+  specification says it is**, not what the format cannot do — and what it says here is that the
+  member-level form is **not implemented**: our debt, reopenable. A section is a **flat,
+  member-named** slot: a nested object is written as `iw.WriteSection("<member>")`, so the section
+  name *is* the member's name. The one object-list form this dialect has is the numbered section at
+  the **top** of the document (`[0]`, `[1]`, …), where no member name is being displaced; a
+  member-level list would need a composite name (`[Rows.0]`) — **a new wire convention, an
+  `x+1`-level public-convention change recorded in spec §8.1, not this release.** Reopening it is
+  therefore a specification decision, not generator plumbing.
+  The strongest argument for staying closed is worth writing down: `[Rows.0]` would claim a
+  **two-dimensional** name inside the **section namespace users also write by hand**, and the
+  index in it is one **we would not read as an index** — a reader sees a section called `Rows.0`,
+  never element 0 — so the convention would promise an addressing scheme we do not honour. Against
+  that: the comma-joined scalar list (`V = 1,2,3` — a ✅ cell in the matrix), the `\,` escape
+  inside it and the top-level numbered section (`[0]`, which round-trips) are no less our own
+  inventions — which is exactly why "member-level is `⛔`" read as selective application, and why
+  the verdict here is `⏸`.
+  Until that convention exists the build log still shows the terminal wording
+  (`….ReportsTheFactVerdict_AndNoReopenPointer` pins today's text) — flipping the wording is part
+  of the `x+1` change, not this one. If you need an object list inside a DTO today, use **TOML**,
+  **YAML** or **JSON**.
 - **A top-level `List<SomeDto>` does round-trip** — each item is written as a numbered section
   (`[0]`, `[1]`, ...): a plain section header plus key/value lines, with no extension to the INI
-  grammar. That is the same header shape the bullet above is about, and the difference is of KIND, not
-  of progress: at the top of the document the section-name slot is free, so an index can be spent on
-  it; for a member that slot already carries the member's name.
+  grammar. That is the same header shape the bullet above is about, and the difference is in **which
+  name the section slot spends**, not in what the format allows: at the top of the document the slot
+  is free, so an index can be spent on it; for a member that slot already carries the member's name —
+  which is why the member-level form needs the `[Rows.0]` convention above, and is a `⏸` debt
+  rather than a format fact.
 - **Nested lists, nullable elements and recursion are reported.** `List<List<int>>`, `List<int?>`
   and a recursive member (`Node Child` on `Node`) are dropped with `PICOSERDE004` /
   `PICOSERDE003` — visible in the build log, not silent.
