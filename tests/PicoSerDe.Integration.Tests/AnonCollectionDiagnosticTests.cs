@@ -421,7 +421,7 @@ public class AnonCollectionDiagnosticTests
                 );
 
             await Assert
-                .That(PicoSerDe.Gen.FormatCapabilities.CanRepresent(tag, "S1"))
+                .That(PicoSerDe.Gen.FormatCapabilities.IsRepresentable(tag, "S1"))
                 .IsTrue()
                 .Because(
                     $"{tag} must still be able to represent S1: AnonCollectionIsFormatFact "
@@ -484,5 +484,4 @@ public class AnonCollectionDiagnosticTests
         var result = driver.RunGenerators(compilation).GetRunResult();
         return result.Diagnostics.ToArray();
     }
-
 }

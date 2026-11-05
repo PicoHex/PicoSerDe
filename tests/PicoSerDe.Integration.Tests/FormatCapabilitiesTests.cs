@@ -11,9 +11,11 @@ namespace PicoSerDe.Integration.Tests;
 ///         current-state matrix (14 shapes × 5 formats) must be reproduced by
 ///         <see cref="FormatCapabilities.DecideShape"/> exactly. If a table edit moves a
 ///         cell, this test fails instead of the byte diff (Task 3) having to find it.</item>
-///   <item><b>What can each format express?</b> — <see cref="FormatCapabilities.CanRepresent"/>
-///         is the code form of spec §3; Task 2's probe measures the same thing
-///         independently, so the two are cross-checked rather than trusted.</item>
+///   <item><b>What can each format express?</b> — <see cref="FormatCapabilities.CapabilityOf(string,string)"/>
+///         is the code form of spec §3 (three states: Representable / Deferred / Impossible),
+///         and <see cref="FormatCapabilities.IsRepresentable"/> is its strict half — the
+///         matrix question; Task 2's probe measures the same thing independently, so the two
+///         are cross-checked rather than trusted.</item>
 ///   <item><b>What is the R2 target?</b> — derived from the facts, never hand-copied, and
 ///         "supported exactly where every affected shape is representable".</item>
 /// </list>
@@ -232,7 +234,9 @@ public class FormatCapabilitiesTests
                 .IsGreaterThan(0)
                 .Because($"{d} has no shape and is not declared encoding-only");
 
-            var allRepresentable = shapes.All(s => FormatCapabilities.CanRepresent(fmt, s));
+            // Strict on purpose: a DEFERRED shape is "the format can, we have not", which is not
+            // enough to promote the pair — promotion would move its terminal matrix cell to ✅.
+            var allRepresentable = shapes.All(s => FormatCapabilities.IsRepresentable(fmt, s));
             if (allRepresentable)
                 await Assert
                     .That(target)
@@ -270,7 +274,7 @@ public class FormatCapabilitiesTests
         foreach (var fmt in FormatCapabilities.AllFormatTags)
         {
             var target = FormatCapabilities.DecideShapeTarget(fmt, shapeId);
-            if (FormatCapabilities.CanRepresent(fmt, shapeId))
+            if (FormatCapabilities.IsRepresentable(fmt, shapeId))
                 await Assert
                     .That(target)
                     .IsEqualTo(Effect.Supported)
@@ -641,6 +645,53 @@ public class FormatCapabilitiesTests
                     + string.Join(", ", FormatCapabilities.AllFormatTags)
                     + "): "
                     + string.Join(" | ", wrong)
+            );
+    }
+
+    /// <summary>
+    /// Spec §3 S2 × ini is the ONE cell the model calls <see cref="Capability.Deferred"/>: the
+    /// INI <b>format</b> can hold a member-level object list (its reader would only have to be
+    /// taught a composite section name), but no wire convention for one exists yet — that is an
+    /// <c>x+1</c>-level agreement (spec §8.1), not generator plumbing.
+    /// <para>
+    /// The cell must <b>stay ❌</b>. ✅ is defined as "the generated code both writes and reads
+    /// the shape", and INI's code drops the member: a <c>Deferred</c> promoted to ✅ would
+    /// report our gap as a capability the format does not have yet. That is exactly what the
+    /// old <c>bool</c> fact table could not express — flipping <c>ini: false</c> to <c>true</c>
+    /// squeezed "we have not implemented it" and "the format cannot" into one bit and silently
+    /// turned this row into <c>✅✅✅✅✅</c> (measured: two fixtures red).
+    /// </para>
+    /// <para>
+    /// Three separate answers, so a regression has to break at least one of them: the
+    /// capability verdict (Deferred), the terminal matrix row (§6), and the R2 target the
+    /// matrix is rendered from (still dropped).
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Deferred_object_list_member_stays_red_in_the_matrix()
+    {
+        await Assert
+            .That(FormatCapabilities.CapabilityOf("ini", "S2"))
+            .IsEqualTo(Capability.Deferred)
+            .Because(
+                "INI can express a member-level object list, but only under a wire convention "
+                    + "nobody has written yet — the format can, we have not (spec §8.1)"
+            );
+
+        await Assert
+            .That(FormatCapabilities.MatrixCells("S2"))
+            .IsEqualTo("✅✅✅✅❌")
+            .Because(
+                "a Deferred cell is not implemented: ✅ would claim the generated INI code both "
+                    + "writes and reads a member-level object list, and it drops the member"
+            );
+
+        await Assert
+            .That(FormatCapabilities.DecideTarget("ini", Decision.ObjectListInMember))
+            .IsEqualTo(Effect.DropMember)
+            .Because(
+                "the terminal table must not promote a Deferred pair: S2 × ini stays dropped "
+                    + "until the wire convention exists"
             );
     }
 

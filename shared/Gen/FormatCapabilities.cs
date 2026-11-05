@@ -9,7 +9,9 @@
 //                 NOT an (allows?, granularity) pair: YAML's null element is
 //                 "emit the member, lose the element", which only an effect can say.
 //   Facts       — what the FORMAT can express, measured with independent
-//                 implementations (Python `tomllib`, PyYAML). `CanRepresent` queries it.
+//                 implementations (Python `tomllib`, PyYAML). `CapabilityOf` queries it;
+//                 a cell is Representable / Deferred / Impossible (three states, not a bool:
+//                 "the format cannot" and "we have not implemented it" are different answers).
 //   TargetRules — the R2 goal, DERIVED from Facts via `ShapesUsing` (never hand-copied).
 //
 // A shape reaches its cell by walking an ordered PATH of decision points (`Paths`) and
@@ -112,6 +114,42 @@ internal enum Effect
 }
 
 /// <summary>
+/// What a format can do with a shape — THREE states, because "the FORMAT cannot express it"
+/// and "we have not implemented it" are different answers, and the <c>bool</c> this enum
+/// replaces forced both into the same <c>false</c>. One rule per state, and they are not
+/// interchangeable.
+/// <para>
+/// The two NEGATIVE answers stay apart on purpose, because they name different owners
+/// (spec C1/C4): <see cref="Impossible"/> is the FORMAT's answer and no generator change can
+/// help, while <see cref="Deferred"/> is OURS — reopenable, and its way out may be a new wire
+/// CONVENTION (an <c>x+1</c>-level agreement) rather than generator plumbing.
+/// </para>
+/// </summary>
+internal enum Capability
+{
+    /// <summary>
+    /// ⛔ The FORMAT cannot express the shape (spec §3): terminal, and the drop is not our
+    /// fault — another format or another type is the reader's only way out.
+    /// </summary>
+    Impossible,
+
+    /// <summary>
+    /// ⏸ The format CAN express the shape and this generator has not implemented it yet —
+    /// reopenable (spec R4), so the diagnostic must carry a <c>reopen:</c> pointer and must not
+    /// blame the format (spec C1/C4). Its matrix cell is still ❌: ✅ means "the generated code
+    /// both writes and reads the shape", and a debt is not an implementation.
+    /// </summary>
+    Deferred,
+
+    /// <summary>
+    /// ✅ The format can express the shape AND the generated code does — the only state that
+    /// keeps a ✅ in the terminal matrix, and the only one that may be promoted to
+    /// <see cref="Effect.Supported"/>.
+    /// </summary>
+    Representable,
+}
+
+/// <summary>
 /// Entry points of the capability model. Task 3 rewires the generators onto these;
 /// Task 8 derives the README matrix from <see cref="MatrixCells"/>.
 /// </summary>
@@ -168,17 +206,47 @@ internal static class FormatCapabilities
 
     // ── format facts (spec §3) ─────────────────────────────────────────────────────
 
-    /// <summary>Can this format express this shape at all? (spec §3, the measured facts.)</summary>
-    internal static bool CanRepresent(string formatTag, string shapeId) =>
+    /// <summary>
+    /// The three-state answer for one (format, shape) cell (spec §3, hand-written — the ONE
+    /// place "can the format" and "have we implemented it" are recorded separately).
+    /// </summary>
+    internal static Capability CapabilityOf(string formatTag, string shapeId) =>
         DecisionTables.Facts[FactsKey(formatTag, shapeId)];
 
     /// <summary>
-    /// Can this format express every shape that goes through <paramref name="d"/>?
-    /// Decision points that no shape uses (the encoding-only ones) answer <c>true</c>
-    /// vacuously — the format can represent the values, only the encoding differs.
+    /// The three-state answer for a decision point: the WORST answer among the shapes that walk
+    /// through it (<see cref="Capability.Impossible"/> &gt; <see cref="Capability.Deferred"/>
+    /// &gt; <see cref="Capability.Representable"/>), because a point is only as available as the
+    /// shapes it has to carry.
+    /// <para>
+    /// A decision point no shape uses (the encoding-only ones) answers
+    /// <see cref="Capability.Representable"/> vacuously — the format can represent the values,
+    /// only the encoding differs.
+    /// </para>
     /// </summary>
-    internal static bool CanRepresent(string formatTag, Decision d) =>
-        ShapesUsing(d).All(shapeId => CanRepresent(formatTag, shapeId));
+    internal static Capability CapabilityOf(string formatTag, Decision d)
+    {
+        var capability = Capability.Representable;
+        foreach (var shapeId in ShapesUsing(d))
+            capability = Worse(capability, CapabilityOf(formatTag, shapeId));
+        return capability;
+    }
+
+    /// <summary>
+    /// Is this shape covered by the generated code in this format — the format CAN express it
+    /// and we HAVE implemented it (<see cref="Capability.Representable"/>)?
+    /// <para>
+    /// This is the MATRIX/target question, not the verdict question, and the difference IS the
+    /// third state: a <see cref="Capability.Deferred"/> cell answers <c>false</c> here, because
+    /// ✅ is defined as "the generated code both writes and reads the shape" and a deferred
+    /// cell's member is still dropped. For "does the FORMAT have the shape at all?" (⛔ vs ⏸,
+    /// the DIAGNOSTIC question) ask <see cref="CapabilityOf(string, string)"/> and compare with
+    /// <see cref="Capability.Impossible"/> — asking this one instead would turn our gap into
+    /// "the format cannot" (spec C1).
+    /// </para>
+    /// </summary>
+    internal static bool IsRepresentable(string formatTag, string shapeId) =>
+        CapabilityOf(formatTag, shapeId) == Capability.Representable;
 
     // ── diagnostics (I-5 / D-4) ────────────────────────────────────────────────────
     // The ONE definition of the two capability verdict glyphs. `GenInfrastructure`'s
@@ -199,10 +267,61 @@ internal static class FormatCapabilities
     /// </summary>
     internal const string DeferredMarker = "\u23F8";
 
+    /// <summary>
+    /// The <c>reopen:</c> tail a DEBT carries when nothing more specific is known: the condition
+    /// is a row of this matrix, so the pointer sends the reader to the table that holds it.
+    /// </summary>
+    internal const string MatrixDebtReopenPointer =
+        "the condition is tracked as debt in the format-capabilities matrix (spec §3/§6)";
+
+    /// <summary>
+    /// The <c>reopen:</c> tail for a DEFERRED cell whose way out is not a generator change at
+    /// all: a member-level object list (spec §3 S2) inside an INI member needs a <b>new wire
+    /// convention</b> — an <c>x+1</c>-level public agreement, recorded in spec §8.1's
+    /// next-release list — because an INI section header is a FLAT, member-named slot and a
+    /// composite name (<c>[Rows.0]</c>) is a convention no reader has, not a code shape we
+    /// forgot to emit. Saying "add a numbered section" would dress a public wire change up as
+    /// generator plumbing.
+    /// </summary>
+    private const string MemberLevelObjectListReopenPointer =
+        "a member-level object list needs a new wire convention — an `x+1`-level public agreement, not a generator change, recorded in spec §8.1's next-release list (the INI section header is a flat, member-named slot, so a composite name like `[Rows.0]` would be that convention)";
+
+    /// <summary>
+    /// The shape whose deferral is a WIRE-CONVENTION decision rather than an emitter gap (spec
+    /// §3 S2). Named here so the pointer below cannot quietly start describing a different row.
+    /// </summary>
+    private const string ObjectListShape = "S2";
+
+    /// <summary>
+    /// The <c>reopen:</c> tail the drop of <paramref name="point"/> carries: the specific
+    /// pointer when a shape behind that point is <see cref="Capability.Deferred"/>, the matrix
+    /// pointer otherwise.
+    /// <para>
+    /// Derived from the same cells that decide the VERDICT, so the two halves of a ⏸ (what is
+    /// missing, where it is recorded) cannot drift apart: a cell that stops being Deferred stops
+    /// promising its convention. Keyed by the shape, not by the format (I-3) — the convention is
+    /// missing in our wire model, and the cell that says so is the facts table.
+    /// </para>
+    /// </summary>
+    internal static string ReopenPointer(string formatTag, Decision point)
+    {
+        foreach (var shapeId in ShapesUsing(point))
+            if (CapabilityOf(formatTag, shapeId) == Capability.Deferred)
+                return shapeId == ObjectListShape
+                    ? MemberLevelObjectListReopenPointer
+                    : MatrixDebtReopenPointer;
+
+        return MatrixDebtReopenPointer;
+    }
+
     // The marker a specific drop carries is NOT derived here: only the extraction site
-    // knows which decision point fired, so it asks `CanRepresent(formatTag, point)` and
+    // knows which decision point fired, so it asks `CapabilityOf(formatTag, point)` and
     // records the answer as a `DropVerdict` (`GenInfrastructure.SkippedBy`). There is no
     // `MarkerFor`: it had zero callers (review W5-2, dead code).
+    //
+    // The question that splits ⛔ from ⏸ is `Capability.Impossible` — NOT
+    // `IsRepresentable`: a DEFERRED cell is the format's "yes" and our "not yet", so it is a
+    // debt with a `reopen:` pointer, never a sentence about what the format cannot do (C1).
 
     // ── reverse index ──────────────────────────────────────────────────────────────
 
@@ -365,7 +484,7 @@ internal static class FormatCapabilities
     /// </para>
     /// </summary>
     internal static bool AnonCollectionIsFormatFact(string formatTag) =>
-        !CanRepresent(formatTag, FlatScalarListShape);
+        CapabilityOf(formatTag, FlatScalarListShape) == Capability.Impossible;
 
     /// <summary>
     /// The shape an anonymous-type collection member has: a flat list of scalars (spec §3 S1).
@@ -387,15 +506,28 @@ internal static class FormatCapabilities
     /// buckets: the message says "not implemented yet", with a <c>reopen:</c> pointer), and
     /// printing ❌ there would turn a temporary gap into a false statement about the FORMAT —
     /// the same class of lie as the R1 <c>toml × S11b</c> cell, which said ✅ while the guard
-    /// still dropped the member. The two口径 differ in exactly one direction: a debt is ✅
-    /// here and dropped by <see cref="DecideShape"/>.
+    /// still dropped the member. That rule covers the debt THIS GENERATOR can pay on its own,
+    /// and it is why the two口径 differ: such a debt is ✅ here and dropped by
+    /// <see cref="DecideShape"/>.
+    /// </para>
+    /// <para>
+    /// The third state goes the OTHER way, and deliberately: a
+    /// <see cref="Capability.Deferred"/> cell (spec §3 S2 × ini today) is ❌ in BOTH口径 —
+    /// today, because the member is dropped; and here, because what is missing is not code we
+    /// owe this release but a wire CONVENTION (an <c>x+1</c>-level public agreement, spec §8.1).
+    /// ✅ promises that "the generated code both writes and reads the shape"; no such code
+    /// exists, and none can be written without that agreement. So the ⏸ rule above is scoped to
+    /// a debt payable in code — a debt whose way out crosses the wire format stays ❌ until the
+    /// convention lands.
     /// </para>
     /// <para>
     /// The other direction cannot happen by construction: <c>DecisionTables.BuildTargetRules</c>
-    /// never marks a pair Supported unless every shape using it is representable, so this
-    /// matrix can never claim a cell the format facts deny. After R2 Tasks 2–6 the two tables
-    /// agree on every pair, which is why this口径 change moves no token today — the cells it
-    /// moves are the README's, which still documented the R1 release (R2 Task 7).
+    /// never marks a pair Supported unless every shape using it is
+    /// <see cref="Capability.Representable"/> (a Deferred shape is not), so this matrix can
+    /// never claim a cell the format facts deny, and can never promote a deferred one. After R2
+    /// Tasks 2–6 the two tables agree on every pair, which is why this口径 change moves no token
+    /// today — the cells it moves are the README's, which still documented the R1 release (R2
+    /// Task 7).
     /// </para>
     /// </summary>
     internal static string MatrixCells(string shapeId) =>
@@ -406,6 +538,17 @@ internal static class FormatCapabilities
         );
 
     // ── helpers ────────────────────────────────────────────────────────────────────
+
+    /// <summary>Impossible wins over Deferred, which wins over Representable — the same
+    /// strictest-wins fold <see cref="Strictest"/> uses for effects.</summary>
+    private static Capability Worse(Capability left, Capability right)
+    {
+        if (left == Capability.Impossible || right == Capability.Impossible)
+            return Capability.Impossible;
+        if (left == Capability.Deferred || right == Capability.Deferred)
+            return Capability.Deferred;
+        return Capability.Representable;
+    }
 
     /// <summary>DropMember wins over DropElement, which wins over Supported.</summary>
     private static Effect Strictest(Effect left, Effect right)
