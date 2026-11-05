@@ -624,8 +624,8 @@ members — its format is flat).
 **Diagnostics** (warnings): `PICOSERDE001` a property type the generator could not resolve was ignored; `PICOSERDE002` two distinct types produced
 the same generated file name (internal helper names get a stable hashed `UniqueName` suffix); `PICOSERDE003` a recursive member was skipped by a
 section-based format; `PICOSERDE004` a member shape the format cannot represent (nested list, nullable value-type element, null object element,
-collection dictionary value) was skipped; `PICOSERDE005` an anonymous-type collection member was skipped by a writer that cannot emit one (JSON is
-the only writer that can). The matrix behind `003`/`004` is [Format limits](#format-limits-what-each-wire-format-cannot-express); the chunked
+collection dictionary value) was skipped; `PICOSERDE005` an anonymous-type collection member was skipped because our anonymous-type emitter only
+has the JSON form so far — a gap in our emitter, not a format limit. The matrix behind `003`/`004` is [Format limits](#format-limits-what-each-wire-format-cannot-express); the chunked
 reader itself (dual-mode `ReadOnlySpan<byte>` + `ReadOnlySequence<byte>` / `PipeReader`, chunk boundaries included) is
 [PicoJetson → Features](PicoJetson/README.md#features).
 
