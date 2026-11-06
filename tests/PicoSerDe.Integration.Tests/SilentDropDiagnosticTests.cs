@@ -652,12 +652,21 @@ public class SilentDropDiagnosticTests
     /// <summary>
     /// ⏸ half of I-5, moved to the debt that is STILL open in yaml: a dict value whose
     /// sequence ends in an OBJECT (<c>Dictionary&lt;string,List&lt;Row&gt;&gt;</c>, R2 Task 3's
-    /// deferred gap). The FACTS say yaml can hold it, so the message must say "not
-    /// implemented yet" and must not claim a format limit — blaming the format for our own
-    /// gap is exactly D-4 ②.
+    /// deferred gap). The FACTS say yaml can hold it, so the message must say the drop is a
+    /// GAP OF OURS and must not claim a format limit — blaming the format for our own gap is
+    /// exactly D-4 ②.
     /// <para>
     /// The shape this fixture used to pin (<c>List&lt;int?&gt;</c>, S5) was PAID by R2 Task 4:
     /// yaml writes <c>- null</c> now, so there is no drop message left to inspect.
+    /// </para>
+    /// <para>
+    /// The phrasing changed with the INI wording fix (a ⏸ may no longer say "{format} can
+    /// represent it"): what the sentence must carry is that the drop is a RECORDED GAP rather
+    /// than a limit the format imposes, and that claim has to be FALSIFIABLE — it now says the
+    /// format's wire grammar rules nothing out, which is the thing a reader can actually
+    /// check. What it must NOT do is name an owner the pointer already names: "has not
+    /// implemented it yet" says emitter plumbing, while this debt's pointer says the way out
+    /// may be a convention; one sentence with two owners is what was wrong.
     /// </para>
     /// </summary>
     [Test]
@@ -674,8 +683,21 @@ public class SilentDropDiagnosticTests
             .Because($"yaml CAN express it, so this is a debt {Deferred}: {drop}");
         await Assert
             .That(drop)
-            .Contains("has not implemented it yet")
-            .Because("the reader must be able to tell our gap from the format's limit");
+            .Contains("recorded gap")
+            .Because($"the reader must be able to tell our gap from the format's limit: {drop}");
+        await Assert
+            .That(drop)
+            .Contains("nothing in the yaml wire grammar rules this shape out")
+            .Because(
+                $"the claim has to be FALSIFIABLE, and it has to name THIS format's grammar: {drop}"
+            );
+        await Assert
+            .That(drop.Contains("has not implemented it yet", StringComparison.Ordinal))
+            .IsFalse()
+            .Because(
+                "naming the owner here would contradict the pointer when the way out is a "
+                    + $"convention rather than emitter plumbing — the tail is the one place the owner is said: {drop}"
+            );
         await Assert
             .That(drop.Contains(Impossible, StringComparison.Ordinal))
             .IsFalse()

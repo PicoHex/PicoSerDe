@@ -696,6 +696,84 @@ public class FormatCapabilitiesTests
     }
 
     /// <summary>
+    /// Which of the 70 cells the model calls <see cref="Capability.Deferred"/>. Pinned as a LIST,
+    /// because the specific <c>reopen:</c> pointer is handed out for a (format, shape) PAIR: the
+    /// cells that may ever reach it are exactly the Deferred ones, so a second one appearing
+    /// silently is a change to what a reader is told — and it must be a visible edit here.
+    /// </summary>
+    [Test]
+    public async Task Deferred_cells_are_exactly_the_ones_the_wire_convention_pointer_serves()
+    {
+        var deferred = new List<string>();
+        foreach (var fmt in FormatCapabilities.AllFormatTags)
+        foreach (var shape in FormatCapabilities.AllShapeIds)
+            if (FormatCapabilities.CapabilityOf(fmt, shape) == Capability.Deferred)
+                deferred.Add($"{fmt}|{shape}");
+
+        await Assert
+            .That(deferred)
+            .IsEquivalentTo(new[] { "ini|S2" })
+            .Because(
+                "ini × S2 is the one cell whose way out is a wire CONVENTION rather than emitter "
+                    + "plumbing (spec §8.1). A new entry moves what readers are told and has to be "
+                    + "a visible edit: "
+                    + string.Join(", ", deferred)
+            );
+    }
+
+    /// <summary>
+    /// THE PAIRING the specific <c>reopen:</c> pointer is keyed by. Its text is a sentence about
+    /// <b>INI</b> ("the INI section header is a flat, member-named slot"), and the lookup used to
+    /// select it asked only for the SHAPE — so the day a second format’s <c>S2</c> is
+    /// reclassified <see cref="Capability.Deferred"/>, that format’s diagnostic would explain
+    /// INI’s section header. No caller can produce that case today (see the cell list above),
+    /// so the property is asked directly: a format that is not the recorded one gets the generic
+    /// matrix-row pointer, never another format’s boundary.
+    /// </summary>
+    [Test]
+    public async Task The_specific_reopen_pointer_never_describes_another_formats_boundary()
+    {
+        // The recorded pair: its reader DOES get the INI sentence, which is the point of the pair.
+        await Assert
+            .That(FormatCapabilities.ReopenPointerFor("ini", "S2"))
+            .Contains("the INI section header")
+            .Because("the specific pointer exists to name INI’s missing convention (spec §8.1)");
+
+        // Every OTHER format on the SAME shape: the generic row pointer, and nothing about INI.
+        foreach (var fmt in FormatCapabilities.AllFormatTags)
+        {
+            if (fmt == "ini")
+                continue;
+
+            await Assert
+                .That(FormatCapabilities.ReopenPointerFor(fmt, "S2"))
+                .IsEqualTo(FormatCapabilities.MatrixDebtReopenPointer)
+                .Because(
+                    $"{fmt} × S2 is not the recorded pair, so its reader must be sent to the matrix "
+                        + "row — describing INI’s section header to a "
+                        + fmt
+                        + " user is a claim "
+                        + "about a format they are not using"
+                );
+        }
+
+        // And a shape that is not the recorded one keeps the generic pointer in EVERY format, ini
+        // included: the specific text is keyed by the pair, not by the format.
+        foreach (var fmt in FormatCapabilities.AllFormatTags)
+            await Assert
+                .That(FormatCapabilities.ReopenPointerFor(fmt, "S10"))
+                .IsEqualTo(FormatCapabilities.MatrixDebtReopenPointer)
+                .Because($"{fmt} × S10 has no recorded convention: it is a matrix row");
+
+        // The reachable path agrees with the seam: the ONE Deferred cell routes through the pair
+        // lookup, so the property above is about the code that actually runs.
+        await Assert
+            .That(FormatCapabilities.ReopenPointer("ini", Decision.ObjectListInMember))
+            .IsEqualTo(FormatCapabilities.ReopenPointerFor("ini", "S2"))
+            .Because("ReopenPointer resolves the Deferred shape THROUGH ReopenPointerFor");
+    }
+
+    /// <summary>
     /// The README's limits matrix has <b>five</b> rows and <b>no S-id column</b>, and every
     /// cell carries an annotation (<c>✅ [[Table]]</c>, <c>✅ block sequence of mappings</c>,
     /// <c>❌ see ¹</c>). So a row cannot be compared whole and cannot be compared by suffix;

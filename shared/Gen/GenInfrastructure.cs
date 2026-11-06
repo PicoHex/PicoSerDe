@@ -581,17 +581,28 @@ internal static class GenInfrastructure
     /// <summary>
     /// The ⏸ sibling of <see cref="UnsupportedMemberImpossibleWarning"/>. The <c>reopen:</c>
     /// tail is the pointer spec C4 asks for — the condition lives in spec §3/§6.
+    /// <para>
+    /// The sentence says what a ⏸ CAN honestly say about a format and only that: nothing in the
+    /// format's wire grammar rules the shape out, so the drop is a gap rather than a limit. Two
+    /// wordings it deliberately does NOT use — (a) "the {1} format can represent it", which is a
+    /// capability claim INI gives no independent implementation to falsify (spec §3 records its
+    /// boundary as this spec's own convention), and (b) "this generator has not implemented it
+    /// yet", which names an owner this template cannot know: whether the way out is emitter
+    /// plumbing or a new public wire agreement is exactly what <c>{3}</c> resolves, and saying
+    /// "not implemented yet" while <c>{3}</c> says "not a generator change" was one sentence with
+    /// two owners in it.
+    /// </para>
     /// </summary>
     private static readonly DiagnosticDescriptor UnsupportedMemberDeferredWarning = new(
         id: "PICOSERDE004",
-        title: "Member dropped: not implemented yet (this format can represent it)",
+        title: "Member dropped: a recorded gap, not a format limit",
         // {3} is the `reopen:` tail the extraction site resolved from the capability model
         // (`FormatCapabilities.ReopenPointer`): the matrix pointer for every debt that exists
         // today, and for a DEFERRED cell the agreement that has to be written (spec §8.1). The
         // sentence moved out of this template into the model so that the two halves a ⏸ promises
         // ("what is missing" / "where it is recorded") cannot be decided in two places.
         messageFormat: FormatCapabilities.DeferredMarker
-            + " Member '{0}' (declared type '{2}') is dropped by the {1} generator even though the {1} format can represent it: this generator has not implemented it yet. The drop is a recorded gap, not a format limit. reopen: {3}.",
+            + " Member '{0}' (declared type '{2}') is dropped by the {1} generator: nothing in the {1} wire grammar rules this shape out, so the drop is a recorded gap rather than a format limit. reopen: {3}.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
