@@ -54,10 +54,11 @@ instead of surfacing later as a mysteriously empty property (`README.md:494-501`
    .Matrix_cells_are_the_spec_section6_terminal_matrix` fails the moment the two disagree
    (`FormatCapabilities.cs:533-540`).
 5. **The reverse duty: if the format can express it and the framework cannot, that is a debt and it must be
-   registered** (a `reopen:` pointer in the message, a ❌-free cell in the matrix) — not dressed up as a format
-   fact. YAML writes the `null` literal, so "YAML drops a nullable leaf" was never a limit; it was a stale
-   claim that outlived the writer's `WriteNull` in three places of `PicoYaml/README.md` (`59537c1`) while the
-   root README's cell and footnote ² said otherwise (`YamlNullLiteralTests`,
+   registered** (a `reopen:` pointer in the message, and a matrix cell that never blames the format: ✅ for a
+   debt payable in code, ❌ for rule 4's ONE exception, whose way out is a wire convention) — never dressed up
+   as a format fact. YAML writes the `null` literal, so "YAML drops a nullable leaf" was never a limit; it was
+   a stale claim that outlived the writer's `WriteNull` in three places of `PicoYaml/README.md` (`59537c1`)
+   while the root README's cell and footnote ² said otherwise (`YamlNullLiteralTests`,
    `YamlNestedListDiagnosticTests.Yaml_NestedNullableElementMember_IsEmittedWithTheNullBranch`,
    `NestedNullableElementTests.cs:85`, matrix footnote ² at `README.md:528-532`).
 6. **"This is how it is" is only allowed about the format standard.** A sentence that is true because *we*

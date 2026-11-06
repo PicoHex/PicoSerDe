@@ -78,7 +78,9 @@ public class FormatCapabilitiesTests
         // S7/S8 x {json,msgpack,toml,yaml}: R2 Task 2 implemented the extended-collection
         // family, so these eight cells moved to Supported. R2 Task 6 closed the last one,
         // S7 x ini (a comma-separated line, exactly like List<T>); S8 x ini stays dropped
-        // because INI has no nesting at all — a format FACT, not a debt.
+        // because this spec's INI convention has no nesting — our own boundary (⏸,
+        // reopenable), not a format fact: INI has no independent implementation to appeal
+        // to (spec §3).
         ("S7", "json", Effect.Supported),
         ("S7", "msgpack", Effect.Supported),
         ("S7", "toml", Effect.Supported),
@@ -95,8 +97,8 @@ public class FormatCapabilitiesTests
         ("S9", "yaml", Effect.Supported),
         ("S9", "ini", Effect.Supported),
         // S10 x {json,msgpack,toml,yaml}: R2 Task 3 implemented the dict-VALUE position, so
-        // the four cells moved to Supported. S10 x ini stays dropped — its sections carry no
-        // nesting inside a member, which is a format FACT (spec §3).
+        // the four cells moved to Supported. S10 x ini stays dropped — the same convention
+        // boundary as S8 above (no nesting inside a member): ours (⏸), not a format fact.
         ("S10", "json", Effect.Supported),
         ("S10", "msgpack", Effect.Supported),
         ("S10", "toml", Effect.Supported),
@@ -106,7 +108,8 @@ public class FormatCapabilitiesTests
         // (TOML nested tables addressed by their dotted path, YAML nested mappings) and wired
         // both emit sites to the KIND's own row, so the three cells that were still dropped
         // moved to Supported — S11b x toml already said Supported, which was the lie the
-        // single-row gate produced. ini keeps DropMember (flat sections: a format FACT).
+        // single-row gate produced. ini keeps DropMember — flat sections are this spec's
+        // INI convention, so the boundary is ours (⏸), not a format fact.
         ("S11a", "json", Effect.Supported),
         ("S11a", "msgpack", Effect.Supported),
         ("S11a", "toml", Effect.Supported),

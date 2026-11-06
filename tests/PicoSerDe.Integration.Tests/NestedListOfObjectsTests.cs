@@ -90,7 +90,9 @@ public class NestedListOfObjectsTests
     /// Only INI still drops a nested object list. TOML left this group in R2 Task 6: it
     /// writes an inline array of inline tables (`Rows = [[{ Name = "a" }]]`, spec §3 S4)
     /// and reads it back, so the "section formats" name no longer covers it — what
-    /// remains is INI's structural limit (no nesting inside a member at all).
+    /// remains is this spec's INI convention boundary (no nesting inside a member
+    /// at all): our own, ⏸, reopenable, and not a property of the format — INI has
+    /// no independent implementation to appeal to (spec §3).
     /// </summary>
     [Test]
     [Arguments("ini")]
