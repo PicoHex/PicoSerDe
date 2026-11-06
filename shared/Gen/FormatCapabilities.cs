@@ -282,6 +282,12 @@ internal static class FormatCapabilities
     /// composite name (<c>[Rows.0]</c>) is a convention no reader has, not a code shape we
     /// forgot to emit. Saying "add a numbered section" would dress a public wire change up as
     /// generator plumbing.
+    /// <para>
+    /// The sentence asserts something about <b>INI</b> — its section header is a flat,
+    /// member-named slot — so it may only be handed to a reader whose format IS ini; see
+    /// <see cref="WireConventionDebt"/>. Selecting it by the SHAPE alone would let it describe
+    /// an INI boundary inside another format's diagnostic.
+    /// </para>
     /// </summary>
     private const string MemberLevelObjectListReopenPointer =
         "a member-level object list needs a new wire convention — an `x+1`-level public agreement, not a generator change, recorded in spec §8.1's next-release list (the INI section header is a flat, member-named slot, so a composite name like `[Rows.0]` would be that convention)";
@@ -293,26 +299,58 @@ internal static class FormatCapabilities
     private const string ObjectListShape = "S2";
 
     /// <summary>
+    /// The (format, shape) pairs whose <c>reopen:</c> tail is a SPECIFIC convention instead of
+    /// the generic matrix row. Keyed by BOTH halves on purpose: the specific text is a sentence
+    /// about one format's boundary, so "which shape is Deferred" does not answer "whose" — a
+    /// shape-only lookup would hand INI's section-header explanation to whichever format landed
+    /// on that shape next.
+    /// <para>
+    /// One entry today, and it is the model's ONE <see cref="Capability.Deferred"/> cell
+    /// (<c>ini</c> × <c>S2</c>, spec §3). Every other combination keeps the generic row pointer
+    /// — exactly its behaviour before this set existed (the format decides WHOSE WORK the
+    /// pointer describes, never WHETHER the debt exists: that is the facts table's answer, asked
+    /// in <see cref="ReopenPointer"/> — I-3).
+    /// </para>
+    /// </summary>
+    private static readonly HashSet<(string Format, string Shape)> WireConventionDebt = new()
+    {
+        ("ini", ObjectListShape),
+    };
+
+    /// <summary>
     /// The <c>reopen:</c> tail the drop of <paramref name="point"/> carries: the specific
-    /// pointer when a shape behind that point is <see cref="Capability.Deferred"/>, the matrix
-    /// pointer otherwise.
+    /// pointer when the (format, shape) behind that point is a recorded WIRE-CONVENTION debt
+    /// (<see cref="WireConventionDebt"/>), the matrix pointer otherwise.
     /// <para>
     /// Derived from the same cells that decide the VERDICT, so the two halves of a ⏸ (what is
     /// missing, where it is recorded) cannot drift apart: a cell that stops being Deferred stops
-    /// promising its convention. Keyed by the shape, not by the format (I-3) — the convention is
-    /// missing in our wire model, and the cell that says so is the facts table.
+    /// promising its convention.
     /// </para>
     /// </summary>
     internal static string ReopenPointer(string formatTag, Decision point)
     {
         foreach (var shapeId in ShapesUsing(point))
             if (CapabilityOf(formatTag, shapeId) == Capability.Deferred)
-                return shapeId == ObjectListShape
-                    ? MemberLevelObjectListReopenPointer
-                    : MatrixDebtReopenPointer;
+                return ReopenPointerFor(formatTag, shapeId);
 
         return MatrixDebtReopenPointer;
     }
+
+    /// <summary>
+    /// The <c>reopen:</c> tail for one DEFERRED (format, shape) pair: the specific wire-convention
+    /// pointer only where that PAIR is recorded in <see cref="WireConventionDebt"/>, the generic
+    /// matrix-row pointer everywhere else.
+    /// <para>
+    /// An entry point of its own (rather than an inline ternary) because it is the pairing that
+    /// has to be testable: the specific text is a sentence about INI, so the property that
+    /// matters is "a SECOND format landing on the same shape gets the generic pointer", and the
+    /// callers cannot produce that case while only one cell is Deferred.
+    /// </para>
+    /// </summary>
+    internal static string ReopenPointerFor(string formatTag, string shapeId) =>
+        WireConventionDebt.Contains((formatTag, shapeId))
+            ? MemberLevelObjectListReopenPointer
+            : MatrixDebtReopenPointer;
 
     // The marker a specific drop carries is NOT derived here: only the extraction site
     // knows which decision point fired, so it asks `CapabilityOf(formatTag, point)` and
