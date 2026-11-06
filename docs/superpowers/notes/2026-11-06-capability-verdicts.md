@@ -42,3 +42,32 @@ the format cannot hold the shape — the top-level numbered section is ✅ and h
    **nested members** — a topic slip from the wording round.
 2. `docs/superpowers/notes/` — this file is the first one; if it outlives the audit, fold it into the
    spec or the README rather than keeping a stray notes/ directory.
+
+---
+
+## Audit result (2026-11-06, after this note was first written)
+
+The audit ran. Its finding is bigger than "a few cells are mislabelled", and it is the reason this
+section exists:
+
+**The three-state model is still one state short.** The criterion allows three answers, not two:
+the format requires it (`Impossible`), we have not built it but intend to (`Deferred`), and **we chose
+not to support it and are not scheduling it** — a plain design choice. We have no tier for the third,
+so five cells sit on `Impossible` while the audit's own reading is *"not required by the format, but
+downgrading would promise a `reopen:` that does not exist"*.
+
+**Nine cells should become `Deferred`** (`toml x {S12, S13}`, `ini x {S3, S4, S5, S6, S8, S10, S13}`),
+each with its own reopen pointer — the agreement it needs is already registered in spec §8.1 as `x+1`
+level in at least three cases, which is a direct contradiction: the tree says the way out is a new
+convention while the cell says the format cannot hold the shape.
+
+**Five cells stay, pending a decision that is not ours to make:** `ini x {S11a, S11b, S12}` and
+`toml x {S5, S6}`. Two of them (`toml x S5/S6`) the audit judged *not* ⛔ but refused to downgrade,
+because today there is no null carrier to borrow, so a ⏸ would point at a mechanism that does not
+exist. `ini x S12` is the same shape of problem one level up: the registered `x+1` entry (V-6) settles
+`null` vs `""` and does not settle this cell, so a ⏸ would send the reader to a debt that does not
+resolve it.
+
+⇒ **The next move is a spec decision, not a code change**: define the weakest tier (what a drop says
+when the answer is "we chose not to"), then reclassify the five. Until that exists, leaving them on
+`Impossible` is the honest option, because at least it does not promise anything.
