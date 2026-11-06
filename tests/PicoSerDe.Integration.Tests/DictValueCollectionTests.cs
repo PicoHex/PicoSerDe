@@ -118,8 +118,8 @@ public class DictValueCollectionTests
     /// <summary>
     /// ini's member position is flat (no nesting inside a member), so S10 × ini stays ⛔
     /// and the member is dropped. The DIAGNOSTIC side of that drop is pinned in
-    /// <see cref="SilentDropDiagnosticTests.Dict_of_list_is_a_fact_in_ini"/> — the message
-    /// has to say "the ini format cannot", not "not implemented yet".
+    /// <see cref="SilentDropDiagnosticTests.Dict_of_list_is_a_deferred_gap_in_ini"/> — the
+    /// message has to say ⏸ (our convention, reopenable), not "the ini format cannot".
     /// </summary>
     [Test]
     public async Task Ini_still_drops_the_member()

@@ -805,21 +805,29 @@ public class SilentDropDiagnosticTests
     }
 
     /// <summary>
-    /// The other cell D-4 ② names: a dict whose value is a collection (S10 / D-3) is
-    /// structurally impossible in INI (its sections hold no nesting). R2 Task 3 paid the
-    /// debt in the other four formats, so the ⏸ half of this pair is gone by value — the ini
-    /// half stays, and it must still say ⛔ with the format named (the message comes from the
-    /// facts, not from "our emitter lacks a case").
+    /// The other cell D-4 ② names: a dict whose value is a collection (S10 / D-3). R2 Task 3
+    /// paid the debt in the other four formats, so the ini half is what remains — and on
+    /// 2026-11-06 it was reclassified from ⛔ to ⏸: the spec’s own words are that INI has no
+    /// independent implementation to appeal to and its boundary is <b>this spec’s convention</b>
+    /// (spec §3), and a convention we wrote is not a property of the format.
+    /// <para>
+    /// The message must therefore stop blaming the format. What has NOT changed is the
+    /// behaviour: the member is still dropped, and the format is still named (I-5).
+    /// </para>
     /// </summary>
     [Test]
-    public async Task Dict_of_list_is_a_fact_in_ini()
+    public async Task Dict_of_list_is_a_deferred_gap_in_ini()
     {
         var ini = DropMessage(RunIni(DictOfList("PicoIni", "PicoIniSerializable")), "Doc.V");
 
         await Assert
-            .That(ini.StartsWith(Impossible, StringComparison.Ordinal))
+            .That(ini.StartsWith(Deferred, StringComparison.Ordinal))
             .IsTrue()
-            .Because($"INI cannot nest inside a member (S10), so this is a fact: {ini}");
+            .Because($"INI’s no-nesting-inside-a-member rule is our convention (S10): {ini}");
+        await Assert
+            .That(ini.Contains("reopen:", StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"a ⏸ owes the reader a pointer (C4): {ini}");
         await Assert.That(ini).Contains("ini").Because("I-5: the message names the format");
     }
 
@@ -893,7 +901,7 @@ public class SilentDropDiagnosticTests
     /// </para>
     /// </summary>
     [Test]
-    public async Task Unresolvable_collection_of_collections_is_a_fact_in_ini()
+    public async Task Unresolvable_collection_of_collections_is_a_deferred_gap_in_ini()
     {
         const string source = """
             using PicoIni;
@@ -908,13 +916,17 @@ public class SilentDropDiagnosticTests
         var drop = DropMessage(RunIni(source), "Doc.V");
 
         await Assert
-            .That(drop.StartsWith(Impossible, StringComparison.Ordinal))
+            .That(drop.StartsWith(Deferred, StringComparison.Ordinal))
             .IsTrue()
-            .Because($"S8 x ini is ❌ in spec §3, so the message must be a format fact: {drop}");
+            .Because($"S8 x ini is ⏸: the boundary is the spec’s own convention: {drop}");
         await Assert
-            .That(drop.Contains(Deferred, StringComparison.Ordinal))
+            .That(drop.Contains("reopen:", StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"a ⏸ owes the reader a pointer (C4): {drop}");
+        await Assert
+            .That(drop.Contains(Impossible, StringComparison.Ordinal))
             .IsFalse()
-            .Because("⏸ would tell the reader the format could hold it — the mirror of D-4 ②");
+            .Because("⛔ would blame the format for a convention this spec wrote — the mirror of D-4 ②");
         await Assert.That(drop).Contains("ini").Because("I-5: the message names the format");
     }
 

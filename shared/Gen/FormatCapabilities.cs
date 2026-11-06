@@ -293,6 +293,48 @@ internal static class FormatCapabilities
         "a member-level object list needs a new wire convention — an `x+1`-level public agreement, not a generator change, recorded in spec §8.1's next-release list (the INI section header is a flat, member-named slot, so a composite name like `[Rows.0]` would be that convention)";
 
     /// <summary>
+    /// The <c>reopen:</c> tail for a cell whose missing piece is the spec's own “no nesting
+    /// inside a member” convention (spec §3), <b>without</b> a shape of its own being named in
+    /// §8.1 yet.
+    /// <para>
+    /// S2 keeps the more precise sentence above because §8.1 S-1 spells its form out
+    /// (<c>[&lt;member&gt;.&lt;index&gt;]</c>). S3/S4/S8/S10 are the same convention reached through a
+    /// different shape and have no entry of their own, so the honest pointer is the convention
+    /// itself: naming §8.1 S-1 for them would send the reader to a form that does not describe
+    /// their shape, and the generic matrix pointer would withhold the one thing they do know —
+    /// that the boundary is a convention rather than a limit of the format.
+    /// </para>
+    /// </summary>
+    private const string NestedInMemberConventionReopenPointer =
+        "this spec's INI convention carries no nesting inside a member (spec §3) — lifting it is an `x+1`-level public agreement about a composite section name, not a generator change";
+
+    /// <summary>
+    /// The <c>reopen:</c> tail for a cell waiting on <b>spec §8.1 V-6</b>: the value-level null
+    /// token INI has no form for.
+    /// <para>
+    /// Its own sentence because the missing piece is a VALUE convention rather than a nesting
+    /// one, and because it is already registered in §8.1 — a reader of a ⏸ is owed the
+    /// entry name as well as the reason.
+    /// </para>
+    /// </summary>
+    private const string IniValueNullTokenReopenPointer =
+        "INI has no value-level null token; adding one is spec §8.1 V-6, an `x+1`-level public agreement rather than a generator change (an empty value cannot stand in — it is a valid empty string)";
+
+    /// <summary>
+    /// The <c>reopen:</c> tail for <c>toml</c> losing only the NULL PART of a nullable string
+    /// leaf.
+    /// <para>
+    /// Distinct from TOML's ⏸-forbidden cells: TOML 1.0 has no null literal, but a string has a
+    /// legal empty form and a member can be omitted, so a value-level agreement exists to be
+    /// written — whereas <c>S5</c>/<c>S6</c> (“value leaf is <c>int?</c>”) have no carrier to
+    /// borrow at all and stay ⏸, because a ⏸ there would promise a mechanism that does not
+    /// exist.
+    /// </para>
+    /// </summary>
+    private const string TomlNullableStringReopenPointer =
+        "TOML has no null literal, but an omitted member or an empty string value is a published way to say “no value” for a string; agreeing which one means null here is an `x+1`-level value convention (spec §8.1)";
+
+    /// <summary>
     /// The shape whose deferral is a WIRE-CONVENTION decision rather than an emitter gap (spec
     /// §3 S2). Named here so the pointer below cannot quietly start describing a different row.
     /// </summary>
@@ -305,17 +347,49 @@ internal static class FormatCapabilities
     /// shape-only lookup would hand INI's section-header explanation to whichever format landed
     /// on that shape next.
     /// <para>
-    /// One entry today, and it is the model's ONE <see cref="Capability.Deferred"/> cell
-    /// (<c>ini</c> × <c>S2</c>, spec §3). Every other combination keeps the generic row pointer
-    /// — exactly its behaviour before this set existed (the format decides WHOSE WORK the
-    /// pointer describes, never WHETHER the debt exists: that is the facts table's answer, asked
-    /// in <see cref="ReopenPointer"/> — I-3).
+    /// Every cell recorded here must also be <see cref="Capability.Deferred"/> in the facts
+    /// table — the pair decides WHOSE WORK the pointer describes, the facts decide WHETHER the
+    /// debt exists (I-3) — but not every <see cref="Capability.Deferred"/> cell is recorded here:
+    /// a cell reclassified to a debt whose convention §8.1 has not spelled out gets
+    /// <see cref="UnnamedConventionReopenPointer"/> instead of borrowing a sentence about
+    /// someone else's convention.
     /// </para>
     /// </summary>
-    private static readonly HashSet<(string Format, string Shape)> WireConventionDebt = new()
-    {
-        ("ini", ObjectListShape),
-    };
+    /// <remarks>
+    /// A MAP rather than a set plus a switch: the sentence and the pair it explains are one
+    /// entry, so a pair cannot be recorded without naming its convention, and a convention
+    /// cannot be written without naming the pair it belongs to. The earlier shape — a set of
+    /// pairs, a switch keyed by the pair, and a catch-all arm — would have handed the
+    /// catch-all sentence to a pair added to the set but forgotten in the switch, which is
+    /// exactly the class of silent mismatch this whole file exists to prevent.
+    /// </remarks>
+    private static readonly Dictionary<(string Format, string Shape), string> WireConventionDebt =
+        new()
+        {
+            [("ini", ObjectListShape)] = MemberLevelObjectListReopenPointer,
+            [("ini", "S3")] = NestedInMemberConventionReopenPointer,
+            [("ini", "S4")] = NestedInMemberConventionReopenPointer,
+            [("ini", "S8")] = NestedInMemberConventionReopenPointer,
+            [("ini", "S10")] = NestedInMemberConventionReopenPointer,
+            [("ini", "S5")] = IniValueNullTokenReopenPointer,
+            [("ini", "S6")] = IniValueNullTokenReopenPointer,
+            [("ini", "S13")] = IniValueNullTokenReopenPointer,
+            [("toml", "S13")] = TomlNullableStringReopenPointer,
+        };
+
+    /// <summary>
+    /// The <c>reopen:</c> tail for one <b>already-selected</b> (format, shape) pair whose cell is
+    /// <see cref="Capability.Deferred"/> but which is NOT in <see cref="WireConventionDebt"/> —
+    /// i.e. a cell that was reclassified to a debt without §8.1 gaining an entry for it.
+    /// <para>
+    /// ⏸ must not blame the format (C1) and must point somewhere (C4), so a cell in this state
+    /// gets the navigation pointer rather than the INI-specific sentence: the reader is told the
+    /// cell is recorded as a debt in the matrix and that the way out is an agreement, without being
+    /// handed a claim about a format they are not using.
+    /// </para>
+    /// </summary>
+    private const string UnnamedConventionReopenPointer =
+        "the format can hold this shape and no agreement for it exists yet; it is recorded as debt in the format-capabilities matrix (spec §3/§6)";
 
     /// <summary>
     /// The <c>reopen:</c> tail the drop of <paramref name="point"/> carries: the specific
@@ -348,9 +422,18 @@ internal static class FormatCapabilities
     /// </para>
     /// </summary>
     internal static string ReopenPointerFor(string formatTag, string shapeId) =>
-        WireConventionDebt.Contains((formatTag, shapeId))
-            ? MemberLevelObjectListReopenPointer
-            : MatrixDebtReopenPointer;
+        WireConventionDebt.TryGetValue((formatTag, shapeId), out var recorded)
+            ? recorded
+            : CapabilityOf(formatTag, shapeId) == Capability.Deferred
+                ? UnnamedConventionReopenPointer
+                : MatrixDebtReopenPointer;
+
+    /// <summary>
+    /// The recorded (format, shape) → sentence pairs — for the test that checks every one of
+    /// them is a <see cref="Capability.Deferred"/> cell and that no two conventions were merged.
+    /// </summary>
+    internal static IEnumerable<(string Format, string Shape)> RecordedConventions =>
+        WireConventionDebt.Keys;
 
     // The marker a specific drop carries is NOT derived here: only the extraction site
     // knows which decision point fired, so it asks `CapabilityOf(formatTag, point)` and

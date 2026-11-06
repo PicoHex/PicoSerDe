@@ -68,6 +68,11 @@ instead of surfacing later as a mysteriously empty property (`README.md:494-501`
    not, *we* did it. Today's instance: `- name: x` in a sequence is a block mapping in the YAML grammar, so a
    conforming token stream owes `ObjectStart`/`PropertyName`/value, yet we emit a bare `String("name: x")`
    (`YamlReader.cs:1069-1079`, pinned in `YamlSequenceTokenKindTests`) ⇒ our fusion, ⏸, not "contract-legal".
+7. **`DesignChoice` is the fourth verdict: the format can express the shape, we choose not to support it, and
+   we do not intend to** — the "ordinary design choice" item 6 leaves room for. The message says *not supported
+   by this generator by design*: never "this format cannot hold the shape" (that is ⛔), never a `reopen:`
+   pointer (that is ⏸). Its cell is ❌, unlike a code-payable ⏸ debt, which rule 4 reads as terminal ✅. The
+   chain: ① must a conforming encoder or decoder of this format do it? no ⇒ ② do we intend to? yes ⇒ ⏸; no ⇒ `DesignChoice`.
 
 ## Working rules
 

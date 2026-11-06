@@ -509,8 +509,10 @@ internal static class DecisionTables
 
         // S1  List<int>                  flat scalar list
         Row("S1", json: R, msgpack: R, toml: R, yaml: R, ini: R);
-        // S2  List<Dto>                  object list (TOML: array of tables). INI is the ONE
-        // DEFERRED cell in the model. The FORMAT can carry an object list — a section header is
+        // S2  List<Dto>                  object list (TOML: array of tables). INI is the FIRST
+        // DEFERRED cell in the model (2026-11-06: S3/S4/S5/S6/S8/S10/S13 x ini and S13 x toml
+        // joined it after an audit asked the same question of every remaining ⛔). The FORMAT
+        // can carry an object list — a section header is
         // a flat, member-named slot and the top-level list already uses numbered ones — but a
         // MEMBER-level list has no name to live under: it needs a composite name (`[Rows.0]`)
         // plus a reader that turns it back into a list, i.e. a NEW WIRE CONVENTION at x+1 level
@@ -519,22 +521,28 @@ internal static class DecisionTables
         // ("the ini format cannot" would blame the format for an agreement nobody has written —
         // C1/C4), and the drop keeps its ⏸ with a `reopen:` that names that convention.
         Row("S2", json: R, msgpack: R, toml: R, yaml: R, ini: D);
-        // S3  List<List<int>>            nested scalar list
-        Row("S3", json: R, msgpack: R, toml: R, yaml: R, ini: I);
+        // S3  List<List<int>>            nested scalar list. INI joins S2: the spec's own
+        // convention is "no nesting inside a member" (spec §3, §8.1 S-1), so the FORMAT is not
+        // what cannot hold it. One convention, one verdict — S2 was reclassified alone and the
+        // shapes sharing that sentence kept a ⛔ they had no more claim to than S2 did.
+        Row("S3", json: R, msgpack: R, toml: R, yaml: R, ini: D);
         // S4  List<List<Dto>>            nested object list (TOML: array of inline tables)
-        Row("S4", json: R, msgpack: R, toml: R, yaml: R, ini: I);
-        // S5  List<int?>                 nullable value leaf (TOML has no null literal)
-        Row("S5", json: R, msgpack: R, toml: I, yaml: R, ini: I);
+        Row("S4", json: R, msgpack: R, toml: R, yaml: R, ini: D);
+        // S5  List<int?>                 nullable value leaf. TOML keeps ⛔ (below): TOML 1.0 has
+        // no null literal AND no carrier to borrow, so a ⏸ would promise a mechanism that does
+        // not exist. INI is different in kind — spec §8.1 V-6 already registers an x+1-level
+        // "value-level null token", i.e. the tree itself says the way out is an agreement.
+        Row("S5", json: R, msgpack: R, toml: I, yaml: R, ini: D);
         // S6  List<List<int?>>           deep nullable value leaf
-        Row("S6", json: R, msgpack: R, toml: I, yaml: R, ini: I);
+        Row("S6", json: R, msgpack: R, toml: I, yaml: R, ini: D);
         // S7  HashSet<int> as member     every format can express it as an array
         Row("S7", json: R, msgpack: R, toml: R, yaml: R, ini: R);
         // S8  List<HashSet<int>>         extended collection as element
-        Row("S8", json: R, msgpack: R, toml: R, yaml: R, ini: I);
+        Row("S8", json: R, msgpack: R, toml: R, yaml: R, ini: D);
         // S9  Dictionary<string,int>     flat dictionary
         Row("S9", json: R, msgpack: R, toml: R, yaml: R, ini: R);
         // S10 Dictionary<string,List<int>>  dict value is a collection
-        Row("S10", json: R, msgpack: R, toml: R, yaml: R, ini: I);
+        Row("S10", json: R, msgpack: R, toml: R, yaml: R, ini: D);
         // S11a self recursion (TOML: nested tables)
         Row("S11a", json: R, msgpack: R, toml: R, yaml: R, ini: I);
         // S11b mutual recursion
@@ -542,7 +550,7 @@ internal static class DecisionTables
         // S12 List<string?>              null ELEMENT (YAML: `- null`)
         Row("S12", json: R, msgpack: R, toml: I, yaml: R, ini: I);
         // S13 Dictionary<string,int?>    null VALUE
-        Row("S13", json: R, msgpack: R, toml: I, yaml: R, ini: I);
+        Row("S13", json: R, msgpack: R, toml: D, yaml: R, ini: D);
         return facts;
     }
 
