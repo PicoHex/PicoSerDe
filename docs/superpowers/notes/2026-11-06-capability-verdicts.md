@@ -68,6 +68,23 @@ exist. `ini x S12` is the same shape of problem one level up: the registered `x+
 `null` vs `""` and does not settle this cell, so a ⏸ would send the reader to a debt that does not
 resolve it.
 
-⇒ **The next move is a spec decision, not a code change**: define the weakest tier (what a drop says
-when the answer is "we chose not to"), then reclassify the five. Until that exists, leaving them on
-`Impossible` is the honest option, because at least it does not promise anything.
+⇒ **The five are left where they are, and inventing a tier for them was a mistake.** An earlier
+revision of this note proposed a fourth verdict ("the format can, we choose not to support it") and a
+rule for it was briefly written into `AGENTS.md`. It was removed, because the reasoning behind it was
+wrong twice over:
+
+1. **There is nothing to choose.** The earliest question the criterion can be asked is "CAN this format
+   hold the shape?" — a capability question, answered by the format, not by us. "We could, and we choose
+   not to" is only available if "we could" has already been established.
+2. **It was never established.** For `ini x {S11a, S11b}` the audit's own verdict was *"cannot be
+   decided"*, and for `toml x {S5, S6}` it was *"the null-leaf half has no external evidence"*. Both say
+   the same thing: nobody has shown the format can carry these. Without that, "not supported by design"
+   is a refusal with no basis — and `Impossible` and the invented tier would make the SAME claim about
+   the format ("it cannot"), differing only in tone. **A tier whose definition cannot be applied is a
+   tier that must not exist.**
+
+⇒ **What is actually owed here is evidence, not a decision.** For each of the five: find whether a
+conforming encoder or decoder of the format could carry the shape. If yes, the cell is a ⏸ with the
+agreement named (as the eight reclassified cells now have); if no, it is ⛔ or the spec's own convention,
+and the wording must say which. Until that evidence exists, leaving them on `Impossible` is the honest
+option, because at least it does not promise anything.
