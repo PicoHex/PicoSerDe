@@ -29,6 +29,28 @@ format's grammar. A shape the format cannot hold is **dropped during extraction 
 `PICOSERDE004`, `Warning`, `Location.None`, so `#pragma` cannot silence it) — the drop shows up in the build log
 instead of surfacing later as a mysteriously empty property (`README.md:494-501`, `:511-514`).
 
+**What "the format" MEANS — the arbiter, in order.** Every capability claim (⛔ vs ⏸, a matrix cell, a
+sentence in a README) is settled by the first arbiter that exists for that format, and by that one alone:
+
+1. **The specification, when the format has one.** JSON (RFC 8259 / ECMA-404), MessagePack (the msgpack
+   spec), TOML (TOML 1.0), YAML (YAML 1.2). The question is answered by the standard text and demonstrated
+   with a *conforming implementation* — `tomllib` for TOML, PyYAML for YAML. A shape the spec defines and
+   the implementation round-trips is representable; one the spec does not define is not, and no amount of
+   local ingenuity changes that.
+2. **The de-facto standard, when the format has no specification** — INI, which has no RFC, no ISO and no
+   owning body. Its arbiter is what the widespread implementations do, together: the Windows `kernel32`
+   profile API (`GetPrivateProfileString`), Python `configparser`, and `git config`. **A construct only some
+   of them carry is not part of the format** — it is one implementation's extension, and supporting it means
+   simulating a construct the wire format itself does not have, which this rule forbids.
+
+**The arbiter is not us.** "We could emit it" is never an answer at this step: the question is whether the
+*format* carries the meaning, and the test is another party's reader, not our writer. Measured for INI
+(2026-11-06): all three implementations give back `[V]` → a key→value mapping, and a comma-joined value →
+**one string**. None of them turns `[Rows.0]`/`[Rows.1]` into a list — all three hand back two opaque section
+names — and none has a value-level null (values are strings). So INI can carry an object only as a *member-level
+section* (`[V]`), which is what the ✅ cells do; a list is carried only as a flat comma string, at the value
+level, never as nesting.
+
 1. **⛔ is terminal: either the format cannot hold the shape, or the type cannot be instantiated at all.**
    `FormatCapabilities.ImpossibleMarker` (`shared/Gen/FormatCapabilities.cs:260`); the diagnostic title is *this format cannot hold a type cycle*
    (`shared/Gen/GenInfrastructure.cs:373-375`, id `PICOSERDE003`) — a type with no instance (abstract, a static class, no accessible parameterless
