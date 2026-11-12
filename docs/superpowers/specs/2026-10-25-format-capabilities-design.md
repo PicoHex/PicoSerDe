@@ -128,6 +128,13 @@ currently gets wrong about them, and what the library must do about it
 
 **结论**：真正的 `❌` 只有两类 —— ①**INI 的结构性限制**（任何嵌套、任何 null、成员内对象列表）；②**TOML 缺 null**。其余所有「不支持」都是欠账。
 
+> **Open question: the comma-joined scalar list —— 待定（产品决定，本批只记不改）**
+> - **事实**：`V = 1,2,3` 三家都只回**一个字符串**，没有一家把它还原成列表（本节三家实测：`kernel32` / `configparser` / `git config`）。
+> - **冲突**：铁则第一行点名禁止 "comma-joined strings"；而本表 `S1 × INI` 是 ✅（§6 同），发的正是逗号串。
+> - **出路 (a)**：按判据改判 **⛔** —— INI 丢掉 `List<int>` 成员（`PICOSERDE004`），行为变更、破坏性。
+> - **出路 (b)**：在铁则里为「**值级的单层扁平编码**」开一条**明确例外**，并写明它为什么不是「模拟格式没有的构造」。
+> - **现状**：`Facts[("ini","S1")] = true` **未动**；结论**待定**，等维护者裁。
+
 ### S14/S15 的实测（Task 2b 观测，只记录、不进 `DecideShape`）
 
 > **这两行现在有值了，但没有能力通路**：`FormatCapabilities.AllShapeIds` 仍止于 S13，`DecideShape`/
@@ -179,7 +186,7 @@ currently gets wrong about them, and what the library must do about it
    `DateTime.MinValue` 的往返文本返回 `false`**（同形不同值）。读侧补 `DateTime.Parse(…, RoundtripKind)` 兜底后
    `S15 × ini` 复测为 `OK`（见 §3 实测表）。
 
-⁵ **`S9 × INI` 的 ✅ 附条件（R2 T6 修正）**：只在键**不含 `\n`、`\r`、`=`** 时成立。INI 的字典形式是本规格自己的约定（"成员级 `[V]` section + 键 = 行内原文"），而 `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 没有键转义 — 所以含换行/等号的键**写出去读不回**（探针的 boundary 键 `n\nline` 就是这一例）。这是**值级**约束，不是能力欠账：R2 **不**为 INI 造一套键转义约定（改公共 wire 约定属值级议题），该 boundary 值按 R2/R5 分工登记在 **§8.1 的 V-1 行**（见 §2 R5 下的移交说明）。**同一形状在 YAML/TOML 不受此限** — 两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）并据此把这两格从 MISMATCH 转 OK。
+⁵ **`S9 × INI` 的 ✅ 附条件（R2 T6 修正）**：只在键**不含 `\n`、`\r`、`=`** 时成立。INI 的字典形式由**事实标准**决定（"成员级 `[V]` section + 键 = 行内原文"；§3 实测 `[V]` + `k = v` 三家都回键→值映射），而 `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 没有键转义 — 所以含换行/等号的键**写出去读不回**（探针的 boundary 键 `n\nline` 就是这一例）。这是**值级**约束，不是能力欠账：R2 **不**为 INI 造一套键转义约定（三家都没有键/值转义机制，加了就是**模拟格式没有的构造**，铁则禁止），该 boundary 值按 R2/R5 分工登记在 **§8.1 的 V-1（⛔，不是待办）**（见 §2 R5 下的移交说明）。**同一形状在 YAML/TOML 不受此限** — 两者都能用引号键表达，R2 T6 已实现（`"n\nline": 2` / `"n\nline" = 2`）并据此把这两格从 MISMATCH 转 OK。
 
 **结论补充**：S14 的 `❌` 仍只有「TOML 无 null」与「INI 结构性限制」；S15 的 `❌` 只有「JSON 无 NaN/±Inf 字面量」。
 其余「今天不支持」全部是欠账（S15 × toml/yaml 的 NaN —— `S14 × yaml` 与 `S15 × ini` 的默认时间已在 R2 闭合，见上表）。
@@ -309,25 +316,34 @@ R1 的规格复核按 R5 的边界清单（null 元素、空集合、单元素�
 - 能力表为 `internal`（D5）⇒ 本批**全程不改** `api/*.public.txt`。
 - 逐缺陷 → 版本档的映射表由**计划**维护（属发布说明素材）。
 
-### 8.1 下一版清单：**值级**约定不承载的值（R2 明确不做）
+### 8.1 值级边界：⛔ 格式边界（不承载）与 ⏸ 欠账（R2 明确不做）
 
 R2 的交付口径是「**能力**（成员是否进入生成代码）+ **形状**（哪格式能表达）」。下面这些值是**值级**议题：
-格式（或本规格自己给 INI 定的行式约定）**能**表达形状，但承载不了这些**字符/形态**，而承载它们需要**新的
-wire 约定**（键转义、值转义、null token、原生字面量）—— 那属 `x+1` 级的公共约定变更，R2 **不做**。
-登记在此是为了让「已知限制」只有**一个**住处，而不是散在测试注释里（每条都有断言钉住现状，见右列）。
+形状**能**表达，但这些**字符/形态**不在格式里。**判据与 §3 是同一条**：有规范用规范，没规范用**事实标准**
+（INI 的三家实测见 §3）。⇒ **V-1…V-4、V-6 是 ⛔ 格式边界**（格式不承载 ⇒ 不做）；**V-5 是 ⏸ 欠账**（TOML/YAML
+有 `nan`/`inf` 原生字面量而写侧不用，是我方缺口，带 reopen 条件）。登记在此是为了让「已知限制」只有**一个**
+住处，而不是散在测试注释里（每条都有断言钉住现状，见右列）。
 
-| # | 值 | 受限格 | 现状（实测）与断言 | 下一版要做什么 |
+> **历史说明（保留，供后来人认出这条为什么改过判）**：V-1…V-4、V-6 曾登记为 **`x+1` 级的公共 wire 约定**（键转义、
+> 值转义、值级 null token）。当时的前提是「INI 没有规范 ⇒ 它的边界是我们定的 ⇒ 承载这些值只需加一套我们自己的
+> 约定」。**该前提已撤回**：没有规范不等于没有仲裁者，仲裁者是**事实标准**（§3 的三家实测）。三家对**键/值转义**
+> 与**值级 null** 都没有机制 —— `kernel32` 把 `nul=` 读成 n=0（与**键缺失同形**），`configparser`/`git config` 的
+> 值一律是纯字符串、没有一家解转义 ⇒ 加一套转义约定或 `null` token，等于用编码技巧**模拟格式没有的构造**，
+> 正是铁则第一行禁止的事。**结论：这一类不是欠账，是 ⛔。**
+
+| # | 值 | 受限格 | 现状（实测）与断言 | 判定与出路 |
 |---|---|---|---|---|
-| **V-1** | 字典**键**含 `\n` / `\r` / `=` | **S9 × INI**（§3/§6 的 ✅ ⁵） | `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 无键转义 ⇒ 写出去读不回（§3 脚注 ⁵） | INI 键转义约定（公共 wire 变更） |
-| **V-2** | 字符串**值**含 `\n` / `\r` | INI 的任何字符串成员 | 写侧照原样写出（行被切断），读回来抛 `FormatException: Invalid INI line: expected '='` —— **响但晚**；断言 `BoundaryValueWhiteAreaTests.Ini_cannot_carry_a_newline_in_a_value` | INI 值转义约定（与 V-1 同一套） |
-| **V-3** | 字符串值**首/尾空白** | INI | `" pad "` 写成 `Text =  pad `、读回 `"pad"`（**静默**改值）；断言 `Ini_trims_surrounding_spaces_in_a_value` | 同上（或加引号值形态） |
-| **V-4** | 值**首 `#`** / 值**含 `;`** | INI | 值首 `#`：整行被当注释 ⇒ 键消失、成员回到 `null`（**静默丢失**）；`a ; b` 截断成 `a`（**静默截断**）；值中间 `#`（`a#b`）正常。断言 `Ini_drops_a_value_that_starts_with_a_comment_marker` | 同上 |
-| **V-5** | `NaN` / `±Inf` 的**原生字面量** | TOML / YAML | 两格式都有 `nan`/`inf`/`-inf`（§3 脚注 ³）⇒ **⏸ 欠账**，今日写侧抛 `ArgumentException`；断言 `NaN_is_refused_by_toml_and_yaml_today_*` / `Infinity_is_refused_by_toml_and_yaml_today_*` | 写侧改原生字面量 + 读侧接受（R4） |
-| **V-6** | `null` 与 `""` 的区分 | INI | `Key = ` 一种形态同时表示二者（§3 的 INI 约定：空值与空串不可区分）；断言 `Null_and_empty_strings_stay_different_values_outside_ini` | INI 值级 null token（与 V-1…V-4 同一套） |
+| **V-1** | 字典**键**含 `\n` / `\r` / `=` | **S9 × INI**（§3/§6 的 ✅ ⁵） | `IniReader` 的键扫描在 `\n`/`\r`/`=` 处终止、`IniWriter.WriteKey` 无键转义 ⇒ 写出去读不回（§3 脚注 ⁵） | **⛔ 格式边界** —— 不做：事实标准里没有键转义，加一套就是模拟格式没有的构造（铁则） |
+| **V-2** | 字符串**值**含 `\n` / `\r` | INI 的任何字符串成员 | 写侧照原样写出（行被切断），读回来抛 `FormatException: Invalid INI line: expected '='` —— **响但晚**；断言 `BoundaryValueWhiteAreaTests.Ini_cannot_carry_a_newline_in_a_value` | **⛔ 格式边界** —— 不做：值里没有转义机制，`\n` 必然断行（V-1…V-4 同一因） |
+| **V-3** | 字符串值**首/尾空白** | INI | `" pad "` 写成 `Text =  pad `、读回 `"pad"`（**静默**改值）；断言 `Ini_trims_surrounding_spaces_in_a_value` | **⛔ 格式边界** —— 不做：没有引号值/转义形态可依；空白裁剪是行式语法的行为，不是可选项 |
+| **V-4** | 值**首 `#`** / 值**含 `;`** | INI | 值首 `#`：整行被当注释 ⇒ 键消失、成员回到 `null`（**静默丢失**）；`a ; b` 截断成 `a`（**静默截断**）；值中间 `#`（`a#b`）正常。断言 `Ini_drops_a_value_that_starts_with_a_comment_marker` | **⛔ 格式边界** —— 不做：`#`/`;` 是注释标记，不是值里的字符（同上） |
+| **V-5** | `NaN` / `±Inf` 的**原生字面量** | TOML / YAML | 两格式都有 `nan`/`inf`/`-inf`（§3 脚注 ³）⇒ **⏸ 欠账**，今日写侧抛 `ArgumentException`；断言 `NaN_is_refused_by_toml_and_yaml_today_*` / `Infinity_is_refused_by_toml_and_yaml_today_*` | **⏸ 欠账**：写侧改原生字面量 + 读侧接受（R4，可重开） |
+| **V-6** | `null` 与 `""` 的区分 | INI | `Key = ` 一种形态同时表示二者（§3 的 INI 约定：空值与空串不可区分）；断言 `Null_and_empty_strings_stay_different_values_outside_ini` | **⛔ 格式边界** —— 不做：没有值级 null（三家值都是字符串，`kernel32` 空值与**键缺失同形**） |
 
-> **与 §3/§5 的关系**：V-1…V-4、V-6 是**本规格自己给 INI 定的行式约定**的边界（"不承载" ≠ 能力欠账，§3 已写明
-> INI 无独立实现可依据）；V-5 是 **⏸ 欠账**（有 reopen 条件）。两者都**不得**被写进发布说明的"已知限制"
-> 当作格式事实（C2/R4）—— 这正是本表存在的原因。
+> **与 §3/§5 的关系**：V-1…V-4、V-6 是**格式边界（⛔）** —— 边界由**事实标准**决定（见 §3 的三家实测），
+> **不是我们单方面的约定**。因此它们**不是**「下一版要做的 wire 约定」（登记成待办等于把 ⛔ 当成 ⏸），
+> 但**可以**作为格式事实写进文档（⛔ 的定义就是"格式表达不了"）；V-5 相反：它是 **⏸ 欠账**（有 reopen
+> 条件），**不得**被写进发布说明的"已知限制"当作格式事实（C2/R4）—— 这正是本表存在的原因。
 
 ---
 
@@ -366,7 +382,7 @@ for n, t in yaml_cases.items():
 PYEOF
 ```
 
-**实测结论**：TOML 接受 S2/S3/S4/S7/S8/S10/S11，**拒绝所有含 `null` 的用例**；YAML 接受全部含 `null` 的用例。这是 D1 裁定与 TOML/INI `❌` 的唯一依据。**INI 无独立实现**，其边界见 §3 的约定段。
+**实测结论**：TOML 接受 S2/S3/S4/S7/S8/S10/S11，**拒绝所有含 `null` 的用例**；YAML 接受全部含 `null` 的用例。这是 D1 裁定与 TOML/INI `❌` 的唯一依据。**INI 无规范**，其仲裁者是**事实标准**（`kernel32` / `configparser` / `git config` 三者实测，见 §3）。
 
 ## 10. 计划指针
 

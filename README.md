@@ -533,8 +533,8 @@ dotnet build 2>&1 | grep PICOSERDE
 
 ¹ **INI object lists.** INI has no array-of-tables syntax, so a `List<SomeDto>` **member** cannot be
 represented and is dropped as `PICOSERDE004` like every other unrepresentable shape. A **top-level**
-`List<SomeDto>` does round-trip: each item becomes a numbered section (`[0]`, `[1]`, …). For an object
-list *inside* a DTO use TOML, YAML or JSON.
+`List<SomeDto>` does round-trip: **our** writer emits each item as a numbered section (`[0]`, `[1]`, …).
+For an object list *inside* a DTO use TOML, YAML or JSON.
 
 ² **YAML nullable leaves.** YAML can express a null (`null`, `Null`, `NULL` or `~`), so a nullable
 leaf is written as the null literal — `List<int?>`, `List<List<int?>>`, `List<string?>`, `List<Dto?>`

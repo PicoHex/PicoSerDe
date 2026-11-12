@@ -51,11 +51,11 @@ names), and none has a value-level null (values are strings). So INI carries a n
 
 1. **⛔ is terminal: either the format cannot hold the shape, or the type cannot be instantiated at all.**
    `FormatCapabilities.ImpossibleMarker` (`shared/Gen/FormatCapabilities.cs:192`); the diagnostic title is *this format cannot hold a type cycle*
-   (`shared/Gen/GenInfrastructure.cs:373-375`, id `PICOSERDE003`) — a type with no instance (abstract, a static class, no accessible parameterless
+   (`shared/Gen/GenInfrastructure.cs:472-474`, id `PICOSERDE003`) — a type with no instance (abstract, a static class, no accessible parameterless
    ctor, `DropVerdict.TypeUnconstructible`) is ⛔ on the same grounds. No generator change can help: a different format or a different type.
 2. **⏸ is our debt, and it is reopenable.** `FormatCapabilities.DeferredMarker`
    (`shared/Gen/FormatCapabilities.cs:200`); the title is *not implemented yet (this format can hold a
-   cycle)* (`shared/Gen/GenInfrastructure.cs:388-390`). It must not blame the format and must not send the
+   cycle)* (`shared/Gen/GenInfrastructure.cs:487-489`). It must not blame the format and must not send the
    reader off to change a type that is perfectly expressible.
 3. **Calling a debt a "format limit" is wrong, and calling a format limit a debt is wrong too.** The two
    verdicts live in one place on purpose — no other file in `shared/Gen` may spell ⛔ or ⏸
@@ -63,8 +63,8 @@ names), and none has a value-level null (values are strings). So INI carries a n
    answer asks the facts table, it does not write a sentence: `AnonCollectionIsFormatFact` derives the verdict
    from `CanRepresent` so "our progress must never be written as a format fact"
    (`FormatCapabilities.cs:333-345`).
-4. **The `Format limits` matrix is the one authority.** `README.md:503-509` plus footnotes ¹²³
-   (`:523-542`) is the fact source for "can this format express this shape". A README, a sub-README or a
+4. **The `Format limits` matrix is the one authority.** `README.md:514-520` plus footnotes ¹²³
+   (`:534`, `:539`, `:545`) is the fact source for "can this format express this shape". A README, a sub-README or a
    **skill** that contradicts a cell is the thing that is wrong — never edit the matrix to match prose. The
    matrix is itself pinned to the code: `MatrixCells` uses the **terminal** effects, so a shape that is
    currently dropped as a debt still reads ✅ there, and `FormatCapabilitiesTests

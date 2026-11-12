@@ -91,7 +91,7 @@ var ini = IniSerializer.Serialize(config);
   `….ReportsTheFactVerdict_AndNoReopenPointer` for the verdict) — visible in the
   build log, never silent. A section is a **flat, member-named** slot: a nested object is written as
   `iw.WriteSection("<member>")`, so the section name *is* the member's name and there is no second
-  dimension left to carry an item index. The one object-list form this format's convention has is the
+  dimension left to carry an item index. The one object-list form **this generator writes** is the
   numbered section at the **top** of the document (`[0]`, `[1]`, …), where no member name is being
   displaced. A member-level list would need a composite name (`[Rows.0]`) that no INI reader turns
   back into a list — a new wire convention, not generator plumbing — which is why spec §3 draws the
