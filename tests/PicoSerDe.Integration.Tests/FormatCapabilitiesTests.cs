@@ -11,11 +11,9 @@ namespace PicoSerDe.Integration.Tests;
 ///         current-state matrix (14 shapes × 5 formats) must be reproduced by
 ///         <see cref="FormatCapabilities.DecideShape"/> exactly. If a table edit moves a
 ///         cell, this test fails instead of the byte diff (Task 3) having to find it.</item>
-///   <item><b>What can each format express?</b> — <see cref="FormatCapabilities.CapabilityOf(string,string)"/>
-///         is the code form of spec §3 (three states: Representable / Deferred / Impossible),
-///         and <see cref="FormatCapabilities.IsRepresentable"/> is its strict half — the
-///         matrix question; Task 2's probe measures the same thing independently, so the two
-///         are cross-checked rather than trusted.</item>
+///   <item><b>What can each format express?</b> — <see cref="FormatCapabilities.CanRepresent"/>
+///         is the code form of spec §3; Task 2's probe measures the same thing
+///         independently, so the two are cross-checked rather than trusted.</item>
 ///   <item><b>What is the R2 target?</b> — derived from the facts, never hand-copied, and
 ///         "supported exactly where every affected shape is representable".</item>
 /// </list>
@@ -78,9 +76,7 @@ public class FormatCapabilitiesTests
         // S7/S8 x {json,msgpack,toml,yaml}: R2 Task 2 implemented the extended-collection
         // family, so these eight cells moved to Supported. R2 Task 6 closed the last one,
         // S7 x ini (a comma-separated line, exactly like List<T>); S8 x ini stays dropped
-        // because this spec's INI convention has no nesting — our own boundary (⏸,
-        // reopenable), not a format fact: INI has no independent implementation to appeal
-        // to (spec §3).
+        // because INI has no nesting at all — a format FACT, not a debt.
         ("S7", "json", Effect.Supported),
         ("S7", "msgpack", Effect.Supported),
         ("S7", "toml", Effect.Supported),
@@ -97,8 +93,8 @@ public class FormatCapabilitiesTests
         ("S9", "yaml", Effect.Supported),
         ("S9", "ini", Effect.Supported),
         // S10 x {json,msgpack,toml,yaml}: R2 Task 3 implemented the dict-VALUE position, so
-        // the four cells moved to Supported. S10 x ini stays dropped — the same convention
-        // boundary as S8 above (no nesting inside a member): ours (⏸), not a format fact.
+        // the four cells moved to Supported. S10 x ini stays dropped — its sections carry no
+        // nesting inside a member, which is a format FACT (spec §3).
         ("S10", "json", Effect.Supported),
         ("S10", "msgpack", Effect.Supported),
         ("S10", "toml", Effect.Supported),
@@ -108,8 +104,7 @@ public class FormatCapabilitiesTests
         // (TOML nested tables addressed by their dotted path, YAML nested mappings) and wired
         // both emit sites to the KIND's own row, so the three cells that were still dropped
         // moved to Supported — S11b x toml already said Supported, which was the lie the
-        // single-row gate produced. ini keeps DropMember — flat sections are this spec's
-        // INI convention, so the boundary is ours (⏸), not a format fact.
+        // single-row gate produced. ini keeps DropMember (flat sections: a format FACT).
         ("S11a", "json", Effect.Supported),
         ("S11a", "msgpack", Effect.Supported),
         ("S11a", "toml", Effect.Supported),
@@ -237,9 +232,7 @@ public class FormatCapabilitiesTests
                 .IsGreaterThan(0)
                 .Because($"{d} has no shape and is not declared encoding-only");
 
-            // Strict on purpose: a DEFERRED shape is "the format can, we have not", which is not
-            // enough to promote the pair — promotion would move its terminal matrix cell to ✅.
-            var allRepresentable = shapes.All(s => FormatCapabilities.IsRepresentable(fmt, s));
+            var allRepresentable = shapes.All(s => FormatCapabilities.CanRepresent(fmt, s));
             if (allRepresentable)
                 await Assert
                     .That(target)
@@ -277,7 +270,7 @@ public class FormatCapabilitiesTests
         foreach (var fmt in FormatCapabilities.AllFormatTags)
         {
             var target = FormatCapabilities.DecideShapeTarget(fmt, shapeId);
-            if (FormatCapabilities.IsRepresentable(fmt, shapeId))
+            if (FormatCapabilities.CanRepresent(fmt, shapeId))
                 await Assert
                     .That(target)
                     .IsEqualTo(Effect.Supported)
@@ -649,223 +642,6 @@ public class FormatCapabilitiesTests
                     + "): "
                     + string.Join(" | ", wrong)
             );
-    }
-
-    /// <summary>
-    /// Spec §3 S2 × ini is the ONE cell the model calls <see cref="Capability.Deferred"/>: the
-    /// INI <b>format</b> can hold a member-level object list (its reader would only have to be
-    /// taught a composite section name), but no wire convention for one exists yet — that is an
-    /// <c>x+1</c>-level agreement (spec §8.1), not generator plumbing.
-    /// <para>
-    /// The cell must <b>stay ❌</b>. ✅ is defined as "the generated code both writes and reads
-    /// the shape", and INI's code drops the member: a <c>Deferred</c> promoted to ✅ would
-    /// report our gap as a capability the format does not have yet. That is exactly what the
-    /// old <c>bool</c> fact table could not express — flipping <c>ini: false</c> to <c>true</c>
-    /// squeezed "we have not implemented it" and "the format cannot" into one bit and silently
-    /// turned this row into <c>✅✅✅✅✅</c> (measured: two fixtures red).
-    /// </para>
-    /// <para>
-    /// Three separate answers, so a regression has to break at least one of them: the
-    /// capability verdict (Deferred), the terminal matrix row (§6), and the R2 target the
-    /// matrix is rendered from (still dropped).
-    /// </para>
-    /// </summary>
-    [Test]
-    public async Task Deferred_object_list_member_stays_red_in_the_matrix()
-    {
-        await Assert
-            .That(FormatCapabilities.CapabilityOf("ini", "S2"))
-            .IsEqualTo(Capability.Deferred)
-            .Because(
-                "INI can express a member-level object list, but only under a wire convention "
-                    + "nobody has written yet — the format can, we have not (spec §8.1)"
-            );
-
-        await Assert
-            .That(FormatCapabilities.MatrixCells("S2"))
-            .IsEqualTo("✅✅✅✅❌")
-            .Because(
-                "a Deferred cell is not implemented: ✅ would claim the generated INI code both "
-                    + "writes and reads a member-level object list, and it drops the member"
-            );
-
-        await Assert
-            .That(FormatCapabilities.DecideTarget("ini", Decision.ObjectListInMember))
-            .IsEqualTo(Effect.DropMember)
-            .Because(
-                "the terminal table must not promote a Deferred pair: S2 × ini stays dropped "
-                    + "until the wire convention exists"
-            );
-    }
-
-    /// <summary>
-    /// Which of the 70 cells the model calls <see cref="Capability.Deferred"/>. Pinned as a LIST,
-    /// because the specific <c>reopen:</c> pointer is handed out for a (format, shape) PAIR: the
-    /// cells that may ever reach it are exactly the Deferred ones, so a second one appearing
-    /// silently is a change to what a reader is told — and it must be a visible edit here.
-    /// </summary>
-    [Test]
-    public async Task Deferred_cells_are_exactly_the_ones_the_wire_convention_pointer_serves()
-    {
-        var deferred = new List<string>();
-        foreach (var fmt in FormatCapabilities.AllFormatTags)
-        foreach (var shape in FormatCapabilities.AllShapeIds)
-            if (FormatCapabilities.CapabilityOf(fmt, shape) == Capability.Deferred)
-                deferred.Add($"{fmt}|{shape}");
-
-        await Assert
-            .That(deferred)
-            .IsEquivalentTo(
-                new[]
-                {
-                    "ini|S2",
-                    "ini|S3",
-                    "ini|S4",
-                    "ini|S5",
-                    "ini|S6",
-                    "ini|S8",
-                    "ini|S10",
-                    "ini|S13",
-                    "toml|S13",
-                }
-            )
-            .Because(
-                "every one of these is a cell whose way out is an AGREEMENT rather than emitter "
-                    + "plumbing (spec §8.1). A new entry moves what readers are told and has to be "
-                    + "a visible edit: "
-                    + string.Join(", ", deferred)
-            );
-    }
-
-    /// <summary>
-    /// Every recorded convention is a REAL one: the pair must be a
-    /// <see cref="Capability.Deferred"/> cell in the facts table, and the sentence it carries must
-    /// not be a sentence about a different convention.
-    /// <para>
-    /// The map and the facts are two records of one thing — “this (format, shape) needs an
-    /// agreement” — and the pointer is the only place a reader learns WHICH agreement. A pair
-    /// added to the map without the facts moving would announce a convention for a cell that is
-    /// not a debt (or that does not exist); a cell moved to Deferred without a map entry gets
-    /// <c>UnnamedConventionReopenPointer</c>, which is honest but vaguer, so this test asks the
-    /// sharper question for the pairs that DO claim a convention.
-    /// </para>
-    /// </summary>
-    [Test]
-    public async Task Every_recorded_convention_belongs_to_a_deferred_cell()
-    {
-        var recorded = FormatCapabilities.RecordedConventions.ToList();
-
-        await Assert
-            .That(recorded)
-            .IsNotEmpty()
-            .Because("the map exists to name the agreements the Deferred cells wait on");
-
-        foreach (var (fmt, shape) in recorded)
-        {
-            await Assert
-                .That(FormatCapabilities.CapabilityOf(fmt, shape))
-                .IsEqualTo(Capability.Deferred)
-                .Because(
-                    $"{fmt} × {shape} is recorded in the wire-convention map, so its facts cell "
-                        + "must be the debt it claims to explain"
-                );
-
-            await Assert
-                .That(FormatCapabilities.ReopenPointerFor(fmt, shape))
-                .IsEqualTo(FormatCapabilities.ReopenPointerFor(fmt, shape))
-                .Because("the lookup is pure: the same question gets the same sentence");
-        }
-
-        // The sentences are distinct per CONVENTION (not per cell): two cells waiting on the same
-        // agreement share one sentence, cells waiting on different agreements must not.
-        var distinct = recorded
-            .Select(pair => FormatCapabilities.ReopenPointerFor(pair.Format, pair.Shape))
-            .Distinct()
-            .Count();
-
-        await Assert
-            .That(distinct)
-            .IsEqualTo(4)
-            .Because(
-                "four agreements are recorded (member-level object list, INI no-nesting-in-a-member, "
-                    + "INI value-level null, TOML nullable string) — a new one is a visible edit, "
-                    + "and a merge of two would hide that a different convention is missing"
-            );
-    }
-
-    /// <summary>
-    /// THE PAIRING the specific <c>reopen:</c> pointer is keyed by. Its text is a sentence about
-    /// <b>INI</b> ("the INI section header is a flat, member-named slot"), and the lookup used to
-    /// select it asked only for the SHAPE — so the day a second format’s <c>S2</c> is
-    /// reclassified <see cref="Capability.Deferred"/>, that format’s diagnostic would explain
-    /// INI’s section header. That case now exists in the other direction — nine more cells were
-    /// reclassified on 2026-11-06 and four of them are INI shapes with three DIFFERENT missing
-    /// conventions — so the property is asked both ways: a format that is not the recorded one
-    /// gets the generic pointer, and a recorded pair names its own convention, not a neighbour’s.
-    /// </summary>
-    [Test]
-    public async Task The_specific_reopen_pointer_never_describes_another_formats_boundary()
-    {
-        // The recorded pair: its reader DOES get the INI sentence, which is the point of the pair.
-        await Assert
-            .That(FormatCapabilities.ReopenPointerFor("ini", "S2"))
-            .Contains("the INI section header")
-            .Because("the specific pointer exists to name INI’s missing convention (spec §8.1)");
-
-        // Every OTHER format on the SAME shape: the generic row pointer, and nothing about INI.
-        foreach (var fmt in FormatCapabilities.AllFormatTags)
-        {
-            if (fmt == "ini")
-                continue;
-
-            await Assert
-                .That(FormatCapabilities.ReopenPointerFor(fmt, "S2"))
-                .IsEqualTo(FormatCapabilities.MatrixDebtReopenPointer)
-                .Because(
-                    $"{fmt} × S2 is not the recorded pair, so its reader must be sent to the matrix "
-                        + "row — describing INI’s section header to a "
-                        + fmt
-                        + " user is a claim "
-                        + "about a format they are not using"
-                );
-        }
-
-        // And a shape that is NOT the recorded one keeps the generic pointer in EVERY format,
-        // ini included: the specific text is keyed by the pair, not by the format. S11a is
-        // asked because it is the INI ⛔ with no convention recorded for it — if the lookup
-        // ever fell back to "this format has a Deferred cell somewhere", this loop catches it.
-        foreach (var fmt in FormatCapabilities.AllFormatTags)
-            await Assert
-                .That(FormatCapabilities.ReopenPointerFor(fmt, "S11a"))
-                .IsEqualTo(FormatCapabilities.MatrixDebtReopenPointer)
-                .Because($"{fmt} × S11a has no recorded convention: it is a matrix row");
-
-        // Each recorded pair names ITS OWN convention, never a neighbour’s: INI now defers
-        // through three different agreements, and a lookup keyed on the FORMAT alone would
-        // hand the nesting sentence to a null-token cell.
-        await Assert
-            .That(FormatCapabilities.ReopenPointerFor("ini", "S3"))
-            .IsEqualTo(FormatCapabilities.ReopenPointerFor("ini", "S4"))
-            .Because("S3/S4/S8/S10 are one convention: the spec’s no-nesting-inside-a-member rule");
-        await Assert
-            .That(FormatCapabilities.ReopenPointerFor("ini", "S5"))
-            .IsEqualTo(FormatCapabilities.ReopenPointerFor("ini", "S13"))
-            .Because("S5/S6/S13 wait on the same value-level null token (spec §8.1 V-6)");
-        await Assert
-            .That(FormatCapabilities.ReopenPointerFor("ini", "S3"))
-            .IsNotEqualTo(FormatCapabilities.ReopenPointerFor("ini", "S5"))
-            .Because("nesting and value-null are different agreements — the pointer must not merge them");
-        await Assert
-            .That(FormatCapabilities.ReopenPointerFor("toml", "S13"))
-            .IsNotEqualTo(FormatCapabilities.ReopenPointerFor("ini", "S13"))
-            .Because("the same shape defers to a different convention in each format");
-
-        // The reachable path agrees with the seam: the ONE Deferred cell routes through the pair
-        // lookup, so the property above is about the code that actually runs.
-        await Assert
-            .That(FormatCapabilities.ReopenPointer("ini", Decision.ObjectListInMember))
-            .IsEqualTo(FormatCapabilities.ReopenPointerFor("ini", "S2"))
-            .Because("ReopenPointer resolves the Deferred shape THROUGH ReopenPointerFor");
     }
 
     /// <summary>

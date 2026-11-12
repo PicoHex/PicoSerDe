@@ -80,7 +80,7 @@ PicoJetson tests are split into Unit / Integration / Functional projects with cl
 - **Top-level arrays** — `Serialize<T[]>()` / `Deserialize<T[]>()` with streaming (v2026.3.2)
 - **Top-level scalars / `Nullable<T>` are not supported** — `Serialize<Guid>(...)`, `Deserialize<int?>(...)` etc. fail loudly with `InvalidOperationException` ("no serializer registered") instead of emitting an empty object or non-compiling generated code
 - **Deep object nesting** — JSON/YAML/MsgPack round-trip objects nested 3+ levels; INI/TOML currently support a single nested level and throw `NotSupportedException` beyond that (loudly, instead of silently losing data).
-- **INI nested object lists** — a `List<SomeDto>` property is dropped by `IniSerializer` (reported as `PICOSERDE004` since this release, with the member name and format — this dialect implements object lists only as top-level numbered sections, and a member-level list would need a new wire convention, `x+1`, spec §8.1, so the gap is our convention's boundary rather than a format limit; see [Format limits](../README.md#format-limits-what-each-wire-format-cannot-express)); scalar lists (`List<int>`, `List<string>`, ...) round-trip.
+- **INI nested object lists** — a `List<SomeDto>` property cannot be represented by INI's flat sections and is dropped by `IniSerializer` (reported as `PICOSERDE004` since this release, with the member name and format; see [Format limits](../README.md#format-limits-what-each-wire-format-cannot-express)); scalar lists (`List<int>`, `List<string>`, ...) round-trip.
 
 ---
 

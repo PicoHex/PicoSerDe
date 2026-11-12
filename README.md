@@ -486,8 +486,7 @@ if (doc.RootElement["age"].TryGetInt32(out int age))
 Records (`record`/`record struct` primary constructors) work in every format — JSON, MsgPack, TOML,
 YAML and INI — without a format-specific constructor attribute. Field-level object arrays
 (`TObject[]`, `List<TObject[]>`, `TObject[][]`) round-trip in JSON, MsgPack, TOML and YAML (INI drops
-them too: this dialect implements object lists only as **top-level numbered sections**, and a
-member-level list would need a new wire convention (`x+1`, spec §8.1) — see
+object collections because its format is flat — see
 [Format limits](#format-limits-what-each-wire-format-cannot-express) for which drops surface as a
 build warning). An object sequence *inside* a nested object round-trips in YAML too (block sequences;
 see [PicoYaml → Limits](PicoYaml/README.md#limits)). TOML keeps its documented loud "nested tables
@@ -532,9 +531,8 @@ dotnet build 2>&1 | grep PICOSERDE
 # PowerShell: dotnet build 2>&1 | Select-String PICOSERDE
 ```
 
-¹ **INI object lists.** This dialect has no member-level object-list form — that would need a
-composite section name (`[Rows.0]`), a new wire convention at `x+1` (spec §8.1), not a format limit —
-so a `List<SomeDto>` **member** is dropped as `PICOSERDE004`. A **top-level**
+¹ **INI object lists.** INI has no array-of-tables syntax, so a `List<SomeDto>` **member** cannot be
+represented and is dropped as `PICOSERDE004` like every other unrepresentable shape. A **top-level**
 `List<SomeDto>` does round-trip: each item becomes a numbered section (`[0]`, `[1]`, …). For an object
 list *inside* a DTO use TOML, YAML or JSON.
 
@@ -621,7 +619,7 @@ overload is `(stream, ct)` only.
 polymorphic bases included) and fail loudly on data-level cycles instead of overflowing the stack; TOML/YAML/INI skip the member with `PICOSERDE003`,
 never silently. **Polymorphic hierarchies** serialize a concrete base instance with a synthesized, collision-safe discriminator, so bases round-trip as
 the base while derived instances keep theirs *and* their nested object/dict/collection members in JSON, MsgPack, TOML and YAML (INI ignores nested
-members: this dialect implements object lists only as top-level numbered sections, and a member-level list would need a new wire convention — spec §3).
+members — its format is flat).
 
 **Diagnostics** (warnings): `PICOSERDE001` a property type the generator could not resolve was ignored; `PICOSERDE002` two distinct types produced
 the same generated file name (internal helper names get a stable hashed `UniqueName` suffix); `PICOSERDE003` a recursive member was skipped by a

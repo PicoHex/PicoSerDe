@@ -30,57 +30,51 @@ format's grammar. A shape the format cannot hold is **dropped during extraction 
 instead of surfacing later as a mysteriously empty property (`README.md:494-501`, `:511-514`).
 
 **What "the format" MEANS — the arbiter, in order.** Every capability claim (⛔ vs ⏸, a matrix cell, a
-sentence in a README) is settled by the first arbiter that exists for that format, and by that one alone:
+sentence in a README) is settled by the first arbiter that exists for that format, and by that one alone.
 
 1. **The specification, when the format has one.** JSON (RFC 8259 / ECMA-404), MessagePack (the msgpack
-   spec), TOML (TOML 1.0), YAML (YAML 1.2). The question is answered by the standard text and demonstrated
-   with a *conforming implementation* — `tomllib` for TOML, PyYAML for YAML. A shape the spec defines and
-   the implementation round-trips is representable; one the spec does not define is not, and no amount of
-   local ingenuity changes that.
-2. **The de-facto standard, when the format has no specification** — INI, which has no RFC, no ISO and no
-   owning body. Its arbiter is what the widespread implementations do, together: the Windows `kernel32`
-   profile API (`GetPrivateProfileString`), Python `configparser`, and `git config`. **A construct only some
-   of them carry is not part of the format** — it is one implementation's extension, and supporting it means
-   simulating a construct the wire format itself does not have, which this rule forbids.
+   spec), TOML (TOML 1.0), YAML (YAML 1.2). The standard text answers, demonstrated through a *conforming
+   implementation* — `tomllib` for TOML, PyYAML for YAML. A shape the spec defines and that implementation
+   round-trips is representable; one the spec does not define is not, and no local ingenuity changes that.
+2. **The de-facto standard, when the format has no specification** — INI: no RFC, no ISO, no owning body.
+   Its arbiter is what the widespread implementations do **together**: the Windows `kernel32` profile API
+   (`GetPrivateProfileString`), Python `configparser`, and `git config`. **A construct only some of them
+   carry is not part of the format** — it is one implementation's extension, and emitting it means
+   simulating a construct the format does not have, which this rule forbids.
 
-**The arbiter is not us.** "We could emit it" is never an answer at this step: the question is whether the
-*format* carries the meaning, and the test is another party's reader, not our writer. Measured for INI
-(2026-11-06): all three implementations give back `[V]` → a key→value mapping, and a comma-joined value →
-**one string**. None of them turns `[Rows.0]`/`[Rows.1]` into a list — all three hand back two opaque section
-names — and none has a value-level null (values are strings). So INI can carry an object only as a *member-level
-section* (`[V]`), which is what the ✅ cells do; a list is carried only as a flat comma string, at the value
-level, never as nesting.
+**The arbiter is never us.** "We could emit it" is not evidence: the question is whether the *format*
+carries the meaning, and the test is another party's reader, not our writer. Measured for INI
+(2026-11-06): all three implementations give back `[V]` as a key→value mapping and a comma-joined value as
+**one string**; none turns `[Rows.0]`/`[Rows.1]` into a list (all three hand back two opaque section
+names), and none has a value-level null (values are strings). So INI carries a nested object only as a
+*member-level section*, a flat list only as a comma string at the value level, and no nesting at all.
 
 1. **⛔ is terminal: either the format cannot hold the shape, or the type cannot be instantiated at all.**
-   `FormatCapabilities.ImpossibleMarker` (`shared/Gen/FormatCapabilities.cs:260`); the diagnostic title is *this format cannot hold a type cycle*
+   `FormatCapabilities.ImpossibleMarker` (`shared/Gen/FormatCapabilities.cs:192`); the diagnostic title is *this format cannot hold a type cycle*
    (`shared/Gen/GenInfrastructure.cs:373-375`, id `PICOSERDE003`) — a type with no instance (abstract, a static class, no accessible parameterless
    ctor, `DropVerdict.TypeUnconstructible`) is ⛔ on the same grounds. No generator change can help: a different format or a different type.
 2. **⏸ is our debt, and it is reopenable.** `FormatCapabilities.DeferredMarker`
-   (`shared/Gen/FormatCapabilities.cs:268`); the title is *not implemented yet (this format can hold a
+   (`shared/Gen/FormatCapabilities.cs:200`); the title is *not implemented yet (this format can hold a
    cycle)* (`shared/Gen/GenInfrastructure.cs:388-390`). It must not blame the format and must not send the
    reader off to change a type that is perfectly expressible.
 3. **Calling a debt a "format limit" is wrong, and calling a format limit a debt is wrong too.** The two
    verdicts live in one place on purpose — no other file in `shared/Gen` may spell ⛔ or ⏸
    (`VerdictMarkerGuardTests.Capability_glyphs_are_spelled_only_in_the_capability_model`). Code that needs the
    answer asks the facts table, it does not write a sentence: `AnonCollectionIsFormatFact` derives the verdict
-   from `CapabilityOf` (`Capability.Impossible`, never `IsRepresentable` — a DEFERRED cell is the format's yes
-   and our not-yet) so "our progress must never be written as a format fact"
-   (`FormatCapabilities.cs:476-487`).
+   from `CanRepresent` so "our progress must never be written as a format fact"
+   (`FormatCapabilities.cs:333-345`).
 4. **The `Format limits` matrix is the one authority.** `README.md:503-509` plus footnotes ¹²³
    (`:523-542`) is the fact source for "can this format express this shape". A README, a sub-README or a
    **skill** that contradicts a cell is the thing that is wrong — never edit the matrix to match prose. The
    matrix is itself pinned to the code: `MatrixCells` uses the **terminal** effects, so a shape that is
-   currently dropped as a debt still reads ✅ there — with ONE exception, the `Deferred` cell (the format can
-   hold the shape and what is missing is a wire convention, not an implementation; S2 × INI today), which
-   stays ❌ because ✅ means the generated code both writes and reads the shape — and `FormatCapabilitiesTests
+   currently dropped as a debt still reads ✅ there, and `FormatCapabilitiesTests
    .Matrix_cells_are_the_spec_section6_terminal_matrix` fails the moment the two disagree
-   (`FormatCapabilities.cs:533-540`).
+   (`FormatCapabilities.cs:353-378`).
 5. **The reverse duty: if the format can express it and the framework cannot, that is a debt and it must be
-   registered** (a `reopen:` pointer in the message, and a matrix cell that never blames the format: ✅ for a
-   debt payable in code, ❌ for rule 4's ONE exception, whose way out is a wire convention) — never dressed up
-   as a format fact. YAML writes the `null` literal, so "YAML drops a nullable leaf" was never a limit; it was
-   a stale claim that outlived the writer's `WriteNull` in three places of `PicoYaml/README.md` (`59537c1`)
-   while the root README's cell and footnote ² said otherwise (`YamlNullLiteralTests`,
+   registered** (a `reopen:` pointer in the message, a ❌-free cell in the matrix) — not dressed up as a format
+   fact. YAML writes the `null` literal, so "YAML drops a nullable leaf" was never a limit; it was a stale
+   claim that outlived the writer's `WriteNull` in three places of `PicoYaml/README.md` (`59537c1`) while the
+   root README's cell and footnote ² said otherwise (`YamlNullLiteralTests`,
    `YamlNestedListDiagnosticTests.Yaml_NestedNullableElementMember_IsEmittedWithTheNullBranch`,
    `NestedNullableElementTests.cs:85`, matrix footnote ² at `README.md:528-532`).
 6. **"This is how it is" is only allowed about the format standard.** A sentence that is true because *we*

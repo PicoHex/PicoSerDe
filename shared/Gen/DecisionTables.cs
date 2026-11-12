@@ -3,7 +3,7 @@
 //
 //   Rules            (format, decision point) → Effect          [today, hand-written]
 //   Paths            shape → ordered decision points            [hand-written]
-//   Facts            (format, shape) → Capability       [spec §3, hand-written]
+//   Facts            (format, shape) → can the FORMAT express it [spec §3, hand-written]
 //   TargetRules      (format, decision point) → Effect           [DERIVED from Facts]
 //
 // Rules is a snapshot of the CURRENT generator behaviour, not a wish list: every value
@@ -204,28 +204,12 @@ internal static class DecisionTables
     // ── Facts: what each format can express (spec §3) ──────────────────────────────
 
     /// <summary>
-    /// (format, shape) → <see cref="Capability"/> (spec §3, measured with Python `tomllib` /
-    /// PyYAML; INI's boundary is the spec's own convention).
-    /// <para>
-    /// THREE states, not a bool: a cell must say whether the FORMAT cannot hold the shape
-    /// (<see cref="Capability.Impossible"/> — a fact, terminal) or whether the format CAN and
-    /// <b>we</b> have not carried it (<see cref="Capability.Deferred"/> — a debt, reopenable,
-    /// and possibly reopenable only through a new wire CONVENTION). Squeezing those two into
-    /// one <c>false</c> meant a reclassification looked like a capability claim: flipping a cell
-    /// to <c>true</c> promoted it through <see cref="TargetRules"/> to ✅ in the terminal
-    /// matrix, i.e. it claimed generated code that does not exist.
-    /// </para>
-    /// <para>
-    /// The state is independent of what this generator does TODAY for a shape it can carry:
-    /// that gap is <see cref="Capability.Representable"/> here and a ⏸ drop in
-    /// <see cref="Rules"/> (D-1/D-2) — two different records, which is why the matrix口径 and
-    /// today's behaviour can disagree without either lying. What changed is that "the format
-    /// can, the convention does not exist" now has a value of its own instead of borrowing
-    /// either side.
-    /// </para>
+    /// (format, shape) → can the format express the shape at all (spec §3, measured with
+    /// Python `tomllib` / PyYAML; INI's boundary is the spec's own convention).
+    /// This is a FACT about the format, independent of what the generator does today:
+    /// S7/S8 are ✅ everywhere although four formats drop them (D-1/D-2).
     /// </summary>
-    internal static readonly Dictionary<(string Fmt, string Shape), Capability> Facts =
-        BuildFacts();
+    internal static readonly Dictionary<(string Fmt, string Shape), bool> Facts = BuildFacts();
 
     // ── TargetRules: the R2 goal, derived ──────────────────────────────────────────
 
@@ -476,20 +460,11 @@ internal static class DecisionTables
         return result;
     }
 
-    private static Dictionary<(string Fmt, string Shape), Capability> BuildFacts()
+    private static Dictionary<(string Fmt, string Shape), bool> BuildFacts()
     {
-        var facts = new Dictionary<(string Fmt, string Shape), Capability>();
-        // Row = one spec §3 row; the five flags are in FormatTags order, and each one is a
-        // Capability — never a bool, so "the format cannot" and "we have not" cannot be
-        // written as the same word.
-        void Row(
-            string shapeId,
-            Capability json,
-            Capability msgpack,
-            Capability toml,
-            Capability yaml,
-            Capability ini
-        )
+        var facts = new Dictionary<(string Fmt, string Shape), bool>();
+        // Row = one spec §3 row; the five flags are in FormatTags order.
+        void Row(string shapeId, bool json, bool msgpack, bool toml, bool yaml, bool ini)
         {
             facts[("json", shapeId)] = json;
             facts[("msgpack", shapeId)] = msgpack;
@@ -498,59 +473,34 @@ internal static class DecisionTables
             facts[("ini", shapeId)] = ini;
         }
 
-        // The three states, abbreviated because 14 rows x 5 columns would otherwise be 70
-        // repetitions of the same three words:
-        //   R = Representable  the format can AND the generated code writes and reads it
-        //   I = Impossible     the FORMAT cannot (terminal — another format or another type)
-        //   D = Deferred       the format CAN, we have not implemented it (⏸, reopenable)
-        const Capability R = Capability.Representable;
-        const Capability I = Capability.Impossible;
-        const Capability D = Capability.Deferred;
-
         // S1  List<int>                  flat scalar list
-        Row("S1", json: R, msgpack: R, toml: R, yaml: R, ini: R);
-        // S2  List<Dto>                  object list (TOML: array of tables). INI is the FIRST
-        // DEFERRED cell in the model (2026-11-06: S3/S4/S5/S6/S8/S10/S13 x ini and S13 x toml
-        // joined it after an audit asked the same question of every remaining ⛔). The FORMAT
-        // can carry an object list — a section header is
-        // a flat, member-named slot and the top-level list already uses numbered ones — but a
-        // MEMBER-level list has no name to live under: it needs a composite name (`[Rows.0]`)
-        // plus a reader that turns it back into a list, i.e. a NEW WIRE CONVENTION at x+1 level
-        // (spec §8.1 records it), not generator plumbing. So it is neither ✅ (✅ means the
-        // generated code both writes and reads the shape, and this member is dropped) nor ⛔
-        // ("the ini format cannot" would blame the format for an agreement nobody has written —
-        // C1/C4), and the drop keeps its ⏸ with a `reopen:` that names that convention.
-        Row("S2", json: R, msgpack: R, toml: R, yaml: R, ini: D);
-        // S3  List<List<int>>            nested scalar list. INI joins S2: the spec's own
-        // convention is "no nesting inside a member" (spec §3, §8.1 S-1), so the FORMAT is not
-        // what cannot hold it. One convention, one verdict — S2 was reclassified alone and the
-        // shapes sharing that sentence kept a ⛔ they had no more claim to than S2 did.
-        Row("S3", json: R, msgpack: R, toml: R, yaml: R, ini: D);
+        Row("S1", json: true, msgpack: true, toml: true, yaml: true, ini: true);
+        // S2  List<Dto>                  object list (TOML: array of tables)
+        Row("S2", json: true, msgpack: true, toml: true, yaml: true, ini: false);
+        // S3  List<List<int>>            nested scalar list
+        Row("S3", json: true, msgpack: true, toml: true, yaml: true, ini: false);
         // S4  List<List<Dto>>            nested object list (TOML: array of inline tables)
-        Row("S4", json: R, msgpack: R, toml: R, yaml: R, ini: D);
-        // S5  List<int?>                 nullable value leaf. TOML keeps ⛔ (below): TOML 1.0 has
-        // no null literal AND no carrier to borrow, so a ⏸ would promise a mechanism that does
-        // not exist. INI is different in kind — spec §8.1 V-6 already registers an x+1-level
-        // "value-level null token", i.e. the tree itself says the way out is an agreement.
-        Row("S5", json: R, msgpack: R, toml: I, yaml: R, ini: D);
+        Row("S4", json: true, msgpack: true, toml: true, yaml: true, ini: false);
+        // S5  List<int?>                 nullable value leaf (TOML has no null literal)
+        Row("S5", json: true, msgpack: true, toml: false, yaml: true, ini: false);
         // S6  List<List<int?>>           deep nullable value leaf
-        Row("S6", json: R, msgpack: R, toml: I, yaml: R, ini: D);
+        Row("S6", json: true, msgpack: true, toml: false, yaml: true, ini: false);
         // S7  HashSet<int> as member     every format can express it as an array
-        Row("S7", json: R, msgpack: R, toml: R, yaml: R, ini: R);
+        Row("S7", json: true, msgpack: true, toml: true, yaml: true, ini: true);
         // S8  List<HashSet<int>>         extended collection as element
-        Row("S8", json: R, msgpack: R, toml: R, yaml: R, ini: D);
+        Row("S8", json: true, msgpack: true, toml: true, yaml: true, ini: false);
         // S9  Dictionary<string,int>     flat dictionary
-        Row("S9", json: R, msgpack: R, toml: R, yaml: R, ini: R);
+        Row("S9", json: true, msgpack: true, toml: true, yaml: true, ini: true);
         // S10 Dictionary<string,List<int>>  dict value is a collection
-        Row("S10", json: R, msgpack: R, toml: R, yaml: R, ini: D);
+        Row("S10", json: true, msgpack: true, toml: true, yaml: true, ini: false);
         // S11a self recursion (TOML: nested tables)
-        Row("S11a", json: R, msgpack: R, toml: R, yaml: R, ini: I);
+        Row("S11a", json: true, msgpack: true, toml: true, yaml: true, ini: false);
         // S11b mutual recursion
-        Row("S11b", json: R, msgpack: R, toml: R, yaml: R, ini: I);
+        Row("S11b", json: true, msgpack: true, toml: true, yaml: true, ini: false);
         // S12 List<string?>              null ELEMENT (YAML: `- null`)
-        Row("S12", json: R, msgpack: R, toml: I, yaml: R, ini: I);
+        Row("S12", json: true, msgpack: true, toml: false, yaml: true, ini: false);
         // S13 Dictionary<string,int?>    null VALUE
-        Row("S13", json: R, msgpack: R, toml: D, yaml: R, ini: D);
+        Row("S13", json: true, msgpack: true, toml: false, yaml: true, ini: false);
         return facts;
     }
 
@@ -574,14 +524,10 @@ internal static class DecisionTables
                     continue;
                 }
 
-                // Representable, not "not Impossible": a DEFERRED cell is a format that can
-                // hold the shape and code that does not, so it must not be promoted to
-                // Supported — that would move its terminal matrix cell to ✅ and claim an
-                // implementation plus (for S2 x ini) a wire convention nobody has written.
                 var representable = true;
                 foreach (var shapeId in shapes)
                 {
-                    if (Facts[(fmt, shapeId)] == Capability.Representable)
+                    if (Facts[(fmt, shapeId)])
                         continue;
                     representable = false;
                     break;

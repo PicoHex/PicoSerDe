@@ -4,7 +4,7 @@
 > - 顶层对象列表往返：JSON/YAML/TOML/INI/MsgPack 均通过测试；
 > - INI 顶层对象列表的**内层标量字段**现在严格解析（非法值抛 `FormatException`，`c2865ca`）；
 > - INI/TOML 的 **嵌套对象属性**（`SomeDto` 内再嵌对象）仅支持一层，更深抛 `NotSupportedException`；
-> - INI 的**嵌套**对象列表属性（`List<SomeDto>` 作为 DTO 成员）按本规格的约定忽略（`PICOSERDE004`）：这是**我们的约定边界**（⏸，可 reopen），**不是格式的结构性限制**；reopen 需要一条新的 wire 约定（`[<member>.<index>]`），属 **`x+1` 级公共约定变更**（spec §8.1 记录在案），本轮不做。
+> - INI 的**嵌套**对象列表属性（`List<SomeDto>` 作为 DTO 成员）按文档化约定忽略（扁平 section 无法表达）。
 
 ## 1. YAML (~15 lines)
 

@@ -222,14 +222,14 @@ public class ShapeCompilationTests
             // Which verdict the drop deserves is the FACTS table's answer, not this file's:
             // ini cannot hold a cycle at all (⛔, spec §3), toml/yaml can and only lack the
             // polymorphic path (⏸, reopenable). Blaming the format for our own gap is D-4 ②.
-            var marker = FormatCapabilities.IsRepresentable(tag, "S11a")
+            var marker = FormatCapabilities.CanRepresent(tag, "S11a")
                 ? FormatCapabilities.DeferredMarker
                 : FormatCapabilities.ImpossibleMarker;
             await Assert
                 .That(message.StartsWith(marker, StringComparison.Ordinal))
                 .IsTrue()
                 .Because(
-                    $"IsRepresentable({tag}, S11a) decides the verdict, and the drop must say "
+                    $"CanRepresent({tag}, S11a) decides the verdict, and the drop must say "
                         + $"exactly that: {message}"
                 );
         }

@@ -21,9 +21,7 @@ public class RvArrayOfArraysHolder
 /// non-compiling code in TOML/YAML (List-only APIs on arrays) and array
 /// elements (<c>List&lt;TObject[]&gt;</c>, <c>TObject[][]</c>) failed in JSON.
 /// Arrays are now supported in JSON/MsgPack/TOML/YAML; INI keeps dropping
-/// object collections because this spec's INI convention is flat — our own
-/// boundary (⏸, reopenable), not a format fact (INI has no independent
-/// implementation to appeal to; spec §3). TOML arrays of tables have
+/// object collections because its format is flat. TOML arrays of tables have
 /// no chunk-resume strategy for arrays, so their streaming delegate is not
 /// registered (DeserializeFromStreamAsync fails loudly instead of silently
 /// returning partial data).
