@@ -536,6 +536,12 @@ represented and is dropped as `PICOSERDE004` like every other unrepresentable sh
 `List<SomeDto>` does round-trip: **our** writer emits each item as a numbered section (`[0]`, `[1]`, …).
 For an object list *inside* a DTO use TOML, YAML or JSON.
 
+A flat **scalar** list is the one list INI does carry as a member, as a comma-joined value
+(`Numbers = 1,2,3`). That encoding is **this generator's, at the value level** — another INI reader sees
+one opaque string, which is what the format carries — and it is the permitted kind: one layer, no new
+syntax, reversible (`"a,b"` is written `a\,b` and read back). It is not the same thing as the object list
+above, which would have to reinterpret a section NAME and therefore needs a grammar of our own.
+
 ² **YAML nullable leaves.** YAML can express a null (`null`, `Null`, `NULL` or `~`), so a nullable
 leaf is written as the null literal — `List<int?>`, `List<List<int?>>`, `List<string?>`, `List<Dto?>`
 and `Dictionary<string, int?>` all round-trip, with "null" (a value), "empty" (an empty collection) and
