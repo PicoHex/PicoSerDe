@@ -7,23 +7,23 @@
 
   <ItemGroup>
     <!-- Build infrastructure -->
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.403" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="11.0.100" />
 
     <!-- Testing -->
-    <PackageVersion Include="TUnit" Version="1.76.28" />
+    <PackageVersion Include="TUnit" Version="1.83.8" />
 
     <!-- Benchmarking -->
-    <PackageVersion Include="PicoBench" Version="2026.3.0" />
+    <PackageVersion Include="PicoBench" Version="2026.4.0" />
 
     <!-- Source generators (Roslyn) -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
 
     <!-- Third-party serialization libraries (cross-validation / benchmarks) -->
     <PackageVersion Include="ini-parser-netstandard" Version="2.5.3" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Ini" Version="10.0.*" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Ini" Version="11.0.*" />
     <PackageVersion Include="MessagePack" Version="3.1.*" />
     <PackageVersion Include="Tommy" Version="3.1.2" />
-    <PackageVersion Include="Tomlyn" Version="2.10.*" />
+    <PackageVersion Include="Tomlyn" Version="2.11.*" />
     <PackageVersion Include="YamlDotNet" Version="18.*" />
   </ItemGroup>
 </Project>
