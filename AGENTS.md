@@ -24,8 +24,8 @@ tracked doc or a commit message instead.
 ## Format capability rule (iron rule)
 
 **Never support a construct the wire format itself cannot express, and never simulate one with an encoding
-trick.** No comma-joined strings, no escape gymnastics, no synthesised wrapper keys, no private extensions to a
-format's grammar. A shape the format cannot hold is **dropped during extraction and reported** (`PICOSERDE003` /
+trick.** No synthesised wrapper keys, no private extensions to a format's grammar, and no encoding that changes
+what a document IS. A shape the format cannot hold is **dropped during extraction and reported** (`PICOSERDE003` /
 `PICOSERDE004`, `Warning`, `Location.None`, so `#pragma` cannot silence it) — the drop shows up in the build log
 instead of surfacing later as a mysteriously empty property (`README.md:494-501`, `:511-514`).
 
@@ -48,6 +48,25 @@ carries the meaning, and the test is another party's reader, not our writer. Mea
 **one string**; none turns `[Rows.0]`/`[Rows.1]` into a list (all three hand back two opaque section
 names), and none has a value-level null (values are strings). So INI carries a nested object only as a
 *member-level section*, a flat list only as a comma string at the value level, and no nesting at all.
+
+**The value-level exception — where "an encoding trick" is NOT meant.** A single-layer shape may be packed
+into ONE opaque value the format already carries (INI `V = 1,2,3` for `List<int>`; `\,` and `\\` escaping for
+`List<string>`). That is not simulating a construct the format lacks, because the format carries the value
+faithfully and **an independent reader returns exactly the text we wrote without knowing anything about us**. It
+is permitted only while all four hold:
+
+1. the format's **own value slot** carries it — no new syntax, no new document structure;
+2. an independent reader recovers the **exact text**, with no knowledge of our types (measured, not assumed);
+3. the encoding is **lossless and reversible**, with a round-trip test pinning the awkward cases (`"a,b"`,
+   `"c\\d"` — `PicoIni/tests/PicoIni.Tests/ListPropertyRoundTripTests.StringList_WithEscapedComma_RoundTrips`);
+4. it is **one layer** — a flat list of scalars. Packing a *nested* shape into a value is the forbidden kind:
+   the reader would have to parse a grammar we invented.
+
+**The line is not "does it need a convention".** Both camps need one. The line is **what the convention
+reinterprets**: a value-level encoding reinterprets ONE VALUE, which the format already treats as opaque text;
+a structural convention reinterprets the DOCUMENT — `[Rows.0]` makes a section name mean "element 0 of member
+`Rows`", so a reader cannot even see one logical object without learning us. The first keeps the wire honest;
+the second invents a grammar. That is why `V = 1,2,3` is ✅ and `[Rows.0]` is ⛔.
 
 1. **⛔ is terminal: either the format cannot hold the shape, or the type cannot be instantiated at all.**
    `FormatCapabilities.ImpossibleMarker` (`shared/Gen/FormatCapabilities.cs:192`); the diagnostic title is *this format cannot hold a type cycle*

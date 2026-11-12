@@ -107,6 +107,10 @@ var ini = IniSerializer.Serialize(config);
   `PICOSERDE003` — visible in the build log, not silent.
 - Objects nested deeper than one level throw `NotSupportedException` instead of silently losing data.
 - List values parse strictly and culture-invariantly: malformed elements throw `FormatException`; `List<int>`, `List<bool>`, `List<DateOnly>`, `List<TimeSpan>`, etc. round-trip.
+  The comma-joined text (`V = 1,2,3`) is **this generator's value-level encoding**, not an INI convention:
+  another INI reader sees one opaque string, which is exactly what the format carries. It may only ever be one
+  layer and must stay reversible (`"a,b"` is written `a\,b` and read back) — a nested shape packed into a
+  value would make the reader parse a grammar we invented (`AGENTS.md`, the value-level exception).
 - Enum values parse strictly too: an unparseable enum text throws `FormatException` naming the member and offset. It previously fell back silently to the default (`0`) enum member.
 
 ## Performance
