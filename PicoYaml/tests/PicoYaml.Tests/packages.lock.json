@@ -16,7 +16,7 @@
       },
       "TUnit": {
         "type": "Direct",
-        "requested": "[1.83.8, )",
+        "requested": "[1.83.*, )",
         "resolved": "1.83.8",
         "contentHash": "rSGKCMpH0zHsA7cL9p3HRx5/EkwCzEznTStjxuFMuynGdIkvACw1Ei+97f/TISTVC4PZwNZWrTIDky3AVnrlOw==",
         "dependencies": {
@@ -29,7 +29,7 @@
       },
       "YamlDotNet": {
         "type": "Direct",
-        "requested": "[18.*, )",
+        "requested": "[18.1.*, )",
         "resolved": "18.1.0",
         "contentHash": "5K+9KFg2TdTl7VXv88Qzi/0lqK6JFoNP3lRuImPYGRV7K/QYklDyTrj4+A+KAki1JsQi6qKY+hDyY7d6WRqjrw=="
       },

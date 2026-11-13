@@ -5,25 +5,39 @@
     <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
   </PropertyGroup>
 
+  <!--
+    Floating policy: float ONLY the last segment, the one a package promises
+    will never carry a breaking change.
+      one-party Pico* packages, year.x.y  becomes  year.x.*
+      official and third-party, x.y.z     becomes  x.y.*
+    Floating across a minor (a bare x.*) is deliberately NOT used: a minor
+    bump is the boundary where a transitive dependency or an analyzer can
+    quietly change behaviour under us, so it has to arrive as a reviewed
+    lock refresh instead. A lock file is committed for every project, so a
+    float can only move when this repo re-restores and commits the new lock.
+  -->
   <ItemGroup>
     <!-- Build infrastructure -->
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="11.0.100" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="11.0.*" />
 
     <!-- Testing -->
-    <PackageVersion Include="TUnit" Version="1.83.8" />
+    <PackageVersion Include="TUnit" Version="1.83.*" />
 
     <!-- Benchmarking -->
-    <PackageVersion Include="PicoBench" Version="2026.4.0" />
+    <PackageVersion Include="PicoBench" Version="2026.4.*" />
 
     <!-- Source generators (Roslyn) -->
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.*" />
 
-    <!-- Third-party serialization libraries (cross-validation / benchmarks) -->
-    <PackageVersion Include="ini-parser-netstandard" Version="2.5.3" />
+    <!-- Third-party serialization libraries (cross-validation / benchmarks).
+         All four are referenced by tests and benchmarks only, never by src,
+         so their float costs the test suite and not shipped code. -->
+    <PackageVersion Include="ini-parser-netstandard" Version="2.5.*" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Ini" Version="11.0.*" />
     <PackageVersion Include="MessagePack" Version="3.1.*" />
-    <PackageVersion Include="Tommy" Version="3.1.2" />
+    <PackageVersion Include="Tommy" Version="3.1.*" />
     <PackageVersion Include="Tomlyn" Version="2.11.*" />
-    <PackageVersion Include="YamlDotNet" Version="18.*" />
+    <!-- Narrowed from 18.* down to the current minor, per the policy above. -->
+    <PackageVersion Include="YamlDotNet" Version="18.1.*" />
   </ItemGroup>
 </Project>
