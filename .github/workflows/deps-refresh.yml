@@ -1,0 +1,81 @@
+name: Dependency refresh
+
+# The lock files pin every package, including the four versions in
+# Directory.Packages.props that are deliberately floating
+# (MessagePack 3.1.*, Tomlyn 2.11.*, YamlDotNet 18.*,
+# Microsoft.Extensions.Configuration.Ini 11.0.*). A lock file nobody refreshes
+# turns a floating version into a frozen one, so this workflow is what actually
+# makes those floats move: it re-evaluates the ranges and turns any change into
+# a PR. It is the only writer of the locks -- CI restores in locked mode
+# (see ci.yml) and stays reproducible.
+
+on:
+  schedule:
+    # Mondays 04:17 UTC. Off the hour on purpose: cron jobs queued at :00 can be
+    # delayed by tens of minutes, and this job's timing carries no meaning anyway.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: deps-refresh
+  cancel-in-progress: false
+
+env:
+  DOTNET_VERSION: 10.0.x
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      # NuGet.config declares artifacts/nupkg as a source; on a clean checkout the
+      # directory does not exist and restore fails on the missing source.
+      - name: Create local feed dir (NuGet.config local source)
+        run: mkdir -p ./artifacts/nupkg
+      # --force-evaluate ignores the versions already recorded in the lock files
+      # and asks the feed again. The restore is scoped to the solution file, so
+      # the experiment harnesses under .superpowers/ (gitignored, and never
+      # restored here) cannot contribute a lock file to the commit.
+      - name: Re-evaluate floating versions
+        run: dotnet restore PicoSerDe.slnx --force-evaluate
+      # A failed restore throws above and never reaches the PR step, so what lands
+      # here is always a lock file NuGet produced on a complete graph.
+      - name: What moved
+        if: always()
+        run: git --no-pager diff --stat -- '**/packages.lock.json'
+      - name: Open or update the refresh PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "build(deps): refresh lock files"
+          title: "build(deps): refresh lock files"
+          branch: chore/deps-refresh
+          delete-branch: true
+          # Only lock files. .superpowers/ is gitignored on top of that, so a stray
+          # lock from a harness project could not be added even if one appeared.
+          add-paths: |
+            **/packages.lock.json
+          body: |
+            Automated `dotnet restore PicoSerDe.slnx --force-evaluate`.
+
+            The third-party versions in `Directory.Packages.props` are deliberately
+            floating (`MessagePack 3.1.*`, `Tomlyn 2.11.*`, `YamlDotNet 18.*`,
+            `Microsoft.Extensions.Configuration.Ini 11.0.*`) and CI builds against
+            the committed `packages.lock.json` files in locked mode. This PR is how
+            those floats move.
+
+            Review the version deltas before merging: the merged locks are the
+            versions that ship.
+
+            Note: a PR opened with `GITHUB_TOKEN` does not trigger CI (GitHub
+            suppresses workflow runs it authored itself). The locked-mode restore
+            runs on the push to `main` after merge, which is where a bad lock shows
+            up -- so merge only what you have read.
