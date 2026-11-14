@@ -46,7 +46,16 @@ jobs:
       - name: Restore
         run: |
           mkdir -p ./artifacts/nupkg
-          dotnet restore -p:UseProjectReferences=true
+          # Locked mode: the committed packages.lock.json files are the only way a
+          # version moves. Four third-party versions in Directory.Packages.props are
+          # deliberately floating (MessagePack 3.1.*, Tomlyn 2.11.*, YamlDotNet 18.*,
+          # Microsoft.Extensions.Configuration.Ini 11.0.*), so without this a build could
+          # silently resolve a patch nobody reviewed. Refreshing them is the
+          # deps-refresh workflow's job, not the build's.
+          # NOT set on the legs that install this repo's own packages from
+          # ./artifacts/nupkg (the AOT publishes below, scripts/pack-local-feed.ps1):
+          # those graphs come from freshly packed artifacts, not from the lock.
+          dotnet restore -p:UseProjectReferences=true -p:RestoreLockedMode=true
       - run: dotnet build --configuration Release --no-restore -p:UseProjectReferences=true
       # TUnit on Microsoft.Testing.Platform: `dotnet test` shows flaky test
       # discovery in this repo, so each test project is executed directly with

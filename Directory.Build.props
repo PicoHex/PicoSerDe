@@ -4,6 +4,12 @@
     <Version>0.0.0-dev</Version>
     <UseProjectReferences Condition="'$(UseProjectReferences)' == ''">true</UseProjectReferences>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Every restored project gets a packages.lock.json, and CI restores with
+         RestoreLockedMode=true: a floating version (see Directory.Packages.props)
+         can only move when a refreshed lock is committed, never silently mid-build.
+         Moving them is the deps-refresh workflow's job (.github/workflows/deps-refresh.yml),
+         which is what makes the floating versions move at all. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -46,6 +52,23 @@
   -->
   <PropertyGroup>
     <AotOptimizationLevel Condition="'$(AotOptimizationLevel)' == ''">minimal</AotOptimizationLevel>
+  </PropertyGroup>
+
+  <!--
+    Restore must be RID-neutral, or the lock files cannot be host-independent.
+    PublishAot=true makes the SDK infer PublishRuntimeIdentifier =
+    $(NETCoreSdkPortableRuntimeIdentifier) and append it to RuntimeIdentifiers AT
+    RESTORE, which bakes a `net10.0/<host-rid>` section into every executable's
+    packages.lock.json. A lock generated on win-x64 then fails NU1004 on the
+    linux/osx CI legs ("runtime identifiers have changed"), and the other way
+    round, so the committed lock would depend on who last refreshed it.
+    Disabling the default keeps RuntimeIdentifiers empty unless a RID is asked
+    for: every `dotnet publish` in this repo passes an explicit -r (ci.yml,
+    scripts, docs), and the PublishAotOnRun target below always passes -r too.
+    A publish WITHOUT -r for an AOT project now needs the -r it always implied.
+  -->
+  <PropertyGroup>
+    <UseDefaultPublishRuntimeIdentifier>false</UseDefaultPublishRuntimeIdentifier>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(AotOptimizationLevel)' == 'minimal'">
