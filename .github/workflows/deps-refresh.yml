@@ -10,10 +10,6 @@ name: Dependency refresh
 # (see ci.yml) and stays reproducible.
 
 on:
-  schedule:
-    # Mondays 04:17 UTC. Off the hour on purpose: cron jobs queued at :00 can be
-    # delayed by tens of minutes, and this job's timing carries no meaning anyway.
-    - cron: "17 4 * * 1"
   workflow_dispatch:
 
 permissions:
