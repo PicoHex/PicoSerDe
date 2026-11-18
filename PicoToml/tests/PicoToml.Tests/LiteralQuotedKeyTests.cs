@@ -203,4 +203,25 @@ public class LiteralQuotedKeyTests
                     .V
             )
             .IsEqualTo("null");
+
+    [Test]
+    public async Task UnterminatedLiteralQuotedKey_SaysSoInTheMessage()
+    {
+        // The type alone is not a pin: with the end-of-input rejection removed the reader
+        // still throws a FormatException — from the '=' it then fails to find — so a
+        // type-only assertion stays green while the literal-string guard is gone. The
+        // message is what distinguishes "this literal key never closed" from "no '=' here".
+        string? message = null;
+        try
+        {
+            var r = new TomlReader("'a = 1\n"u8);
+            while (r.Read()) { }
+        }
+        catch (FormatException ex)
+        {
+            message = ex.Message;
+        }
+
+        await Assert.That(message).IsEqualTo("Invalid TOML line: unterminated literal string.");
+    }
 }

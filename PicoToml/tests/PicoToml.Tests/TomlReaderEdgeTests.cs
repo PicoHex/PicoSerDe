@@ -96,4 +96,33 @@ public class TomlReaderEdgeTests
         await Assert.That(ok).IsTrue();
         await Assert.That(double.IsNaN(v)).IsTrue();
     }
+
+    [Test]
+    public async Task ArrayWithBracketsInsideStrings_IsCompleteInNonFinalBlock()
+    {
+        // Non-final block: everything after the closing ']' may still be missing, so the
+        // reader has to decide "is this bracketed value complete?" from the bytes it holds.
+        // The '[' inside "a[b" is string content, not nesting: the array really does close
+        // on this line, so its five tokens must come out now. If string content were
+        // scanned as brackets, the depth would still be open at end of input, the value
+        // would be declared incomplete, and the reader would throw IncompleteInputException
+        // (or ask for a chunk) instead of tokenising what is plainly there.
+        var types = new List<TokenType>();
+        var values = new List<string>();
+        {
+            var reader = new TomlReader("V = [\"a[b\", \"c\"]\n"u8, isFinalBlock: false);
+            while (reader.Read())
+            {
+                types.Add(reader.TokenType);
+                if (reader.TokenType is TokenType.String)
+                    values.Add(Encoding.UTF8.GetString(reader.ValueSpan));
+            }
+        }
+
+        await Assert
+            .That(string.Join(",", types))
+            .IsEqualTo("PropertyName,ArrayStart,String,String,ArrayEnd")
+            .Because("V, the array, its two string members and the array end");
+        await Assert.That(string.Join("|", values)).IsEqualTo("a[b|c");
+    }
 }
