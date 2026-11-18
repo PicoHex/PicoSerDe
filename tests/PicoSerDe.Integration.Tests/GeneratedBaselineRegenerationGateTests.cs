@@ -537,9 +537,31 @@ public class GeneratedBaselineRegenerationGateTests
     /// <c>CompilerGeneratedFilesOutputPath</c> (and may skip the compiler outright), which is how a byte gate
     /// fakes a pass — <c>docs/r1/gate-evidence.md</c> spells this out. <c>-m:1</c> keeps the nested build to
     /// one project graph at a time, like the repo's own build instructions.
+    /// <para>
+    /// <b>The whole rebuild runs under <see cref="NestedBuildLock"/>, and it has to.</b> The output
+    /// directory below is unique per call, but MSBuild's <b>intermediate</b> output is not: <c>-t:Rebuild</c>
+    /// writes into <c>tests/FormatCapabilities.Probe/obj</c> and <c>bin</c>, paths that carry no instance
+    /// identity — and <c>dotnet test PicoSerDe.slnx</c> runs this same test from the <c>net10.0</c> <i>and</i>
+    /// the <c>net11.0</c> test process at once, so the two nested builds compile into one file and one of them
+    /// dies with <c>CS2012: … being used by another process</c>. <c>[NotInParallel]</c> on the test serialises
+    /// tests inside one process and cannot see the other one, so the exclusion has to be cross-process: the
+    /// second caller <b>waits</b> for the first, which costs it one rebuild's seconds (4–18 s, measured) and
+    /// changes nothing about what either caller compares. Measured before the lock existed: one
+    /// full-solution run failed this gate with CS2012 on <c>FormatCapabilities.Probe.dll</c> while both
+    /// <c>-f net10.0</c> and <c>-f net11.0</c> runs of this project were green.
+    /// </para>
     /// </remarks>
     static async Task<BuildResult> Regenerate(string root, string outputDirectory)
     {
+        // Taken before anything else, because the assets-file probe below and the build itself both read
+        // and write the probe's obj/ — the shared state, as opposed to the unique output directory.
+        using var buildLock = await NestedBuildLock.AcquireAsync(
+            root,
+            ProbeProjectRelativePath,
+            BuildTimeout,
+            "the probe rebuild the baseline gate needs"
+        );
+
         var configuration = BuildConfiguration();
         var project = Path.Combine(root, ProbeProjectRelativePath);
 

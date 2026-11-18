@@ -448,6 +448,17 @@ public class ApiSurfaceDiffCriterionTests
     {
         var root = TestRepo.Root();
 
+        // The tool's obj/ and bin/ are not per-TFM and not per-process: the net10.0 and the net11.0 test
+        // process both run this exact command, so without the cross-process lock they compile into one
+        // file and the loser fails with `CS2012: … picohex-api-surface.dll … being used by another
+        // process` — six tests red in a full `dotnet test PicoSerDe.slnx` run, green one TFM at a time.
+        using var buildLock = await NestedBuildLock.AcquireAsync(
+            root,
+            ToolProjectRelativePath,
+            BuildTimeout,
+            "the api-surface build these tests drive"
+        );
+
         var dll = Path.Combine(root, ToolAssemblyRelativePath);
 
         var startInfo = new ProcessStartInfo
