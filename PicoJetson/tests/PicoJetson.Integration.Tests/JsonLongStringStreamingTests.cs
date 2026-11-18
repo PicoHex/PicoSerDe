@@ -36,8 +36,20 @@ public class JsonLongStringStreamingTests
         return body[..cut];
     }
 
+    /// <summary>
+    /// <b>The budget is a hang guard, not a speed expectation.</b> Twelve of these thirteen cases finish in
+    /// 0.1–0.5 s; <c>(plain, 65536, 1)</c> — 65 536 one-byte chunk refills over a 65 536-character string —
+    /// takes <b>49.5 s</b> on an idle machine (measured from this suite's own report span), so the old
+    /// two-minute budget stood at 2.4× its workload and said more about the machine than about the code. With
+    /// both target frameworks running at once (multi-targeting: two processes, every test twice) that case
+    /// timed out at exactly 2 m in <b>both</b> processes, while <c>-f net10.0</c> alone stayed green. Ten
+    /// minutes is the bound this repository's long tests already allow (the nested builds), and a real hang —
+    /// the thing this attribute exists for — is still reported instead of waited for. The cost itself is a
+    /// reader question, not a test question: per chunk the runner copies the buffer and constructs a reader,
+    /// so a one-byte stream makes that work quadratic. Nothing here asserts less than it did.
+    /// </summary>
     [Test]
-    [Timeout(120_000)]
+    [Timeout(600_000)]
     [Arguments("plain", 1024, 1)]
     [Arguments("plain", 1024, 7)]
     [Arguments("plain", 1024, 256)]

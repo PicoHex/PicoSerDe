@@ -242,7 +242,12 @@ public class StreamingChunkMatrixTests
         for (int i = 0; i < 2000; i++)
             doc.Rows.Add(new StreamRow { Id = i, Name = "n" + i });
         var json = JsonSerializer.Serialize(doc);
-        var path = Path.Combine(Path.GetTempPath(), "picoserde-plan1.json");
+        // Named per run, not per test: this assembly is multi-targeted, so the net10.0 and the net11.0
+        // process run this test at the same time and a fixed file name put both of them on one file — the
+        // second got `IOException: The process cannot access the file '…/picoserde-plan1.json' because it
+        // is being used by another process`. Measured in a full `dotnet test PicoSerDe.slnx` run; `-f
+        // net10.0` alone was green, because then there is only one writer.
+        var path = Path.Combine(Path.GetTempPath(), $"picoserde-plan1-{Guid.NewGuid():N}.json");
         await File.WriteAllTextAsync(path, json, ct);
         try
         {
