@@ -4,11 +4,19 @@
     <Version>0.0.0-dev</Version>
     <UseProjectReferences Condition="'$(UseProjectReferences)' == ''">true</UseProjectReferences>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <!-- Every restored project gets a packages.lock.json, and CI restores with
-         RestoreLockedMode=true: a floating version (see Directory.Packages.props)
-         can only move when a refreshed lock is committed, never silently mid-build.
-         Moving them is the deps-refresh workflow's job (.github/workflows/deps-refresh.yml),
-         which is what makes the floating versions move at all. -->
+    <!-- packages.lock.json is a RECORD, not a pin, and this switch is what writes it.
+
+         A floating version (see Directory.Packages.props) resolves to the newest
+         matching release inside its declared band on every restore, so the lock beside
+         each project records what THIS restore resolved. Nothing is pinned against it
+         and CI does not replay it: the file is gitignored, because `dotnet publish`
+         writes RID-specific entries (Microsoft.DotNet.ILCompiler) into it and a tracked
+         lock dirtied the tree on every release. "Which versions did that build use" is
+         answered by the `resolved-versions` artifact ci.yml uploads (one per leg).
+
+         Deliberately still TRUE: with this off NuGet neither writes nor reads a lock
+         file, so a restore resolves silently and leaves nothing to inspect. Untracked
+         is not off. -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 

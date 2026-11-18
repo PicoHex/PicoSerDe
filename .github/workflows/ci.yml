@@ -46,17 +46,32 @@ jobs:
       - name: Restore
         run: |
           mkdir -p ./artifacts/nupkg
-          # Locked mode: the committed packages.lock.json files are the only way a
-          # version moves. Four third-party versions in Directory.Packages.props are
-          # deliberately floating (MessagePack 3.1.*, Tomlyn 2.11.*, YamlDotNet 18.*,
-          # Microsoft.Extensions.Configuration.Ini 11.0.*), so without this a build could
-          # silently resolve a patch nobody reviewed. Refreshing them is the
-          # deps-refresh workflow's job, not the build's.
-          # NOT set on the legs that install this repo's own packages from
-          # ./artifacts/nupkg (the AOT publishes below, scripts/pack-local-feed.ps1):
-          # those graphs come from freshly packed artifacts, not from the lock.
-          dotnet restore -p:UseProjectReferences=true -p:RestoreLockedMode=true
+          # No locked mode: nothing is committed to lock AGAINST. Four third-party
+          # versions in Directory.Packages.props are deliberately floating (MessagePack
+          # 3.1.*, Tomlyn 2.11.*, YamlDotNet 18.*, Microsoft.Extensions.Configuration.Ini
+          # 11.0.*), and a plain restore takes the newest release inside each declared
+          # range on every run -- the packages.lock.json this writes is a local record of
+          # what that resolution was, gitignored and never replayed. It survives the run
+          # as the `resolved-versions` artifact uploaded below.
+          dotnet restore -p:UseProjectReferences=true
       - run: dotnet build --configuration Release --no-restore -p:UseProjectReferences=true
+
+      # The resolved versions, as data instead of as a committed file. Restore writes
+      # `packages.lock.json` beside every project (RestorePackagesWithLockFile=true in
+      # Directory.Build.props) and .gitignore keeps it out of the tree; uploading it here
+      # is what makes "which exact versions did this build use" answerable after the
+      # runner is gone -- the one job the tracked lock used to do.
+      # `if: always()` on purpose: a leg that fails after restore still produced a
+      # resolution, and that is exactly the run somebody needs to inspect.
+      - name: Upload resolved versions (restore record)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resolved-versions-${{ matrix.logical-target }}
+          path: |
+            **/packages.lock.json
+          if-no-files-found: warn
+          retention-days: 30
       # TUnit on Microsoft.Testing.Platform: `dotnet test` shows flaky test
       # discovery in this repo, so each test project is executed directly with
       # `dotnet run` (see the tunit-runner skill).
