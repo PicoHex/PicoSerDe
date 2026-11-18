@@ -231,6 +231,87 @@ public class VerdictMarkerGuardTests
             .Because("the one ⚠ template keeps its OWN constant: ⚠ is not a capability verdict");
     }
 
+    // ── 4. every ⏸ template carries its reopen pointer ─────────────────────────────
+
+    /// <summary>
+    /// AGENTS.md rule 5: when the format CAN express a shape and this framework cannot, the gap is
+    /// <b>our debt</b>, and the debt must be <b>registered</b> — a <c>reopen:</c> pointer in the
+    /// message, so the reader is told where the condition is written down instead of being left with
+    /// "somebody has not implemented it yet".
+    /// <para>
+    /// <b>Why this needs its own guard.</b> Ablation on <c>0ae36ca</c>: deleting the <c>reopen:</c>
+    /// tail from PICOSERDE004 turns a test red, but deleting it from <b>PICOSERDE001, PICOSERDE003
+    /// and PICOSERDE006</b> left the whole suite green — four of the five ⏸ templates were never
+    /// fenced, and the one that was (004) was fenced by a behavioural test that happens to read its
+    /// message, not by the rule. A rule only one of five instances is held to is not a rule: the next
+    /// ⏸ template would be written without a pointer and nothing would say so.
+    /// </para>
+    /// <para>
+    /// The scan is syntactic and mirrors guard 3: it walks every <c>messageFormat:</c> argument of
+    /// every diagnostic creation under <c>shared/Gen</c>, keeps the templates whose expression
+    /// <b>starts</b> with <see cref="FormatCapabilities.DeferredMarker"/> (the left-most operand of
+    /// the concatenation — the glyph itself), and requires the template's prose to contain the
+    /// literal <c>reopen:</c>. Reading the string literals rather than the whole expression text is
+    /// deliberate: a <c>reopen:</c> surviving only in a doc comment is prose, not a pointer.
+    /// </para>
+    /// <para>
+    /// The family is pinned by count AND by id, so this guard cannot pass by seeing nothing: a
+    /// template that lost its ⏸ reference fails guard 3's count, a sixth ⏸ template has to be a
+    /// visible edit here, and a ⏸ whose prose was trimmed fails the per-template check below.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task Every_deferred_template_carries_a_reopen_pointer()
+    {
+        var deferred = GenFiles()
+            .SelectMany(MessageFormats)
+            .Where(t => StartsWithDeferredMarker(t.Message))
+            .ToArray();
+
+        await Assert
+            .That(deferred.Length)
+            .IsEqualTo(DeferredTemplateCount)
+            .Because(
+                "the scan must see the WHOLE ⏸ family (every messageFormat whose expression starts "
+                    + "with FormatCapabilities.DeferredMarker), otherwise \"no template lacks a "
+                    + "reopen: pointer\" is satisfied by finding none. Found: "
+                    + string.Join(" | ", deferred.Select(t => $"{t.Id} ({t.File}:{t.Line})"))
+            );
+
+        // Pinned by id, because the id is the public contract: PICOSERDE001's member-drop sibling,
+        // 003 (recursion), 004 (a shape dropped in the ⏸ wording), 005 (anonymous collections) and
+        // 006 (the member-kind emitter gap). A sixth would be a visible edit, never a silent one.
+        await Assert
+            .That(
+                string.Join(
+                    ",",
+                    deferred
+                        .Select(t => t.Id)
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(id => id, StringComparer.Ordinal)
+                )
+            )
+            .IsEqualTo("PICOSERDE001,PICOSERDE003,PICOSERDE004,PICOSERDE005,PICOSERDE006")
+            .Because("the ⏸ family, by id");
+
+        var missing = deferred
+            .Where(t => !MessageText(t.Message).Contains("reopen:", StringComparison.Ordinal))
+            .Select(t => $"{t.Id} ({t.File}:{t.Line})")
+            .ToArray();
+
+        await Assert
+            .That(missing.Length)
+            .IsEqualTo(0)
+            .Because(
+                "every ⏸ message must carry a `reopen:` pointer (AGENTS.md rule 5: a debt has to be "
+                    + "REGISTERED, not merely admitted). A ⏸ that says \"not implemented yet\" and "
+                    + "stops there tells the reader the gap is reopenable but not where its "
+                    + "condition is written down — the dead end the pointer exists to prevent. "
+                    + "Templates without one: "
+                    + string.Join(" | ", missing)
+            );
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────────────
 
     private static string GenDir() => Path.Combine(TestRepo.Root(), "shared", "Gen");
@@ -309,6 +390,95 @@ public class VerdictMarkerGuardTests
 
         return counts;
     }
+
+    /// <summary>
+    /// Every <c>messageFormat:</c> argument under <c>shared/Gen</c>, as (id, file, line, expression).
+    /// The <c>id:</c> argument is read too — it is the public contract, and naming a template by it
+    /// makes a failure say WHICH verdict lost its pointer. A creation with no literal <c>id:</c>
+    /// still yields a row (<c>&lt;no id&gt;</c>): the ⏸ rule is about the message, not about the id.
+    /// </summary>
+    private static IEnumerable<(
+        string Id,
+        string File,
+        int Line,
+        ExpressionSyntax Message
+    )> MessageFormats(string file)
+    {
+        var root = CSharpSyntaxTree.ParseText(File.ReadAllText(file)).GetRoot();
+        var name = Path.GetFileName(file);
+
+        // BaseObjectCreationExpressionSyntax covers BOTH spellings the descriptors use: the explicit
+        // `new DiagnosticDescriptor(...)` and the target-typed `new(...)` (an
+        // ImplicitObjectCreationExpressionSyntax, which an OfType<ObjectCreationExpressionSyntax>
+        // scan silently misses — the count assertion below is what caught that).
+        foreach (
+            var creation in root
+                .DescendantNodes()
+                .OfType<BaseObjectCreationExpressionSyntax>()
+        )
+        {
+            if (creation.ArgumentList is not { } list)
+                continue;
+
+            var message = list.Arguments.FirstOrDefault(a =>
+                a.NameColon?.Name.Identifier.Text == "messageFormat"
+            );
+            if (message is null)
+                continue;
+
+            var id = list.Arguments
+                .FirstOrDefault(a => a.NameColon?.Name.Identifier.Text == "id")
+                ?.Expression;
+            yield return (
+                id is LiteralExpressionSyntax literal
+                && literal.IsKind(SyntaxKind.StringLiteralExpression)
+                    ? literal.Token.ValueText
+                    : "<no id>",
+                name,
+                LineOf(message),
+                message.Expression
+            );
+        }
+    }
+
+    /// <summary>
+    /// True when the template expression's LEFT-MOST operand reads the ⏸ constant — the glyph is the
+    /// first thing the reader sees, which is what "the template carries the ⏸ verdict" means. The
+    /// concatenation is walked down its left spine, so a wrapping parenthesis does not dodge the scan.
+    /// </summary>
+    private static bool StartsWithDeferredMarker(ExpressionSyntax expression)
+    {
+        while (true)
+        {
+            switch (expression)
+            {
+                case BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.AddExpression):
+                    expression = binary.Left;
+                    continue;
+                case ParenthesizedExpressionSyntax parenthesized:
+                    expression = parenthesized.Expression;
+                    continue;
+                case MemberAccessExpressionSyntax access:
+                    return access.Name.Identifier.Text == DeferredName;
+                default:
+                    return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The template's PROSE: every string literal inside the expression, concatenated in source
+    /// order. Not <c>ToString()</c>, because that carries trivia (comments included) — a
+    /// <c>reopen:</c> in a doc comment would then read as a pointer in the message.
+    /// </summary>
+    private static string MessageText(ExpressionSyntax expression) =>
+        string.Concat(
+            expression
+                .DescendantNodesAndSelf()
+                .OfType<LiteralExpressionSyntax>()
+                .Where(literal => literal.IsKind(SyntaxKind.StringLiteralExpression))
+                .Select(literal => literal.Token.ValueText)
+        );
 
     private static int LineOf(SyntaxNode node) =>
         node.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
