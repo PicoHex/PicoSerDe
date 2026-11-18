@@ -832,6 +832,10 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             lineIndent++;
             _position++;
         }
+        // Only a genuine line start carries the indentation of a line: after a token that ended
+        // mid-line the space run is separation, not indentation, and a tab there is legal.
+        if (lineStart == 0 || _data[lineStart - 1] is (byte)'\n' or (byte)'\r')
+            ThrowOnTabIndentation(_position);
         if (
             _position >= _data.Length
             || _data[_position] == (byte)'\n'
@@ -1640,6 +1644,34 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _position++;
     }
 
+    /// <summary>
+    /// YAML 1.2 §6.1 defines indentation as spaces only (<c>s-indent(n) ::= s-space × n</c>): a tab
+    /// is a separation character and may never advance the indentation. A tab in a line's leading
+    /// whitespace run is therefore an error — and the error this reader used to make was silence,
+    /// because the tab was kept as an ordinary byte: <c>a:\n\tb: 1</c> produced a root member
+    /// named <c>"\tb"</c> instead of the nested member the author wrote. Both conforming readers
+    /// refuse it (PyYAML: "found character '\t' that cannot start any token").
+    /// <para>
+    /// A whitespace-only line carries no indentation to violate, and a tab INSIDE a scalar is
+    /// content (a quoted value decodes <c>\t</c>, and a block scalar reads its own lines), so
+    /// neither reaches this check.
+    /// </para>
+    /// </summary>
+    /// <param name="pos">The first byte after the line's leading spaces.</param>
+    private void ThrowOnTabIndentation(int pos)
+    {
+        if (pos >= _data.Length || _data[pos] != (byte)'\t')
+            return;
+        int p = pos;
+        while (p < _data.Length && _data[p] is (byte)' ' or (byte)'\t')
+            p++;
+        if (p >= _data.Length || _data[p] is (byte)'\n' or (byte)'\r')
+            return; // a blank line: no indentation, nothing to violate
+        throw new FormatException(
+            $"Tab character at offset {pos} used as indentation: YAML 1.2 §6.1 indents with spaces only."
+        );
+    }
+
     // ── Double-quoted string scan + unescape (YAML spec: \" \\ \n \r \t \0 \b \f \a \v \e \/ \xXX \uXXXX \UXXXXXXXX) ──
 
     /// <summary>
@@ -1713,11 +1745,19 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             }
             _position++;
         }
-        if (_position >= _data.Length && !_isFinalBlock)
-            throw new IncompleteInputException();
+        if (_position >= _data.Length)
+        {
+            if (!_isFinalBlock)
+                throw new IncompleteInputException();
+            // §7.3.1: a double-quoted scalar is delimited by its closing quote. Running out of
+            // document instead is malformed, not a value that happens to reach end of file —
+            // which is what this used to return, silently.
+            throw new FormatException(
+                $"Unterminated YAML double-quoted scalar at offset {start}: the closing '\"' is owed."
+            );
+        }
         var content = _data[start.._position];
-        if (_position < _data.Length)
-            _position++; // consume closing quote
+        _position++; // consume closing quote
         if (!hasEscape)
             return content;
         return UnescapeDoubleQuoted(content);
@@ -1785,6 +1825,18 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                             TextHelpers.ReadHexEscape(src, ref si, 2)
                         );
                         break;
+                    case (byte)'N':
+                        di = TextHelpers.AppendCodepoint(buf, di, 0x85); // NEL
+                        break;
+                    case (byte)'_':
+                        di = TextHelpers.AppendCodepoint(buf, di, 0xA0); // NBSP
+                        break;
+                    case (byte)'L':
+                        di = TextHelpers.AppendCodepoint(buf, di, 0x2028); // LINE SEPARATOR
+                        break;
+                    case (byte)'P':
+                        di = TextHelpers.AppendCodepoint(buf, di, 0x2029); // PARAGRAPH SEPARATOR
+                        break;
                     case (byte)'u':
                         // A supplementary character may be written as two escapes
                         // (\uD83D\uDE00): join the surrogate pair before encoding.
@@ -1802,8 +1854,14 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                         );
                         break;
                     default:
-                        buf[di++] = esc;
-                        break; // passthrough unknown escape
+                        // §5.7: the escape set is CLOSED (`ns-esc-char`). An undefined escape
+                        // is a wire error — the JSON path has always said so for `\q`
+                        // (README.md:370), and this path used to drop the backslash and hand
+                        // back `q`, so the same input was invalid in one format and "valid" in
+                        // the other.
+                        throw new FormatException(
+                            $"Invalid escape character '{(char)esc}' at offset {si - 2} of a double-quoted scalar: YAML 1.2 §5.7 defines the escape set."
+                        );
                 }
             }
             else
@@ -1834,11 +1892,17 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             }
             _position++;
         }
-        if (_position >= _data.Length && !_isFinalBlock)
-            throw new IncompleteInputException();
+        if (_position >= _data.Length)
+        {
+            if (!_isFinalBlock)
+                throw new IncompleteInputException();
+            // Same rule as the double-quoted scan: the closing quote is owed (§7.3.2).
+            throw new FormatException(
+                $"Unterminated YAML single-quoted scalar at offset {start}: the closing '\'' is owed."
+            );
+        }
         var content = _data[start.._position];
-        if (_position < _data.Length)
-            _position++; // consume closing quote
+        _position++; // consume closing quote
         if (!hasDoubleQuote)
             return content;
         // Compact '' → '
@@ -1901,6 +1965,15 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         }
         if (!_seqReader.End)
             _seqReader.Advance(1); // consume closing quote
+        else
+        {
+            // Same rule as the span path: a quoted scalar owes its closing quote.
+            if (!_isFinalBlock)
+                throw new IncompleteInputException();
+            throw new FormatException(
+                $"Unterminated YAML double-quoted scalar at offset {_seqReader.Consumed}: the closing '\"' is owed."
+            );
+        }
         var content = buf.AsSpan(0, di);
         if (!hasEscape)
             return content;
