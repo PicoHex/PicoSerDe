@@ -509,7 +509,11 @@ format that can, or change the member's type.` — while a self-referencing memb
 `PICOSERDE003` — `Member 'X.Y' (declared type 'D') closes a type cycle, and the FMT format cannot
 represent one. Use a format that can hold recursion, or remove the cycle.` Both ids carry a second,
 *deferred* wording for a shape the format **can** hold and this generator has not implemented yet
-(the diagnostic title says which of the two fired). The rest of the document is written and
+(the diagnostic title says which of the two fired). Two further ids cover the cases where the answer is
+about **us** rather than the shape: `PICOSERDE006` — a member whose C# kind has no arm in the emit
+switches (our missing emitter, ⏸, with a `reopen:` pointer) — and `PICOSERDE007` — a type named by an
+attribute that nothing can construct (no primary constructor and no public parameterless one: ⛔,
+reported and skipped instead of emitted as `new T()`). The rest of the document is written and
 read as usual, so the drop shows up in the build log instead of surfacing later as a mysteriously
 empty property.
 
@@ -543,6 +547,16 @@ A flat **scalar** list is the one list INI does carry as a member, as a comma-jo
 one opaque string, which is what the format carries — and it is the permitted kind: one layer, no new
 syntax, reversible (`"a,b"` is written `a\,b` and read back). It is not the same thing as the object list
 above, which would have to reinterpret a section NAME and therefore needs a grammar of our own.
+
+**`object?` members** (not a row in this matrix — the any-value chain is not one of the modelled
+shapes S1…S13, and every cell above is pinned to spec §6). The value is dispatched on its **runtime** type (string / number / `bool` /
+object / array): JSON and MsgPack carry that type, so `object? Result = 42L` reads back a `long`. TOML,
+YAML and INI carry no value type at all — every value there is text — so the same member reads back the
+string `"42"`, which is what a `Dictionary<string, object?>` *value* does in those three as well
+(`AnyMemberCrossFormatTests`). A **null** `object?` member is written as `null` in JSON/MsgPack and
+omitted in TOML/YAML/INI, like any other null member there. A runtime type the chain has no form for
+**throws** instead of being stringified: the input is a value, so no generation-time diagnostic can
+exist for it.
 
 ² **YAML nullable leaves.** YAML can express a null (`null`, `Null`, `NULL` or `~`), so a nullable
 leaf is written as the null literal — `List<int?>`, `List<List<int?>>`, `List<string?>`, `List<Dto?>`
