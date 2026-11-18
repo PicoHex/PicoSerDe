@@ -106,6 +106,10 @@ var ini = IniSerializer.Serialize(config);
   and a recursive member (`Node Child` on `Node`) are dropped with `PICOSERDE004` /
   `PICOSERDE003` — visible in the build log, not silent.
 - Objects nested deeper than one level throw `NotSupportedException` instead of silently losing data.
+- **An `object?` member round-trips as its text — never silently.** INI carries no value *types* on the
+  wire (a value is the text between `=` and the end of the line), so `object? Result = 42L` comes back
+  as the string `"42"` and `= "boom"` comes back as `"boom"`; the value is kept, only its type is not
+  (`AnyMemberCrossFormatTests.Ini_any_member_*`). Nothing is dropped, so no diagnostic fires.
 - List values parse strictly and culture-invariantly: malformed elements throw `FormatException`; `List<int>`, `List<bool>`, `List<DateOnly>`, `List<TimeSpan>`, etc. round-trip.
   The comma-joined text (`V = 1,2,3`) is **this generator's value-level encoding**, not an INI convention:
   another INI reader sees one opaque string, which is exactly what the format carries. It may only ever be one

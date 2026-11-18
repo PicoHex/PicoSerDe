@@ -68,6 +68,12 @@ expressible: object lists (`List<Dto>`), nested primitive lists (`List<List<int>
 lists (`List<List<Dto>>`), nested nullable elements (`List<List<int?>>`, `nil` elements included)
 and recursive members. `PICOSERDE003` never fires for this format.
 
+An **`object?` member** round-trips both its value and its **type**: the member position reuses the
+same emitter/reader the dictionary-*value* and element positions use, so `object?` holding a `long`
+comes back a `long` (`AnyMemberCrossFormatTests.MsgPack_any_member_*`), a null is the `nil` literal,
+and a `nil` aimed at a non-nullable `object` member throws `FormatException` — the rule the rest of
+this section states.
+
 The drops that do happen come from rules shared with the other formats: the JSON-only **extended
 scalars** (`char`, `DateTimeOffset`, `Uri`, `Version`, `Half`, `BigInteger`, `Int128`, `UInt128`,
 `nint`) and `ConcurrentDictionary<K,V>` are dropped without a diagnostic; an anonymous-type

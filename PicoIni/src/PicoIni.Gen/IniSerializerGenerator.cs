@@ -1945,6 +1945,19 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                     pad
                 );
                 break;
+            case "any":
+                // INI carries no value TYPES on the wire: a value is the text between '=' and the
+                // end of the line, so this format reads every scalar through its own default arm
+                // (EmitReadValueStrict's `default:` -> GetString) and an `object?` member is that
+                // same rule with the member's name on it. Before this arm the switch had no case
+                // for kind "any" at all, so the read emitted an EMPTY else-block — the member kept
+                // its initializer and a value that had just been written came back null, silently
+                // and with no diagnostic. (The null literal itself is still handled by the
+                // EmitMemberNullGuard above, which this `else` branch sits inside.)
+                s.Append(pad);
+                EmitAssignTarget(s, p, target, ctorAssign);
+                s.AppendLine(" = Encoding.UTF8.GetString(reader.GetStringRaw());");
+                break;
         }
         if (__scalar)
         {

@@ -248,6 +248,11 @@ sequence is `V: []`, or `- []` for an inner one) and a missing member stay three
 documents. A null *member* — the collection itself being null — is still omitted rather than
 written (see [Null Handling](#null-handling)).
 
+An **`object?` member** round-trips its text both ways — the writer emits the value's own
+`ToString()` and the reader returns the scalar's bytes as a string, the same rule a
+`Dictionary<string, object?>` *value* follows (`AnyMemberCrossFormatTests.Yaml_any_member_*`); the
+value is kept, its .NET type is not, and nothing is dropped silently.
+
 Not representable, dropped at generation time with a warning (never emitted as code that would
 not compile):
 

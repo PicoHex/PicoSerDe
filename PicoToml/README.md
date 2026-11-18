@@ -93,6 +93,11 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
   `Node`) or a recursive **dict value** (`Dictionary<string, Node>` on `Node`) is still dropped with
   `PICOSERDE003`, reported as a `⏸` debt because TOML can carry the shape.
 - Objects nested deeper than one level throw `NotSupportedException` instead of silently losing data.
+- **An `object?` member round-trips as its text — never silently.** TOML values written from an
+  `object?` are `value.ToString()` (exactly what a `Dictionary<string, object?>` *value* is in this
+  format), so `object? Result = 42L` reads back as the string `"42"` — the value is kept, its type is
+  not (`AnyMemberCrossFormatTests.Toml_any_member_*`). A null `object?` member is omitted under
+  [Null Handling](#null-handling) like every other null member: `⛔` TOML has no null literal.
 
 Confirm what was dropped with `dotnet build 2>&1 | grep PICOSERDE` (the diagnostics carry
 `Location.None`, so `#pragma warning disable` cannot silence them). The full five-format matrix

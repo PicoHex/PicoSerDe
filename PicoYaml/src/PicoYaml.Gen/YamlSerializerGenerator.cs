@@ -1031,6 +1031,15 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.Append(ind);
                 s.AppendLine("yw.WriteEndMapping();");
                 break;
+            case "any":
+                // Same arm as the top-level member writer (see EmitSerialize): an `object?`
+                // member of a NESTED object writes its own ToString(), with the `!` the other
+                // any-emit sites in this file spell so generated code stays CS8604-free.
+                s.Append(ind);
+                s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                s.Append(accessor);
+                s.AppendLine(".ToString()!));");
+                break;
             default:
                 s.Append(ind);
                 s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
@@ -2470,6 +2479,20 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(valAccessor);
                     s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
                     break;
+                case "any":
+                    // The nullable-member branch of a top-level DTO member. An `object?` has no
+                    // declared type to hand the writer, so it writes the same text this format's
+                    // ANY arms write for a dict VALUE: the value's own ToString(). The `!` is not
+                    // decoration — object.ToString() is declared to return `string?`, so without
+                    // it every consumer with nullable enabled got CS8604 from generated code they
+                    // cannot edit, and this was the only any-emitting site in the file that left
+                    // it out (the null arm is the `if (p.IsNullable)` guard above, which has
+                    // already established the value is not null).
+                    s.Append(ind);
+                    s.Append("    yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(valAccessor);
+                    s.AppendLine(".ToString()!));");
+                    break;
                 default:
                     // guid/enum: ToString() is already culture-independent.
                     s.Append(ind);
@@ -2606,6 +2629,22 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append('.');
                     s.Append(p.Name);
                     s.AppendLine(".ToString(System.Globalization.CultureInfo.InvariantCulture)));");
+                    break;
+                case "any":
+                    // The MEMBER position writes the same text this format's ANY arms already
+                    // write for a dict VALUE (`key: <value.ToString()>`, see the `case "any":`
+                    // arms above): an `object?` member has no declared type to hand the writer,
+                    // so its own ToString() IS the wire value. The null-forgiving `!` is not
+                    // decoration — object.ToString() is declared to return `string?`, so without
+                    // it every consumer with nullable enabled got CS8604 from generated code they
+                    // cannot edit, and this was the only any-emit site in the file that omitted
+                    // the `!` its siblings spell.
+                    s.Append(ind);
+                    s.Append("yw.WriteString(Encoding.UTF8.GetBytes(");
+                    s.Append(target);
+                    s.Append('.');
+                    s.Append(p.Name);
+                    s.AppendLine(".ToString()!));");
                     break;
                 default:
                     // guid/enum: ToString() is already culture-independent.
