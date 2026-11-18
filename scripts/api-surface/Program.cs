@@ -18,6 +18,19 @@ namespace PicoHex.ApiSurface;
 ///   next-version [--last v2026.9.0] [--api-changed true|false]
 ///                [--year 2026] [--reset-on-year-change] [--explain]
 /// </summary>
+/// <summary>
+/// Which segment a release moves. <see cref="Auto"/> is the rule the API baseline can decide:
+/// a changed public API is an x bump, an unchanged one a y bump. The two forced values exist
+/// because some changes are invisible to that baseline — same public API, different behaviour
+/// (a wire change, a newly-thrown exception) — and the spec calls those x bumps too.
+/// </summary>
+internal enum Bump
+{
+    Auto,
+    X,
+    Y,
+}
+
 internal static class Program
 {
     private static int Main(string[] args)
@@ -57,11 +70,16 @@ internal static class Program
                 Exit 0 = identical, 1 = different, 2 = error.
 
             next-version [--last <tag>] [--api-changed <bool>] [--year <yyyy>]
-                         [--reset-on-year-change] [--explain]
+                         [--bump auto|x|y] [--reset-on-year-change] [--explain]
                 PicoHex rule: <year>.<x>.<y>
                   x bumps when the public API changed (y resets to 0)
                   y bumps when it did not
                   year is the current year (a stamp; carries x/y forward)
+                --bump x forces the minor segment for a change the API baseline
+                  cannot see: same public API, but behaviour tightened or
+                  loosened (spec section 8: a wire or runtime change is x+1).
+                  --bump y forces a patch release. auto (the default) derives
+                  from --api-changed.
                 With no --last, the first release is <year>.0.0.
             """
         );
@@ -302,6 +320,7 @@ internal static class Program
         var year = DateTime.UtcNow.Year;
         var resetOnYearChange = false;
         var explain = false;
+        var bump = Bump.Auto;
 
         for (var i = 1; i < args.Length; i++)
         {
@@ -318,6 +337,22 @@ internal static class Program
                     if (!int.TryParse(args[++i], out year))
                         return Usage("--year expects a four-digit year");
                     break;
+                case "--bump" when i + 1 < args.Length:
+                    switch (args[++i])
+                    {
+                        case "auto":
+                            bump = Bump.Auto;
+                            break;
+                        case "x":
+                            bump = Bump.X;
+                            break;
+                        case "y":
+                            bump = Bump.Y;
+                            break;
+                        default:
+                            return Usage("--bump expects auto, x or y");
+                    }
+                    break;
                 case "--reset-on-year-change":
                     resetOnYearChange = true;
                     break;
@@ -332,11 +367,12 @@ internal static class Program
         if (year is < 2000 or > 2100)
             return Fail($"year out of range: {year}");
 
-        var next = NextVersion(last, apiChanged, year, resetOnYearChange);
+        var next = NextVersion(last, apiChanged, year, resetOnYearChange, bump);
         if (explain)
             Console.Error.WriteLine(
                 $"last={last ?? "(none)"} apiChanged={apiChanged.ToString().ToLowerInvariant()} "
-                    + $"year={year} resetOnYearChange={resetOnYearChange.ToString().ToLowerInvariant()} -> {next}"
+                    + $"year={year} resetOnYearChange={resetOnYearChange.ToString().ToLowerInvariant()} "
+                    + $"bump={bump.ToString().ToLowerInvariant()} -> {next}"
             );
         Console.Out.WriteLine(next);
         return 0;
@@ -350,11 +386,12 @@ internal static class Program
         string? lastTag,
         bool apiChanged,
         int year,
-        bool resetOnYearChange = false
+        bool resetOnYearChange = false,
+        Bump bump = Bump.Auto
     )
     {
         if (string.IsNullOrWhiteSpace(lastTag))
-            return $"{year}.0.0";
+            return bump == Bump.Y ? $"{year}.0.1" : $"{year}.0.0";
 
         var text = lastTag.Trim().TrimStart('v', 'V');
         var parts = text.Split('.');
@@ -374,7 +411,12 @@ internal static class Program
             y = 0;
         }
 
-        return apiChanged ? $"{year}.{x + 1}.0" : $"{year}.{x}.{y + 1}";
+        return bump switch
+        {
+            Bump.X => $"{year}.{x + 1}.0",
+            Bump.Y => $"{year}.{x}.{y + 1}",
+            _ => apiChanged ? $"{year}.{x + 1}.0" : $"{year}.{x}.{y + 1}",
+        };
     }
 
     // --------------------------- metadata ---------------------------

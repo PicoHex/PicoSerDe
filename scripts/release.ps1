@@ -102,6 +102,8 @@ param(
     [switch]$AssumeCurrent,
     [string]$BaselineDir = "api",
     [switch]$Push,
+    [ValidateSet("auto", "x", "y")]
+    [string]$Bump = "auto",
     [switch]$ResetOnYearChange
 )
 
@@ -384,6 +386,7 @@ try {
     $versionArgs = @("next-version", "--api-changed", $apiChanged, "--year", (Get-Date).Year)
     if ($lastTag) { $versionArgs += @("--last", $lastTag) }
     if ($ResetOnYearChange) { $versionArgs += "--reset-on-year-change" }
+    if ($Bump -ne "auto") { $versionArgs += @("--bump", $Bump) }
     $nextVersion = @(Invoke-Tool $versionArgs)[-1].Trim()
     if ($script:ToolExit -ne 0) { Fail "next-version failed" }
 
