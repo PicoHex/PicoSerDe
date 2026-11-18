@@ -113,4 +113,82 @@ public class TimestampExtensionTests
         await Assert.That(result!.When).IsEqualTo(expected);
         await Assert.That(result.When.Kind).IsEqualTo(DateTimeKind.Utc);
     }
+
+    // ── the extension TAG is part of the guard, not just the payload length ──
+    // A timestamp is the extension type 0xFF and nothing else. A reader that only
+    // looks at the payload length happily decodes any foreign extension as a
+    // DateTime; only a foreign tag can see the tag half of the check.
+
+    // 0x81 0x00 = fixmap(1), key 0
+    // 0xD6 0x01 = fixext4 carrying extension type 0x01 (not the timestamp 0xFF)
+    // 0x65 0x53 0xF1 0x00 = 1700000000 seconds — a valid timestamp32 body, so the payload
+    //   itself would decode; only the tag is wrong.
+    private static readonly byte[] ForeignTagFixext4Payload =
+    [
+        0x81,
+        0x00,
+        0xD6,
+        0x01,
+        0x65,
+        0x53,
+        0xF1,
+        0x00,
+    ];
+
+    // 0x81 0x00 = fixmap(1), key 0
+    // 0xC7 0x0C 0xFE = ext8, length 12, extension type 0xFE (not the timestamp 0xFF)
+    // 0x3A 0xDE 0x68 0xB1 | 0x00 0x00 0x00 0x04 0xA8 0x17 0xC8 0x00 =
+    //   987654321 ns + 20000000000 s, the same canonical timestamp96 body as above.
+    private static readonly byte[] ForeignTagExt8Payload =
+    [
+        0x81,
+        0x00,
+        0xC7,
+        0x0C,
+        0xFE,
+        0x3A,
+        0xDE,
+        0x68,
+        0xB1,
+        0x00,
+        0x00,
+        0x00,
+        0x04,
+        0xA8,
+        0x17,
+        0xC8,
+        0x00,
+    ];
+
+    [Test]
+    public async Task Deserialize_Timestamp32_ForeignTag_ThrowsFormatException()
+    {
+        // The throw happens after TryGetExtension consumed the whole extension:
+        // 1 (map) + 1 (key) + 6 (fixext4 token) = offset 8.
+        await Assert
+            .That(ThrownMessage(ForeignTagFixext4Payload))
+            .IsEqualTo("Invalid timestamp extension at offset 8");
+    }
+
+    [Test]
+    public async Task Deserialize_Timestamp96_ForeignTag_ThrowsFormatException()
+    {
+        // 1 (map) + 1 (key) + 15 (ext8 token: header, length, tag, 12 body) = offset 17.
+        await Assert
+            .That(ThrownMessage(ForeignTagExt8Payload))
+            .IsEqualTo("Invalid timestamp extension at offset 17");
+    }
+
+    private static string ThrownMessage(byte[] payload)
+    {
+        try
+        {
+            MsgPackSerializer.Deserialize<MsgPackTimestampModel>(payload);
+        }
+        catch (FormatException ex)
+        {
+            return ex.Message;
+        }
+        return "<no FormatException>";
+    }
 }
