@@ -166,6 +166,35 @@ clothes.
    against a stored manifest either, so before/after sha256 is a *manual* step: it can be blind and silent at
    the same time.
 
+## Ablation (how to find the fences nobody is watching)
+
+A green suite says the tests pass, not that they would fail. An **ablation** answers the second question:
+break one protection at a time and see whether anything goes red. Red means the protection is pinned;
+**green means nobody is watching**, and that is a defect in the fence rather than in the code.
+
+Two waves have run (2026-11). The first covered the JSON core, the generators, the four other formats, the
+test infrastructure and `PicoSerDe.Core`: **58 mutations, 40 red, 18 holes**. The second covers MsgPack's
+core and the TOML/INI/YAML readers.
+
+**Method, and the three ways it lies to you:**
+
+1. **Run the whole test project, never a filtered class.** The first JSON mutation was run against the
+   obviously-related class and came back 13/13 green - nearly recorded as a hole. The full unit run failed
+   six classes. **The tests that watch a protection are usually not the ones named after it.**
+2. **Rebuild after every mutation, and revert with a backup copy.** `dotnet test --no-build` keeps the
+   mutated binary alive, so a "reverted" run is still measuring the mutation; and `git checkout -- <file>`
+   throws away the work you were in the middle of, not just the mutation.
+3. **A hole needs a proposed assertion, not a shrug.** "No test covers it" is not a finding; "this test
+   should assert the emitted document contains `"Count":0`" is. Round-trip tests are structurally blind to
+   a dropped default value - the reader leaves the member at `default`, which is what was dropped.
+
+**A hole is closed by a test that goes red under the original mutation.** Prove it by re-applying the
+mutation after writing the test; if it stays green, the test is watching something else.
+
+**A mutation of working code is not a defect.** One ablation item was briefed as a YAML writer bug and was
+not: the mutation had broken working code. Verify the behaviour on a clean tree before writing either a
+test or a fix, or the "fix" moves bytes nobody needed moved.
+
 ## Releasing
 
 - `pwsh -NoProfile -File scripts/release.ps1 -DryRun` first; read `API changed` / `next version` before touching
