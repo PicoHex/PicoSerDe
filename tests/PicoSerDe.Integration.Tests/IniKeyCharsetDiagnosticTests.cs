@@ -172,6 +172,6 @@ public class IniKeyCharsetDiagnosticTests
         );
 
         await Assert.That(generated).Contains("a.b").Because("the member keeps its declared key");
-        await Assert.That(generated.Contains(Hostile)).IsEqualTo(true);
+        await Assert.That(generated).Contains(Hostile);
     }
 }
