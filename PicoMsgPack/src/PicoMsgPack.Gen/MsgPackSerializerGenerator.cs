@@ -1141,14 +1141,33 @@ file static class __PicoMsgPackBulk {
 
     // ── Any-value helpers for Dictionary<string, object?> ──
 
-    static void EmitMsgPackAnySerialize(StringBuilder s, string valueExpr, string indent)
+    /// <param name="emitNullArm">
+    /// Whether the chain opens with the <c>== null → WriteNull()</c> arm. The dict-VALUE and
+    /// ELEMENT callers own their nil branch themselves and pass <c>true</c> (the default); the
+    /// MEMBER caller emits inside the <c>!= null</c> guard <see cref="WriteSer"/> already opened
+    /// and closed with <c>else mw.WriteNull()</c>, so a second null test there is dead code.
+    /// </param>
+    static void EmitMsgPackAnySerialize(
+        StringBuilder s,
+        string valueExpr,
+        string indent,
+        bool emitNullArm = true
+    )
     {
-        s.Append(indent);
-        s.Append("if (");
-        s.Append(valueExpr);
-        s.AppendLine(" == null) mw.WriteNull();");
-        s.Append(indent);
-        s.Append("else if (");
+        if (emitNullArm)
+        {
+            s.Append(indent);
+            s.Append("if (");
+            s.Append(valueExpr);
+            s.AppendLine(" == null) mw.WriteNull();");
+            s.Append(indent);
+            s.Append("else if (");
+        }
+        else
+        {
+            s.Append(indent);
+            s.Append("if (");
+        }
         s.Append(valueExpr);
         s.AppendLine(" is string __s) mw.WriteString(__s);");
         s.Append(indent);
@@ -1201,14 +1220,37 @@ file static class __PicoMsgPackBulk {
         s.AppendLine(".ToString()!);");
     }
 
-    static void EmitMsgPackAnyDeserialize(StringBuilder s, string assignTarget, string indent)
+    /// <param name="nullable">
+    /// Whether a nil may be assigned to the target. The dict-VALUE and ELEMENT callers always
+    /// read into an <c>object?</c> slot and pass <c>true</c> (the default); the MEMBER caller
+    /// passes the member's own nullability, so a nil aimed at a non-nullable <c>object</c>
+    /// member fails loudly instead of writing null into a property that cannot hold it (which
+    /// the consumer's nullable-enabled build reports as CS8625 inside generated code they cannot
+    /// edit). That is the same contract this format states for a nil against every other
+    /// non-nullable member in PicoMsgPack/README.md.
+    /// </param>
+    static void EmitMsgPackAnyDeserialize(
+        StringBuilder s,
+        string assignTarget,
+        string indent,
+        bool nullable = true
+    )
     {
         s.Append(indent);
         s.AppendLine("if (reader.TokenType == TokenType.Null) {");
         s.Append(indent);
-        s.Append("    ");
-        s.Append(assignTarget);
-        s.AppendLine(" = null;");
+        if (nullable)
+        {
+            s.Append("    ");
+            s.Append(assignTarget);
+            s.AppendLine(" = null;");
+        }
+        else
+        {
+            s.AppendLine(
+                "    throw new System.FormatException($\"A nil cannot be assigned to a non-nullable member at offset {reader.BytesConsumed}\");"
+            );
+        }
         s.Append(indent);
         s.AppendLine("} else if (reader.TokenType == TokenType.String) {");
         s.Append(indent);
@@ -1873,6 +1915,18 @@ file static class __PicoMsgPackBulk {
                 }
                 s.Append(ind);
                 s.AppendLine("    mw.WriteEndObject(); }");
+                break;
+            case "any":
+                // The MEMBER position reuses the ANY emitter the dict-VALUE (GenDictInner) and
+                // ELEMENT (WriteSerElemCore) positions already ship instead of reaching the
+                // `mw.WriteString(a.ToString())` scalar fallback in default below: an `object?`
+                // holding a long wrote the TEXT "42" and its own reader handed back a string,
+                // so the value's type did not survive the round trip even though the SAME value
+                // inside a Dictionary<string, object?> kept it. That is the lossy-scalar-fallback
+                // bug class the extended collection kinds (S7) were fixed for.
+                // emitNullArm: false — the `!= null` guard this method opened above, closed with
+                // `else mw.WriteNull()`, already owns the nil branch.
+                EmitMsgPackAnySerialize(s, a, ind, emitNullArm: false);
                 break;
             default:
                 s.Append(ind);
@@ -3205,6 +3259,15 @@ file static class __PicoMsgPackBulk {
                 s.Append("    ");
                 s.Append(t);
                 s.AppendLine($" = {__oVar}; }}");
+                break;
+            case "any":
+                // The MEMBER position reuses the ANY reader the dict-VALUE (GenDictInner) and
+                // ELEMENT (ReadDeserElemCore) positions already ship. Before this arm the switch
+                // had no case for kind "any", so the member read emitted NOTHING at all: the
+                // generated `case 1: break;` left the property at its initializer, so a value
+                // that had just been written came back null — silently, with no diagnostic. The
+                // same silent-drop shape the JSON member reader has.
+                EmitMsgPackAnyDeserialize(s, t, ind, p.IsNullable || p.IsNullableReference);
                 break;
         }
     }
