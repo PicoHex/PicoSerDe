@@ -282,4 +282,110 @@ public class JsonWriterMisuseGuardTests
         await Assert.That(json).IsEqualTo(expected);
         await Assert.That(PicoDocument.IsValid(Encoding.UTF8.GetBytes(json))).IsTrue();
     }
+
+    // ---------------------------------------------------------------- maxDepth
+
+    /// <summary>
+    /// <c>maxDepth</c> is an <b>inclusive</b> ceiling: a writer configured with <c>maxDepth: 2</c>
+    /// accepts a document that nests two containers, and refuses the container that would open the
+    /// third at the write site (<see cref="FormatException"/>, "Maximum depth of 2 exceeded").
+    /// <para>
+    /// <b>Why this needs its own test.</b> Ablation on <c>0ae36ca</c>: widening the writer's
+    /// <c>_depth &gt;= _maxDepth</c> to <c>_depth &gt; _maxDepth</c> — the classic off-by-one, one
+    /// container too permissive — left the whole suite green. The tests that existed asked only the
+    /// <b>positive</b> half ("exactly <c>maxDepth</c> levels can be written"), and a limit that lets
+    /// one more level through answers that half correctly. A ceiling is only pinned when BOTH halves
+    /// are: what fits, and the first thing that does not.
+    /// </para>
+    /// <para>
+    /// The positive half stays in the suite on purpose, and next to the negative one: a limit
+    /// tightened to <c>maxDepth - 1</c> (or a guard that rejects the level that merely reaches the
+    /// ceiling) keeps the negative half green and turns this half red.
+    /// </para>
+    /// </summary>
+    [Test]
+    [Arguments(1)]
+    [Arguments(2)]
+    [Arguments(3)]
+    public async Task MaxDepth_AcceptsExactlyThatManyLevels(int maxDepth)
+    {
+        var json = Write(
+            (ref JsonWriter w) =>
+            {
+                for (var i = 0; i < maxDepth; i++)
+                    w.WriteStartArray();
+                w.WriteNumber(1);
+                for (var i = 0; i < maxDepth; i++)
+                    w.WriteEndArray();
+            },
+            maxDepth: maxDepth
+        );
+
+        var expected = new string('[', maxDepth) + "1" + new string(']', maxDepth);
+        await Assert
+            .That(json)
+            .IsEqualTo(expected)
+            .Because($"maxDepth: {maxDepth} is the deepest document this writer may write");
+        await Assert.That(PicoDocument.IsValid(Encoding.UTF8.GetBytes(json))).IsTrue();
+    }
+
+    /// <summary>
+    /// The half that was missing: the level that would cross the ceiling throws, through
+    /// <b>both</b> open members (<c>WriteStartArray</c> and <c>WriteStartObject</c> each carry their
+    /// own depth check — a mutation of one is invisible to a test that only crosses with the other).
+    /// </summary>
+    [Test]
+    [Arguments(1, "arrays")]
+    [Arguments(2, "arrays")]
+    [Arguments(1, "objects")]
+    [Arguments(2, "objects")]
+    public async Task MaxDepth_RejectsTheLevelThatCrossesIt(int maxDepth, string kind)
+    {
+        var ex = ThrowsDepth(
+            kind == "arrays"
+                ? (ref JsonWriter w) =>
+                {
+                    for (var i = 0; i <= maxDepth; i++)
+                        w.WriteStartArray();
+                }
+                : (ref JsonWriter w) =>
+                {
+                    // Objects need a name for each level but the first: `{"n":{"n":{`.
+                    for (var i = 0; i <= maxDepth; i++)
+                    {
+                        w.WriteStartObject();
+                        if (i < maxDepth)
+                            w.WritePropertyName("n"u8);
+                    }
+                },
+            maxDepth
+        );
+
+        var message =
+            "Maximum depth of "
+            + maxDepth.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + " exceeded";
+        await Assert
+            .That(ex.Message)
+            .Contains(message)
+            .Because(
+                $"opening {maxDepth + 1} nested {kind} with maxDepth: {maxDepth} must fail at the "
+                    + "write site, and the message must name the configured limit"
+            );
+    }
+
+    /// <summary>
+    /// <see cref="Assert.Throws{T}"/> over a writer built with an explicit depth limit: the writer
+    /// cannot be created outside the lambda (a <see cref="ref struct"/> cannot be captured), so the
+    /// fixture does what the success-path <see cref="Write"/> does, inside it.
+    /// </summary>
+    private static FormatException ThrowsDepth(WriterAction write, int maxDepth)
+    {
+        var buf = new ArrayBufferWriter<byte>(8);
+        return Assert.Throws<FormatException>(() =>
+        {
+            var w = new JsonWriter(buf, maxDepth: maxDepth);
+            write(ref w);
+        });
+    }
 }

@@ -631,6 +631,238 @@ public class JsonReaderFusedEquivalenceTests
             .Because("reference-side dump lines (measured: 4 378)");
     }
 
+    // ── the fused read at a MALFORMED position ──
+
+    /// <summary>
+    /// The malformed positions the fused path has to decline at: a <b>leading comma</b> (after the
+    /// document start, after <c>[</c>, after <c>{</c>, and one level deeper), a <b>doubled comma</b>,
+    /// and a <b>trailing comma</b> before a closing bracket.
+    /// <para>
+    /// <c>ReadsBefore</c> is how many tokens the reference arm walks before it reaches the position,
+    /// and <c>ReferenceSays</c> is the sentence it throws THERE — measured and pinned, so a reader
+    /// change that legalised the position shows up as a corpus failure instead of a silent pass.
+    /// </para>
+    /// <para>
+    /// <b>Why the well-formed corpus does not already cover this.</b> The dual walk above drives the
+    /// fused arm with the token script the REFERENCE produced. At these positions the reference
+    /// produces no further token (it throws), so the script ends and no fused call is ever issued
+    /// there — which is exactly how the leading-comma decline could be deleted with the whole file
+    /// still green (ablation on <c>0ae36ca</c>, <c>JsonReader.cs:1166-1170</c>). A guard that only
+    /// walks well-formed payloads cannot see the rule that exists for malformed ones; the probe has
+    /// to aim at the position directly.
+    /// </para>
+    /// </summary>
+    public static IEnumerable<(
+        string Name,
+        string Payload,
+        int ReadsBefore,
+        string ReferenceSays
+    )> MalformedCommaPositions()
+    {
+        // The document start: TokenType.None, so the leading-comma rule is the one being asked.
+        yield return ("root-leading-comma", ",1", 0, "Unexpected comma");
+        // After an opening bracket, the same rule again — this is `[,1]`, where the fused read used
+        // to slip past the comma and answer 1.
+        yield return ("array-leading-comma", "[,1]", 1, "Unexpected comma");
+        // Whitespace between the bracket and the comma does not make it legal.
+        yield return ("array-leading-comma-after-whitespace", "[ ,1]", 1, "Unexpected comma");
+        // After an opening brace: an object has no position for an element at all.
+        yield return ("object-leading-comma", "{,1}", 1, "Unexpected comma");
+        // One level deeper: the rule is about the token, not about the nesting level.
+        yield return ("nested-array-leading-comma", "[[,1]]", 2, "Unexpected comma");
+        // The SECOND comma: the first one is a legal separator, so the position is not a "leading
+        // comma" any more — the fused arm must still decline instead of reading the element after it.
+        yield return ("doubled-comma-array", "[1,,2]", 2, "Unexpected byte 0x2C");
+        // A comma that owes an element and instead meets the closing bracket.
+        yield return ("trailing-comma-array", "[1,]", 2, "Trailing comma before closing bracket");
+        yield return ("trailing-comma-object", "{\"a\":1,}", 3, "Trailing comma before closing bracket");
+    }
+
+    /// <summary>
+    /// <b>The fused read may not succeed where <see cref="JsonReader.Read"/> throws.</b> For every
+    /// malformed position above and every advance-and-decode entry point a generated reader has at a
+    /// scalar site, the probe does what generated code does — call the fused member, and on
+    /// <see langword="false"/> re-run the reference — and the pair must end exactly where the
+    /// reference ends: <b>the same exception type and the same message</b>.
+    /// <para>
+    /// So the two admissible answers are the ones spec §3.2 allows: the fused member throws the
+    /// reference's own failure (because it declined and the fallback re-ran), or it answers
+    /// <see langword="false"/> and the fallback throws it. A member that answers <c>true</c> here has
+    /// invented a value the document does not contain — <c>[,1]</c> reading as a silent <c>1</c> is
+    /// the failure this test exists for — and is reported by name.
+    /// </para>
+    /// </summary>
+    [Test]
+    [MethodDataSource(nameof(MalformedCommaPositions))]
+    public async Task FusedReadsOnAMalformedComma_FailLikeReadOrDecline(
+        string name,
+        string payloadText,
+        int readsBefore,
+        string referenceSays
+    )
+    {
+        var payload = Encoding.UTF8.GetBytes(payloadText);
+
+        var (walked, referenceFailure) = ReadAt(payload, readsBefore);
+        await Assert
+            .That(walked)
+            .IsEqualTo(readsBefore)
+            .Because($"{name}: the position must be reachable — the tokens before it are well formed");
+        await Assert
+            .That(referenceFailure)
+            .IsNotNull()
+            .Because(
+                $"{name}: this corpus entry is a malformed position, so the reference Read() must "
+                    + "throw there; a corpus entry whose position became legal asserts nothing"
+            );
+        await Assert
+            .That(referenceFailure!.Message)
+            .Contains(referenceSays)
+            .Because($"{name}: the reference's own sentence at that position");
+
+        var expected = JsonFusedTokenDump.ExecutionString(referenceFailure);
+        var problems = new List<string>();
+        foreach (var (probeName, probe) in FusedMemberProbes())
+        {
+            var (answer, failure) = RunProbe(payload, readsBefore, probe);
+            if (failure is not null)
+            {
+                var got = JsonFusedTokenDump.ExecutionString(failure);
+                if (got != expected)
+                    problems.Add($"{probeName} threw <{got}>, the reference throws <{expected}>");
+            }
+            else
+                problems.Add(
+                    $"{probeName} did not fail: <{answer}> — Read() throws at this position, so a "
+                        + "fused member may neither succeed nor move the reader somewhere the "
+                        + "reference would not go"
+                );
+        }
+
+        await Assert
+            .That(string.Join(" | ", problems))
+            .IsEqualTo("")
+            .Because(
+                $"{name} ({payloadText}): every fused member must fail exactly like Read() or "
+                    + "decline into it; a silent success here hands generated code a value the "
+                    + "document does not contain"
+            );
+
+        await Assert
+            .That(MalformedCommaPositions().Count())
+            .IsEqualTo(8)
+            .Because("the malformed-position family, pinned so a case cannot be dropped silently");
+    }
+
+    /// <summary>The advance-and-decode members a generated reader can reach a scalar element with.</summary>
+    private static (string Name, FusedMemberProbe Probe)[] FusedMemberProbes() =>
+        [
+            (nameof(JsonReader.TryReadInt32), ProbeInt32),
+            (nameof(JsonReader.TryReadInt64), ProbeInt64),
+            (nameof(JsonReader.TryReadFloat64), ProbeFloat64),
+            (nameof(JsonReader.TryReadBool), ProbeBool),
+            ("Read+TryGetBool", ProbeReadThenGetBool),
+            ("Read+TrySkip", ProbeReadThenSkip),
+        ];
+
+    private delegate string FusedMemberProbe(ref JsonReader reader);
+
+    private static string ProbeInt32(ref JsonReader reader) =>
+        reader.TryReadInt32(out var value)
+            ? "answered true with " + Value(value)
+            : FallbackRead(ref reader);
+
+    private static string ProbeInt64(ref JsonReader reader) =>
+        reader.TryReadInt64(out var value)
+            ? "answered true with " + Value(value)
+            : FallbackRead(ref reader);
+
+    private static string ProbeFloat64(ref JsonReader reader) =>
+        reader.TryReadFloat64(out var value)
+            ? "answered true with " + Value(value)
+            : FallbackRead(ref reader);
+
+    private static string ProbeBool(ref JsonReader reader) =>
+        reader.TryReadBool(out var value)
+            ? "answered true with " + (value ? "true" : "false")
+            : FallbackRead(ref reader);
+
+    private static string ProbeReadThenGetBool(ref JsonReader reader) =>
+        reader.Read() && reader.TryGetBool(out var value)
+            ? "both answered true with " + (value ? "true" : "false")
+            : FallbackRead(ref reader);
+
+    private static string ProbeReadThenSkip(ref JsonReader reader) =>
+        reader.Read()
+            ? "Read() produced "
+                + reader.TokenType
+                + ", TrySkip() answered "
+                + (reader.TrySkip() ? "true" : "false")
+            : "Read() answered false";
+
+    private static string Value<T>(T value)
+        where T : IFormattable => value.ToString(null, System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>What generated code does after a fused member answers <see langword="false"/>.</summary>
+    private static string FallbackRead(ref JsonReader reader) =>
+        reader.Read()
+            ? "declined, then the reference Read() produced " + reader.TokenType
+            : "declined, then the reference Read() answered false";
+
+    /// <summary>One fused probe on a reader advanced to the malformed position.</summary>
+    private static (string Answer, Exception? Failure) RunProbe(
+        byte[] payload,
+        int readsBefore,
+        FusedMemberProbe probe
+    )
+    {
+        var reader = new JsonReader(payload.AsSpan(), maxDepth: 256);
+        try
+        {
+            for (var i = 0; i < readsBefore; i++)
+                if (!reader.Read())
+                    return (
+                        "the reference Read() answered false after " + i + " tokens, so the position "
+                            + "was never reached",
+                        null
+                    );
+            return (probe(ref reader), null);
+        }
+        catch (Exception failure)
+        {
+            return ("", failure);
+        }
+        finally
+        {
+            reader.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The reference arm at the malformed position: walk <paramref name="readsBefore"/> tokens, then
+    /// one more <see cref="JsonReader.Read"/> — the call the fused member owes an equivalent of.
+    /// </summary>
+    private static (int Walked, Exception? Failure) ReadAt(byte[] payload, int readsBefore)
+    {
+        var reader = new JsonReader(payload.AsSpan(), maxDepth: 256);
+        try
+        {
+            for (var i = 0; i < readsBefore; i++)
+                if (!reader.Read())
+                    return (i, null);
+            reader.Read();
+            return (readsBefore, null);
+        }
+        catch (Exception failure)
+        {
+            return (readsBefore, failure);
+        }
+        finally
+        {
+            reader.Dispose();
+        }
+    }
+
     // ── helpers ──
 
     private static async Task AssertPinnedAsync(
