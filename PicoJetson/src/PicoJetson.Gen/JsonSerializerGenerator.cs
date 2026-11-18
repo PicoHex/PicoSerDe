@@ -437,10 +437,24 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         // when any type in this compilation uses that pattern.
         // Must check types, nestedTypes (inner helpers), and nestedDictTypes —
         // a property like ContentBlock.Arguments is only discovered via nested type traversal.
+        // Two shapes reference the helper: an "any" VALUE (Dictionary<string, object?> — the
+        // ElementTypeKind query below) and, since the member switches gained a `case "any"`, a plain
+        // `object?` MEMBER or constructor parameter, whose own TypeKind IS "any". The second query is
+        // load-bearing: without it the emitted call would name a class nobody generated.
         bool hasAnyValue =
             validTypes.Any(t => t.Properties.Any(p => p.ElementTypeKind == "any"))
             || nestedTypes.Values.Any(props => props.Any(p => p.ElementTypeKind == "any"))
-            || nestedDictTypes.Values.Any(dp => dp.ElementTypeKind == "any");
+            || nestedDictTypes.Values.Any(dp => dp.ElementTypeKind == "any")
+            || validTypes.Any(t =>
+                t.Properties.Any(p => p.TypeKind == "any")
+                // IsDefaultOrEmpty, not `Any()`: CtorParams is an optional ImmutableArray and
+                // enumerating its DEFAULT value throws (the empty struct is not a list).
+                || (!t.CtorParams.IsDefaultOrEmpty && t.CtorParams.Any(c => c.TypeKind == "any"))
+            )
+            || nestedTypes.Values.Any(props => props.Any(p => p.TypeKind == "any"))
+            || nestedDictTypes.Values.Any(dp => dp.TypeKind == "any");
+
+        ReportMemberKindsWithoutAnEmitter(spc, validTypes, nestedTypes, nestedDictTypes);
         if (hasAnyValue)
         {
             var helperHint = "__PicoAnyDictHelper.g.cs";
@@ -1407,8 +1421,16 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine("                SerializeValue(ref jw, __item);");
         sb.AppendLine("            jw.WriteEndArray();");
         sb.AppendLine("        }");
+        // Anything else is a runtime type the chain has no form for. It used to be written as
+        // `value.ToString()` — a silent lossy stringification that came back as a String and was
+        // reported nowhere (the any-value read side already fails loudly for the one value it
+        // cannot map, see the UInt64 arm above; the write side owes the same). A source generator
+        // cannot see a runtime type, so there is no build-time diagnostic to pair with this: the
+        // throw IS the report.
         sb.AppendLine("        else");
-        sb.AppendLine("            jw.WriteString(Encoding.UTF8.GetBytes(value.ToString()!));");
+        sb.AppendLine(
+            "            throw new System.FormatException($\"Object-typed value of runtime type '{value.GetType()}' at offset {jw.BytesWritten} has no JSON form in the any-value chain; write it with a concrete member type or a custom converter\");"
+        );
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -2080,9 +2102,25 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(");");
                 break;
             }
+            case "any":
+                // object?/object MEMBER. The any-value chain already served the dict-VALUE and the
+                // list-ELEMENT positions (the "any" arms of EmitDeserializeDictValue and
+                // EmitElementWrite); a member is the third position and must go through the SAME
+                // emitter, or the three drift apart. Before this arm the member fell into the
+                // `default:` below, which put the property NAME on the wire and then not one byte
+                // of value ("Cannot close object: property name was written with no value").
+                // The nullable guard above already turned a null member into jw.WriteNull(), so a
+                // null member is still an explicit null and still written, never omitted.
+                EmitAnyValueSerialize(sb, effectiveAccessor, indent);
+                break;
             default:
                 if (EmitExtendedScalarWrite(sb, prop.TypeKind, effectiveAccessor, indent))
                     break;
+                // No arm for this kind. Writing the property name and then nothing used to break
+                // the document builder at WriteEndObject and was reported nowhere at all; throw at
+                // the value instead, and PICOSERDE006 says the same thing at build time
+                // (ReportMemberKindsWithoutAnEmitter, which asks MemberKindHasEmitter).
+                EmitUnsupportedMemberKindThrow(sb, prop.TypeKind, indent);
                 break;
         }
 
@@ -2420,21 +2458,195 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         sb.AppendLine(");");
     }
 
+    /// <param name="nullForgiving">
+    /// Append <c>!</c> to the assignment. The helper answers <c>object?</c>, so a target declared
+    /// WITHOUT the annotation (a non-nullable <c>object</c> member or constructor parameter) would
+    /// otherwise raise CS8601 in generated code; the dict-value and list-element sites already
+    /// declare <c>object?</c> and leave this false, so their generated text is unchanged.
+    /// </param>
     private static void EmitAnyValueDeserialize(
         StringBuilder sb,
         string assignTarget,
-        string indent
+        string indent,
+        bool nullForgiving = false
     )
     {
         sb.Append(indent);
         sb.Append(assignTarget);
         sb.Append(" = ");
         sb.Append(AnyDictHelperName());
-        sb.AppendLine(".DeserializeValue(ref reader);");
+        sb.AppendLine(
+            nullForgiving ? ".DeserializeValue(ref reader)!;" : ".DeserializeValue(ref reader);"
+        );
     }
 
     /// <summary>
-    /// Emits a raw throw statement for an invalid property value. The property
+    /// Emits the last resort of a member/constructor-parameter VALUE position: a throw.
+    /// <para>
+    /// The write side used to fall through with the property NAME already on the wire — the writer
+    /// then refused to close the object ("Cannot close object: property name was written with no
+    /// value") — and the read side used to leave the member at <c>default</c>, or hand a constructor
+    /// parameter <c>default!</c>, without a word in either case. Both are the same failure: a
+    /// kind this generator has no arm for. Failing at the value is the honest half; the build log
+    /// half is <c>PICOSERDE006</c>, reported once per member by
+    /// <see cref="ReportMemberKindsWithoutAnEmitter"/>.
+    /// </para>
+    /// </summary>
+    private static void EmitUnsupportedMemberKindThrow(
+        StringBuilder sb,
+        string? kind,
+        string indent
+    )
+    {
+        sb.Append(indent);
+        sb.Append(
+            "throw new System.NotSupportedException(\"PICOSERDE006: this generator has no JSON emitter for a member of kind '"
+        );
+        sb.Append(EscapeCSharpString(kind ?? "(none)"));
+        sb.AppendLine("'.\");");
+    }
+
+    /// <summary>
+    /// True when the three member switches above have an arm for <paramref name="kind"/>: the
+    /// member <em>write</em> (<see cref="EmitMemberScalarWrite"/>), the member <em>read</em>
+    /// (<see cref="EmitDeserializeValue"/>) and the constructor-parameter read
+    /// (<see cref="EmitDeserializeCtorParam"/>) — their <c>case</c> label sets are the same, so one
+    /// predicate answers for all three.
+    /// <para>
+    /// The scalar labels are spelled here ONCE, which is the price of a build-time answer: a new
+    /// <c>case</c> in those switches must be added here too, or <c>PICOSERDE006</c> fires on a kind
+    /// that IS emitted. <c>AnyMemberDiagnosticTests</c> pins the agreement on a corpus of models, and
+    /// the two non-literal families are asked of their real implementation rather than re-listed:
+    /// <see cref="PicoSerDe.Gen.CollectionKinds.IsSequence"/> for the sequences and
+    /// <see cref="EmitExtendedScalarWrite"/> (a throwaway builder, answering "did you take it?")
+    /// plus <see cref="ExtendedScalarReadExpr"/> for the extended scalars.
+    /// </para>
+    /// </summary>
+    internal static bool MemberKindHasEmitter(string? kind)
+    {
+        if (kind is null)
+            return false;
+        if (
+            kind
+            is "string"
+                or "int32"
+                or "int64"
+                or "int16"
+                or "uint16"
+                or "sbyte"
+                or "byte"
+                or "uint32"
+                or "uint64"
+                or "float32"
+                or "float64"
+                or "boolean"
+                or "datetime"
+                or "guid"
+                or "decimal"
+                or "dateonly"
+                or "timeonly"
+                or "timespan"
+                or "enum"
+                or "dict"
+                or "object"
+                or "any"
+        )
+            return true;
+        if (PicoSerDe.Gen.CollectionKinds.IsSequence(kind))
+            return true;
+        return EmitExtendedScalarWrite(new StringBuilder(), kind, "__v", "")
+            && ExtendedScalarReadExpr(kind) is not null;
+    }
+
+    /// <summary>
+    /// PICOSERDE006: reports every member and constructor parameter whose TypeKind has no arm in the
+    /// member emit switches, so the gap shows up in the BUILD LOG instead of surfacing later as a
+    /// property that is written as nothing or read back as nothing.
+    /// <para>
+    /// A pre-scan rather than a diagnostic at the emit site: the emit helpers are static and receive
+    /// no <c>SourceProductionContext</c>, and threading one through a dozen emit frames would put a
+    /// parameter on every call for a channel that fires on an empty set today. Deduplicated by
+    /// (type, member, kind) because a type appears in <paramref name="types"/> AND in
+    /// <paramref name="nestedTypes"/> when it is both a DTO and a member of another DTO.
+    /// </para>
+    /// </summary>
+    private static void ReportMemberKindsWithoutAnEmitter(
+        SourceProductionContext spc,
+        IEnumerable<TypeInfo> types,
+        Dictionary<string, ImmutableArray<PropertyInfo>> nestedTypes,
+        Dictionary<string, PropertyInfo> nestedDictTypes
+    )
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var type in types)
+        {
+            foreach (var prop in type.Properties)
+                ReportMemberKindWithoutAnEmitter(
+                    spc,
+                    reported,
+                    type.FullyQualifiedName,
+                    prop.Name,
+                    prop.TypeFullName,
+                    prop.TypeKind
+                );
+            if (!type.CtorParams.IsDefaultOrEmpty)
+                foreach (var cp in type.CtorParams)
+                    ReportMemberKindWithoutAnEmitter(
+                        spc,
+                        reported,
+                        type.FullyQualifiedName,
+                        cp.Name,
+                        cp.TypeFullName,
+                        cp.TypeKind
+                    );
+        }
+        foreach (var kv in nestedTypes)
+        foreach (var prop in kv.Value)
+            ReportMemberKindWithoutAnEmitter(
+                spc,
+                reported,
+                kv.Key,
+                prop.Name,
+                prop.TypeFullName,
+                prop.TypeKind
+            );
+        foreach (var kv in nestedDictTypes)
+            ReportMemberKindWithoutAnEmitter(
+                spc,
+                reported,
+                kv.Key,
+                kv.Value.Name,
+                kv.Value.TypeFullName,
+                kv.Value.TypeKind
+            );
+    }
+
+    /// <summary>One <c>PICOSERDE006</c> site, deduplicated. See <see cref="MemberKindHasEmitter"/>.</summary>
+    private static void ReportMemberKindWithoutAnEmitter(
+        SourceProductionContext spc,
+        HashSet<string> reported,
+        string? typeName,
+        string memberName,
+        string? declaredType,
+        string? kind
+    )
+    {
+        if (MemberKindHasEmitter(kind))
+            return;
+        if (
+            !reported.Add((typeName ?? "(unknown)") + "::" + memberName + "::" + (kind ?? "(none)"))
+        )
+            return;
+        PicoSerDe.Gen.GenInfrastructure.ReportMemberKindNotEmittable(
+            spc,
+            Config.FormatTag,
+            typeName,
+            memberName,
+            declaredType,
+            kind ?? "(none)"
+        );
+    }
+
     /// name is escaped for safe embedding in the generated C# interpolated
     /// string literal.
     /// </summary>
@@ -3362,6 +3574,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(";");
                 break;
             }
+            case "any":
+                // object?/object CONSTRUCTOR parameter: the same chain as the member read. The guard
+                // above already handled a JSON null for a nullable parameter (and DeserializeValue
+                // answers null for one anyway); the `!` is for a non-nullable `object` parameter,
+                // whose temp is declared without the annotation.
+                EmitAnyValueDeserialize(sb, target, indent, nullForgiving: true);
+                break;
             default:
                 if (ExtendedScalarReadExpr(cp.TypeKind) is string __sx2)
                 {
@@ -3370,9 +3589,9 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.AppendLine(" = " + __sx2 + ";");
                     break;
                 }
-                sb.Append(indent);
-                sb.Append(target);
-                sb.AppendLine(" = default!; // unsupported ctor param type: " + cp.TypeKind);
+                // `target = default!;` used to swallow this silently — the parameter arrived as null
+                // and nothing said so (PICOSERDE006 reports the missing arm at build time).
+                EmitUnsupportedMemberKindThrow(sb, cp.TypeKind, indent);
                 break;
         }
 
@@ -3883,6 +4102,28 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                 sb.AppendLine(".Deserialize(ref reader);");
                 break;
             }
+            case "any":
+                // The member position of the same chain the dict-VALUE read uses.
+                // __PicoAnyDictHelper.DeserializeValue hands back string / long / double / bool /
+                // Dictionary<string, object?> / List<object?>, and answers null for a JSON null —
+                // which is why a nullable member needs nothing beyond the null guard
+                // EmitDeserializeProperty already emitted around this switch.
+                if (prop.IsNullable)
+                    EmitAnyValueDeserialize(sb, target + "." + prop.Name, indent);
+                else
+                {
+                    // Non-nullable `object` member: a JSON null keeps the member's default, exactly
+                    // like the "object" arm above, and the `!` keeps the assignment warning-free.
+                    sb.Append(indent);
+                    sb.AppendLine("if (reader.TokenType != TokenType.Null)");
+                    EmitAnyValueDeserialize(
+                        sb,
+                        target + "." + prop.Name,
+                        indent + "    ",
+                        nullForgiving: true
+                    );
+                }
+                break;
             default:
                 if (ExtendedScalarReadExpr(prop.TypeKind) is string __sx3)
                 {
@@ -3891,7 +4132,11 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
                     sb.Append(".");
                     sb.Append(prop.Name);
                     sb.AppendLine(" = " + __sx3 + ";");
+                    break;
                 }
+                // The member used to be left at whatever it already held, without a word
+                // (PICOSERDE006 reports the missing arm at build time).
+                EmitUnsupportedMemberKindThrow(sb, prop.TypeKind, indent);
                 break;
         }
     }
