@@ -45,7 +45,16 @@ internal readonly record struct TypeInfo(
     // List<Diagnostic>) because the extraction runs inside the incremental
     // transform, which must stay pure: the record travels with the value and the
     // generator reports it from GenerateAll (D-6).
-    ImmutableArray<UnsupportedTypeMember> UnsupportedTypeMembers = default
+    ImmutableArray<UnsupportedTypeMember> UnsupportedTypeMembers = default,
+    // Non-null when the type was DISCOVERED (by the attribute pipeline, the only one that can
+    // name a type no call site mentions) but no constructor can create it: no primary
+    // constructor, no public parameterless one. Every emitter would have to write `new T()`
+    // (CS7036) and then assign init-only properties (CS8852), so the type is reported as
+    // PICOSERDE007 and dropped before any emitter sees it
+    // (GenInfrastructure.ReportAndDropUnconstructibleTypes), exactly like the call-site
+    // pipelines drop it by returning null. Carried on the value, not reported in the transform:
+    // the transform must stay pure (D-6).
+    string? UnconstructibleReason = null
 )
 {
     public bool Equals(TypeInfo other) =>
@@ -63,7 +72,8 @@ internal readonly record struct TypeInfo(
         && DerivedTypes.SequenceEqual(other.DerivedTypes)
         && SkippedRecursiveMembers.SequenceEqual(other.SkippedRecursiveMembers)
         && SkippedUnsupportedMembers.SequenceEqual(other.SkippedUnsupportedMembers)
-        && UnsupportedTypeMembers.SequenceEqual(other.UnsupportedTypeMembers);
+        && UnsupportedTypeMembers.SequenceEqual(other.UnsupportedTypeMembers)
+        && UnconstructibleReason == other.UnconstructibleReason;
 
     public override int GetHashCode()
     {
@@ -77,6 +87,7 @@ internal readonly record struct TypeInfo(
         hash = (hash * 397) ^ IsTopLevelList.GetHashCode();
         hash = (hash * 397) ^ IsAbstract.GetHashCode();
         hash = (hash * 397) ^ (DiscriminatorPropertyName?.GetHashCode() ?? 0);
+        hash = (hash * 397) ^ (UnconstructibleReason?.GetHashCode() ?? 0);
         foreach (var dt in DerivedTypes)
             hash = (hash * 397) ^ dt.GetHashCode();
         foreach (var m in SkippedRecursiveMembers)
@@ -452,6 +463,37 @@ internal static class GenInfrastructure
         id: "PICOSERDE002",
         title: "Generated file name collision",
         messageFormat: "Type '{0}' was skipped: generated file name '{1}' collides with another type",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// A DISCOVERED type (an attribute named it) that no constructor can create: no primary
+    /// constructor, no public parameterless one. Reported instead of emitting, because every
+    /// format's reader would have to call <c>new T()</c> for it (CS7036) and then assign init-only
+    /// properties (CS8852) — a build error in the consumer, from a build log that never mentioned
+    /// the type.
+    /// <para>
+    /// <b>Why a new id (<c>PICOSERDE007</c>) instead of PICOSERDE001's
+    /// <see cref="UnsupportedTypeUninstantiableWarning"/>:</b> that template's subject is a MEMBER
+    /// ("Member '{0}' (declared type '{1}') was dropped …"), and this drop's subject is the whole
+    /// TYPE — there is no member to name, and the drop is not caused by a member at all. Reusing the
+    /// member wording would report the wrong subject; PICOSERDE001…005 keep their ids and templates,
+    /// and no id is renumbered (they are the public half of the contract, spec §5 D4).
+    /// </para>
+    /// <para>
+    /// The verdict is <see cref="DropVerdict.TypeUnconstructible"/> — the third ⛔ class — so the
+    /// template carries <see cref="FormatCapabilities.ImpossibleMarker"/> and says out loud that no
+    /// other format will help either: the way out is the TYPE (give it a public parameterless
+    /// constructor, or a constructor the format's constructor attribute marks), never the format.
+    /// </para>
+    /// </summary>
+    private static readonly DiagnosticDescriptor UnconstructibleTypeWarning = new(
+        id: "PICOSERDE007",
+        title: "Type skipped: it cannot be instantiated (no generator change can help)",
+        messageFormat: FormatCapabilities.ImpossibleMarker
+            + " Type '{0}' was skipped by the {1} source generator: {2}. Nothing on the generator side can change that, and no other format will help either: reading a value back means calling one of this type's constructors, and it exposes neither a primary constructor nor a public parameterless one. Give the type a public parameterless constructor (or mark a constructor with this format's constructor attribute), or let a call site name the type instead of an attribute.",
         category: "PicoSerDe",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true
@@ -921,6 +963,64 @@ internal static class GenInfrastructure
         foreach (var d in diagnostics)
             if (reported.Add(d.Id + "|" + d.GetMessage()))
                 spc.ReportDiagnostic(d);
+    }
+
+    /// <summary>
+    /// Reports every type that cannot be constructed (PICOSERDE007) and returns the array WITHOUT
+    /// them, for the same reason the call-site pipelines return <c>null</c> for such a type: the
+    /// alternative is generated code that cannot compile.
+    /// <para>
+    /// It lives here, in the SHARED output path (`GenPipeline.RegisterTypesOutput` /
+    /// `RegisterAssemblyScopedTypesOutput` call it before <c>emitAll</c>), because both things it
+    /// does must happen once for every format: dropping has to precede every emitter, and reporting
+    /// cannot happen in the transform that discovered the type (a transform must stay pure, D-6), so
+    /// the verdict travels on <see cref="TypeInfo.UnconstructibleReason"/>. A called-out design choice:
+    /// the merge keeps the call-site pipelines' <c>null</c> and this pipeline's flagged value in one
+    /// array, so the filter is the single place that decides what an emitter may see.
+    /// </para>
+    /// </summary>
+    public static ImmutableArray<TypeInfo> ReportAndDropUnconstructibleTypes(
+        SourceProductionContext spc,
+        ImmutableArray<TypeInfo> typeInfos,
+        string formatTag
+    )
+    {
+        // A flag is a verdict about the TYPE only when no other pipeline produced an entry for the
+        // same type: another pipeline may know a way in that the attribute expansion cannot see —
+        // the polymorphic pipeline, for one, emits a [PicoDerivedType] root's own TypeInfo and its
+        // reader dispatches on the discriminator instead of calling `new` on the base. An unflagged
+        // sibling therefore wins: it is neither reported nor dropped, which also keeps that type's
+        // output byte-identical to what it was before this gate existed.
+        var emittable = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in typeInfos)
+            if (t.UnconstructibleReason is null && !string.IsNullOrEmpty(t.FullyQualifiedName))
+                emittable.Add(t.FullyQualifiedName);
+
+        // The same type can be discovered from several attributes: one drop, one diagnostic.
+        var dropped = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in typeInfos)
+        {
+            if (t.UnconstructibleReason is not { } reason)
+                continue;
+            if (emittable.Contains(t.FullyQualifiedName))
+                continue;
+            if (dropped.Add(t.FullyQualifiedName))
+                spc.ReportDiagnostic(
+                    Diagnostic.Create(
+                        UnconstructibleTypeWarning,
+                        Location.None,
+                        t.FullyQualifiedName,
+                        formatTag,
+                        reason
+                    )
+                );
+        }
+
+        return dropped.Count == 0
+            ? typeInfos
+            : typeInfos.RemoveAll(t =>
+                t.UnconstructibleReason is not null && dropped.Contains(t.FullyQualifiedName)
+            );
     }
 
     /// <summary>
@@ -1672,7 +1772,18 @@ internal static class GenInfrastructure
     /// <summary>
     /// Expand <see cref="GeneratorAttributeSyntaxContext"/> into zero or more <see cref="TypeInfo"/> values.
     /// Handles both <c>[PicoSerializable]</c> (uses <see cref="GeneratorAttributeSyntaxContext.TargetSymbol"/>)
-    /// and <c>[PicoSerializable(typeof(T))]</c> (extracts <c>T</c> from the attribute constructor argument).
+    /// and <c>[PicoSerializable(typeof(T))]</c> (extracts <c>T</c> from the attribute constructor argument),
+    /// and the <c>[GenerateSerializer(typeof(T))]</c> shorthand, which expands through this same body.
+    /// <para>
+    /// <b>Why this body has to know about constructors at all.</b> It is the ONLY pipeline with no
+    /// call site to learn from: <c>JsonSerializer.SerializeToUtf8Bytes&lt;PosRecord&gt;(...)</c> tells the
+    /// usage-driven pipeline the type and its shape, while <c>[GenerateSerializer(typeof(PosRecord))]</c>
+    /// names it and nothing else. A positional record has no parameterless constructor and init-only
+    /// properties, so expanding one WITHOUT asking for its primary constructor (see
+    /// <see cref="DetectPrimaryConstructor"/>) emitted <c>new PosRecord()</c> + <c>result.A = ...</c>:
+    /// CS7036 and CS8852, in the consumer's build, for a type the call-site pipeline handled
+    /// correctly. Both pipelines now ask the same question in the same place.
+    /// </para>
     /// </summary>
     public static ImmutableArray<TypeInfo> ExpandAttributes(
         GeneratorAttributeSyntaxContext ctx,
@@ -1697,30 +1808,71 @@ internal static class GenInfrastructure
                 && attr.ConstructorArguments[0].Value is INamedTypeSymbol externalType
             )
             {
-                var ti = TransformTypeSymbol(
-                    externalType,
-                    config,
-                    attrs,
-                    includeFields: includeFields
-                );
+                var ti = ExpandOneType(externalType, config, attrs, includeFields);
                 if (ti.HasValue)
                     builder.Add(ti.Value);
             }
             // [PicoSerializable] — no type argument, use the target symbol itself
             else if (ctx.TargetSymbol is INamedTypeSymbol localType)
             {
-                var ti = TransformTypeSymbol(
-                    localType,
-                    config,
-                    attrs,
-                    includeFields: includeFields
-                );
+                var ti = ExpandOneType(localType, config, attrs, includeFields);
                 if (ti.HasValue)
                     builder.Add(ti.Value);
             }
         }
 
         return builder.ToImmutable();
+    }
+
+    /// <summary>
+    /// One discovered type, expanded the way the call-site pipelines already expand it.
+    /// <para>
+    /// Two decisions, both shared with a call site instead of re-derived here:
+    /// ① <b>which constructor builds it</b> — the format's constructor attribute, else the record's
+    /// primary constructor (<see cref="DetectConstructor"/>, which asks
+    /// <see cref="DetectPrimaryConstructor"/>); ② <b>whether it can be built at all</b> —
+    /// <see cref="UnconstructibleReason"/>.
+    /// </para>
+    /// A type that answers ① stops there: it travels with <see cref="TypeInfo.CtorParams"/> and the
+    /// emitters write the constructor call instead of <c>new()</c> + property assignment. A type that
+    /// only answers ② keeps its members but carries <see cref="TypeInfo.UnconstructibleReason"/>, so
+    /// <see cref="ReportAndDropUnconstructibleTypes"/> can report it and keep it out of every emitter
+    /// — the alternative is generated code that cannot compile.
+    /// <para>
+    /// The type is NOT dropped here: a transform must stay pure (D-6), so the verdict travels on the
+    /// value and the reporting happens in the output callback.
+    /// </para>
+    /// </summary>
+    private static TypeInfo? ExpandOneType(
+        INamedTypeSymbol type,
+        FormatConfig config,
+        AttributeHelpers attrs,
+        bool includeFields
+    )
+    {
+        // The format's constructor attribute first, then the record's primary constructor: exactly
+        // what a call site asks (DetectConstructor), not a second opinion about it.
+        var ctorParams = DetectConstructor(type, config.FormatTag, config.ConstructorAttributeName);
+        var hasCtor = ctorParams.HasValue;
+
+        // Read-only members can only be read back through a constructor, so include them exactly
+        // when there is one — the rule the call-site pipelines already follow.
+        var ti = TransformTypeSymbol(
+            type,
+            config,
+            attrs,
+            includeReadOnlyProperties: hasCtor,
+            includeFields: includeFields
+        );
+        if (!ti.HasValue)
+            return null;
+
+        if (hasCtor)
+            return ti.Value with { CtorParams = ctorParams!.Value };
+
+        return UnconstructibleReason(type) is { } reason
+            ? ti.Value with { UnconstructibleReason = reason }
+            : ti.Value;
     }
 
     public static ImmutableArray<PropertyInfo> ExtractNestedProperties(
@@ -3366,6 +3518,100 @@ internal static class GenInfrastructure
         }
     }
 
+    // ── Primary constructor: ONE implementation, asked by both pipelines ───────────────────
+    //
+    // A positional record (`record R(string A, int B)`) has NO parameterless constructor and its
+    // properties are init-only, so the "`new T()` + assign" deserializer is not merely impolite
+    // for it: it does not COMPILE (CS7036 for the missing argument, CS8852 for each init-only
+    // assignment). Deciding "can this type be built through a constructor, and with which
+    // arguments" is therefore ONE question, and it is asked from two directions:
+    //   * the usage-driven pipelines, one per format (a call site named the type), and
+    //   * the attribute-driven pipeline (`[GenerateSerializer(typeof(T))]` / `[PicoSerializable]`),
+    //     which discovers the type WITHOUT any call site to learn from.
+    // Those two answers used to be spelled twice — and they drifted: the call site knew about
+    // records, the attribute pipeline did not, so the SAME type produced compilable code through
+    // one pipeline and non-compiling code through the other. The methods below are that one
+    // answer; no other site may re-derive it.
+
+    /// <summary>
+    /// The record's primary constructor — the one its positional parameters belong to — or
+    /// <c>null</c> when there is none to find.
+    /// <para>
+    /// "Primary" means: a RECORD (a plain class's constructors say nothing about constructor-shaped
+    /// deserialization; that stays the format's constructor-attribute decision) whose first public,
+    /// explicitly declared constructor carries the positional parameters. A non-positional
+    /// <c>record R { }</c> has only the compiler-generated parameterless constructor, so it answers
+    /// <c>null</c> and keeps the <c>new()</c> path — which is correct for it.
+    /// </para>
+    /// </summary>
+    public static IMethodSymbol? FindPrimaryConstructor(INamedTypeSymbol type) =>
+        type.IsRecord
+            ? type.Constructors.FirstOrDefault(c =>
+                c.DeclaredAccessibility == Accessibility.Public && !c.IsImplicitlyDeclared
+            )
+            : null;
+
+    /// <summary>
+    /// True when <paramref name="type"/> is a record whose ONLY public constructor is its primary
+    /// one — the case where a parameterless <c>new()</c> does not exist at all, so reading the type
+    /// back MUST go through the primary constructor.
+    /// <para>
+    /// Deliberately narrower than <see cref="FindPrimaryConstructor"/>: a record that also exposes a
+    /// public parameterless constructor (<c>record R(string A) { public R() : this("") { } }</c>) can
+    /// be built either way, and "which constructor did the author mean" is then a question for the
+    /// format's constructor attribute, not for a heuristic. Two public constructors ⇒ no guess.
+    /// </para>
+    /// </summary>
+    public static bool HasPrimaryConstructor(INamedTypeSymbol type)
+    {
+        if (!type.IsRecord)
+            return false;
+
+        var firstTwoPublic = type
+            .Constructors.Where(c => c.DeclaredAccessibility == Accessibility.Public)
+            .Take(2)
+            .ToArray();
+        return firstTwoPublic.Length == 1 && !firstTwoPublic[0].IsImplicitlyDeclared;
+    }
+
+    /// <summary>
+    /// <see cref="FindPrimaryConstructor"/>'s parameters, mapped for code generation. <c>null</c>
+    /// when the type has no primary constructor, or when one of its parameter types cannot be
+    /// expressed in <paramref name="formatTag"/> (the caller then falls back to <c>new()</c> instead
+    /// of emitting a constructor call with a missing argument).
+    /// </summary>
+    public static ImmutableArray<CtorParamInfo>? DetectPrimaryConstructor(
+        INamedTypeSymbol type,
+        string formatTag
+    ) => FindPrimaryConstructor(type) is { } primary ? BuildCtorParams(primary, formatTag) : null;
+
+    /// <summary>
+    /// Why no instance of <paramref name="type"/> can be created, or <c>null</c> when one can. The
+    /// attribute pipeline needs this gate because it has no call site to fail loudly on its behalf:
+    /// without it, every format's reader would write <c>new T()</c> for the type — CS7036 when there is
+    /// no parameterless constructor, CS8852 on top when the only way in is an object initializer over
+    /// init-only properties.
+    /// <para>
+    /// <b>Abstract and static types are deliberately OUT of this gate</b>, and the reason is a
+    /// behaviour, not a preference: an abstract type is a polymorphic root, and its reader dispatches
+    /// on the discriminator instead of calling <c>new</c> on it (the polymorphic pipeline emits that
+    /// entry itself). Dropping such a type here would remove a serializer that works AND silence the
+    /// diagnostics its own members produce — PICOSERDE003/004 are computed during extraction, so the
+    /// type has to survive to GenerateAll for them to be reported at all. Whether an abstract or
+    /// static type should be discovered by an attribute with no derived types is a separate,
+    /// pre-existing question; this gate answers only the one this pipeline got wrong.
+    /// </para>
+    /// </summary>
+    public static string? UnconstructibleReason(INamedTypeSymbol type)
+    {
+        if (type.IsAbstract || type.IsStatic)
+            return null;
+        foreach (var ctor in type.Constructors)
+            if (ctor.DeclaredAccessibility == Accessibility.Public && ctor.Parameters.Length == 0)
+                return null;
+        return UnconstructibleTypeReason;
+    }
+
     /// <summary>Detects [JsonConstructor] attribute and returns ctor param info.</summary>
     public static ImmutableArray<CtorParamInfo>? DetectConstructor(
         INamedTypeSymbol type,
@@ -3385,19 +3631,10 @@ internal static class GenInfrastructure
             return BuildCtorParams(ctor, formatTag);
         }
 
-        // Records expose their data through the primary constructor: accept it
-        // without requiring the format's constructor attribute (all formats,
-        // not just JSON which has its own record handling).
-        if (type.IsRecord)
-        {
-            var primary = type.Constructors.FirstOrDefault(c =>
-                c.DeclaredAccessibility == Accessibility.Public && !c.IsImplicitlyDeclared
-            );
-            if (primary is not null)
-                return BuildCtorParams(primary, formatTag);
-        }
-
-        return null;
+        // Records expose their data through the primary constructor: accept it without requiring
+        // the format's constructor attribute. One implementation for all five formats AND for the
+        // attribute pipeline — see FindPrimaryConstructor.
+        return DetectPrimaryConstructor(type, formatTag);
     }
 
     /// <summary>
@@ -3504,46 +3741,11 @@ internal static class GenInfrastructure
                 config.ConstructorAttributeName
             );
 
-            // Record primary constructor auto-detection for polymorphic derived types.
-            // Records use positional construction (no parameterless ctor) and init-only
-            // properties, so the poly deserializer must use the same ctor-driven path
-            // as the normal deserializer instead of new() + property assignment.
-            if (!ctorParams.HasValue && dt.IsRecord)
-            {
-                var primary = dt
-                    .Constructors.Where(c =>
-                        c.DeclaredAccessibility == Accessibility.Public && !c.IsImplicitlyDeclared
-                    )
-                    .FirstOrDefault();
-                if (primary is not null)
-                {
-                    var ctorList = ImmutableArray.CreateBuilder<CtorParamInfo>();
-                    bool anyUnsupported = false;
-                    foreach (var param in primary.Parameters)
-                    {
-                        var (typeKind, _, _) = TypeKindResolver.Resolve(
-                            param.Type,
-                            config.FormatTag
-                        );
-                        if (typeKind is null)
-                        {
-                            anyUnsupported = true;
-                            break;
-                        }
-                        ctorList.Add(
-                            new CtorParamInfo(
-                                param.Name,
-                                typeKind,
-                                param.Type.ToDisplayString(
-                                    SymbolDisplayFormat.FullyQualifiedFormat
-                                ),
-                                TypeFullNameAnnotated: TypeKindResolver.DisplayType(param.Type)
-                            )
-                        );
-                    }
-                    ctorParams = anyUnsupported ? null : ctorList.ToImmutable();
-                }
-            }
+            // A record derived type needs no special case here: DetectConstructor above already
+            // falls back to the primary constructor (DetectPrimaryConstructor), so the poly
+            // deserializer takes the same ctor-driven path as the normal deserializer instead of
+            // new() + property assignment. This block used to re-derive the record parameters a
+            // third time, agreeing with the other two copies only by luck.
 
             var hasCtor = ctorParams.HasValue;
 

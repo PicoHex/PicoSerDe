@@ -633,7 +633,9 @@ members — its format is flat).
 the same generated file name (internal helper names get a stable hashed `UniqueName` suffix); `PICOSERDE003` a recursive member was skipped by a
 section-based format; `PICOSERDE004` a member shape the format cannot represent (nested list, nullable value-type element, null object element,
 collection dictionary value) was skipped; `PICOSERDE005` an anonymous-type collection member was skipped because our anonymous-type emitter only
-has the JSON form so far — a gap in our emitter, not a format limit. The matrix behind `003`/`004` is [Format limits](#format-limits-what-each-wire-format-cannot-express); the chunked
+has the JSON form so far — a gap in our emitter, not a format limit; `PICOSERDE007` a type named by `[GenerateSerializer(typeof(T))]` /
+`[PicoSerializable]` exposes neither a primary constructor nor a public parameterless one, so no reader could build it — reported and skipped instead
+of emitted, because generated code for it would not compile (add such a constructor, or let a call site name the type). The matrix behind `003`/`004` is [Format limits](#format-limits-what-each-wire-format-cannot-express); the chunked
 reader itself (dual-mode `ReadOnlySpan<byte>` + `ReadOnlySequence<byte>` / `PipeReader`, chunk boundaries included) is
 [PicoJetson → Features](PicoJetson/README.md#features).
 
