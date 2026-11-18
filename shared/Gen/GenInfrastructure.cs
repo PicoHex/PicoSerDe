@@ -1180,6 +1180,84 @@ internal static class GenInfrastructure
             )
         );
 
+    /// <summary>
+    /// An INI KEY (the member's <c>[IniKey]</c> text, or its name when that attribute is absent)
+    /// carries a character the INI grammar spends on STRUCTURE, so the bytes written for the member
+    /// cannot be read back as that key.
+    /// <para>
+    /// <b>The measured failure this closes.</b> <c>IniWriter.WriteKey</c> has no charset guard, and
+    /// none is possible there — by the time the writer sees the bytes the wire shape is already
+    /// committed. On the pre-fix tree three keys were accepted with <b>no diagnostic and no
+    /// exception</b>: <c>[IniKey("n\nline")]</c> emitted <c>n(newline)line = 8</c>, which our OWN reader
+    /// rejects with <c>FormatException</c>; <c>[IniKey("[sec]")]</c> emitted <c>[sec] = 8</c>, which
+    /// is a section HEADER — the member silently moves into an invented section; and
+    /// <c>[IniKey("a=b")]</c> emitted <c>a=b = 8</c>, whose key every INI reader truncates to
+    /// <c>a</c>. The key is a COMPILE-TIME constant, so this was answerable at generation time all
+    /// along (<c>PicoIni/README.md</c>, Limits).
+    /// </para>
+    /// <para>
+    /// <b>Why a new id (<c>PICOSERDE008</c>) and not PICOSERDE001/003/004:</b> the member's SHAPE is
+    /// perfectly expressible (an <c>int</c> in a section) — what the format cannot carry is the KEY
+    /// TEXT, which is not a shape any of those ids name and none of their templates has a slot for.
+    /// PICOSERDE001…007 keep their ids and templates; no id is renumbered (they are the public half
+    /// of the contract, spec §5 D4).
+    /// </para>
+    /// <para>
+    /// The verdict is ⛔ (<see cref="FormatCapabilities.ImpossibleMarker"/>), not ⏸: the five
+    /// characters are the format's own grammar, so no reader could recover those bytes and no
+    /// emitter change can make INI hold them. The way out is the KEY (rename the member, or give the
+    /// key attribute a plain name) — which is why the template says the member's TYPE does not have
+    /// to change and does not send the reader to another format.
+    /// </para>
+    /// <para>
+    /// Reported with <c>location: null</c> (= <c>Location.None</c>) like its neighbours
+    /// (PICOSERDE001/003/004/006/007): the drop is decided in <c>GenerateAll</c> from the
+    /// <c>TypeInfo</c> value, which carries strings rather than symbols — the transform that holds
+    /// the symbol must stay pure (D-6). The message names the member, its type, the key (with
+    /// control characters escaped, so a newline cannot split the build-log line) and the reserved
+    /// character(s) actually found.
+    /// </para>
+    /// </summary>
+    private static readonly DiagnosticDescriptor UnwritableIniKeyWarning = new(
+        id: "PICOSERDE008",
+        title: "Member dropped: its INI key contains a structural character",
+        messageFormat: FormatCapabilities.ImpossibleMarker
+            + " Member '{0}' of '{1}' was dropped by the {2} source generator: its key '{3}' carries {4} — characters the INI grammar spends on structure ('=' ends the key, '[' / ']' delimit a section header, CR / LF end the line), so the bytes written for this member read back as a different key or as a new section, and no reader can recover them. Give the member a key without those characters (rename it, or give its key attribute a plain name); the member's type does not have to change.",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// Reports <see cref="UnwritableIniKeyWarning"/>: one member whose INI key carries a reserved
+    /// character (<c>=</c>, <c>[</c>, <c>]</c>, CR, LF). Called once per member from the INI
+    /// generator's <c>GenerateAll</c> pre-scan, which then <b>drops the member</b> — a serializer
+    /// that cannot write its key must not be emitted for it.
+    /// <para>
+    /// <paramref name="keyDisplay"/> is escaped by the caller already: a raw newline inside a
+    /// diagnostic message would split the build-log line and hide the rest of it.
+    /// </para>
+    /// </summary>
+    public static void ReportUnwritableIniKey(
+        SourceProductionContext spc,
+        string formatTag,
+        string? typeName,
+        string memberName,
+        string keyDisplay,
+        string reservedChars
+    ) =>
+        spc.ReportDiagnostic(
+            Diagnostic.Create(
+                UnwritableIniKeyWarning,
+                null,
+                memberName,
+                typeName ?? "(unknown)",
+                formatTag,
+                keyDisplay,
+                reservedChars
+            )
+        );
+
     /// <summary>Reports a skipped type whose generated file name collided.</summary>
     public static void ReportHintNameCollision(
         SourceProductionContext spc,

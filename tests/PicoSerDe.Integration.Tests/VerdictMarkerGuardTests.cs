@@ -78,8 +78,14 @@ public class VerdictMarkerGuardTests
     /// the verdict is the same and no other format helps either; a new id, because the SUBJECT is
     /// the type, not a member.
     /// </para>
+    /// <para>
+    /// 6 → 7 is PICOSERDE008 (an INI key carrying a structural character): the key is a
+    /// compile-time constant that cannot be written and read back, so the member is dropped at
+    /// generation time and the build says so instead of emitting a document whose key nobody
+    /// declared.
+    /// </para>
     /// </summary>
-    private const int ImpossibleTemplateCount = 6;
+    private const int ImpossibleTemplateCount = 7;
 
     /// <summary>
     /// 4 → 5 is PICOSERDE006 (the member-kind gap): a member whose TypeKind has no arm in the
