@@ -15,6 +15,66 @@ public struct TomlReaderState
     internal bool InlineStartEmitted;
     internal bool IsArrayTable;
     internal bool DottedActive;
+
+    // The duplicate-key record travels with the parser state: TomlSerializer builds a NEW
+    // reader per chunk, so a document streamed in two pieces must be as strict as the same
+    // document read in one. Without these four the second chunk would start with an empty
+    // record (a duplicate split across the boundary would pass) and with the table scope
+    // reset to the root (the keys would be filed under the wrong table).
+    internal KeyDefinitionLog? KeyLog;
+    internal string? KeyTable;
+    internal int KeyTableInstance;
+    internal int ArrayTableSeq;
+}
+
+/// <summary>
+/// The keys a document has already defined, per table, in definition order.
+/// <para>
+/// TOML 1.0 §Keys: "Defining a key multiple times is invalid" — the reference
+/// implementation refuses the document (<c>tomllib</c>: "Cannot overwrite a value"). A reader
+/// that publishes both definitions reports a document the format does not have, and the
+/// second value silently wins, so this record is what makes the refusal possible.
+/// </para>
+/// <para>
+/// The keys are kept in definition ORDER so a transactional rewind can drop exactly the ones
+/// the re-read will define again: a token re-read after <c>NeedsMoreData</c> is being read a
+/// second time, not defined a second time.
+/// </para>
+/// </summary>
+internal sealed class KeyDefinitionLog
+{
+    private readonly List<(string Table, int Instance, string Key)> _order = [];
+    private readonly HashSet<(string Table, int Instance, string Key)> _defined = [];
+
+    internal int Count => _order.Count;
+
+    /// <summary>
+    /// Records one definition; <see langword="false"/> means the key is already defined in this
+    /// table. A token that is READ AGAIN after a rewind is not a redefinition — that case is
+    /// handled by <see cref="TruncateTo"/>, which every rollback path calls, so this method is
+    /// never asked about a key the parser is in the middle of re-reading.
+    /// </summary>
+    /// <param name="table">Current table path ("" at the document root).</param>
+    /// <param name="instance">Which <c>[[array of tables]]</c> element this is; 0 for a plain table.</param>
+    /// <param name="key">The key as written, quoted or bare.</param>
+    internal bool TryDefine(string table, int instance, string key)
+    {
+        var id = (table, instance, key);
+        if (!_defined.Add(id))
+            return false;
+        _order.Add(id);
+        return true;
+    }
+
+    /// <summary>Drops every definition recorded after the first <paramref name="count"/>.</summary>
+    internal void TruncateTo(int count)
+    {
+        for (int i = _order.Count - 1; i >= count; i--)
+        {
+            _defined.Remove(_order[i]);
+            _order.RemoveAt(i);
+        }
+    }
 }
 
 public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTokenReader
@@ -82,6 +142,13 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     private int _realLength;
     private int _tokenStart;
 
+    // Duplicate-key detection (TOML 1.0 §Keys). Lazily created on the first key; carried
+    // through ExportState/ImportState so a chunked read is as strict as a buffered one.
+    private KeyDefinitionLog? _keyLog;
+    private string _keyTable;
+    private int _keyTableInstance;
+    private int _arrayTableSeq;
+
     // Transactional storage: parser state snapshots for Mark/RewindToMark and
     // for the internal per-Read transaction. Token spans are cleared on
     // rollback (callers must re-read; see ITransactionalTokenReader).
@@ -110,6 +177,10 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         public int DottedL2;
         public int DottedO3;
         public int DottedL3;
+
+        // How many keys were defined when the mark was taken: a rewind un-defines the ones
+        // the re-read will define again (a replay is not a redefinition).
+        public int KeyCount;
     }
 
     private void SaveMark(ref ParserMark m)
@@ -135,6 +206,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         m.DottedL2 = _dottedL2;
         m.DottedO3 = _dottedO3;
         m.DottedL3 = _dottedL3;
+        m.KeyCount = _keyLog?.Count ?? 0;
     }
 
     private void RestoreMark(in ParserMark m)
@@ -164,6 +236,8 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _valueSpan = default;
         _tablePath = default;
         _needsMoreData = false;
+        // A rewound token will be read again: forget the keys it defined.
+        _keyLog?.TruncateTo(m.KeyCount);
     }
 
     /// <inheritdoc />
@@ -206,6 +280,10 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _dottedActive = false;
         _dottedPartCount = 0;
         _dottedPartIndex = 0;
+        _keyLog = null;
+        _keyTable = "";
+        _keyTableInstance = 0;
+        _arrayTableSeq = 0;
     }
 
     public TomlReader(ReadOnlySequence<byte> data, bool isFinalBlock = true)
@@ -246,6 +324,10 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _dottedActive = false;
         _dottedPartCount = 0;
         _dottedPartIndex = 0;
+        _keyLog = null;
+        _keyTable = "";
+        _keyTableInstance = 0;
+        _arrayTableSeq = 0;
     }
 
     public TokenType TokenType => _tokenType;
@@ -290,6 +372,10 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             InlineStartEmitted = _inlineStartEmitted,
             IsArrayTable = _isArrayTable,
             DottedActive = _dottedActive,
+            KeyLog = _keyLog,
+            KeyTable = _keyTable,
+            KeyTableInstance = _keyTableInstance,
+            ArrayTableSeq = _arrayTableSeq,
         };
     }
 
@@ -313,12 +399,19 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _inlineStartEmitted = state.InlineStartEmitted;
         _isArrayTable = state.IsArrayTable;
         _dottedActive = state.DottedActive;
+        _keyLog = state.KeyLog;
+        _keyTable = state.KeyTable ?? "";
+        _keyTableInstance = state.KeyTableInstance;
+        _arrayTableSeq = state.ArrayTableSeq;
     }
 
     public bool Read()
     {
         _tokenStart = _position;
         _needsMoreData = false;
+        // The per-token transaction covers the definition record too: every path below that
+        // puts the position back will read this token AGAIN, and a re-read defines nothing.
+        int __keyCount = _keyLog?.Count ?? 0;
         if (!_bomChecked)
         {
             if (_normalizedSequence)
@@ -360,6 +453,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                     // Never consume an incomplete token: the next attempt (with
                     // more data) restarts exactly at this token.
                     _position = __tokenStart;
+                    _keyLog?.TruncateTo(__keyCount);
                     return FailRead();
                 }
                 // A token ending at a non-final buffer end may continue in the
@@ -379,6 +473,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 )
                 {
                     _position = __tokenStart;
+                    _keyLog?.TruncateTo(__keyCount);
                     _needsMoreData = true;
                     return false;
                 }
@@ -394,6 +489,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 )
             {
                 _position = __tokenStart;
+                _keyLog?.TruncateTo(__keyCount);
                 _needsMoreData = true;
                 return false;
             }
@@ -406,6 +502,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         catch (IncompleteInputException)
         {
             // Non-final span reads must report NeedsMoreData, never throw.
+            _keyLog?.TruncateTo(__keyCount);
             _needsMoreData = true;
             return false;
         }
@@ -995,6 +1092,12 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         while (_position < _data.Length && _data[_position] != (byte)']')
             _position++;
         _tablePath = TrimEnd(_data[tblStart.._position]);
+        // Keys are defined per TABLE (§Keys). A <c>[[array of tables]]</c> header opens a NEW
+        // element each time it appears (§Array of Tables), so its keys are a fresh namespace —
+        // the instance number is what keeps `[[Rows]] A = 1` / `[[Rows]] A = 2` legal while
+        // `[T] A = 1` / `[T] A = 2` is not.
+        _keyTable = Encoding.UTF8.GetString(_tablePath);
+        _keyTableInstance = _isArrayTable ? ++_arrayTableSeq : 0;
         _position++;
         if (_isArrayTable && _position < _data.Length && _data[_position] == (byte)']')
             _position++;
@@ -1002,6 +1105,28 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _depth = 1; // TOML sections are flat (non-nesting)
         _tokenType = _isArrayTable ? TokenType.ArrayStart : TokenType.ObjectStart;
         return true;
+    }
+
+    /// <summary>
+    /// Registers the key of the line just parsed against the current table, and refuses a second
+    /// definition of it. TOML 1.0 §Keys: "Defining a key multiple times is invalid" — the
+    /// reference implementation refuses the document (<c>tomllib</c>: "Cannot overwrite a
+    /// value"), so publishing both definitions would report a document the format does not have
+    /// while the second value silently won.
+    /// <para>
+    /// This runs BEFORE any token for the new definition is published, so a refused document
+    /// stops at the offending line instead of after a partial read of it.
+    /// </para>
+    /// </summary>
+    private void DefineKey()
+    {
+        _keyLog ??= new KeyDefinitionLog();
+        var key = Encoding.UTF8.GetString(_keySpan);
+        if (_keyLog.TryDefine(_keyTable, _keyTableInstance, key))
+            return;
+        throw new FormatException(
+            $"Duplicate key '{key}' at offset {_position}: TOML 1.0 §Keys forbids defining a key twice in the same table."
+        );
     }
 
     private bool ReadKeyValueSpan()
@@ -1048,6 +1173,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (_position >= _data.Length || _data[_position] != (byte)'=')
             throw new FormatException("Invalid TOML line: expected '='.");
         _position++;
+        DefineKey();
         while (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;
 
