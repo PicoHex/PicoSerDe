@@ -10,7 +10,7 @@
          * the emitted baseline lives outside obj/, so it is excluded from compilation
            (otherwise the snapshot would be compiled back into the project). -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <PublishAot>false</PublishAot>
     <!-- PublishAot=false is the whole point, so the AOT/trim analyzers are off too;

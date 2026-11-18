@@ -56,6 +56,62 @@
       "picoyaml.gen": {
         "type": "Project"
       }
+    },
+    "net11.0": {
+      "Microsoft.NET.ILLink.Tasks": {
+        "type": "Direct",
+        "requested": "[11.0.0, )",
+        "resolved": "11.0.0",
+        "contentHash": "gK2aq4XvChj5kvozpPHrkfKkr7zc5Z4xoTrJb4GPZzDEPMlCk0TX632bwY3LsWcX2UVcVRQBBGzsBGC2lq6YhA=="
+      },
+      "picoini": {
+        "type": "Project",
+        "dependencies": {
+          "PicoSerDe.Core": "[0.0.0-dev, )"
+        }
+      },
+      "picoini.gen": {
+        "type": "Project"
+      },
+      "picojetson": {
+        "type": "Project",
+        "dependencies": {
+          "PicoSerDe.Core": "[0.0.0-dev, )"
+        }
+      },
+      "picojetson.gen": {
+        "type": "Project"
+      },
+      "picomsgpack": {
+        "type": "Project",
+        "dependencies": {
+          "PicoSerDe.Core": "[0.0.0-dev, )"
+        }
+      },
+      "picomsgpack.gen": {
+        "type": "Project"
+      },
+      "picoserde.core": {
+        "type": "Project"
+      },
+      "picotoml": {
+        "type": "Project",
+        "dependencies": {
+          "PicoSerDe.Core": "[0.0.0-dev, )"
+        }
+      },
+      "picotoml.gen": {
+        "type": "Project"
+      },
+      "picoyaml": {
+        "type": "Project",
+        "dependencies": {
+          "PicoSerDe.Core": "[0.0.0-dev, )"
+        }
+      },
+      "picoyaml.gen": {
+        "type": "Project"
+      }
     }
   }
 }

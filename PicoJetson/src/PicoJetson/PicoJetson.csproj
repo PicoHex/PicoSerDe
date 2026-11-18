@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
 <IsPackable>true</IsPackable>
     <PackageId>PicoJetson</PackageId>
     <Description>PicoJetson — zero-allocation, AOT-first JSON serializer. Lightning-fast serialization/deserialization with SIMD-accelerated parsing and source-generated zero-reflection code for the PicoHex ecosystem.</Description>

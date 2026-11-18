@@ -35,6 +35,41 @@
       "picoserde.core": {
         "type": "Project"
       }
+    },
+    "net11.0": {
+      "ini-parser-netstandard": {
+        "type": "Direct",
+        "requested": "[2.5.*, )",
+        "resolved": "2.5.3",
+        "contentHash": "Ht3UqRCqizBPbB5pvQ/yCNZIChY6Cy5nLn7TKIlJzWnf4pbqGKqDO+AY6MDTD+fXgEzzMb64Qzl4/Hy7vEqfLA=="
+      },
+      "Microsoft.DotNet.ILCompiler": {
+        "type": "Direct",
+        "requested": "[11.0.0, )",
+        "resolved": "11.0.0",
+        "contentHash": "lw6gUL92db6XPwYsQwaGwrJxgRM0X0qQKl0QkwuZIACMtgH0eFu6jmq6W+/L8qTxQZwggfV/dGjICyMqVHdehg=="
+      },
+      "Microsoft.NET.ILLink.Tasks": {
+        "type": "Direct",
+        "requested": "[11.0.0, )",
+        "resolved": "11.0.0",
+        "contentHash": "gK2aq4XvChj5kvozpPHrkfKkr7zc5Z4xoTrJb4GPZzDEPMlCk0TX632bwY3LsWcX2UVcVRQBBGzsBGC2lq6YhA=="
+      },
+      "PicoBench": {
+        "type": "Direct",
+        "requested": "[2026.4.*, )",
+        "resolved": "2026.4.0",
+        "contentHash": "cJBjOZHCbvye3vzQUibWpFMutOhLFL1Py+dxicbd8OIZovrM24pnuTWUkG2txz7V9LZkcw000gL05qOQkWe/yw=="
+      },
+      "picoini": {
+        "type": "Project",
+        "dependencies": {
+          "PicoSerDe.Core": "[0.0.0-dev, )"
+        }
+      },
+      "picoserde.core": {
+        "type": "Project"
+      }
     }
   }
 }

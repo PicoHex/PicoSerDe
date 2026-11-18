@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DOTNET_VERSION: 10.0.x
+  DOTNET_VERSION: 11.0.x
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
 
 jobs:
@@ -221,7 +221,7 @@ jobs:
         run: mkdir -p ./artifacts/nupkg
       - name: Publish the AOT MsgPack benchmark
         shell: bash
-        run: dotnet publish PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks.Aot/PicoMsgPack.Benchmarks.Aot.csproj -c Release -r linux-x64 -o ./bench-aot
+        run: dotnet publish PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks.Aot/PicoMsgPack.Benchmarks.Aot.csproj -f net10.0 -c Release -r linux-x64 -o ./bench-aot
       - name: Run it — both sides must actually be AOT
         shell: bash
         run: ./bench-aot/PicoMsgPack.Benchmarks.Aot
