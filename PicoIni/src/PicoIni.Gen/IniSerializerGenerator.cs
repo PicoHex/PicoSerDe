@@ -227,10 +227,136 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     private static string? GetIniPropertyComment(IPropertySymbol prop) =>
         AttributeLookup.GetString(prop, "PicoIni", "IniCommentAttribute", Arity.One);
 
+    // ── [IniKey] charset (PICOSERDE008) ──────────────────────────────────────────
+    // Five characters are STRUCTURE in the INI grammar: '=' ends the key, '[' / ']' delimit a
+    // section header, CR and LF end the line. A key carrying one of them cannot be written: the
+    // bytes leave the reader with a different key ("a=b" -> "a"), a different section ("[sec]" ->
+    // a header) or a FormatException from our own reader (a raw newline in the key). The key is a
+    // COMPILE-TIME constant, so this is answered HERE and the member is dropped before any emitter
+    // sees it. IniWriter.WriteKey deliberately gets no runtime guard: by then the wire shape is
+    // already committed, so a throw there could only refuse work the generator should never emit.
+    private const string ReservedKeyChars = "=[]\r\n";
+
+    /// <summary>True when <paramref name="key"/> can be written and read back unchanged.</summary>
+    private static bool IsWritableIniKey(string key)
+    {
+        foreach (var ch in key)
+            if (ReservedKeyChars.IndexOf(ch) >= 0)
+                return false;
+        return true;
+    }
+
+    /// <summary>The structural characters a key carries, named for a build-log line.</summary>
+    private static string DescribeReservedKeyChars(string key)
+    {
+        var seen = new List<string>(4);
+        foreach (var ch in key)
+        {
+            var token = ch switch
+            {
+                '=' => "'='",
+                '[' => "'['",
+                ']' => "']'",
+                '\r' => "CR",
+                '\n' => "LF",
+                _ => null,
+            };
+            if (token is not null && !seen.Contains(token))
+                seen.Add(token);
+        }
+        return string.Join(", ", seen);
+    }
+
+    /// <summary>The key as a ONE-LINE log fragment (a raw newline would split the message).</summary>
+    private static string DisplayKey(string key) =>
+        key.Replace("\\", "\\\\").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
+
+    /// <summary>
+    /// Reports <c>PICOSERDE008</c> for every member whose key cannot be written and returns the
+    /// type list WITHOUT those members. Section members (<c>NestedProperties</c>) and a top-level
+    /// list's element members (<c>ArrayElementNestedProps</c>) are keys too, so they take this path.
+    /// </summary>
+    private static ImmutableArray<TypeInfo> DropUnwritableKeys(
+        SourceProductionContext spc,
+        ImmutableArray<TypeInfo> types
+    )
+    {
+        ImmutableArray<TypeInfo>.Builder? replaced = null;
+        for (var i = 0; i < types.Length; i++)
+        {
+            var t = types[i];
+            var typeName = string.IsNullOrEmpty(t.FullyQualifiedName) ? t.Name : t.FullyQualifiedName;
+            var props = KeepWritableKeys(spc, typeName, t.Properties);
+            var elem = KeepWritableKeys(spc, typeName, t.ArrayElementNestedProps);
+            if (ReferenceEquals(props, t.Properties) && ReferenceEquals(elem, t.ArrayElementNestedProps))
+            {
+                replaced?.Add(t);
+                continue;
+            }
+            replaced ??= CopyFirst(types, i);
+            replaced.Add(t with { Properties = props, ArrayElementNestedProps = elem });
+        }
+        return replaced is null ? types : replaced.ToImmutable();
+    }
+
+    /// <summary>The member-level half of <see cref="DropUnwritableKeys"/>.</summary>
+    private static ImmutableArray<PropertyInfo> KeepWritableKeys(
+        SourceProductionContext spc,
+        string typeName,
+        ImmutableArray<PropertyInfo> properties
+    )
+    {
+        if (properties.IsDefaultOrEmpty)
+            return properties;
+
+        ImmutableArray<PropertyInfo>.Builder? kept = null;
+        for (var i = 0; i < properties.Length; i++)
+        {
+            var p = properties[i];
+            var nestedBefore = p.NestedProperties.IsDefaultOrEmpty ? 0 : p.NestedProperties.Length;
+            var nested = KeepWritableKeys(spc, typeName, p.NestedProperties);
+            var nestedAfter = nested.IsDefaultOrEmpty ? 0 : nested.Length;
+            var writable = IsWritableIniKey(p.JsonName);
+
+            if (!writable)
+                PicoSerDe.Gen.GenInfrastructure.ReportUnwritableIniKey(
+                    spc,
+                    Config.FormatTag,
+                    typeName,
+                    p.Name,
+                    DisplayKey(p.JsonName),
+                    DescribeReservedKeyChars(p.JsonName)
+                );
+
+            if (writable && nestedAfter == nestedBefore)
+            {
+                kept?.Add(p);
+                continue;
+            }
+
+            kept ??= CopyFirst(properties, i);
+            if (writable)
+                kept.Add(p with { NestedProperties = nested });
+        }
+        return kept is null ? properties : kept.ToImmutable();
+    }
+
+    /// <summary>The first <paramref name="count"/> items, as a builder the filter can grow.</summary>
+    private static ImmutableArray<T>.Builder CopyFirst<T>(ImmutableArray<T> items, int count)
+    {
+        var builder = ImmutableArray.CreateBuilder<T>(items.Length);
+        for (var i = 0; i < count; i++)
+            builder.Add(items[i]);
+        return builder;
+    }
     // ── Source generation ──
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
     {
+        // A key the INI grammar cannot carry is answered at generation time and the member
+        // is dropped before any emitter sees it (PICOSERDE008).
+        types = DropUnwritableKeys(spc, types);
+
         // Recursive members cannot be represented by INI sections: surface the
         // per-format skip as the shared PICOSERDE003 diagnostic.
         PicoSerDe.Gen.GenInfrastructure.ReportSkippedRecursiveMembers(spc, types, Config.FormatTag);
