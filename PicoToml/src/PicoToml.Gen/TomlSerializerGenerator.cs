@@ -97,7 +97,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
         // Merge all pipelines into one output
         var all = GenPipeline.Merge(usageDriven, attrDriven, formatAttr, shorthandAttr, poly);
-        GenPipeline.RegisterTypesOutput(context, all, GenerateAll);
+        GenPipeline.RegisterTypesOutput(context, all, Config.FormatTag, GenerateAll);
     }
 
     private static TypeInfo? Transform(GeneratorSyntaxContext ctx)
@@ -135,14 +135,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     includeFields: true
                 );
             }
-            if (namedType.IsRecord)
-            {
-                var ctors = namedType
-                    .Constructors.Where(c => c.DeclaredAccessibility == Accessibility.Public)
-                    .ToArray();
-                if (ctors.Length == 1 && !ctors[0].IsImplicitlyDeclared)
-                    hasCtor = true;
-            }
+            // Record primary constructor auto-detection: asked of the ONE shared implementation
+            // (GenInfrastructure.HasPrimaryConstructor) that the attribute pipeline asks too, so a
+            // record can never be a record for a call site and a plain type for an attribute.
+            if (PicoSerDe.Gen.GenInfrastructure.HasPrimaryConstructor(namedType))
+                hasCtor = true;
             // [TomlConstructor]. `null` is the "no namespace filter" argument, not an
             // oversight: the hand-written scan this replaces compared the attribute NAME
             // only (pinned by the N2 equivalence corpus).

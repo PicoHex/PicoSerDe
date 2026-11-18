@@ -226,10 +226,17 @@ internal static class GenPipeline
     /// <summary>
     /// Registers the merged output with NO assembly prefix — the four formats whose helpers live in
     /// the type's own namespace.
+    /// <para>
+    /// The filter before <paramref name="emitAll"/> is not defensive programming: a type the
+    /// attribute pipeline discovered but cannot construct must never reach an emitter (CS7036 /
+    /// CS8852 in the consumer's build), and the drop cannot be done in the transform that sees the
+    /// type. See <see cref="GenInfrastructure.ReportAndDropUnconstructibleTypes"/>.
+    /// </para>
     /// </summary>
     internal static void RegisterTypesOutput(
         IncrementalGeneratorInitializationContext context,
         IncrementalValueProvider<ImmutableArray<TypeInfo>> types,
+        string formatTag,
         Action<SourceProductionContext, ImmutableArray<TypeInfo>> emitAll
     ) =>
         context.RegisterSourceOutput(
@@ -237,7 +244,10 @@ internal static class GenPipeline
             (spc, value) =>
             {
                 GenInfrastructure.AssemblyPrefix = null;
-                emitAll(spc, value);
+                emitAll(
+                    spc,
+                    GenInfrastructure.ReportAndDropUnconstructibleTypes(spc, value, formatTag)
+                );
             }
         );
 
@@ -251,6 +261,7 @@ internal static class GenPipeline
         IncrementalGeneratorInitializationContext context,
         IncrementalValueProvider<ImmutableArray<TypeInfo>> types,
         IncrementalValueProvider<string> assemblyName,
+        string formatTag,
         Action<SourceProductionContext, ImmutableArray<TypeInfo>> emitAll
     ) =>
         context.RegisterSourceOutput(
@@ -258,7 +269,12 @@ internal static class GenPipeline
             (spc, pair) =>
             {
                 GenInfrastructure.AssemblyPrefix = $"__PicoSerDe_{pair.Right}";
-                emitAll(spc, pair.Left);
+                // Same drop as RegisterTypesOutput, for the same reason: an unconstructible type
+                // must be reported (PICOSERDE007) and must never reach an emitter.
+                emitAll(
+                    spc,
+                    GenInfrastructure.ReportAndDropUnconstructibleTypes(spc, pair.Left, formatTag)
+                );
             }
         );
 

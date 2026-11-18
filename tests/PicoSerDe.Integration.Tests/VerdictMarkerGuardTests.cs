@@ -70,8 +70,16 @@ public class VerdictMarkerGuardTests
     /// sentence: one of them must not borrow the other's blame. The count moving here is the
     /// visibility the guard was built to give a new template.
     /// </para>
+    /// <para>
+    /// 5 → 6 is the attribute pipeline's own TypeUnconstructible drop (PICOSERDE007,
+    /// <c>GenInfrastructure.UnconstructibleTypeWarning</c>): a type discovered by an attribute with
+    /// no primary constructor and no public parameterless one is reported and skipped instead of
+    /// being emitted as <c>new T()</c> + init-only assignments (CS7036 / CS8852). Same ⛔, because
+    /// the verdict is the same and no other format helps either; a new id, because the SUBJECT is
+    /// the type, not a member.
+    /// </para>
     /// </summary>
-    private const int ImpossibleTemplateCount = 5;
+    private const int ImpossibleTemplateCount = 6;
 
     /// <summary>
     /// 4 → 5 is PICOSERDE006 (the member-kind gap): a member whose TypeKind has no arm in the
@@ -203,7 +211,7 @@ public class VerdictMarkerGuardTests
             .That(references.GetValueOrDefault(ImpossibleName))
             .IsEqualTo(ImpossibleTemplateCount)
             .Because(
-                "the five ⛔ templates (PICOSERDE001 x2 /003/004/005) must each reference "
+                "the six ⛔ templates (PICOSERDE001 x2 /003/004/005/006) must each reference "
                     + "FormatCapabilities.ImpossibleMarker; a template that builds its glyph "
                     + "another way is the drift this guard exists for"
             );

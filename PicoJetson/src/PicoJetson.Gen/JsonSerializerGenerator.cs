@@ -113,7 +113,13 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
 
         // Merge all pipelines into one output
         var all = GenPipeline.Merge(usageDriven, attrDriven, formatAttr, shorthandAttr, poly);
-        GenPipeline.RegisterAssemblyScopedTypesOutput(context, all, asmName, GenerateAll);
+        GenPipeline.RegisterAssemblyScopedTypesOutput(
+            context,
+            all,
+            asmName,
+            Config.FormatTag,
+            GenerateAll
+        );
     }
 
     // ── Candidate detection ──
@@ -159,15 +165,12 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
             );
         }
 
-        // Record primary constructor auto-detection (like [JsonConstructor] for records)
-        if (namedType.IsRecord && !hasCtor)
-        {
-            var ctors = namedType
-                .Constructors.Where(c => c.DeclaredAccessibility == Accessibility.Public)
-                .ToArray();
-            if (ctors.Length == 1 && !ctors[0].IsImplicitlyDeclared)
-                hasCtor = true;
-        }
+        // Record primary constructor auto-detection (like [JsonConstructor] for records). The
+        // question is asked of the ONE shared implementation — the attribute pipeline asks the same
+        // method, which is why [GenerateSerializer(typeof(PosRecord))] and
+        // JsonSerializer.SerializeToUtf8Bytes<PosRecord> can no longer disagree about a record.
+        if (!hasCtor && PicoSerDe.Gen.GenInfrastructure.HasPrimaryConstructor(namedType))
+            hasCtor = true;
 
         // [JsonConstructor]. The scan stays unconditional here (it was before this change and
         // it is idempotent: it can only ever set hasCtor, never clear it). `null` is the "no
@@ -220,44 +223,14 @@ public sealed class JsonSerializerGenerator : IIncrementalGenerator
         if (typeArg2 is not INamedTypeSymbol namedType2)
             return ti;
 
-        // For records: extract primary constructor params without requiring [JsonConstructor]
-        CtorParamInfo[]? ctorParams = null;
-        if (namedType2.IsRecord)
-        {
-            var primary = namedType2
-                .Constructors.Where(c =>
-                    c.DeclaredAccessibility == Accessibility.Public && !c.IsImplicitlyDeclared
-                )
-                .FirstOrDefault();
-            if (primary is not null)
-            {
-                var list = new List<CtorParamInfo>();
-                bool anyUnsupported = false;
-                foreach (var param in primary.Parameters)
-                {
-                    var (typeKind, _, _) = PicoSerDe.Gen.TypeKindResolver.Resolve(
-                        param.Type,
-                        Config.FormatTag
-                    );
-                    if (typeKind is null)
-                    {
-                        anyUnsupported = true;
-                        break;
-                    }
-                    list.Add(
-                        new CtorParamInfo(
-                            param.Name,
-                            typeKind,
-                            param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                            TypeFullNameAnnotated: PicoSerDe.Gen.TypeKindResolver.DisplayType(
-                                param.Type
-                            )
-                        )
-                    );
-                }
-                ctorParams = anyUnsupported ? null : list.ToArray();
-            }
-        }
+        // For records: the primary constructor's parameters, from the ONE shared implementation
+        // (GenInfrastructure.DetectPrimaryConstructor) — not a second copy of the mapping.
+        CtorParamInfo[]? ctorParams = PicoSerDe.Gen.GenInfrastructure.DetectPrimaryConstructor(
+            namedType2,
+            Config.FormatTag
+        ) is { } primaryParams
+            ? primaryParams.ToArray()
+            : null;
 
         if (ctorParams is null)
         {
