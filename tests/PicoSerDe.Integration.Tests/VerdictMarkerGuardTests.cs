@@ -73,7 +73,14 @@ public class VerdictMarkerGuardTests
     /// </summary>
     private const int ImpossibleTemplateCount = 5;
 
-    private const int DeferredTemplateCount = 4;
+    /// <summary>
+    /// 4 → 5 is PICOSERDE006 (the member-kind gap): a member whose TypeKind has no arm in the
+    /// member emit switches is OUR missing emitter, not a limit of the format — the same ⏸ the
+    /// other four templates carry, with the <c>reopen:</c> tail AGENTS.md asks for. The count moves
+    /// here because that is what this guard is for: a new template must be a visible edit, never a
+    /// silent fifth.
+    /// </summary>
+    private const int DeferredTemplateCount = 5;
 
     private const int MemberErrorTemplateCount = 1;
 
@@ -203,7 +210,7 @@ public class VerdictMarkerGuardTests
         await Assert
             .That(references.GetValueOrDefault(DeferredName))
             .IsEqualTo(DeferredTemplateCount)
-            .Because("the four ⏸ templates must each reference FormatCapabilities.DeferredMarker");
+            .Because("the five ⏸ templates must each reference FormatCapabilities.DeferredMarker");
         await Assert
             .That(references.GetValueOrDefault(MemberErrorName))
             .IsEqualTo(MemberErrorTemplateCount)

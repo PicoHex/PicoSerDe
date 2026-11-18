@@ -1022,6 +1022,64 @@ internal static class GenInfrastructure
             ? AnonCollectionImpossibleWarning
             : AnonCollectionDeferredWarning;
 
+    /// <summary>
+    /// A member (or constructor parameter) reached an emit position whose <c>switch</c> has no arm
+    /// for its TypeKind: the generated writer would put the property NAME on the wire and then no
+    /// value at all, and the generated reader would leave the member at whatever it already held.
+    /// Both halves did that with a bare <c>break</c> / <c>default!</c>, i.e. the value vanished with
+    /// nothing in the build log.
+    /// <para>
+    /// This id exists because that silence is a THIRD failure mode, next to PICOSERDE004 (a member
+    /// the format cannot express, dropped at extraction) and PICOSERDE001 (a member whose type is
+    /// unresolvable for the format): here the format is fine and the type is fine, we simply have no
+    /// emitter for the position. So it is a GENERATOR GAP with a <c>reopen:</c> pointer, never a
+    /// claim about the wire format — the wording therefore refuses to say "cannot be serialized".
+    /// </para>
+    /// <para>
+    /// <b>Reported with <c>location: null</c> (= <c>Location.None</c>) on purpose</b>, like the
+    /// safety-net descriptors it sits beside (the JSON generator's <c>PICOJETSON002</c>
+    /// empty-type-name and its hintName traces): the emit site is reached from a static helper that
+    /// has no symbol at hand, and the message names the type, the member, its declared type and its
+    /// kind, which is everything a reader needs to find it. The emit site ALSO writes a runtime
+    /// throw, so the value is never dropped quietly even if a consumer suppresses this warning.
+    /// </para>
+    /// </summary>
+    private static readonly DiagnosticDescriptor MemberKindNotEmittableWarning = new(
+        id: "PICOSERDE006",
+        title: "Member has a type kind this generator has no emitter for",
+        messageFormat: FormatCapabilities.DeferredMarker
+            + " Member '{0}' (declared type '{1}', kind '{2}') of '{3}' has no {4} emitter in this position: nothing on the generator side would write or read it. reopen: add the missing arm to the {4} emitter — the generated code throws instead of dropping the value silently. This is a recorded gap in this generator, not a limit of the {4} format.",
+        category: "PicoSerDe",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true
+    );
+
+    /// <summary>
+    /// Reports <see cref="MemberKindNotEmittableWarning"/>: a member (or constructor parameter) whose
+    /// TypeKind has no arm in the member emit switches. Called once per member from the generator's
+    /// <c>GenerateAll</c> pre-scan with <c>Location.None</c> (the scan runs before any symbol is in
+    /// scope, so the message carries the fully qualified type name instead).
+    /// </summary>
+    public static void ReportMemberKindNotEmittable(
+        SourceProductionContext spc,
+        string formatTag,
+        string? typeName,
+        string memberName,
+        string? declaredType,
+        string kind
+    ) =>
+        spc.ReportDiagnostic(
+            Diagnostic.Create(
+                MemberKindNotEmittableWarning,
+                null,
+                memberName,
+                declaredType ?? "(unknown)",
+                kind,
+                typeName ?? "(unknown)",
+                formatTag
+            )
+        );
+
     /// <summary>Reports a skipped type whose generated file name collided.</summary>
     public static void ReportHintNameCollision(
         SourceProductionContext spc,
