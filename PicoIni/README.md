@@ -138,7 +138,7 @@ through `Benchmark.Compare` in the wrong slots; it has been withdrawn rather tha
 
 Capability fact that does not depend on measurement: **ini-parser's DOM parsing works under NativeAOT** — it has
 no reflection-free *typed* mapping, so it can parse a document ahead of time but cannot produce a POCO. PicoIni
-does both. Run `dotnet run -c Release --project PicoIni/benchmarks/PicoIni.Benchmarks` for current local timings.
+does both. Run `dotnet run -c Release --project PicoIni/benchmarks/PicoIni.Benchmarks -f net10.0` for current local timings.
 
 ## Low-Level API
 

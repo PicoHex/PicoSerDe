@@ -196,10 +196,10 @@ over.
 
 Capability fact that does not depend on measurement: **Tommy's DOM API (`TOML.Parse`, `TomlTable`) works under
 NativeAOT** — it has no typed POCO mapper to run there. PicoToml does both, and so does Tomlyn. Run
-`dotnet run -c Release --project PicoToml/benchmarks/PicoToml.Benchmarks` for the JIT table, and
+`dotnet run -c Release --project PicoToml/benchmarks/PicoToml.Benchmarks -f net10.0` for the JIT table, and
 
 ```bash
-dotnet publish PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj \
+dotnet publish PicoToml/benchmarks/PicoToml.Benchmarks/PicoToml.Benchmarks.csproj -f net10.0 \
   -c Release -r win-x64 -o /tmp/toml-aot -p:PublishAot=true
 /tmp/toml-aot/PicoToml.Benchmarks.exe
 ```

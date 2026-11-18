@@ -24,13 +24,13 @@ it could not be found by the next person.
 
 ```console
 # JIT, tiering on — the shipped default. This is the number that describes production.
-dotnet run -c Release --project PicoMsgPack/tools/pertoken
+dotnet run -c Release --project PicoMsgPack/tools/pertoken -f net10.0
 
 # JIT, tiering off — the protocol the T6/T7/T8 reports measured under (they used TC=0 to kill variance).
-DOTNET_TieredCompilation=0 dotnet run -c Release --project PicoMsgPack/tools/pertoken
+DOTNET_TieredCompilation=0 dotnet run -c Release --project PicoMsgPack/tools/pertoken -f net10.0
 
 # NativeAOT — what the AOT benchmark rows run on.
-dotnet publish PicoMsgPack/tools/pertoken/PerToken.csproj -c Release -r win-x64 -p:PublishAot=true -o out/pertoken-aot
+dotnet publish PicoMsgPack/tools/pertoken/PerToken.csproj -f net10.0 -c Release -r win-x64 -p:PublishAot=true -o out/pertoken-aot
 out/pertoken-aot/PerToken.exe
 ```
 

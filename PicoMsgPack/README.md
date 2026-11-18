@@ -179,7 +179,7 @@ is quoted from the two changes' own paired A/Bs instead: read side 1270 → **46
 The AOT table uses a different model set from the JIT one on purpose — only statically resolvable types run under
 MessagePack-CSharp's AOT path — so the two must not be aligned by scenario name, and AOT and JIT are never merged
 into one figure. Reproduction: `PICOBENCH_STRICT=1 dotnet run --project
-PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks -c Release --no-build` for the JIT table, and the AOT arms from
+PicoMsgPack/benchmarks/PicoMsgPack.Benchmarks -f net10.0 -c Release --no-build` for the JIT table, and the AOT arms from
 `PicoMsgPack.Benchmarks.Aot` published with `-p:PublishAot=true` and run as a native binary. Each round prints
 its own `PICOBENCH_SUMMARY … published= refused= mode= exit=` line, and an arm measured on a busy machine is
 refused rather than published (drift, spread and dispersion per arm, system-wide CPU under 35 %).

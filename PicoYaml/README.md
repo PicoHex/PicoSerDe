@@ -312,7 +312,7 @@ The self-benchmark is gone, and so is the "Serialize vs Deserialize" ratio it us
 from two of our own operations, and its "Deserialize" row was in fact calling `SerializeToUtf8Bytes`, so it
 measured nothing meaningful.
 
-Run `dotnet run -c Release --project PicoYaml/benchmarks/PicoYaml.Benchmarks` for current local timings.
+Run `dotnet run -c Release --project PicoYaml/benchmarks/PicoYaml.Benchmarks -f net10.0` for current local timings.
 
 ## Why PicoYaml
 

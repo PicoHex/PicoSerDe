@@ -273,7 +273,7 @@ with `DOTNET_TieredCompilation=0` (**no** losing scenario, 0.32×–0.74×). A r
 actually get reads the published JIT table above; a reader who wants to know how much of it is the tiering pipeline
 reads those two.
 
-Reproducing it: `PICOBENCH_STRICT=1 dotnet run --project PicoJetson/benchmarks/PicoJetson.Benchmarks -c Release
+Reproducing it: `PICOBENCH_STRICT=1 dotnet run --project PicoJetson/benchmarks/PicoJetson.Benchmarks -f net10.0 -c Release
 --no-build` three times, strictly serial, one process per round; the AOT table is the same project published with
 `-p:PublishAot=true` and run as a native binary, its own three processes. Each table ends with its own
 `PICOBENCH_SUMMARY … published= refused= mode= exit=` line, and the harness refuses an arm measured on a busy
