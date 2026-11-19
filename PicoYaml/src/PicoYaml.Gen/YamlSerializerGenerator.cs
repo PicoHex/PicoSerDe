@@ -721,6 +721,58 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
     }
 
+    /// <summary>
+    /// The <c>RegisterCustom</c> half of a YAML OBJECT position — member, sequence element or
+    /// dictionary value.
+    /// <para>
+    /// YAML carries a value as text, so the registered <c>ISerializer&lt;T&gt;</c> writes the
+    /// value's text and <see cref="PicoYaml.YamlWriter"/> quotes/escapes it exactly as it does
+    /// for any other scalar (<c>yw.WriteString</c> at a member or dict-value position,
+    /// <c>yw.WriteSequenceItem</c> for a <c>-</c> line). The format never reinterprets those
+    /// bytes; that is the whole contract of a custom serializer here.
+    /// </para>
+    /// <para>
+    /// The guard is a RUNTIME test (<see cref="YamlSerializer.HasCustomSerializer{T}"/>):
+    /// registration happens on a live process, so the two wire forms have to be decided where
+    /// the value is written. It emits <c>if (HasCustom…) { … } else { </c> and the caller closes
+    /// the else-block — the built-in emission then stays one copy, unwrapped and unindented.
+    /// </para>
+    /// </summary>
+    private static void EmitCustomYamlGuard(
+        StringBuilder s,
+        string typeFullName,
+        string accessor,
+        string ind,
+        string writerMethod
+    )
+    {
+        var ct = typeFullName.TrimEnd('?');
+        s.Append(ind);
+        s.Append("if (global::PicoYaml.YamlSerializer.HasCustomSerializer<");
+        s.Append(ct);
+        s.AppendLine(">())");
+        s.Append(ind);
+        s.AppendLine("{");
+        s.Append(ind);
+        s.AppendLine("    var __rcb = new System.Buffers.ArrayBufferWriter<byte>();");
+        s.Append(ind);
+        s.Append("    global::PicoYaml.YamlSerializer.SerializeCustom<");
+        s.Append(ct);
+        s.Append(">(__rcb, ");
+        s.Append(accessor);
+        s.AppendLine(");");
+        s.Append(ind);
+        s.Append("    ");
+        s.Append(writerMethod);
+        s.AppendLine("(__rcb.WrittenSpan);");
+        s.Append(ind);
+        s.AppendLine("}");
+        s.Append(ind);
+        s.AppendLine("else");
+        s.Append(ind);
+        s.AppendLine("{");
+    }
+
     private static void EmitSerializeInline(
         StringBuilder s,
         PropertyInfo p,
@@ -871,11 +923,15 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     "YamlInner",
                     p.TypeFullName!
                 );
+                // RegisterCustom<T> at the inline (block-item member) position.
+                EmitCustomYamlGuard(s, p.TypeFullName!, accessor, ind, "yw.WriteString");
                 s.Append(ind);
                 s.Append(sn);
                 s.Append(".Serialize(yw, ");
                 s.Append(accessor);
                 s.AppendLine(");");
+                s.Append(ind);
+                s.AppendLine("}");
                 break;
             }
             // One sequence arm, asked of the table: CollectionKinds.IsSequence (nine kinds, one row each).
@@ -995,16 +1051,39 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                             s.Append(ind);
                             s.AppendLine("    else");
                             s.Append(ind);
+                            s.AppendLine("    {");
+                            // RegisterCustom<T> at the DICT-VALUE position, nullable value.
+                            EmitCustomYamlGuard(
+                                s,
+                                p.ElementTypeName!,
+                                "__kvp.Value",
+                                ind + "    ",
+                                "        yw.WriteString"
+                            );
+                            s.Append(ind);
                             s.Append("        ");
                             s.Append(dsn);
                             s.AppendLine(".Serialize(yw, __kvp.Value);");
+                            s.Append(ind);
+                            s.AppendLine("    }");
+                            s.Append(ind);
+                            s.AppendLine("    }");
                         }
                         else
                         {
+                            EmitCustomYamlGuard(
+                                s,
+                                p.ElementTypeName!,
+                                "__kvp.Value",
+                                ind,
+                                "    yw.WriteString"
+                            );
                             s.Append(ind);
                             s.Append("    ");
                             s.Append(dsn);
                             s.AppendLine(".Serialize(yw, __kvp.Value);");
+                            s.Append(ind);
+                            s.AppendLine("    }");
                         }
                         break;
                     }
@@ -2110,6 +2189,15 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.Append(ind);
                     s.AppendLine("    if (__item == null) { yw.WriteNull(); continue; }");
                 }
+                // RegisterCustom<T> at the MEMBER-LIST position: a list whose element
+                // type is customized is `- text` per element, not a block mapping each.
+                EmitCustomYamlGuard(
+                    s,
+                    p.ElementTypeName!,
+                    "__item",
+                    ind + "    ",
+                    "yw.WriteSequenceItem"
+                );
                 s.Append(ind);
                 s.AppendLine("    yw.WriteStartSequenceBlock();");
                 s.Append(ind);
@@ -2119,6 +2207,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 s.AppendLine();
                 s.Append(ind);
                 s.AppendLine("    yw.WriteEndSequenceBlock();");
+                s.Append(ind);
+                s.AppendLine("    }");
                 s.Append(ind);
                 s.AppendLine("}");
                 s.Append(ind);
@@ -2193,6 +2283,14 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append("yw.WritePropertyName(\"");
             s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
             s.AppendLine("\"u8);");
+            // RegisterCustom<T>: the registered serializer's text wins over the mapping below.
+            EmitCustomYamlGuard(
+                s,
+                p.TypeFullName!,
+                target + "." + p.Name,
+                nullGuard ? ind + "    " : ind,
+                "yw.WriteString"
+            );
             // No guard on IsYamlNestedMapping: it answers for EVERY resolved object member
             // (nested, cycle-truncated, or EMPTY), and the empty one is carried by the
             // helper's WriteStartMapping() / WriteEndMapping() pair. The `else` arm that used
@@ -2210,6 +2308,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             s.Append('.');
             s.Append(p.Name);
             s.AppendLine(");");
+            s.Append(nullGuard ? ind + "    " : ind);
+            s.AppendLine("}");
             if (nullGuard)
             {
                 s.Append(ind);
@@ -2329,16 +2429,42 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                         s.Append(ind);
                         s.AppendLine("    else");
                         s.Append(ind);
+                        s.AppendLine("    {");
+                        // RegisterCustom<T> at the DICT-VALUE position, nullable value: the
+                        // null literal wins (a value the document never had is not a
+                        // registration's business); the non-null branch is the custom one.
+                        EmitCustomYamlGuard(
+                            s,
+                            p.ElementTypeName!,
+                            "__kvp.Value",
+                            ind + "    ",
+                            "        yw.WriteString"
+                        );
+                        s.Append(ind);
                         s.Append("        ");
                         s.Append(dsn);
                         s.AppendLine(".Serialize(yw, __kvp.Value);");
+                        s.Append(ind);
+                        s.AppendLine("    }");
+                        s.Append(ind);
+                        s.AppendLine("    }");
                     }
                     else
                     {
+                        // RegisterCustom<T> at the DICT-VALUE position.
+                        EmitCustomYamlGuard(
+                            s,
+                            p.ElementTypeName!,
+                            "__kvp.Value",
+                            ind,
+                            "    yw.WriteString"
+                        );
                         s.Append(ind);
                         s.Append("    ");
                         s.Append(dsn);
                         s.AppendLine(".Serialize(yw, __kvp.Value);");
+                        s.Append(ind);
+                        s.AppendLine("    }");
                     }
                     break;
                 }
@@ -2775,6 +2901,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                     s.AppendLine("{");
                 }
                 var inner = p.ElementIsNullableReference ? ind + "    " : ind;
+                // RegisterCustom<T> at the ELEMENT position: one `- text` item carrying
+                // what the registered serializer wrote, instead of the item's mapping.
+                EmitCustomYamlGuard(s, p.ElementTypeName!, io, inner, "yw.WriteSequenceItem");
                 s.Append(inner);
                 s.AppendLine("yw.WriteStartSequenceBlock();");
                 s.Append(inner);
@@ -2793,6 +2922,8 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
                 );
                 s.Append(inner);
                 s.AppendLine("yw.WriteEndSequenceBlock();");
+                s.Append(inner);
+                s.AppendLine("}");
                 if (p.ElementIsNullableReference)
                 {
                     s.Append(ind);

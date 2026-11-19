@@ -11,12 +11,21 @@ S11bToml> {
     public void Serialize(IBufferWriter<byte> w, S11bToml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoToml.TomlOptions?)options;
         var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);
+        if (v.B != null && global::PicoToml.TomlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.S11bTomlPartner>())
+        {
+            var __rcbB = new System.Buffers.ArrayBufferWriter<byte>();
+            global::PicoToml.TomlSerializer.SerializeCustom<global::FormatCapabilities.Probe.S11bTomlPartner>(__rcbB, v.B);
+            tw.WriteKeyValue("B"u8, System.Text.Encoding.UTF8.GetString(__rcbB.WrittenSpan));
+        }
         tw.WriteKeyValue("Name"u8, v.Name);
+        if (!global::PicoToml.TomlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.S11bTomlPartner>())
+        {
         if (v.B != null)
         {
             tw.WriteNestedTable("B"u8);
             global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bTomlPartner_0c7cd577fdc408d9TomlInner.Serialize(tw, v.B);
             tw.EndTable();
+        }
         }
     } }
 file readonly struct S11bToml_TomlDes : IDeserializer<S11bToml> {

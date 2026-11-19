@@ -26,9 +26,18 @@ S4Yaml> {
                 yw.WriteStartSequence();
                 foreach (var __item1 in __item ?? new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto>(0))
                 {
+                    if (global::PicoYaml.YamlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.ProbeDto>())
+                    {
+                        var __rcb = new System.Buffers.ArrayBufferWriter<byte>();
+                        global::PicoYaml.YamlSerializer.SerializeCustom<global::FormatCapabilities.Probe.ProbeDto>(__rcb, __item1);
+                        yw.WriteSequenceItem(__rcb.WrittenSpan);
+                    }
+                    else
+                    {
                     yw.WriteStartSequenceBlock();
                         global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.SerializeBlock(yw, __item1);
                     yw.WriteEndSequenceBlock();
+                    }
                 }
                 yw.WriteEndSequence();
                 yw.WriteEndSequenceBlock();

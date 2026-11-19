@@ -18,9 +18,18 @@ S14Yaml> {
         foreach (var __item in v.V ?? new System.Collections.Generic.List<global::FormatCapabilities.Probe.ProbeDto?>(0))
         {
             if (__item == null) { yw.WriteNull(); continue; }
+            if (global::PicoYaml.YamlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.ProbeDto>())
+            {
+                var __rcb = new System.Buffers.ArrayBufferWriter<byte>();
+                global::PicoYaml.YamlSerializer.SerializeCustom<global::FormatCapabilities.Probe.ProbeDto>(__rcb, __item);
+                yw.WriteSequenceItem(__rcb.WrittenSpan);
+            }
+            else
+            {
             yw.WriteStartSequenceBlock();
             global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351YamlInner.SerializeBlock(yw, __item);
             yw.WriteEndSequenceBlock();
+            }
         }
         yw.WriteEndSequence();
         yw.WriteEndMapping(); // restore depth

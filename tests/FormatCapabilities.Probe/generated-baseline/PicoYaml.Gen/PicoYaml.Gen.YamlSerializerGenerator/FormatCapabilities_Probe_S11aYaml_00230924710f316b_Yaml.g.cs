@@ -17,7 +17,16 @@ S11aYaml> {
         if (v.Child != null)
         {
             yw.WritePropertyName("Child"u8);
+            if (global::PicoYaml.YamlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.S11aYaml>())
+            {
+                var __rcb = new System.Buffers.ArrayBufferWriter<byte>();
+                global::PicoYaml.YamlSerializer.SerializeCustom<global::FormatCapabilities.Probe.S11aYaml>(__rcb, v.Child);
+                yw.WriteString(__rcb.WrittenSpan);
+            }
+            else
+            {
             global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11aYaml_00230924710f316bYamlInner.Serialize(yw, v.Child);
+            }
         }
     } }
 file readonly struct S11aYaml_YD : IDeserializer<S11aYaml> {

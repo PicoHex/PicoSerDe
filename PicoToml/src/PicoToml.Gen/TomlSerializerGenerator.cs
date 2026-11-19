@@ -375,6 +375,9 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         // Same ordering rule as the top level: everything that is not a table
         // section first, then the sections. Sorted by key inside each pass so the
         // output stays deterministic.
+        // RegisterCustom<T> first: a customized object member is a key/value line, and a
+        // key/value line may not follow a `[table]` header (TOML scoping).
+        EmitCustomObjectMemberWrites(s, props, "value", "        ");
         foreach (var p in props.OrderBy(x => EmitOrderKey(x)).ThenBy(x => x.JsonName))
             EmitSerializeProp(s, p, "value", "        ");
         s.AppendLine("    }");
@@ -688,6 +691,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine(" v, global::PicoSerDe.Core.SerOptions? options) {");
         s.AppendLine("        var __opts = (global::PicoToml.TomlOptions?)options;");
         s.AppendLine("        var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);");
+        EmitCustomObjectMemberWrites(s, t.Properties, "v", "        ");
         foreach (var p in t.Properties.OrderBy(x => EmitOrderKey(x)))
             EmitSerializeProp(s, p, "v", "        ");
         s.AppendLine("    } }");
@@ -1582,6 +1586,73 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             _ => 0,
         };
 
+    /// <summary>
+    /// The runtime half of <c>RegisterCustom</c> for TOML OBJECT members.
+    /// <para>
+    /// TOML is section-based: a nested object is a <c>[Table]</c> header and every key/value
+    /// line written after one belongs to that table. A custom-serialized member is ONE
+    /// key/value line instead, so it has to be written in the "keys first" region — before
+    /// any table header — or a single <c>[Other]</c> sibling would swallow it. That is why
+    /// this pass runs before the ordered member loop rather than inside the member branch,
+    /// and why the branch itself is guarded with <c>!HasCustomSerializer</c> (see
+    /// <see cref="EmitSerializeProp"/>): exactly one of the two writes, in the right region.
+    /// </para>
+    /// <para>
+    /// Nothing is written when the type has no registration, so the unregistered document is
+    /// byte-identical to what this generator wrote before RegisterCustom existed.
+    /// </para>
+    /// </summary>
+    private static void EmitCustomObjectMemberWrites(
+        StringBuilder s,
+        IEnumerable<PropertyInfo> props,
+        string target,
+        string indent
+    )
+    {
+        foreach (var p in props.Where(x => x.TypeKind == "object").OrderBy(x => x.JsonName))
+        {
+            // A cycle-truncated member (IsRecursiveRef) keeps its type's helper: its own
+            // type name is the registration key the user wrote.
+            var ct = (p.TypeFullName ?? "object").TrimEnd('?');
+            var acc = target + "." + p.Name;
+            var buf = "__rcb" + p.Name;
+            s.Append(indent);
+            s.Append("if (");
+            // TOML has no null literal: a null member is OMITTED, so the custom write is
+            // skipped too (the guarded table branch skips it for the same reason).
+            if (p.IsNullableReference)
+            {
+                s.Append(acc);
+                s.Append(" != null && ");
+            }
+            s.Append("global::PicoToml.TomlSerializer.HasCustomSerializer<");
+            s.Append(ct);
+            s.AppendLine(">())");
+            s.Append(indent);
+            s.AppendLine("{");
+            s.Append(indent);
+            s.Append("    var ");
+            s.Append(buf);
+            s.AppendLine(" = new System.Buffers.ArrayBufferWriter<byte>();");
+            s.Append(indent);
+            s.Append("    global::PicoToml.TomlSerializer.SerializeCustom<");
+            s.Append(ct);
+            s.Append(">(");
+            s.Append(buf);
+            s.Append(", ");
+            s.Append(acc);
+            s.AppendLine(");");
+            s.Append(indent);
+            s.Append("    tw.WriteKeyValue(\"");
+            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+            s.Append("\"u8, System.Text.Encoding.UTF8.GetString(");
+            s.Append(buf);
+            s.AppendLine(".WrittenSpan));");
+            s.Append(indent);
+            s.AppendLine("}");
+        }
+    }
+
     private static void EmitSerializeProp(
         StringBuilder s,
         PropertyInfo p,
@@ -1625,6 +1696,49 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 $"{target}.{p.Name}",
                 indent
             );
+            // RegisterCustom<T> at the MEMBER-LIST position: when every element's type has a
+            // registered serializer the list is ONE inline array carrying that text
+            // (`Items = ["c1", "c2"]`), not the array of tables (`[[Items]]`) the built-in
+            // path emits. Both arms are runtime-decided: registration is a runtime fact.
+            //
+            // Only an OBJECT element has a registration to honour (the same rule the JSON
+            // generator applies to its `case "object"` arm): a nested collection
+            // (`List<int[]>`) or a scalar has no member-position custom form to replace.
+            var listAccessor = p.IsNullableReference ? $"{target}.{p.Name}!" : $"{target}.{p.Name}";
+            bool customElements = p.ElementTypeKind is "object";
+            var b = new StringBuilder();
+            if (customElements)
+            {
+                s.Append(indent);
+                s.Append("if (global::PicoToml.TomlSerializer.HasCustomSerializer<");
+                s.Append((p.ElementTypeName ?? "object").TrimEnd('?'));
+                s.AppendLine(">())");
+                s.Append(indent);
+                s.AppendLine("{");
+                s.Append(indent);
+                s.Append("    tw.WriteStartArray(\"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                s.AppendLine("\"u8);");
+                s.Append(indent);
+                s.Append("    foreach (var __item in ");
+                s.Append(
+                    PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(p.TypeKind, listAccessor)
+                );
+                s.AppendLine(")");
+                s.Append(indent);
+                s.AppendLine("    {");
+                EmitSerializeListElement(s, p, indent + "        ");
+                s.Append(indent);
+                s.AppendLine("    }");
+                s.Append(indent);
+                s.AppendLine("    tw.WriteEndArray();");
+                s.Append(indent);
+                s.AppendLine("}");
+                s.Append(indent);
+                s.AppendLine("else");
+                s.Append(indent);
+                s.AppendLine("{");
+            }
             // Array of tables ([[key]]) for List<ComplexObject>
             if (IsArrayOfTablesMember(p))
             {
@@ -1633,52 +1747,55 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                     "TomlInner",
                     elemTypeName
                 );
-                var listAccessor = p.IsNullableReference
-                    ? $"{target}.{p.Name}!"
-                    : $"{target}.{p.Name}";
-                s.Append(indent);
-                s.Append("foreach (var __item in ");
-                s.Append(listAccessor);
-                s.AppendLine(")");
-                s.Append(indent);
-                s.AppendLine("{");
-                s.Append(indent);
-                s.Append("    tw.WriteArrayTable(\"");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-                s.AppendLine("\"u8);");
-                s.Append(indent);
-                s.Append("    ");
-                s.Append(innerSn);
-                s.Append(".Serialize(tw, __item);");
-                s.AppendLine();
-                s.Append(indent);
-                s.AppendLine("}");
+                b.Append(indent);
+                b.Append("foreach (var __item in ");
+                b.Append(listAccessor);
+                b.AppendLine(")");
+                b.Append(indent);
+                b.AppendLine("{");
+                b.Append(indent);
+                b.Append("    tw.WriteArrayTable(\"");
+                b.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                b.AppendLine("\"u8);");
+                b.Append(indent);
+                b.Append("    ");
+                b.Append(innerSn);
+                b.Append(".Serialize(tw, __item);");
+                b.AppendLine();
+                b.Append(indent);
+                b.AppendLine("}");
             }
             else
             {
-                s.Append(indent);
-                s.Append("tw.WriteStartArray(\"");
-                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-                s.AppendLine("\"u8);");
-                s.Append(indent);
-                s.Append("foreach (var __item in ");
-                s.Append(
+                b.Append(indent);
+                b.Append("tw.WriteStartArray(\"");
+                b.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+                b.AppendLine("\"u8);");
+                b.Append(indent);
+                b.Append("foreach (var __item in ");
+                b.Append(
                     PicoSerDe.Gen.CollectionKinds.SequenceItemsExpression(
                         p.TypeKind,
                         target + "." + p.Name + (p.IsNullableReference ? "!" : "")
                     )
                 );
-                s.AppendLine(")");
-                s.Append(indent);
-                s.AppendLine("{");
+                b.AppendLine(")");
+                b.Append(indent);
+                b.AppendLine("{");
                 if (IsNestedCollectionMember(p))
-                    EmitSerializeNestedArrayLevel(s, p, "__item", indent + "    ", 1);
+                    EmitSerializeNestedArrayLevel(b, p, "__item", indent + "    ", 1);
                 else
-                    EmitSerializeListElement(s, p, indent + "    ");
+                    EmitSerializeListElement(b, p, indent + "    ");
+                b.Append(indent);
+                b.AppendLine("}");
+                b.Append(indent);
+                b.AppendLine("tw.WriteEndArray();");
+            }
+            s.Append(b);
+            if (customElements)
+            {
                 s.Append(indent);
                 s.AppendLine("}");
-                s.Append(indent);
-                s.AppendLine("tw.WriteEndArray();");
             }
             if (collGuard)
             {
@@ -1727,14 +1844,44 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 }
                 else
                 {
+                    // RegisterCustom<T> at the DICT-VALUE position: the entry becomes one
+                    // `key = "text"` row carrying what the registered serializer wrote,
+                    // instead of the inline table ({ V = 1 }) the built-in path emits.
+                    var ct = p.ElementTypeName!.TrimEnd('?');
                     var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                         "TomlInner",
                         p.ElementTypeName!
                     );
                     s.Append(indent);
-                    s.Append("    ");
+                    s.AppendLine(
+                        "    if (global::PicoToml.TomlSerializer.HasCustomSerializer<" + ct + ">())"
+                    );
+                    s.Append(indent);
+                    s.AppendLine("    {");
+                    s.Append(indent);
+                    s.AppendLine(
+                        "        var __rcbDict = new System.Buffers.ArrayBufferWriter<byte>();"
+                    );
+                    s.Append(indent);
+                    s.Append("        global::PicoToml.TomlSerializer.SerializeCustom<");
+                    s.Append(ct);
+                    s.AppendLine(">(__rcbDict, __kvp.Value!);");
+                    s.Append(indent);
+                    s.AppendLine(
+                        "        tw.WriteKeyValue(__kvp.Key, System.Text.Encoding.UTF8.GetString(__rcbDict.WrittenSpan));"
+                    );
+                    s.Append(indent);
+                    s.AppendLine("    }");
+                    s.Append(indent);
+                    s.AppendLine("    else");
+                    s.Append(indent);
+                    s.AppendLine("    {");
+                    s.Append(indent);
+                    s.Append("        ");
                     s.Append(sn);
                     s.AppendLine(".Serialize(tw, __kvp.Value);");
+                    s.Append(indent);
+                    s.AppendLine("    }");
                 }
                 s.Append(indent);
                 s.AppendLine("    tw.WriteEndInlineTable();");
@@ -1817,32 +1964,48 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             // (`[Child]` then `[Child.Child]`, `[B]` then `[B.A]`). Every pair is closed with
             // EndTable so the next sibling stays at this level — an unbalanced pair turns
             // `[W]` into `[V.W]` and loses the document.
+            // RegisterCustom<T>: a registered custom serializer wins over the nested table.
+            // Its key/value line was already written by EmitCustomObjectMemberWrites (in the
+            // "keys first" region, where a key/value line may live); this branch is the
+            // built-in half and must stay silent then, or every customized member would be
+            // written twice. The body is built in its own builder so the guard does not have
+            // to re-indent it.
+            var b = new StringBuilder();
             bool nullGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
-                s,
+                b,
                 p,
                 $"{target}.{p.Name}",
                 indent
             );
             var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName("TomlInner", p.TypeFullName!);
             var innerPad = nullGuard ? indent + "    " : indent;
-            s.Append(innerPad);
-            s.Append("tw.WriteNestedTable(\"");
-            s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
-            s.AppendLine("\"u8);");
-            s.Append(innerPad);
-            s.Append(sn);
-            s.Append(".Serialize(tw, ");
-            s.Append(target);
-            s.Append('.');
-            s.Append(p.Name);
-            s.AppendLine(");");
-            s.Append(innerPad);
-            s.AppendLine("tw.EndTable();");
+            b.Append(innerPad);
+            b.Append("tw.WriteNestedTable(\"");
+            b.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+            b.AppendLine("\"u8);");
+            b.Append(innerPad);
+            b.Append(sn);
+            b.Append(".Serialize(tw, ");
+            b.Append(target);
+            b.Append('.');
+            b.Append(p.Name);
+            b.AppendLine(");");
+            b.Append(innerPad);
+            b.AppendLine("tw.EndTable();");
             if (nullGuard)
             {
-                s.Append(indent);
-                s.AppendLine("}");
+                b.Append(indent);
+                b.AppendLine("}");
             }
+            s.Append(indent);
+            s.Append("if (!global::PicoToml.TomlSerializer.HasCustomSerializer<");
+            s.Append(p.TypeFullName!.TrimEnd('?'));
+            s.AppendLine(">())");
+            s.Append(indent);
+            s.AppendLine("{");
+            s.Append(b);
+            s.Append(indent);
+            s.AppendLine("}");
         }
         else if (p.IsNullable && !p.IsNullableReference)
         {
@@ -2416,11 +2579,39 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             }
             case "object":
             {
+                // RegisterCustom<T> at the ELEMENT position: one array value per element,
+                // carrying the registered serializer's text, instead of the element's own
+                // table shape ([[key]] for an object list, an inline table inside a dict).
+                var ct = p.ElementTypeName!.TrimEnd('?');
                 var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
                     "TomlInner",
                     p.ElementTypeName!
                 );
                 s.Append(indent);
+                s.AppendLine(
+                    "if (global::PicoToml.TomlSerializer.HasCustomSerializer<" + ct + ">())"
+                );
+                s.Append(indent);
+                s.AppendLine("{");
+                s.Append(indent);
+                s.AppendLine("    var __rcbElem = new System.Buffers.ArrayBufferWriter<byte>();");
+                s.Append(indent);
+                s.Append("    global::PicoToml.TomlSerializer.SerializeCustom<");
+                s.Append(ct);
+                s.Append(">(__rcbElem, ");
+                s.Append(itemVar);
+                s.AppendLine(");");
+                s.Append(indent);
+                s.Append(
+                    "    tw.WriteArrayValue(System.Text.Encoding.UTF8.GetString(__rcbElem.WrittenSpan));"
+                );
+                s.AppendLine();
+                s.Append(indent);
+                s.AppendLine("}");
+                s.Append(indent);
+                s.AppendLine("else");
+                s.Append(indent);
+                s.Append("    ");
                 s.Append(sn);
                 s.Append(".Serialize(tw, ");
                 s.Append(itemVar);
@@ -3575,6 +3766,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.Append("            case ");
             s.Append(ds);
             s.AppendLine(" __v:");
+            EmitCustomObjectMemberWrites(s, dti.Properties, "__v", "                ");
             foreach (var prop in dti.Properties.OrderBy(x => EmitOrderKey(x)))
             {
                 // The shared member emitter covers scalars, nested objects/dicts ('[Section]') and

@@ -6,12 +6,21 @@ namespace FormatCapabilities.Probe;
 
 internal static class FormatCapabilities_Probe_S11aToml_b414e93c384f26fcTomlInner {
     internal static void Serialize(TomlWriter tw, FormatCapabilities.Probe.S11aToml value) {
+        if (value.Child != null && global::PicoToml.TomlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.S11aToml>())
+        {
+            var __rcbChild = new System.Buffers.ArrayBufferWriter<byte>();
+            global::PicoToml.TomlSerializer.SerializeCustom<global::FormatCapabilities.Probe.S11aToml>(__rcbChild, value.Child);
+            tw.WriteKeyValue("Child"u8, System.Text.Encoding.UTF8.GetString(__rcbChild.WrittenSpan));
+        }
         tw.WriteKeyValue("Value"u8, value.Value);
+        if (!global::PicoToml.TomlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.S11aToml>())
+        {
         if (value.Child != null)
         {
             tw.WriteNestedTable("Child"u8);
             global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11aToml_b414e93c384f26fcTomlInner.Serialize(tw, value.Child);
             tw.EndTable();
+        }
         }
     }
     internal static FormatCapabilities.Probe.S11aToml Deserialize(ref TomlReader r) {

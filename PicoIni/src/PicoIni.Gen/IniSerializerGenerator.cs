@@ -285,10 +285,15 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         for (var i = 0; i < types.Length; i++)
         {
             var t = types[i];
-            var typeName = string.IsNullOrEmpty(t.FullyQualifiedName) ? t.Name : t.FullyQualifiedName;
+            var typeName = string.IsNullOrEmpty(t.FullyQualifiedName)
+                ? t.Name
+                : t.FullyQualifiedName;
             var props = KeepWritableKeys(spc, typeName, t.Properties);
             var elem = KeepWritableKeys(spc, typeName, t.ArrayElementNestedProps);
-            if (ReferenceEquals(props, t.Properties) && ReferenceEquals(elem, t.ArrayElementNestedProps))
+            if (
+                ReferenceEquals(props, t.Properties)
+                && ReferenceEquals(elem, t.ArrayElementNestedProps)
+            )
             {
                 replaced?.Add(t);
                 continue;
@@ -349,6 +354,7 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             builder.Add(items[i]);
         return builder;
     }
+
     // ── Source generation ──
 
     private static void GenerateAll(SourceProductionContext spc, ImmutableArray<TypeInfo> types)
@@ -470,7 +476,11 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         for (int pi = 0; pi < type.Properties.Length; pi++)
         {
             var p = type.Properties[pi];
-            if (p.TypeKind == "object" || p.TypeKind == "dict")
+            // An object member writes its own key/value line HERE when its type carries a
+            // RegisterCustom registration (and nothing otherwise — the section pass below
+            // owns the built-in form). INI key/value lines belong to the section that
+            // precedes them, so the custom line may not be emitted after a `[section]`.
+            if (p.TypeKind == "dict")
                 continue;
             if (p.Comment is not null)
             {
@@ -589,23 +599,27 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
         {
             if (p.TypeKind != "object")
                 continue;
+            // RegisterCustom<T>: the key/value line was written in the member pass, so the
+            // section must not be (the body is built in its own builder, which keeps the
+            // built-in emission one copy and un-re-indented).
+            var b = new StringBuilder();
             bool nullGuard = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
-                s,
+                b,
                 p,
                 "value." + p.Name,
                 "        "
             );
             var objPad = nullGuard ? "            " : "        ";
             if (!first)
-                s.AppendLine(objPad + "iw.WriteBlankLine();");
+                b.AppendLine(objPad + "iw.WriteBlankLine();");
             // [IniSection("...")] is arbitrary user text — escape it like any
             // other emitted literal (review C-16).
             var sn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(
                 p.SectionName ?? p.JsonName
             );
-            s.Append(objPad + "iw.WriteSection(\"");
-            s.Append(sn);
-            s.AppendLine("\"u8);");
+            b.Append(objPad + "iw.WriteSection(\"");
+            b.Append(sn);
+            b.AppendLine("\"u8);");
             for (int npi = 0; npi < p.NestedProperties.Length; npi++)
             {
                 var np = p.NestedProperties[npi];
@@ -613,17 +627,17 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                 // be represented. Fail loudly instead of writing "TypeName" text.
                 if (np.TypeKind == "object")
                 {
-                    s.Append(
+                    b.Append(
                         objPad
                             + "throw new System.NotSupportedException(\"INI sections cannot represent nested objects deeper than one level yet.\");"
                     );
-                    s.AppendLine();
+                    b.AppendLine();
                     continue;
                 }
                 // DefaultIgnoreCondition: INI has no null literal — null
                 // section values are always omitted.
                 bool npCheck = PicoSerDe.Gen.GenInfrastructure.EmitNullGuardOpen(
-                    s,
+                    b,
                     np,
                     $"value.{p.Name}.{np.Name}",
                     objPad
@@ -635,12 +649,20 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
                         ? $"value.{p.Name}.{np.Name}!.Value"
                         : $"value.{p.Name}.{np.Name}";
                 var npPad = npCheck ? objPad + "    " : objPad;
-                EmitWriteKeyValue(s, np.JsonName, np, npAcc, npPad, slot: npi.ToString());
+                EmitWriteKeyValue(b, np.JsonName, np, npAcc, npPad, slot: npi.ToString());
                 if (npCheck)
-                    s.AppendLine(objPad + "}");
+                    b.AppendLine(objPad + "}");
             }
             if (nullGuard)
-                s.AppendLine("        }");
+                b.AppendLine("        }");
+            s.AppendLine(
+                "        if (!global::PicoIni.IniSerializer.HasCustomSerializer<"
+                    + (p.TypeFullName ?? "object").TrimEnd('?')
+                    + ">())"
+            );
+            s.AppendLine("        {");
+            s.Append(b);
+            s.AppendLine("        }");
             first = false;
         }
         s.AppendLine("    } }");
@@ -1148,6 +1170,33 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
             s.AppendLine(
                 "        var iw = new IniWriter(writer, indented: __opts?.Indented ?? false);"
             );
+            // RegisterCustom<T> at the top-level-list ELEMENT position: a customized element
+            // is a value, and INI's form for a list of values is the comma-joined line it
+            // already writes for `List<int>` (an object element has numbered sections
+            // instead, which carry MEMBERS and have no place for a value). Escaped exactly
+            // like a built-in string element: a comma separates, a backslash escapes.
+            s.AppendLine("        if (global::PicoIni.IniSerializer.HasCustomSerializer<");
+            s.Append(elemTypeName);
+            s.AppendLine(">()) {");
+            s.AppendLine(
+                "            var __parts = new System.Collections.Generic.List<string>();"
+            );
+            s.AppendLine("            for (int i = 0; i < value.Count; i++) {");
+            s.AppendLine(
+                "                var __rcb = new System.Buffers.ArrayBufferWriter<byte>();"
+            );
+            s.AppendLine("                global::PicoIni.IniSerializer.SerializeCustom<");
+            s.Append(elemTypeName);
+            s.AppendLine(">(__rcb, value[i]);");
+            s.AppendLine(
+                "                __parts.Add(Encoding.UTF8.GetString(__rcb.WrittenSpan).Replace(\"\\\\\", \"\\\\\\\\\").Replace(\",\", \"\\\\,\"));"
+            );
+            s.AppendLine("            }");
+            s.AppendLine(
+                "            writer.Write(Encoding.UTF8.GetBytes(string.Join(\",\", __parts)));"
+            );
+            s.AppendLine("            return;");
+            s.AppendLine("        }");
             s.AppendLine("        for (int i = 0; i < value.Count; i++) {");
             s.AppendLine("            if (i > 0) iw.WriteBlankLine();");
             s.AppendLine("            iw.WriteSection(i.ToString());");
@@ -1314,6 +1363,58 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     }
 
     /// <summary>
+    /// The <c>RegisterCustom</c> half of one INI MEMBER: when T has a registered serializer the
+    /// member is ONE <c>Key=text</c> line carrying what that serializer wrote, instead of the
+    /// section (<c>[Key]</c> + its members) the built-in path emits.
+    /// <para>
+    /// INI carries a value as TEXT, so the registered <c>ISerializer&lt;T&gt;</c> writes the
+    /// value's text and <see cref="PicoIni.IniWriter"/> lays it down as the value — the format
+    /// never reinterprets those bytes. The guard is a RUNTIME test because registration happens
+    /// on a live process, so the two wire forms are decided where the value is written.
+    /// </para>
+    /// <para>
+    /// A customized member writes NOTHING when nothing is registered (the section branch in
+    /// <c>Gen</c> then runs), so an unregistered document is byte-identical to before.
+    /// </para>
+    /// </summary>
+    private static void EmitCustomIniMemberWrite(
+        StringBuilder s,
+        PropertyInfo p,
+        string accessor,
+        string indent
+    )
+    {
+        var ct = (p.TypeFullName ?? "object").TrimEnd('?');
+        s.Append(indent);
+        s.Append("if (");
+        // INI has no null literal: a null member is omitted, so the custom write is too.
+        if (p.IsNullableReference)
+        {
+            s.Append(accessor);
+            s.Append(" != null && ");
+        }
+        s.Append("global::PicoIni.IniSerializer.HasCustomSerializer<");
+        s.Append(ct);
+        s.AppendLine(">())");
+        s.Append(indent);
+        s.AppendLine("{");
+        s.Append(indent);
+        s.AppendLine("    var __rcb = new System.Buffers.ArrayBufferWriter<byte>();");
+        s.Append(indent);
+        s.Append("    global::PicoIni.IniSerializer.SerializeCustom<");
+        s.Append(ct);
+        s.Append(">(__rcb, ");
+        s.Append(accessor);
+        s.AppendLine(");");
+        s.Append(indent);
+        s.Append("    iw.WriteKeyValue(\"");
+        s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(p.JsonName));
+        s.AppendLine("\"u8, __rcb.WrittenSpan);");
+        s.Append(indent);
+        s.AppendLine("}");
+    }
+
+    /// <summary>
     /// Emits one statement-level key/value write. Unlike <see cref="WriteValue"/>
     /// (a pure expression builder used inside <c>sb.Append(</c> and
     /// <c>string.Join</c>), this can open statements, which converters need:
@@ -1337,6 +1438,31 @@ public sealed class IniSerializerGenerator : IIncrementalGenerator
     )
     {
         var keyText = "\"" + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(key) + "\"u8";
+        // RegisterCustom<T>: an OBJECT member is a section unless T is registered, in which
+        // case the whole member is one key/value line (and nothing at all when it is not).
+        if (p.TypeKind is "object")
+        {
+            EmitCustomIniMemberWrite(s, p, accessor, indent);
+            return;
+        }
+        EmitBuiltInKeyValue(s, keyText, p, accessor, indent, slot);
+    }
+
+    /// <summary>
+    /// The built-in key/value emission: <c>[IniConverter]</c> when the member carries one,
+    /// otherwise <c>iw.WriteKeyValue(key, &lt;value&gt;)</c> through <see cref="WriteValue"/>.
+    /// Split out of <see cref="EmitWriteKeyValue"/> so the RegisterCustom guards above can wrap
+    /// it once instead of re-spelling it per position.
+    /// </summary>
+    private static void EmitBuiltInKeyValue(
+        StringBuilder s,
+        string keyText,
+        PropertyInfo p,
+        string accessor,
+        string indent,
+        string slot
+    )
+    {
         if (p.ConverterTypeFullName is not null)
         {
             var cVar = "__c" + slot;

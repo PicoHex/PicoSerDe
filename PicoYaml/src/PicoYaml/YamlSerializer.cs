@@ -41,6 +41,38 @@ public static partial class YamlSerializer
     public static void Register<T>(ISerializer<T> serializer, IDeserializer<T> deserializer) =>
         SerializerFacade<YamlFormat>.Register(serializer, deserializer);
 
+    /// <summary>
+    /// Register a user serializer pair that ALSO overrides SG-generated serialization
+    /// wherever T appears as a nested value (object property, sequence element, dictionary
+    /// value). Deserialization override applies at the top level only - nested reads
+    /// still use the SG deserializer.
+    /// </summary>
+    /// <remarks>
+    /// YAML carries a value as TEXT, so a registered ISerializer&lt;T&gt; writes the
+    /// member's text and YamlWriter quotes/escapes it as the format requires.
+    /// The format never reinterprets those bytes.
+    /// </remarks>
+    public static void RegisterCustom<T>(ISerializer<T> serializer, IDeserializer<T> deserializer)
+    {
+        Register(serializer, deserializer);
+        SerRegistry<YamlFormat, T>.CustomHandler = (writer, value, _) =>
+            serializer.Serialize(writer, value);
+    }
+
+    /// <summary>True when a custom serializer overriding nested occurrences of T is registered.</summary>
+    public static bool HasCustomSerializer<T>()
+        where T : allows ref struct => SerRegistry<YamlFormat, T>.CustomHandler is not null;
+
+    /// <summary>Invokes the custom serializer registered via RegisterCustom&lt;T&gt;. Called by SG-generated nested emit paths.</summary>
+    public static void SerializeCustom<T>(IBufferWriter<byte> writer, T value)
+        where T : allows ref struct
+    {
+        if (SerRegistry<YamlFormat, T>.CustomHandler is { } h)
+            h(writer, value, null);
+        else
+            SerializerExtensions.ThrowNoSerializer<T>("RegisterCustom");
+    }
+
     /// <summary>Register a deserializer only.</summary>
     public static void RegisterDeserializer<T>(IDeserializer<T> deserializer) =>
         SerializerFacade<YamlFormat>.RegisterDeserializer(deserializer);

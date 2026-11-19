@@ -56,6 +56,49 @@ var restored = TomlSerializer.Deserialize<AppConfig>(Encoding.UTF8.GetBytes(toml
 [TomlDateTimeFormat("yyyy-MM-dd")]    // custom DateTime format
 ```
 
+## Custom Serializers (`RegisterCustom`)
+
+`Register` overrides the top level only. `RegisterCustom<T>` additionally overrides T
+**wherever it appears as a nested value** — the same pair and the same signature
+`PicoJetson.JsonSerializer` has:
+
+```csharp
+struct MoneySer : ISerializer<Money>
+{
+    public void Serialize(IBufferWriter<byte> writer, Money value) =>
+        writer.Write(Encoding.UTF8.GetBytes($"{value.Amount.ToString(CultureInfo.InvariantCulture)} {value.Currency}"));
+}
+struct MoneyDes : IDeserializer<Money>
+{
+    public Money Deserialize(ReadOnlySpan<byte> data) => Money.Parse(Encoding.UTF8.GetString(data));
+}
+
+TomlSerializer.RegisterCustom<Money>(new MoneySer(), new MoneyDes());
+TomlSerializer.HasCustomSerializer<Money>();   // true
+
+TomlSerializer.Serialize(new Account { Balance = new Money(12.5m, "EUR") });
+// Balance = "12.5 EUR"      <- the registration's bytes, not the `[Balance]` table
+```
+
+The positions it covers are the ones TOML writes a value in:
+
+| Position | Built-in form | With `RegisterCustom<T>` |
+|---|---|---|
+| Member (`Money M`) | a nested table, `[M]` + its keys | one `M = "…"` key/value line |
+| Element (`List<Money>`) | an array of tables, `[[M]]` | one inline array, `M = ["…", "…"]` |
+| Dict value (`Dictionary<string,Money>`) | an inline table, `k = { … }` | one key/value line, `k = "…"` |
+
+**What your serializer writes is up to you — the format only provides the writer.** TOML
+carries a value as text, so the bytes become that member's value text and `TomlWriter`
+quotes/escapes them like any other string (a double quote in your text leaves as an escaped
+quote). Nothing
+in the format reinterprets them; a document is only as readable as the text you produce.
+
+Registration is a runtime fact, so it is tested where the value is written: with nothing
+registered the output is byte-for-byte what it was before. Deserialization override applies
+at the **top level only** — nested reads still use the generated deserializer, exactly as in
+JSON and MessagePack.
+
 ## Options
 
 `TomlSerializer.Serialize` / `Deserialize` accept `TomlOptions`:

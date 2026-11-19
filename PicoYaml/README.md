@@ -190,6 +190,48 @@ form carries no count — you read the items.
 [YamlDateTimeFormat("yyyy-MM-dd")]    // custom DateTime format
 ```
 
+## Custom Serializers (`RegisterCustom`)
+
+`Register` overrides the top level only. `RegisterCustom<T>` additionally overrides T
+**wherever it appears as a nested value** — the same pair and the same signature
+`PicoJetson.JsonSerializer` has:
+
+```csharp
+struct MoneySer : ISerializer<Money>
+{
+    public void Serialize(IBufferWriter<byte> writer, Money value) =>
+        writer.Write(Encoding.UTF8.GetBytes($"{value.Amount.ToString(CultureInfo.InvariantCulture)} {value.Currency}"));
+}
+struct MoneyDes : IDeserializer<Money>
+{
+    public Money Deserialize(ReadOnlySpan<byte> data) => Money.Parse(Encoding.UTF8.GetString(data));
+}
+
+YamlSerializer.RegisterCustom<Money>(new MoneySer(), new MoneyDes());
+YamlSerializer.HasCustomSerializer<Money>();   // true
+
+YamlSerializer.Serialize(new Account { Balance = new Money(12.5m, "EUR") });
+// Balance: 12.5 EUR      <- the registration's bytes, not the nested mapping
+```
+
+The positions it covers are the ones YAML writes a value in:
+
+| Position | Built-in form | With `RegisterCustom<T>` |
+|---|---|---|
+| Member (`Money M`) | a nested mapping, `M:` + its keys | one scalar, `M: "…"` |
+| Element (`List<Money>`) | `-` + the item's mapping | one scalar item, `- "…"` |
+| Dict value (`Dictionary<string,Money>`) | a nested mapping under the key | one scalar, `k: "…"` |
+
+**What your serializer writes is up to you — the format only provides the writer.** YAML
+carries a value as text, so the bytes become that value's text and `YamlWriter` quotes/escapes
+them exactly as it does for every other scalar. Nothing in the format reinterprets them; a
+document is only as readable as the text you produce.
+
+Registration is a runtime fact, so it is tested where the value is written: with nothing
+registered the output is byte-for-byte what it was before. Deserialization override applies
+at the **top level only** — nested reads still use the generated deserializer, exactly as in
+JSON and MessagePack.
+
 ## Options
 
 `YamlSerializer.Serialize` / `Deserialize` accept `YamlOptions`:

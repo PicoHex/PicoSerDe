@@ -13,8 +13,20 @@ S11bIni> {
         iw.WriteKeyValue("Name"u8, value.Name);
         if (value.B != null)
         {
+            if (value.B != null && global::PicoIni.IniSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.S11bIniPartner>())
+            {
+                var __rcb = new System.Buffers.ArrayBufferWriter<byte>();
+                global::PicoIni.IniSerializer.SerializeCustom<global::FormatCapabilities.Probe.S11bIniPartner>(__rcb, value.B);
+                iw.WriteKeyValue("B"u8, __rcb.WrittenSpan);
+            }
+        }
+        if (!global::PicoIni.IniSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.S11bIniPartner>())
+        {
+        if (value.B != null)
+        {
             iw.WriteSection("B"u8);
             iw.WriteKeyValue("N"u8, value.B.N);
+        }
         }
     } }
 

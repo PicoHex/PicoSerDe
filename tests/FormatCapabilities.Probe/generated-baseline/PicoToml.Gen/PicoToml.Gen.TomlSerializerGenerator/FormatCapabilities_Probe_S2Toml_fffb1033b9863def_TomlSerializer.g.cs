@@ -11,10 +11,29 @@ S2Toml> {
     public void Serialize(IBufferWriter<byte> w, S2Toml v, global::PicoSerDe.Core.SerOptions? options) {
         var __opts = (global::PicoToml.TomlOptions?)options;
         var tw = new TomlWriter(w, indented: __opts?.Indented ?? false);
+        if (global::PicoToml.TomlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.ProbeDto>())
+        {
+            tw.WriteStartArray("V"u8);
+            foreach (var __item in v.V)
+            {
+                if (global::PicoToml.TomlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.ProbeDto>())
+                {
+                    var __rcbElem = new System.Buffers.ArrayBufferWriter<byte>();
+                    global::PicoToml.TomlSerializer.SerializeCustom<global::FormatCapabilities.Probe.ProbeDto>(__rcbElem, __item);
+                    tw.WriteArrayValue(System.Text.Encoding.UTF8.GetString(__rcbElem.WrittenSpan));
+                }
+                else
+                    global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351TomlInner.Serialize(tw, __item);
+            }
+            tw.WriteEndArray();
+        }
+        else
+        {
         foreach (var __item in v.V)
         {
             tw.WriteArrayTable("V"u8);
             global::FormatCapabilities.Probe.FormatCapabilities_Probe_ProbeDto_3ef273a25f945351TomlInner.Serialize(tw, __item);
+        }
         }
     } }
 file readonly struct S2Toml_TomlDes : IDeserializer<S2Toml> {
