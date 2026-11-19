@@ -274,9 +274,21 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             var hintName = $"{safeName}_TomlInner.g.cs";
             if (!hintNames.Add(hintName))
                 continue;
+            // The same question the JSON generator asks of the same list: is this nested type a
+            // polymorphic BASE? Then its helper has to dispatch on the discriminator instead of
+            // emitting the base's own members — which dropped the tag and every derived member,
+            // silently, while JSON carried both.
+            var polyTarget = validTypes.FirstOrDefault(t =>
+                t.FullyQualifiedName == fullName && !t.DerivedTypes.IsDefaultOrEmpty
+            );
             spc.AddSource(
                 hintName,
-                SourceText.From(GenInner(fullName, safeName, props), Encoding.UTF8)
+                SourceText.From(
+                    polyTarget.FullyQualifiedName is not null
+                        ? GenPolyInner(fullName, safeName, polyTarget)
+                        : GenInner(fullName, safeName, props),
+                    Encoding.UTF8
+                )
             );
         }
 
@@ -827,11 +839,28 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             // one element (C-1). `[table]` headers below keep whole-path matching on purpose: a
             // nested table is dispatched by prefix inside its own helper, and relaxing those would
             // let a real-world `[tool.ruff]` populate a member named `ruff`.
+            // A POLYMORPHIC element carries its own discriminator, so the element type's helper
+            // reads it whole. The inline loop below is the BASE's-members bug at element position:
+            // it wrote `Id = 4` and nothing else.
+            bool __polyElems = false;
+            foreach (var ap in listObjProps.Where(x => x.ElementIsPolyBase))
+            {
+                s.Append("                ");
+                s.Append(__polyElems ? "else " : "");
+                s.Append("if (TextHelpers.EqLastSegment(r.TablePath, \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName));
+                s.AppendLine("\"u8)) {");
+                EmitPolyArrayTableRead(s, ap, "o", "                    ", false);
+                s.AppendLine("                }");
+                __polyElems = true;
+            }
             for (int ai = 0; ai < listObjProps.Length; ai++)
             {
                 var ap = listObjProps[ai];
+                if (ap.ElementIsPolyBase)
+                    continue;
                 s.Append("                ");
-                s.Append(ai == 0 ? "if" : "else if");
+                s.Append(ai == 0 && !__polyElems ? "if" : "else if");
                 s.Append(" (TextHelpers.EqLastSegment(r.TablePath, \"");
                 s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName));
                 s.AppendLine("\"u8)) {");
@@ -3394,15 +3423,17 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
 
     static string GenPoly(TypeInfo type, Dictionary<string, TypeInfo> typeMap)
     {
-        var dpn = type.DiscriminatorPropertyName ?? "$type";
+        var dpn = PicoSerDe.Gen.GenInfrastructure.DiscriminatorName(type);
         // Concrete bases get a synthesized discriminator so a base-typed
         // instance serializes as a valid value (and round-trips).
         var __baseDisc = PicoSerDe.Gen.GenInfrastructure.BaseDiscriminator(type);
-        var __cases = __baseDisc is null
-            ? type.DerivedTypes
-            : type.DerivedTypes.Add(
-                new PicoSerDe.Gen.DerivedTypeInfo(type.FullyQualifiedName!, __baseDisc)
-            );
+        // The ONE definition of the case list, shared with the other generators: the MEMBER-position
+        // dispatch below has to agree with the ROOT one about which cases exist, or a value written
+        // by one is unreadable by the other.
+        var __cases = PicoSerDe.Gen.GenInfrastructure.PolyCases(type);
+        // The classes BOTH positions call. They cannot be `file`-scoped: the member-position helper
+        // lives in another generated file, and the name must be unique per TYPE, not per short name.
+        var __polyPrefix = PicoSerDe.Gen.GenInfrastructure.PolyClassPrefix(type);
 
         var dpnEsc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dpn);
         var s = new StringBuilder();
@@ -3419,7 +3450,11 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         }
         s.AppendLine();
 
-        // ── Serializer ──
+        // ── Serializer (root document) ──
+        // Its tag+switch is NOT spelled here: a polymorphic base is also reached as a MEMBER of
+        // another document (`[Member]`, `[[Items]]`), and a `file` struct taking a whole document
+        // could not be called from that other generated file — which is exactly how a member was
+        // written as the BASE's own members, with the tag and every derived member silently gone.
         s.Append("file readonly struct ");
         s.Append(type.Name);
         s.Append("TomlSerializer : ISerializer<");
@@ -3437,6 +3472,80 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine(
             "        var tw = new TomlWriter(writer, indented: __opts?.Indented ?? false);"
         );
+        s.Append("        ");
+        s.Append(__polyPrefix);
+        s.AppendLine("TomlPolySer.SerializeMembers(tw, value);");
+        s.AppendLine("    }");
+        s.AppendLine("}");
+        s.AppendLine();
+
+        // ── the dispatch both positions share ──
+        EmitPolySer(s, type, dpnEsc, __baseDisc, __cases, typeMap, __polyPrefix);
+        EmitPolyDes(s, type, dpnEsc, __cases, typeMap, __polyPrefix);
+
+        // ── Deserializer (root document) ──
+        s.Append("file readonly struct ");
+        s.Append(type.Name);
+        s.Append("TomlDeserializer : IDeserializer<");
+        s.Append(type.Name);
+        s.AppendLine("> {");
+        s.Append("    public ");
+        s.Append(type.Name);
+        s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
+        s.AppendLine("        var r = new TomlReader(data);");
+        s.AppendLine("        r.Read();");
+        s.Append("        return ");
+        s.Append(__polyPrefix);
+        s.AppendLine("TomlPolyDes.DeserializeRoot(ref r);");
+        s.AppendLine("    }");
+        s.AppendLine("}");
+        s.AppendLine();
+
+        var typeRef = string.IsNullOrEmpty(type.Namespace)
+            ? type.Name
+            : $"{type.Namespace}.{type.Name}";
+        s.Append("file static class ");
+        s.Append(type.Name);
+        s.AppendLine("SerDeRegistration {");
+        s.AppendLine("    [ModuleInitializer]");
+        s.AppendLine("    internal static void Register() {");
+        s.Append("        global::PicoToml.TomlSerializer.Register<");
+        s.Append(typeRef);
+        s.AppendLine(">(");
+        s.Append("            new ");
+        s.Append(type.Name);
+        s.AppendLine("TomlSerializer(),");
+        s.Append("            new ");
+        s.Append(type.Name);
+        s.AppendLine("TomlDeserializer());");
+        s.AppendLine("    }");
+        s.AppendLine("}");
+
+        return s.ToString();
+    }
+
+    /// <summary>
+    /// The one place a polymorphic type's WRITE dispatch is spelled: the discriminator row, then the
+    /// runtime-type switch. Emitted as a cross-file class (not inline in the root serializer) because
+    /// the MEMBER position calls it from another generated file; that is the whole shape this fix is
+    /// about — the root serializer used to be the ONLY writer, and a member had nowhere to go.
+    /// </summary>
+    static void EmitPolySer(
+        StringBuilder s,
+        TypeInfo type,
+        string dpnEsc,
+        string? __baseDisc,
+        ImmutableArray<PicoSerDe.Gen.DerivedTypeInfo> __cases,
+        Dictionary<string, TypeInfo> typeMap,
+        string __polyPrefix
+    )
+    {
+        s.Append("internal static class ");
+        s.Append(__polyPrefix);
+        s.AppendLine("TomlPolySer {");
+        s.Append("    internal static void SerializeMembers(TomlWriter tw, ");
+        s.Append(type.Name);
+        s.AppendLine(" value) {");
         s.Append("        tw.WriteKeyValue(\"");
         s.Append(dpnEsc);
         s.Append("\", (value switch { ");
@@ -3468,9 +3577,8 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             s.AppendLine(" __v:");
             foreach (var prop in dti.Properties.OrderBy(x => EmitOrderKey(x)))
             {
-                // The shared member emitter covers scalars, nested objects/dicts
-                // ('[Section]') and object collections ('[[key]]') — the poly
-                // branch previously emitted scalars only.
+                // The shared member emitter covers scalars, nested objects/dicts ('[Section]') and
+                // object collections ('[[key]]') — the poly branch previously emitted scalars only.
                 EmitSerializeProp(s, prop, "__v", "                ");
             }
             s.AppendLine("                break;");
@@ -3479,41 +3587,112 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("    }");
         s.AppendLine("}");
         s.AppendLine();
+    }
 
-        // ── Deserializer ──
-        s.Append("file readonly struct ");
+    /// <summary>
+    /// The one place a polymorphic type's READ dispatch is spelled, in the two forms the two reader
+    /// positions enter it with:
+    /// <list type="bullet">
+    ///   <item><c>DeserializeRoot</c> — a whole document: the current token IS the discriminator row
+    ///         (the implicit root section).</item>
+    ///   <item><c>DeserializeSection</c> — a MEMBER or an ELEMENT: the current token is the opening
+    ///         token of the value's own section (<c>[Member]</c> / <c>[[Items]]</c>) and the
+    ///         discriminator is that section's first row, which is where the writer put it.</item>
+    /// </list>
+    /// Both end in ONE per-case reader, which carries the ctor map, the child-table dispatch and the
+    /// object-collection loop exactly once. A copy per position is what would drift.
+    /// <para>
+    /// The per-case reader is <b>prefix-relative</b>: a section entry owns only its own children
+    /// (<c>[Member.X]</c>) and stops at anything else, while the root entry has an EMPTY prefix and
+    /// therefore treats every header as its own. Without that, the member position read the
+    /// <c>[[Items]]</c> section that follows into the member and handed back its element (measured:
+    /// <c>Lives=7</c> where the document says <c>9</c>).
+    /// </para>
+    /// </summary>
+    static void EmitPolyDes(
+        StringBuilder s,
+        TypeInfo type,
+        string dpnEsc,
+        ImmutableArray<PicoSerDe.Gen.DerivedTypeInfo> __cases,
+        Dictionary<string, TypeInfo> typeMap,
+        string __polyPrefix
+    )
+    {
+        s.Append("internal static class ");
+        s.Append(__polyPrefix);
+        s.AppendLine("TomlPolyDes {");
+
+        // ── root entry: the discriminator row is the current token ──
+        s.Append("    internal static ");
         s.Append(type.Name);
-        s.Append("TomlDeserializer : IDeserializer<");
-        s.Append(type.Name);
-        s.AppendLine("> {");
-        s.Append("    public ");
-        s.Append(type.Name);
-        s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
-        s.AppendLine("        var r = new TomlReader(data);");
-        s.AppendLine("        r.Read();");
-        s.AppendLine("        var __discKey = r.KeySpan;");
-        s.AppendLine("        var __discVal = r.ValueSpan;");
-        s.Append("        if (!MemoryExtensions.SequenceEqual(__discKey, \"");
+        s.AppendLine(" DeserializeRoot(ref TomlReader r) {");
+        s.Append("        if (!MemoryExtensions.SequenceEqual(r.KeySpan, \"");
         s.Append(dpnEsc);
         s.AppendLine("\"u8))");
         s.Append("            throw new FormatException(\"Expected discriminator '");
         s.Append(dpnEsc);
         s.AppendLine("'\");");
+        s.AppendLine("        return __Dispatch(ref r, System.Array.Empty<byte>());");
+        s.AppendLine("    }");
+        s.AppendLine();
 
-        for (int i = 0; i < __cases.Length; i++)
+        // ── member/element entry: the section's opening token is current ──
+        s.Append("    internal static ");
+        s.Append(type.Name);
+        s.AppendLine(" DeserializeSection(ref TomlReader r) {");
+        // The section name is copied out of the reader: a ReadOnlySpan<byte> must not outlive the
+        // Read() calls below (the reader re-points TablePath on every token).
+        s.AppendLine("        var __section = r.TablePath.ToArray();");
+        s.AppendLine("        if (!r.Read() || r.TokenType != TokenType.PropertyName)");
+        s.Append("            throw new FormatException(\"Expected discriminator '");
+        s.Append(dpnEsc);
+        s.AppendLine("'\");");
+        s.Append("        if (!MemoryExtensions.SequenceEqual(r.KeySpan, \"");
+        s.Append(dpnEsc);
+        s.AppendLine("\"u8))");
+        s.Append("            throw new FormatException(\"Expected discriminator '");
+        s.Append(dpnEsc);
+        s.AppendLine("'\");");
+        s.AppendLine("        return __Dispatch(ref r, __section);");
+        s.AppendLine("    }");
+        s.AppendLine();
+
+        // ── the dispatch itself ──
+        s.Append("    static ");
+        s.Append(type.Name);
+        s.AppendLine(" __Dispatch(ref TomlReader r, byte[] __prefix) {");
+        // The value span cannot outlive the per-case reader's Read() calls.
+        s.AppendLine("        var __discVal = r.ValueSpan.ToArray();");
+        foreach (var dt in __cases)
         {
-            var dt = __cases[i];
-            var kw = i == 0 ? "if" : "else if";
-            var ds = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
-            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti))
+            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out _))
                 continue;
             var desc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dt.TypeDiscriminator);
-
-            s.Append("        ");
-            s.Append(kw);
-            s.Append(" (MemoryExtensions.SequenceEqual(__discVal, \"");
+            s.Append("        if (MemoryExtensions.SequenceEqual(__discVal, \"");
             s.Append(desc);
-            s.AppendLine("\"u8)) {");
+            s.AppendLine("\"u8))");
+            s.Append("            return Read");
+            s.Append(PicoSerDe.Gen.GenInfrastructure.SafeName(dt.FullyQualifiedName));
+            s.AppendLine("(ref r, __prefix);");
+        }
+        s.AppendLine(
+            "        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");"
+        );
+        s.AppendLine("    }");
+
+        // ── one reader per case: ctor map, child tables, object collections ──
+        foreach (var dt in __cases)
+        {
+            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti))
+                continue;
+            var ds = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
+            var caseName = PicoSerDe.Gen.GenInfrastructure.SafeName(dt.FullyQualifiedName);
+            s.AppendLine();
+            s.Append("    static ");
+            s.Append(type.Name);
+            s.Append(" Read");
+            s.Append(caseName);
+            s.AppendLine("(ref TomlReader r, byte[] __prefix) {");
 
             var hasCtor = !dti.CtorParams.IsDefaultOrEmpty && dti.CtorParams.Length > 0;
             if (hasCtor)
@@ -3521,7 +3700,7 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 for (int ci = 0; ci < dti.CtorParams.Length; ci++)
                 {
                     var cp = dti.CtorParams[ci];
-                    s.Append("            ");
+                    s.Append("        ");
                     s.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
                     s.Append(" __cp_");
                     s.Append(ci);
@@ -3532,15 +3711,15 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             }
             else
             {
-                s.Append("            var obj = new ");
+                s.Append("        var obj = new ");
                 s.Append(ds);
                 s.AppendLine("();");
             }
 
-            s.AppendLine("            r.Read();");
-            s.AppendLine("            while (true) {");
-            s.AppendLine("                if (r.TokenType == TokenType.PropertyName) {");
-            s.AppendLine("                    var __k = r.KeySpan;");
+            s.AppendLine("        r.Read();");
+            s.AppendLine("        while (true) {");
+            s.AppendLine("            if (r.TokenType == TokenType.PropertyName) {");
+            s.AppendLine("                var __k = r.KeySpan;");
             var __polyCtorMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             if (!dti.CtorParams.IsDefaultOrEmpty)
                 for (int ci = 0; ci < dti.CtorParams.Length; ci++)
@@ -3556,108 +3735,139 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                 __polyScalars,
                 "__k",
                 "obj",
+                "                ",
                 "                    ",
-                "                        ",
                 __polyCtorMap
             );
-            s.AppendLine("                    if (!r.Read()) break;");
-            s.AppendLine("                    continue;");
+            // The discriminator row lands here too (no case member is named `$type`): it falls into
+            // the "unknown key" arm and is skipped, which is exactly right.
+            s.AppendLine("                if (!r.Read()) break;");
+            s.AppendLine("                continue;");
+            s.AppendLine("            }");
+            // Child tables of THIS value. Which headers those are depends on where the reader was
+            // entered: the root entry owns everything, a section entry owns only `<prefix>.<child>`
+            // and hands every other header back to its caller.
+            s.AppendLine("            if (r.TokenType == TokenType.ObjectStart) {");
+            s.AppendLine("                var __tblPos = r.BytesConsumed;");
+            s.AppendLine("                if (__prefix.Length != 0) {");
+            s.AppendLine("                    if (TextHelpers.Eq(r.TablePath, __prefix)) {");
+            s.AppendLine(
+                "                        if (!r.Read()) break; // dotted key re-opening this table"
+            );
+            s.AppendLine("                        continue;");
+            s.AppendLine("                    }");
+            s.AppendLine("                    if (!(__prefix.Length + 1 < r.TablePath.Length");
+            s.AppendLine("                        && r.TablePath[__prefix.Length] == (byte)'.'");
+            s.AppendLine(
+                "                        && MemoryExtensions.SequenceEqual(r.TablePath.Slice(0, __prefix.Length), __prefix)))"
+            );
+            s.AppendLine(
+                "                        break; // a header outside this value: it ends here"
+            );
             s.AppendLine("                }");
+            s.AppendLine(
+                "                var __tbl = __prefix.Length == 0 ? r.TablePath : r.TablePath.Slice(__prefix.Length + 1);"
+            );
             var __polyComplex = dti
                 .Properties.Where(PicoSerDe.Gen.GenInfrastructure.IsComplexMember)
                 .ToImmutableArray();
-            if (__polyComplex.Length > 0)
+            var __cmFirst = true;
+            foreach (var prop in __polyComplex)
             {
-                s.AppendLine("                if (r.TokenType == TokenType.ObjectStart) {");
-                s.AppendLine("                    var __tblPos = r.BytesConsumed;");
-                s.AppendLine("                    var __tbl = r.TablePath;");
-                var __cmFirst = true;
-                foreach (var prop in __polyComplex)
+                var __cmIdx = -1;
+                if (hasCtor)
                 {
-                    var __cmIdx = -1;
-                    if (hasCtor)
-                    {
-                        for (int ci = 0; ci < dti.CtorParams.Length; ci++)
-                            if (
-                                string.Equals(
-                                    dti.CtorParams[ci].Name,
-                                    prop.Name,
-                                    StringComparison.OrdinalIgnoreCase
-                                )
+                    for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                        if (
+                            string.Equals(
+                                dti.CtorParams[ci].Name,
+                                prop.Name,
+                                StringComparison.OrdinalIgnoreCase
                             )
-                            {
-                                __cmIdx = ci;
-                                break;
-                            }
-                    }
-                    // Ctor parameters are only supported for object members
-                    // (dict members are read into a settable property).
-                    if (hasCtor && __cmIdx < 0)
-                        continue;
-                    if (hasCtor && prop.TypeKind != "object")
-                        continue;
-                    var __cmKw = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref __cmFirst);
+                        )
+                        {
+                            __cmIdx = ci;
+                            break;
+                        }
+                }
+                // Ctor parameters are only supported for object members
+                // (dict members are read into a settable property).
+                if (hasCtor && __cmIdx < 0)
+                    continue;
+                if (hasCtor && prop.TypeKind != "object")
+                    continue;
+                var __cmKw = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref __cmFirst);
+                s.Append("                ");
+                s.Append(__cmKw);
+                s.Append(" (TextHelpers.Eq(__tbl, \"");
+                s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
+                s.AppendLine("\"u8)) {");
+                if (prop.TypeKind == "dict")
+                {
+                    // Shared dict read (handles scalar/object/nested values).
+                    EmitDictRead(s, prop, "obj", "                    ");
+                }
+                else if (__cmIdx >= 0)
+                {
+                    var __cmHelper = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        "TomlInner",
+                        prop.TypeFullName!
+                    );
                     s.Append("                    ");
-                    s.Append(__cmKw);
-                    s.Append(" (TextHelpers.Eq(__tbl, \"");
-                    s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName));
+                    s.Append($"__cp_{__cmIdx}");
+                    s.Append(" = ");
+                    s.Append(__cmHelper);
+                    s.AppendLine(".Deserialize(ref r);");
+                }
+                else
+                {
+                    EmitNestedObjectRead(s, prop, "obj", "                    ");
+                }
+                s.AppendLine("                }");
+            }
+            // An unmatched header reads nothing, so this `continue` would re-dispatch the same
+            // ObjectStart for ever; progress is the contract (C-1).
+            s.AppendLine("                if (r.TokenType == TokenType.None) break;");
+            s.AppendLine(
+                "                if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __tblPos && !r.Read()) break;"
+            );
+            s.AppendLine("                continue;");
+            s.AppendLine("            }");
+            // `[[…]]` sections: another element of a list this value OWNS, or — when the path is
+            // this value's own section — the NEXT element of the list this value is an element of,
+            // which ends the value. Nothing else can appear at this level.
+            s.AppendLine("            if (r.TokenType == TokenType.ArrayStart) {");
+            s.AppendLine(
+                "                if (__prefix.Length != 0 && TextHelpers.Eq(r.TablePath, __prefix)) break;"
+            );
+            var __polyListObjs = hasCtor
+                ? ImmutableArray<PropertyInfo>.Empty
+                : dti.Properties.Where(x => IsArrayOfTablesMember(x)).ToImmutableArray();
+            if (__polyListObjs.Length > 0)
+            {
+                s.AppendLine("                var __arrPos = r.BytesConsumed;");
+                s.AppendLine("                {");
+                var __alFirst = true;
+                // The ARM match is same-level (the header's LAST dotted segment): a hand-written
+                // `[[Parent.Items]]` names the member by its last segment (C-1), while the
+                // same-section break above already handled the element-of-this-list case.
+                foreach (var ap in __polyListObjs)
+                {
+                    var __alKw = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref __alFirst);
+                    s.Append("                    ");
+                    s.Append(__alKw);
+                    s.Append(" (TextHelpers.EqLastSegment(r.TablePath, \"");
+                    s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName));
                     s.AppendLine("\"u8)) {");
-                    if (prop.TypeKind == "dict")
+                    if (ap.ElementIsPolyBase)
                     {
-                        // Shared dict read (handles scalar/object/nested values).
-                        EmitDictRead(s, prop, "obj", "                        ");
-                    }
-                    else if (__cmIdx >= 0)
-                    {
-                        var __cmHelper = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
-                            "TomlInner",
-                            prop.TypeFullName!
-                        );
-                        s.Append("                        ");
-                        s.Append($"__cp_{__cmIdx}");
-                        s.Append(" = ");
-                        s.Append(__cmHelper);
-                        s.AppendLine(".Deserialize(ref r);");
+                        // A polymorphic ELEMENT: it carries its own discriminator, so the element
+                        // type's helper reads it whole. Inlining the base's members is the same bug
+                        // the member position had.
+                        EmitPolyArrayTableRead(s, ap, "obj", "                        ", true);
                     }
                     else
                     {
-                        EmitNestedObjectRead(s, prop, "obj", "                        ");
-                    }
-                    s.AppendLine("                    }");
-                }
-                // Progress guard (C-1): an unmatched header reads nothing, so the
-                // `continue` would re-dispatch the same `ObjectStart` for ever.
-                s.AppendLine("                    if (r.TokenType == TokenType.None) break;");
-                s.AppendLine(
-                    "                    if (r.TokenType == TokenType.ObjectStart && r.BytesConsumed == __tblPos && !r.Read()) break;"
-                );
-                s.AppendLine("                    continue;");
-                s.AppendLine("                }");
-            }
-            if (!hasCtor)
-            {
-                var __polyListObjs = dti
-                    .Properties.Where(x => IsArrayOfTablesMember(x))
-                    .ToImmutableArray();
-                if (__polyListObjs.Length > 0)
-                {
-                    s.AppendLine("                if (r.TokenType == TokenType.ArrayStart) {");
-                    s.AppendLine("                    var __arrPos = r.BytesConsumed;");
-                    var __alFirst = true;
-                    // The ARM match is same-level as well: a hand-written `[[Parent.Items]]` names the
-                    // member by its LAST dotted segment (`TextHelpers.EqLastSegment`). Matching the whole
-                    // path against the bare member name skipped the entire section instead of mis-reading
-                    // one element (C-1). `[table]` headers below keep whole-path matching on purpose: a
-                    // nested table is dispatched by prefix inside its own helper, and relaxing those would
-                    // let a real-world `[tool.ruff]` populate a member named `ruff`.
-                    foreach (var ap in __polyListObjs)
-                    {
-                        var __alKw = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref __alFirst);
-                        s.Append("                    ");
-                        s.Append(__alKw);
-                        s.Append(" (TextHelpers.EqLastSegment(r.TablePath, \"");
-                        s.Append(PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName));
-                        s.AppendLine("\"u8)) {");
                         var __alElemType = ap.ElementTypeName ?? "object";
                         s.Append("                        var __item = new ");
                         s.Append(__alElemType);
@@ -3689,20 +3899,12 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                             "                        if (r.TokenType != TokenType.ArrayStart) break;"
                         );
                         // D-9d: the NEXT `[[…]]` header is another element of THIS list only when
-                        // it names this table. A foreign one (`[[Unknown]]`) used to append an EMPTY
-                        // element — a value the document never had — because the loop reused
-                        // every `ArrayStart` token. Stop instead and let the enclosing dispatch
-                        // advance past the header it does not own.
-                        // The name is compared AT THE SAME LEVEL — the header's LAST dotted segment
-                        // (`TextHelpers.EqLastSegment`). A hand-written `[[Parent.Items]]` carries the whole
-                        // path while an arm owns ONE member, and whole-path equality matched no header at all:
-                        // every element of a standard nested array-of-tables was silently dropped (C-1).
+                        // it names this table; a foreign one must not append an EMPTY element.
                         s.AppendLine(
                             "                        if (!TextHelpers.EqLastSegment(r.TablePath, \""
                                 + PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName)
                                 + "\"u8)) break;"
                         );
-                        // Local no-progress guard (I-3), same reason as the buffered emitter.
                         s.AppendLine(
                             "                        if (r.BytesConsumed == __itPos) break;"
                         );
@@ -3710,23 +3912,23 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
                         s.Append(__alElemType);
                         s.AppendLine("();");
                         s.AppendLine("                        }");
-                        s.AppendLine("                    }");
                     }
-                    // Progress guard (C-1/I-3): an unmatched `[[…]]` header reads nothing,
-                    // so this `continue` would re-dispatch the same `ArrayStart` for ever.
-                    s.AppendLine("                    if (r.TokenType == TokenType.None) break;");
-                    s.AppendLine(
-                        "                    if (r.TokenType == TokenType.ArrayStart && r.BytesConsumed == __arrPos && !r.Read()) break;"
-                    );
-                    s.AppendLine("                    continue;");
-                    s.AppendLine("                }");
+                    s.AppendLine("                    }");
                 }
+                s.AppendLine(
+                    "                    if (r.TokenType == TokenType.ArrayStart && r.BytesConsumed == __arrPos && !r.Read()) break;"
+                );
+                s.AppendLine("                }");
+                s.AppendLine("                if (r.TokenType == TokenType.None) break;");
+                s.AppendLine("                continue;");
             }
-            s.AppendLine("                if (!r.Read()) break;");
             s.AppendLine("            }");
+            // Any other token (EOF, or a header owned by somebody else) ends this value.
+            s.AppendLine("            break;");
+            s.AppendLine("        }");
             if (hasCtor)
             {
-                s.Append("            return new ");
+                s.Append("        return new ");
                 s.Append(ds);
                 s.Append("(");
                 for (int ci = 0; ci < dti.CtorParams.Length; ci++)
@@ -3740,39 +3942,116 @@ public sealed class TomlSerializerGenerator : IIncrementalGenerator
             }
             else
             {
-                s.AppendLine("            return obj;");
+                s.AppendLine("        return obj;");
             }
-            s.AppendLine("        }");
+            s.AppendLine("    }");
         }
 
-        s.AppendLine(
-            "        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");"
-        );
-        s.AppendLine("    }");
         s.AppendLine("}");
         s.AppendLine();
+    }
 
-        var typeRef = string.IsNullOrEmpty(type.Namespace)
-            ? type.Name
-            : $"{type.Namespace}.{type.Name}";
-        s.Append("file static class ");
-        s.Append(type.Name);
-        s.AppendLine("SerDeRegistration {");
-        s.AppendLine("    [ModuleInitializer]");
-        s.AppendLine("    internal static void Register() {");
-        s.Append("        global::PicoToml.TomlSerializer.Register<");
-        s.Append(typeRef);
-        s.AppendLine(">(");
-        s.Append("            new ");
-        s.Append(type.Name);
-        s.AppendLine("TomlSerializer(),");
-        s.Append("            new ");
-        s.Append(type.Name);
-        s.AppendLine("TomlDeserializer());");
-        s.AppendLine("    }");
+    /// <summary>
+    /// The member/element-position helper of a POLYMORPHIC base: it does not emit the base's own
+    /// members at all, it forwards to the type's discriminator dispatch
+    /// (<c>&lt;prefix&gt;TomlPolySer/Des</c>). Without it a member declared as the base type was
+    /// written as the BASE's members only — the discriminator and every derived member silently
+    /// gone, while JSON carried both — and, for an abstract base, the generated `new
+    /// &lt;abstract&gt;()` did not even compile (CS0144).
+    /// </summary>
+    static string GenPolyInner(string fqn, string shortName, TypeInfo polyType)
+    {
+        var clean = fqn.Replace("global::", "");
+        var s = new StringBuilder();
+        s.AppendLine("// <auto-generated/>");
+        s.AppendLine("#nullable enable");
+        s.AppendLine("using System; using System.Buffers; using System.Text;");
+        s.AppendLine("using PicoSerDe.Core; using PicoToml;");
+        var lastDot = clean.LastIndexOf('.');
+        if (!clean.Contains('<') && lastDot > 0)
+        {
+            s.Append("namespace ");
+            s.Append(clean.Substring(0, lastDot));
+            s.AppendLine(";");
+        }
+        s.AppendLine();
+        var poly = PicoSerDe.Gen.GenInfrastructure.PolyClassPrefix(polyType);
+        s.Append("internal static class ");
+        s.Append(shortName);
+        s.AppendLine("TomlInner {");
+        s.Append("    internal static void Serialize(TomlWriter tw, ");
+        s.Append(clean);
+        s.AppendLine(" value)");
+        s.Append("        => ");
+        s.Append(poly);
+        s.AppendLine("TomlPolySer.SerializeMembers(tw, value);");
+        s.AppendLine();
+        s.Append("    internal static ");
+        s.Append(clean);
+        s.AppendLine(" Deserialize(ref TomlReader r)");
+        s.Append("        => ");
+        s.Append(poly);
+        s.AppendLine("TomlPolyDes.DeserializeSection(ref r);");
         s.AppendLine("}");
-
         return s.ToString();
+    }
+
+    /// <summary>
+    /// Emits the READ of a <c>[[key]]</c> array-of-tables whose ELEMENT type is a polymorphic base:
+    /// each element carries its own discriminator, so the element type's helper reads it whole
+    /// instead of an inline loop over the BASE's members (which is what dropped the tag and every
+    /// derived member and handed back base instances).
+    /// <para>
+    /// Contract, and why the loop has this shape: on entry the reader is ON the element's
+    /// <c>[[key]]</c> header, the helper consumes the whole element and stops ON THE NEXT element's
+    /// header (that is what ends a value in a section format) — so the loop must re-dispatch that
+    /// token rather than read past it.
+    /// </para>
+    /// <paramref name="insideCase"/> says whether the collection is written as <c>obj.Name</c> (a
+    /// poly case reader, where <c>obj</c> is the instance being built) or as the root reader's
+    /// <c>__arr_Name</c>/<c>o.Name</c> pair.
+    /// </summary>
+    private static void EmitPolyArrayTableRead(
+        StringBuilder s,
+        PropertyInfo ap,
+        string target,
+        string pad,
+        bool insideCase
+    )
+    {
+        var elemType = ap.ElementTypeNameAnnotated ?? ap.ElementTypeName ?? "object";
+        var sn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+            "TomlInner",
+            ap.ElementTypeName ?? "object"
+        );
+        var nameEsc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(ap.JsonName);
+        var listExpr =
+            ap.TypeKind == "array" && !insideCase ? "__arr_" + ap.Name : target + "." + ap.Name;
+        s.Append(pad);
+        s.Append(listExpr);
+        s.Append(" ??= new System.Collections.Generic.List<");
+        s.Append(elemType);
+        s.AppendLine(">();");
+        s.Append(pad);
+        s.AppendLine("while (true) {");
+        s.Append(pad);
+        s.AppendLine("    var __itPos = r.BytesConsumed;");
+        s.Append(pad);
+        s.Append("    ");
+        s.Append(listExpr);
+        s.Append(".Add(");
+        s.Append(sn);
+        s.AppendLine(".Deserialize(ref r));");
+        s.Append(pad);
+        s.AppendLine("    if (r.TokenType != TokenType.ArrayStart) break;");
+        s.Append(pad);
+        s.Append("    if (!TextHelpers.EqLastSegment(r.TablePath, \"");
+        s.Append(nameEsc);
+        s.AppendLine("\"u8)) break;");
+        s.Append(pad);
+        s.AppendLine("    if (r.BytesConsumed == __itPos) break;");
+        s.Append(pad);
+        s.AppendLine("}");
     }
 
     private static string EmitTomlValue(AnonFieldInfo f, string vv, string wv)

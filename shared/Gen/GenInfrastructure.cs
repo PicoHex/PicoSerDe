@@ -254,7 +254,18 @@ internal readonly record struct PropertyInfo(
     // cycle target used to seed the helper (TypeFullName is only the container).
     string? ElementTypeFullName = null,
     // True when the element/value type is a nullable value type (List<int?>).
-    bool ElementIsNullableValue = false
+    bool ElementIsNullableValue = false,
+    // True when the MEMBER's own declared type declares [PicoDerivedType]: the value is a
+    // polymorphic base, so only the discriminator on the wire says which derived type it is.
+    // A format whose member emitter INLINES the base's own members (msgpack) has to route such a
+    // value through the type's polymorphic helper instead; inlining drops the discriminator and
+    // every derived member, silently. Formats that already delegate an object member to its inner
+    // helper (json, toml, yaml) do not need to ask.
+    bool IsPolyBase = false,
+    // The same question one level down: the declared ELEMENT type of a collection is a
+    // polymorphic base (List<PolyBase>). Only a format that inlines its elements' members
+    // (toml's array-of-tables reader) has to ask.
+    bool ElementIsPolyBase = false
 );
 
 /// <summary>Attribute detection helpers — each SG provides its own attribute class names.</summary>
@@ -1669,6 +1680,56 @@ internal static class GenInfrastructure
         return candidate;
     }
 
+    /// <summary>
+    /// The discriminator property name a polymorphic type writes — <c>$type</c> unless
+    /// <c>[PicoPolymorphic(TypeDiscriminatorPropertyName = …)]</c> renamed it.
+    /// <para>
+    /// ONE definition, because four formats have to agree on the tag NAME for a document written
+    /// by one of them to mean the same thing in another (that is the whole point of the
+    /// discriminator). It used to be spelled <c>type.DiscriminatorPropertyName ?? "$type"</c> in
+    /// each generator.
+    /// </para>
+    /// </summary>
+    public static string DiscriminatorName(TypeInfo type) =>
+        type.DiscriminatorPropertyName ?? "$type";
+
+    /// <summary>
+    /// Every case of a polymorphic type's discriminator dispatch, in emission order: the declared
+    /// derived types, then — for a base that can be instantiated — the base itself under a
+    /// synthesized discriminator (<see cref="BaseDiscriminator"/>), so a base-typed instance is a
+    /// valid value that round-trips.
+    /// <para>
+    /// The ONE definition of that case list. Each emitter used to spell it out
+    /// (<c>BaseDiscriminator</c> plus an <c>Add</c>), which is exactly the kind of copy that drifts,
+    /// and the MEMBER-position dispatch must agree with the ROOT serializer about which cases
+    /// exist — a value written by one and unreadable by the other is silent corruption.
+    /// </para>
+    /// </summary>
+    public static ImmutableArray<DerivedTypeInfo> PolyCases(TypeInfo type)
+    {
+        var baseDisc = BaseDiscriminator(type);
+        return baseDisc is null
+            ? type.DerivedTypes
+            : type.DerivedTypes.Add(new DerivedTypeInfo(type.FullyQualifiedName!, baseDisc));
+    }
+
+    /// <summary>
+    /// True when <paramref name="type"/> declares at least one <c>[PicoDerivedType]</c> — the
+    /// symbol-level answer to "is this a polymorphic base?", which an extractor can ask about a
+    /// member's declared type (the merged <see cref="TypeInfo"/> list, where the derived types
+    /// live, is not available there).
+    /// </summary>
+    public static bool DeclaresDerivedTypes(ITypeSymbol type) =>
+        AttributeLookup.Has(type, "PicoSerDe.Core", "PicoDerivedTypeAttribute");
+
+    /// <summary>
+    /// The cross-file prefix of a polymorphic type's generated serializer/deserializer classes. They
+    /// must be referenceable from ANOTHER generated file (the member-position helper), so they cannot
+    /// be <c>file</c>-scoped, and the name must be unique per TYPE rather than per short name.
+    /// </summary>
+    public static string PolyClassPrefix(TypeInfo type) =>
+        UniqueName(type.FullyQualifiedName ?? type.Name);
+
     public static string ShortName(string fullName)
     {
         var name = fullName.Replace("global::", "");
@@ -2493,6 +2554,12 @@ internal static class GenInfrastructure
             var cyclePosition = CyclePosition.Member;
             ITypeSymbol? cycleTarget = null;
             bool elementIsNrt = false;
+            // Polymorphic dispatch is a question about the DECLARED type, and it is answered here
+            // because the merged TypeInfo list - where the derived types live - does not exist yet
+            // at extraction time. Both facts travel on the PropertyInfo, so an emitter can ask them
+            // without consulting a list it may not have in hand.
+            bool isPolyBase = false;
+            bool elementIsPolyBase = false;
 
             // Every sequence kind carries an element type; which kinds those are is the
             // collection-kind table's answer, not a list spelled here (a new kind used to have to
@@ -2709,6 +2776,7 @@ internal static class GenInfrastructure
                 {
                     cyclePosition = CyclePosition.Element;
                     cycleTarget = eNtsObj;
+                    elementIsPolyBase = DeclaresDerivedTypes(eNtsObj);
                     nestedProperties = ExtractNestedPropertiesGuarded(
                         eNtsObj,
                         type,
@@ -2975,6 +3043,7 @@ internal static class GenInfrastructure
             else if (typeKind is "object" && prop.Type is INamedTypeSymbol objNts)
             {
                 cycleTarget = objNts;
+                isPolyBase = DeclaresDerivedTypes(objNts);
                 nestedProperties = ExtractNestedPropertiesGuarded(
                     objNts,
                     type,
@@ -3041,7 +3110,9 @@ internal static class GenInfrastructure
                     ElementTypeNameAnnotated: elementTypeNameAnnotated,
                     IsRecursiveRef: recursion != RecursionKind.None,
                     ElementTypeFullName: elementTypeFullName,
-                    ElementIsNullableValue: elementIsNullableValue
+                    ElementIsNullableValue: elementIsNullableValue,
+                    IsPolyBase: isPolyBase,
+                    ElementIsPolyBase: elementIsPolyBase
                 )
             );
         }
