@@ -115,6 +115,17 @@ var ini = IniSerializer.Serialize(config);
   another INI reader sees one opaque string, which is exactly what the format carries. It may only ever be one
   layer and must stay reversible (`"a,b"` is written `a\,b` and read back) — a nested shape packed into a
   value would make the reader parse a grammar we invented (`AGENTS.md`, the value-level exception).
+**Duplicate keys and duplicate sections are accepted, and that is a choice rather than a fact.**
+INI has no specification, so the arbiter is the de-facto standard - and it splits here, measured
+2026-11: `configparser` with its default `strict=True` raises `DuplicateOptionError` /
+`DuplicateSectionError`, while `git config` keeps both values (`--get-all` returns them in order,
+`--get` returns the last) and `configparser(strict=False)` merges a repeated section. Because only
+some implementations refuse, refusal is not part of the format, and because the majority default does
+refuse, acceptance is not something the format settles either. This reader takes the permissive
+reading: a repeated key leaves the last value, a repeated section merges. If you need the strict
+reading, TOML refuses duplicate keys by specification (`PICOSERDE`-free, it is a plain
+`FormatException`) - and a strictness option here would be a new public API rather than a fix.
+
 - Enum values parse strictly too: an unparseable enum text throws `FormatException` naming the member and offset. It previously fell back silently to the default (`0`) enum member.
 
 ## Performance
