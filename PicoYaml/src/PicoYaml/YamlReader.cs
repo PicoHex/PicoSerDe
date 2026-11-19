@@ -483,11 +483,25 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     /// by the caller as an error rather than skipped — silently ignoring it would hand back a
     /// value the document said was something else, which is the one failure mode a tag exists
     /// to prevent. Application tags (<c>!person</c>, <c>!myapp!Thing</c>) need a registration
-    /// mechanism this format does not have yet.
+    /// mechanism this format does not have yet, so they fail too — with two exceptions, both
+    /// deliberate: <c>!</c> alone (the non-specific tag, which asks for the very shape
+    /// resolution an untagged node gets) and <paramref name="nodeProperty"/>, the tag written
+    /// on a line of its own, which is the form <see cref="YamlWriter.WriteTag"/> emits for a
+    /// <c>[YamlTag]</c> type — there the mapped type comes from the target, so the tag names
+    /// an identity this reader has no use for.
     /// </para>
+    /// <param name="nodeProperty">
+    /// True when the tag is a node property on its own line rather than the tag of a value.
+    /// </param>
     /// </summary>
-    private static NodeTag ParseTag(ReadOnlySpan<byte> text, ref int pos, int offset)
+    private static NodeTag ParseTag(
+        ReadOnlySpan<byte> text,
+        ref int pos,
+        int offset,
+        bool nodeProperty = false
+    )
     {
+        int tagStart = pos;
         pos++; // past '!'
         bool standard = pos < text.Length && text[pos] == (byte)'!';
         if (standard)
@@ -509,10 +523,30 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         }
         int nameEnd = handleBang < 0 ? pos : handleBang;
         var name = text[nameStart..nameEnd];
-        // Step 1 of the tag work resolves the standard names; a `!` tag is still read
-        // through here (step 2 makes an unresolvable tag fail the read).
         if (!standard)
-            return NodeTag.None;
+        {
+            // `!` alone is the non-specific tag: "resolve this node by its own shape", which
+            // is exactly what an untagged node does here, so it changes nothing.
+            if (name.IsEmpty)
+                return NodeTag.None;
+            // A handle (`!myapp!Thing`) is a PARSER-level construct: it needs a %TAG directive,
+            // and this reader declares none. PyYAML: ParserError "found undefined tag handle".
+            if (handleBang >= 0)
+                throw new FormatException(
+                    $"Undefined YAML tag handle '{Encoding.UTF8.GetString(text[tagStart..(handleBang + 1)])}' at offset {offset}: "
+                        + "a named handle must be declared with a %TAG directive, and this reader declares none."
+                );
+            // A node-level `!name` is the tag our own writer emits for a [YamlTag] type, and
+            // the mapped type is the target type, so it is read through (PicoYaml/README.md,
+            // "Tags"). A `!name` ON A VALUE is a type assertion nothing here can honour.
+            if (nodeProperty)
+                return NodeTag.None;
+            throw new FormatException(
+                $"Unsupported YAML tag '{Encoding.UTF8.GetString(text[tagStart..pos])}' at offset {offset}: "
+                    + "application tags need a registration mechanism this reader does not have — "
+                    + "the tags it resolves are !!str, !!int, !!float, !!bool, !!null, !!map and !!seq."
+            );
+        }
         if (name.SequenceEqual("str"u8))
             return NodeTag.Str;
         if (name.SequenceEqual("int"u8))
@@ -527,7 +561,11 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             return NodeTag.Map;
         if (name.SequenceEqual("seq"u8))
             return NodeTag.Seq;
-        return NodeTag.None;
+        throw new FormatException(
+            $"Unknown YAML tag '{Encoding.UTF8.GetString(text[tagStart..pos])}' at offset {offset}: "
+                + "the reader resolves the core schema's tags (!!str, !!int, !!float, !!bool, !!null, !!map, !!seq) "
+                + "and refuses to read a tagged value as if it were untagged."
+        );
     }
 
     /// <summary>Skips the separation spaces that follow a tag, if any.</summary>
@@ -1128,7 +1166,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (_data[_position] == (byte)'!')
         {
             int tagOffset = _position;
-            var tag = ParseTag(_data, ref _position, tagOffset);
+            var tag = ParseTag(_data, ref _position, tagOffset, nodeProperty: true);
             if (tag != NodeTag.None)
             {
                 _pendingNodeTag = tag;

@@ -112,20 +112,28 @@ public class YamlReaderEdgeTests
     // ── tag support ──
 
     [Test]
-    public async Task TagValue_ExclamationMark_StripsTag()
+    public async Task TagValue_ApplicationTag_FailsNamingTheTag()
     {
+        // `!str` is an APPLICATION tag (one `!`), not the standard `!!str`: the reader has no
+        // constructor for it, and this test used to pin the opposite - the tag was silently
+        // stripped and the value read as if the document had never been tagged. PyYAML fails
+        // the same document ("could not determine a constructor for the tag '!str'"), and a
+        // tag that is quietly dropped is the failure mode a tag exists to prevent.
         var yaml = "name: !str Alice"u8.ToArray();
-        string val = string.Empty;
-        using (var reader = new YamlReader(yaml))
+        string message;
+        try
         {
-            while (reader.Read())
+            using (var reader = new YamlReader(yaml))
             {
-                if (reader.TokenType == TokenType.PropertyName)
-                    val = Encoding.UTF8.GetString(reader.ValueSpan);
+                while (reader.Read()) { }
             }
+            message = "<no exception>";
         }
-        // Tag !str should be stripped, value is "Alice"
-        await Assert.That(val).IsEqualTo("Alice");
+        catch (FormatException ex)
+        {
+            message = ex.Message;
+        }
+        await Assert.That(message).Contains("!str");
     }
 
     // ── sequence-mode tests ──
@@ -169,13 +177,23 @@ public class YamlReaderEdgeTests
     }
 
     [Test]
-    public async Task SeqMode_TagValue_ExclamationMark_StripsTag()
+    public async Task SeqMode_TagValue_ApplicationTag_FailsNamingTheTag()
     {
+        // The streaming (ReadOnlySequence) input is normalised onto the same span reader, so it
+        // has to reach the same verdict as the span case above.
         var data = "name: !str Alice"u8.ToArray();
         var seq = new ReadOnlySequence<byte>(data);
-        string val = string.Empty;
-        ReadSeqCaptureProps(seq, out _, out val);
-        await Assert.That(val).IsEqualTo("Alice");
+        string message;
+        try
+        {
+            ReadSeqCaptureProps(seq, out _, out _);
+            message = "<no exception>";
+        }
+        catch (FormatException ex)
+        {
+            message = ex.Message;
+        }
+        await Assert.That(message).Contains("!str");
     }
 
     private static void ReadSeqCapture(
