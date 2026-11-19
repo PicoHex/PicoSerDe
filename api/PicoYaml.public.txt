@@ -50,11 +50,14 @@ M:PicoYaml.YamlReader.TrySkip() : bool override
 M:PicoYaml.YamlSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, PicoYaml.YamlOptions options, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoYaml.YamlSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoYaml.YamlSerializer.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoYaml.YamlOptions options = null) : T static
+M:PicoYaml.YamlSerializer.HasCustomSerializer``1() : bool static
 M:PicoYaml.YamlSerializer.HasStreamingDelegate``1() : bool static
+M:PicoYaml.YamlSerializer.RegisterCustom``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
 M:PicoYaml.YamlSerializer.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
 M:PicoYaml.YamlSerializer.RegisterStreaming``1(PicoSerDe.Core.StreamingFunc`2<PicoYaml.YamlReader, T> func) : void static
 M:PicoYaml.YamlSerializer.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
 M:PicoYaml.YamlSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
+M:PicoYaml.YamlSerializer.SerializeCustom``1(System.Buffers.IBufferWriter`1<byte> writer, T value) : void static
 M:PicoYaml.YamlSerializer.SerializeToUtf8Bytes``1(T value, PicoYaml.YamlOptions options = null) : byte[] static
 M:PicoYaml.YamlSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoYaml.YamlOptions options = null) : void static
 M:PicoYaml.YamlSerializer.Serialize``1(T value, PicoYaml.YamlOptions options = null) : string static

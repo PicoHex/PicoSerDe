@@ -49,11 +49,14 @@ M:PicoToml.TomlReader.TrySkip() : bool override
 M:PicoToml.TomlSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, PicoToml.TomlOptions options, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoToml.TomlSerializer.DeserializeFromStreamAsync``1(System.IO.Stream stream, System.Threading.CancellationToken ct = null) : System.Threading.Tasks.ValueTask`1<T> static
 M:PicoToml.TomlSerializer.Deserialize``1(System.ReadOnlySpan`1<byte> data, PicoToml.TomlOptions options = null) : T static
+M:PicoToml.TomlSerializer.HasCustomSerializer``1() : bool static
 M:PicoToml.TomlSerializer.HasStreamingDelegate``1() : bool static
+M:PicoToml.TomlSerializer.RegisterCustom``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
 M:PicoToml.TomlSerializer.RegisterDeserializer``1(PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
 M:PicoToml.TomlSerializer.RegisterStreaming``1(PicoSerDe.Core.StreamingFunc`2<PicoToml.TomlReader, T> func) : void static
 M:PicoToml.TomlSerializer.Register``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static
 M:PicoToml.TomlSerializer.Register``1(PicoSerDe.Core.SerDelegate`1<T> handler) : void static
+M:PicoToml.TomlSerializer.SerializeCustom``1(System.Buffers.IBufferWriter`1<byte> writer, T value) : void static
 M:PicoToml.TomlSerializer.SerializeToUtf8Bytes``1(T value, PicoToml.TomlOptions options = null) : byte[] static
 M:PicoToml.TomlSerializer.Serialize``1(System.Buffers.IBufferWriter`1<byte> writer, T value, PicoToml.TomlOptions options = null) : void static
 M:PicoToml.TomlSerializer.Serialize``1(T value, PicoToml.TomlOptions options = null) : string static
