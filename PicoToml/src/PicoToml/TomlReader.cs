@@ -16,14 +16,15 @@ public struct TomlReaderState
     internal bool IsArrayTable;
     internal bool DottedActive;
 
-    // The duplicate-key record travels with the parser state: TomlSerializer builds a NEW
-    // reader per chunk, so a document streamed in two pieces must be as strict as the same
-    // document read in one. Without these four the second chunk would start with an empty
-    // record (a duplicate split across the boundary would pass) and with the table scope
-    // reset to the root (the keys would be filed under the wrong table).
+    // The duplicate-key and table records travel with the parser state: TomlSerializer builds a
+    // NEW reader per chunk, so a document streamed in two pieces must be as strict as the same
+    // document read in one. Without these the second chunk would start with an empty record (a
+    // duplicate or a redefined table split across the boundary would pass) and with the table
+    // scope reset to the root (the keys would be filed under the wrong table).
     internal KeyDefinitionLog? KeyLog;
-    internal string? KeyTable;
-    internal int KeyTableInstance;
+    internal TableDefinitionLog? TableLog;
+    internal string? TableId;
+    internal Dictionary<string, int>? ArrayInstances;
     internal int ArrayTableSeq;
 }
 
@@ -43,8 +44,8 @@ public struct TomlReaderState
 /// </summary>
 internal sealed class KeyDefinitionLog
 {
-    private readonly List<(string Table, int Instance, string Key)> _order = [];
-    private readonly HashSet<(string Table, int Instance, string Key)> _defined = [];
+    private readonly List<(string TableId, string Key)> _order = [];
+    private readonly HashSet<(string TableId, string Key)> _defined = [];
 
     internal int Count => _order.Count;
 
@@ -54,12 +55,17 @@ internal sealed class KeyDefinitionLog
     /// handled by <see cref="TruncateTo"/>, which every rollback path calls, so this method is
     /// never asked about a key the parser is in the middle of re-reading.
     /// </summary>
-    /// <param name="table">Current table path ("" at the document root).</param>
-    /// <param name="instance">Which <c>[[array of tables]]</c> element this is; 0 for a plain table.</param>
+    /// <param name="tableId">
+    /// The current table's canonical id ("" at the document root). It carries the
+    /// <c>[[array of tables]]</c> element number, so two elements of one array are two namespaces
+    /// — that is what makes <c>[[Rows]] A = 1</c> / <c>[[Rows]] A = 2</c> legal while
+    /// <c>[T] A = 1</c> / <c>[T] A = 2</c> is not, and what keeps the same sub-table name legal
+    /// once per element (<c>[[Rows]]</c> / <c>[Rows.S]</c> twice).
+    /// </param>
     /// <param name="key">The key as written, quoted or bare.</param>
-    internal bool TryDefine(string table, int instance, string key)
+    internal bool TryDefine(string tableId, string key)
     {
-        var id = (table, instance, key);
+        var id = (tableId, key);
         if (!_defined.Add(id))
             return false;
         _order.Add(id);
@@ -73,6 +79,106 @@ internal sealed class KeyDefinitionLog
         {
             _defined.Remove(_order[i]);
             _order.RemoveAt(i);
+        }
+    }
+}
+
+/// <summary>
+/// How a table path came to exist. TOML 1.0 does not carry one rule for "this table is declared
+/// twice" — it carries one rule per <i>origin</i>:
+/// <list type="bullet">
+/// <item><description><see cref="HeaderTable"/> — §Table: "you cannot define a table more than
+/// once", so a second <c>[T]</c> is invalid.</description></item>
+/// <item><description><see cref="ArrayTable"/> — §Array of Tables: "each subsequent instance
+/// creates and defines a new table element", so a second <c>[[T]]</c> is legal and a plain
+/// <c>[T]</c> is not.</description></item>
+/// <item><description><see cref="DottedImplicit"/> — §Table: a table dotted keys "create and
+/// define" cannot be opened again with a <c>[table]</c> header.</description></item>
+/// <item><description><see cref="ValueKey"/> — the path is a value (scalar, array, …), and §Keys
+/// forbids declaring a table over it.</description></item>
+/// <item><description><see cref="InlineTable"/> — §Inline Table: inline tables "are fully
+/// self-contained", so a header cannot add to them.</description></item>
+/// <item><description><see cref="ImplicitSuperTable"/> — a path that exists only because a header
+/// named one of its children. §Table: "[x] # defining a super-table afterward is ok", so this one
+/// MAY still be declared.</description></item>
+/// </list>
+/// </summary>
+internal enum TableOrigin
+{
+    HeaderTable,
+    ArrayTable,
+    DottedImplicit,
+    ValueKey,
+    InlineTable,
+    ImplicitSuperTable,
+}
+
+/// <summary>
+/// Which table paths a document has and how each one came to exist — the table-level counterpart
+/// of <see cref="KeyDefinitionLog"/>, under the same rules.
+/// <para>
+/// The entries are journaled in definition order so a transactional rewind can undo exactly what
+/// the re-read will define again (a replay is not a redefinition). The journal keeps the PREVIOUS
+/// origin too, because a definition can be an UPGRADE — <c>[T.S]</c> first leaves <c>T</c> as an
+/// implicit super-table and a later <c>[T]</c> makes it a header table — and a rollback has to put
+/// that back, or the re-read of <c>[T]</c> would see its own earlier attempt as a redefinition and
+/// the chunked path would be stricter than the buffered one.
+/// </para>
+/// <para>
+/// Ids are opaque strings. Each segment is length-prefixed, so <c>a."b.c"</c> (two segments) can
+/// never collide with <c>["a.b.c"]</c> (one), and an array-of-tables element carries its element
+/// number, so one sub-table name is a fresh path in every element.
+/// </para>
+/// </summary>
+internal sealed class TableDefinitionLog
+{
+    private readonly Dictionary<string, TableOrigin> _origins = new(StringComparer.Ordinal);
+    private readonly List<string> _journal = [];
+    private readonly List<TableOrigin?> _previous = [];
+
+    internal int Count => _journal.Count;
+
+    internal bool TryGet(string id, out TableOrigin origin) => _origins.TryGetValue(id, out origin);
+
+    /// <summary>
+    /// Records <paramref name="origin"/> for <paramref name="id"/> unless the path is already
+    /// known, the two exceptions being an implicit super-table (a real definition upgrades it) and
+    /// a value that turns out to be an inline table (§Inline Table names the more precise clause).
+    /// A path with a stronger origin keeps it: the refusal decision is made by the caller BEFORE
+    /// this call, so a no-op here can never accept an illegal document, and it stops a key from
+    /// downgrading a header of the same name in a legal one.
+    /// </summary>
+    internal void Define(string id, TableOrigin origin)
+    {
+        TableOrigin? previous = null;
+        if (_origins.TryGetValue(id, out var existing))
+        {
+            if (!CanUpgrade(existing, origin))
+                return;
+            previous = existing;
+        }
+        _origins[id] = origin;
+        _journal.Add(id);
+        _previous.Add(previous);
+    }
+
+    private static bool CanUpgrade(TableOrigin existing, TableOrigin incoming) =>
+        existing == incoming ? false
+        : existing == TableOrigin.ImplicitSuperTable ? true
+        : existing == TableOrigin.ValueKey && incoming == TableOrigin.InlineTable;
+
+    /// <summary>Undoes every definition recorded after the first <paramref name="count"/>.</summary>
+    internal void TruncateTo(int count)
+    {
+        for (int i = _journal.Count - 1; i >= count; i--)
+        {
+            var previous = _previous[i];
+            if (previous is null)
+                _origins.Remove(_journal[i]);
+            else
+                _origins[_journal[i]] = previous.Value;
+            _journal.RemoveAt(i);
+            _previous.RemoveAt(i);
         }
     }
 }
@@ -145,8 +251,15 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     // Duplicate-key detection (TOML 1.0 §Keys). Lazily created on the first key; carried
     // through ExportState/ImportState so a chunked read is as strict as a buffered one.
     private KeyDefinitionLog? _keyLog;
-    private string _keyTable;
-    private int _keyTableInstance;
+
+    // Table redefinition detection (TOML 1.0 §Table / §Array of Tables / §Inline Table), same
+    // lazily-created-and-exported discipline. _tableId is the canonical id of the table the keys
+    // currently belong to (it carries array-of-tables element numbers); _arrayInstances remembers
+    // which element of each array of tables is the most recent, because every path under it is
+    // scoped to that element (§Array of Tables).
+    private TableDefinitionLog? _tables;
+    private string _tableId;
+    private Dictionary<string, int>? _arrayInstances;
     private int _arrayTableSeq;
 
     // Transactional storage: parser state snapshots for Mark/RewindToMark and
@@ -181,6 +294,11 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         // How many keys were defined when the mark was taken: a rewind un-defines the ones
         // the re-read will define again (a replay is not a redefinition).
         public int KeyCount;
+
+        // The same for table paths, plus the table the keys belong to (a header that is rewound
+        // must not leave the key scope on the table it opened).
+        public int TableCount;
+        public string? TableId;
     }
 
     private void SaveMark(ref ParserMark m)
@@ -207,6 +325,8 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         m.DottedO3 = _dottedO3;
         m.DottedL3 = _dottedL3;
         m.KeyCount = _keyLog?.Count ?? 0;
+        m.TableCount = _tables?.Count ?? 0;
+        m.TableId = _tableId;
     }
 
     private void RestoreMark(in ParserMark m)
@@ -236,8 +356,10 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _valueSpan = default;
         _tablePath = default;
         _needsMoreData = false;
-        // A rewound token will be read again: forget the keys it defined.
+        // A rewound token will be read again: forget the keys and table paths it defined.
         _keyLog?.TruncateTo(m.KeyCount);
+        _tables?.TruncateTo(m.TableCount);
+        _tableId = m.TableId ?? "";
     }
 
     /// <inheritdoc />
@@ -281,8 +403,9 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _dottedPartCount = 0;
         _dottedPartIndex = 0;
         _keyLog = null;
-        _keyTable = "";
-        _keyTableInstance = 0;
+        _tables = null;
+        _tableId = "";
+        _arrayInstances = null;
         _arrayTableSeq = 0;
     }
 
@@ -325,8 +448,9 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _dottedPartCount = 0;
         _dottedPartIndex = 0;
         _keyLog = null;
-        _keyTable = "";
-        _keyTableInstance = 0;
+        _tables = null;
+        _tableId = "";
+        _arrayInstances = null;
         _arrayTableSeq = 0;
     }
 
@@ -373,8 +497,9 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             IsArrayTable = _isArrayTable,
             DottedActive = _dottedActive,
             KeyLog = _keyLog,
-            KeyTable = _keyTable,
-            KeyTableInstance = _keyTableInstance,
+            TableLog = _tables,
+            TableId = _tableId,
+            ArrayInstances = _arrayInstances,
             ArrayTableSeq = _arrayTableSeq,
         };
     }
@@ -400,8 +525,9 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _isArrayTable = state.IsArrayTable;
         _dottedActive = state.DottedActive;
         _keyLog = state.KeyLog;
-        _keyTable = state.KeyTable ?? "";
-        _keyTableInstance = state.KeyTableInstance;
+        _tables = state.TableLog;
+        _tableId = state.TableId ?? "";
+        _arrayInstances = state.ArrayInstances;
         _arrayTableSeq = state.ArrayTableSeq;
     }
 
@@ -409,9 +535,10 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     {
         _tokenStart = _position;
         _needsMoreData = false;
-        // The per-token transaction covers the definition record too: every path below that
+        // The per-token transaction covers the definition records too: every path below that
         // puts the position back will read this token AGAIN, and a re-read defines nothing.
         int __keyCount = _keyLog?.Count ?? 0;
+        int __tableCount = _tables?.Count ?? 0;
         if (!_bomChecked)
         {
             if (_normalizedSequence)
@@ -454,6 +581,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                     // more data) restarts exactly at this token.
                     _position = __tokenStart;
                     _keyLog?.TruncateTo(__keyCount);
+                    _tables?.TruncateTo(__tableCount);
                     return FailRead();
                 }
                 // A token ending at a non-final buffer end may continue in the
@@ -474,6 +602,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 {
                     _position = __tokenStart;
                     _keyLog?.TruncateTo(__keyCount);
+                    _tables?.TruncateTo(__tableCount);
                     _needsMoreData = true;
                     return false;
                 }
@@ -490,6 +619,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             {
                 _position = __tokenStart;
                 _keyLog?.TruncateTo(__keyCount);
+                _tables?.TruncateTo(__tableCount);
                 _needsMoreData = true;
                 return false;
             }
@@ -1092,12 +1222,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         while (_position < _data.Length && _data[_position] != (byte)']')
             _position++;
         _tablePath = TrimEnd(_data[tblStart.._position]);
-        // Keys are defined per TABLE (§Keys). A <c>[[array of tables]]</c> header opens a NEW
-        // element each time it appears (§Array of Tables), so its keys are a fresh namespace —
-        // the instance number is what keeps `[[Rows]] A = 1` / `[[Rows]] A = 2` legal while
-        // `[T] A = 1` / `[T] A = 2` is not.
-        _keyTable = Encoding.UTF8.GetString(_tablePath);
-        _keyTableInstance = _isArrayTable ? ++_arrayTableSeq : 0;
+        DefineTableHeader();
         _position++;
         if (_isArrayTable && _position < _data.Length && _data[_position] == (byte)']')
             _position++;
@@ -1118,16 +1243,265 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     /// stops at the offending line instead of after a partial read of it.
     /// </para>
     /// </summary>
-    private void DefineKey()
+    /// <param name="quotedKey">
+    /// A quoted key is ONE key (<c>"a.b"</c> is the key <c>a.b</c>), so it never takes part in the
+    /// dotted-key path that <see cref="DefineKeyPath"/> records.
+    /// </param>
+    /// <returns>
+    /// The canonical path of the value this key defines — what the inline-table branch upgrades to
+    /// <see cref="TableOrigin.InlineTable"/> when the value turns out to be <c>{ … }</c>.
+    /// </returns>
+    private string DefineKey(bool quotedKey)
     {
         _keyLog ??= new KeyDefinitionLog();
         var key = Encoding.UTF8.GetString(_keySpan);
-        if (_keyLog.TryDefine(_keyTable, _keyTableInstance, key))
+        // Keys are defined per TABLE (§Keys), and an [[array of tables]] element is its own table
+        // (§Array of Tables): _tableId carries the element number, so `[[Rows]] A = 1` /
+        // `[[Rows]] A = 2` stays legal while `[T] A = 1` / `[T] A = 2` does not.
+        if (!_keyLog.TryDefine(_tableId, key))
+            throw new FormatException(
+                $"Duplicate key '{key}' at offset {_position}: TOML 1.0 §Keys forbids defining a key twice in the same table."
+            );
+        return DefineKeyPath(quotedKey);
+    }
+
+    /// <summary>
+    /// Records the table paths a key causes to exist, so a later <c>[header]</c> can tell whether
+    /// it is reopening a table a dotted key created (§Table: "redefining such tables using a
+    /// [table] header is not allowed") or naming a path that already holds a value (§Keys).
+    /// <para>
+    /// The distinction the last segment carries is the same one the specification draws: the
+    /// tables BEFORE it are <see cref="TableOrigin.DottedImplicit"/> (created and defined by the
+    /// dotted key, so no header may open them) and the last one holds the value
+    /// (<see cref="TableOrigin.ValueKey"/>). <c>a.b = 1</c> then <c>[a.c]</c> therefore stays
+    /// legal, which is the half of the rule the spec states explicitly: "the [table] form can,
+    /// however, be used to define sub-tables within tables defined via dotted keys".
+    /// </para>
+    /// </summary>
+    private string DefineKeyPath(bool quotedKey)
+    {
+        _tables ??= new TableDefinitionLog();
+        // The overwhelming majority of keys are one bare key, so they skip the split entirely:
+        // this runs once per key/value line and must not cost a list for the common case.
+        if (quotedKey || _keySpan.IndexOf((byte)'.') < 0)
+        {
+            var single = AppendTableSegment(_tableId, Encoding.UTF8.GetString(_keySpan));
+            _tables.Define(single, TableOrigin.ValueKey);
+            return single;
+        }
+
+        var segments = SplitTablePath(_keySpan);
+        var id = _tableId;
+        for (int i = 0; i < segments.Count; i++)
+        {
+            var segment = AppendTableSegment(id, segments[i]);
+            if (
+                i < segments.Count - 1
+                && _tables.TryGet(segment, out var existing)
+                && existing is TableOrigin.ValueKey or TableOrigin.InlineTable
+            )
+                RefusePathUnderValue(existing, segments, i);
+            id = segment;
+            _tables.Define(
+                id,
+                i == segments.Count - 1 ? TableOrigin.ValueKey : TableOrigin.DottedImplicit
+            );
+        }
+        return id;
+    }
+
+    /// <summary>
+    /// Registers a table header, refusing the ones TOML 1.0 refuses — and accepting the ones it
+    /// accepts, which is the harder half: a super-table may be declared AFTER its sub-table
+    /// (§Table: "[x] # defining a super-table afterward is ok"), an array of tables appends a new
+    /// element every time it appears (§Array of Tables), and a sub-table under an array element is
+    /// a fresh path in every element, because "any reference to an array of tables points to the
+    /// most recently defined table element".
+    /// </summary>
+    private void DefineTableHeader()
+    {
+        _tables ??= new TableDefinitionLog();
+        _arrayInstances ??= new Dictionary<string, int>(StringComparer.Ordinal);
+        var segments = SplitTablePath(_tablePath);
+        var display = string.Join('.', segments);
+
+        // Walk the super-tables first: they are this path's ancestors, and an array of tables
+        // contributes its current element number to every path beneath it.
+        var prefix = "";
+        for (int i = 0; i < segments.Count - 1; i++)
+        {
+            var collection = AppendTableSegment(prefix, segments[i]);
+            if (_tables.TryGet(collection, out var ancestor))
+            {
+                if (ancestor is TableOrigin.ValueKey or TableOrigin.InlineTable)
+                    RefusePathUnderValue(ancestor, segments, i);
+                if (
+                    ancestor == TableOrigin.ArrayTable
+                    && _arrayInstances.TryGetValue(collection, out var element)
+                )
+                {
+                    prefix = collection + ElementSuffix(element);
+                    continue;
+                }
+            }
+            prefix = collection;
+            _tables.Define(collection, TableOrigin.ImplicitSuperTable);
+        }
+
+        var id = AppendTableSegment(prefix, segments[^1]);
+        var known = _tables.TryGet(id, out var existing);
+
+        if (_isArrayTable)
+        {
+            if (known && existing != TableOrigin.ArrayTable)
+                throw new FormatException(
+                    $"Array of tables '{display}' at offset {_position}: {ArrayOfTablesRefusal(existing)}"
+                );
+            _tables.Define(id, TableOrigin.ArrayTable);
+            var element = ++_arrayTableSeq;
+            _arrayInstances[id] = element;
+            _tableId = id + ElementSuffix(element);
             return;
+        }
+
+        // An implicit super-table is the one origin a [header] may still declare, and declaring it
+        // is an upgrade, not a redefinition. Everything else — a header already seen, an array of
+        // tables, a table a dotted key created, a value — is a redefinition.
+        if (known && existing != TableOrigin.ImplicitSuperTable)
+            throw new FormatException(
+                $"Table '{display}' at offset {_position}: {TableRefusal(existing)}"
+            );
+
+        _tables.Define(id, TableOrigin.HeaderTable);
+        _tableId = id;
+    }
+
+    /// <summary>
+    /// Refuses a header or a dotted key that reaches THROUGH a value. <c>A = 1</c> followed by
+    /// <c>[A.B]</c> or by <c>A.B = 2</c> has to overwrite a value to get there, which §Keys
+    /// forbids (the reference implementation: "Cannot overwrite a value"); an inline table is the
+    /// same wall from the other side — §Inline Table: "keys and sub-tables cannot be added outside
+    /// the braces".
+    /// </summary>
+    /// <param name="origin">The origin of the path segment in the way.</param>
+    /// <param name="segments">The written path, so the message can name the blocking prefix.</param>
+    /// <param name="upTo">Index of the blocking segment in <paramref name="segments"/>.</param>
+    private void RefusePathUnderValue(TableOrigin origin, List<string> segments, int upTo)
+    {
+        var path = string.Join('.', segments.GetRange(0, upTo + 1));
         throw new FormatException(
-            $"Duplicate key '{key}' at offset {_position}: TOML 1.0 §Keys forbids defining a key twice in the same table."
+            $"Table '{path}' at offset {_position}: "
+                + (
+                    origin == TableOrigin.InlineTable
+                        ? "TOML 1.0 §Inline Table forbids adding keys or sub-tables outside the braces."
+                        : "TOML 1.0 §Keys forbids declaring a path under a key that is already defined as a value."
+                )
         );
     }
+
+    /// <summary>The clause a plain <c>[table]</c> header breaks, as a sentence (TOML 1.0).</summary>
+    private static string TableRefusal(TableOrigin why) =>
+        why switch
+        {
+            TableOrigin.ArrayTable =>
+                "TOML 1.0 §Array of Tables forbids defining a table with the same name as an established array of tables.",
+            TableOrigin.DottedImplicit =>
+                "TOML 1.0 §Table forbids opening with a [table] header a table that a dotted key created.",
+            TableOrigin.ValueKey =>
+                "TOML 1.0 §Keys forbids declaring a table over a key that is already defined as a value.",
+            TableOrigin.InlineTable =>
+                "TOML 1.0 §Inline Table forbids adding keys or sub-tables outside the braces.",
+            _ => "TOML 1.0 §Table forbids defining a table more than once.",
+        };
+
+    /// <summary>The clause an <c>[[array of tables]]</c> header breaks, as a sentence.</summary>
+    private static string ArrayOfTablesRefusal(TableOrigin why) =>
+        why switch
+        {
+            TableOrigin.DottedImplicit =>
+                "TOML 1.0 §Table forbids redefining as an array of tables a table that a dotted key created.",
+            TableOrigin.ValueKey =>
+                "TOML 1.0 §Array of Tables forbids appending to a statically defined array.",
+            TableOrigin.InlineTable =>
+                "TOML 1.0 §Inline Table forbids adding keys or sub-tables outside the braces.",
+            _ =>
+                "TOML 1.0 §Array of Tables forbids redefining a normal table as an array of tables.",
+        };
+
+    /// <summary>
+    /// Splits a table path (<c>_tablePath</c>, or a dotted key) into its decoded segments.
+    /// <c>a."b.c"</c> is two segments (<c>a</c>, <c>b.c</c>) and <c>["a.b"]</c> is one, because the
+    /// quote is part of the grammar (§Keys: "a dotted key is a sequence of bare or quoted keys
+    /// joined with dots"). Whitespace around a bare segment is ignored (§Table: <c>[ g . h ]</c> is
+    /// <c>[g.h]</c>) while a quoted segment keeps every character it holds, so <c>[" a "]</c> is a
+    /// different key from <c>[a]</c>.
+    /// </summary>
+    private List<string> SplitTablePath(ReadOnlySpan<byte> path)
+    {
+        var segments = new List<string>();
+        var i = 0;
+        while (true)
+        {
+            while (i < path.Length && (path[i] == (byte)' ' || path[i] == (byte)'\t'))
+                i++;
+
+            if (i < path.Length && path[i] is (byte)'"' or (byte)'\'')
+            {
+                var quote = path[i++];
+                var start = i;
+                if (quote == (byte)'"')
+                {
+                    while (i < path.Length && path[i] != quote)
+                    {
+                        if (path[i] == (byte)'\\' && i + 1 < path.Length)
+                            i++;
+                        i++;
+                    }
+                    var content = path[start..Math.Min(i, path.Length)];
+                    segments.Add(Encoding.UTF8.GetString(UnescapeBasicString(content)));
+                }
+                else
+                {
+                    while (i < path.Length && path[i] != quote)
+                        i++;
+                    segments.Add(Encoding.UTF8.GetString(path[start..Math.Min(i, path.Length)]));
+                }
+                while (i < path.Length && path[i] != (byte)'.')
+                    i++;
+            }
+            else
+            {
+                var start = i;
+                while (i < path.Length && path[i] != (byte)'.')
+                    i++;
+                var bare = path[start..i];
+                var end = bare.Length;
+                while (end > 0 && (bare[end - 1] == (byte)' ' || bare[end - 1] == (byte)'\t'))
+                    end--;
+                segments.Add(Encoding.UTF8.GetString(bare[..end]));
+            }
+
+            if (i >= path.Length)
+                return segments;
+            i++; // the dot
+        }
+    }
+
+    /// <summary>
+    /// Appends one segment to a canonical table id. The length prefix is what keeps the id
+    /// unambiguous for paths whose segments hold a dot: <c>a."b.c"</c> and <c>["a.b.c"]</c> are
+    /// two different tables (§Table: "naming rules for tables are the same as for keys").
+    /// </summary>
+    private static string AppendTableSegment(string prefix, string segment) =>
+        prefix + segment.Length.ToString(CultureInfo.InvariantCulture) + ":" + segment;
+
+    /// <summary>
+    /// The element number an <c>[[array of tables]]</c> path is scoped to. The separator cannot
+    /// occur in the encoding <see cref="AppendTableSegment"/> produces, so an element id never
+    /// collides with a segment id.
+    /// </summary>
+    private static string ElementSuffix(int element) =>
+        "\u0000#" + element.ToString(CultureInfo.InvariantCulture);
 
     private bool ReadKeyValueSpan()
     {
@@ -1173,7 +1547,7 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         if (_position >= _data.Length || _data[_position] != (byte)'=')
             throw new FormatException("Invalid TOML line: expected '='.");
         _position++;
-        DefineKey();
+        var keyPath = DefineKey(quotedKey);
         while (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;
 
@@ -1199,6 +1573,9 @@ public ref struct TomlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _inInlineTable = true;
             _inlineTableDepth = 1;
             _inlineStartEmitted = false;
+            // §Inline Table: the braces are self-contained, so no header may add to them. Naming
+            // that clause needs the value's kind, which is only known now.
+            _tables?.Define(keyPath, TableOrigin.InlineTable);
             _tokenType = TokenType.PropertyName;
             return true;
         }
