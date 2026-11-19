@@ -168,6 +168,11 @@ clothes.
 
 ## Ablation (how to find the fences nobody is watching)
 
+**Two traps before you start.** The baseline gate rebuilds `tests/FormatCapabilities.Probe` for
+**both** target frameworks, so in a worktree where only one framework has been restored it fails with
+`CS0006 ... net11.0/ref/...dll could not be found`. That is not a regression - exclude it and say so.
+And pin `-f net10.0` on every run or the suite runs twice.
+
 A green suite says the tests pass, not that they would fail. An **ablation** answers the second question:
 break one protection at a time and see whether anything goes red. Red means the protection is pinned;
 **green means nobody is watching**, and that is a defect in the fence rather than in the code.
