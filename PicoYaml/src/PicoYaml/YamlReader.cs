@@ -186,6 +186,37 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     private int _replayIndex;
     private int _replayPairCount;
 
+    // The node tag the current token carries. YAML 1.2 §2.3 makes the tag part of a
+    // node, and the core schema's `!!` names ARE the format's type vocabulary, so a
+    // reader that drops them is reading a different document than the one on the wire.
+    // Reset per token: one tag belongs to ONE node, never to the node after it.
+    private NodeTag _valueTag;
+    private int _valueTagOffset;
+
+    // A standard tag written on its own line (`!!map` / `!!seq` before a block node), with
+    // the offset kept for its message. It is a node property, so it applies to the node
+    // that starts on the next line.
+    private NodeTag _pendingNodeTag;
+    private int _pendingNodeTagOffset;
+
+    /// <summary>
+    /// The standard tags this reader resolves — the YAML 1.2 core schema's own type names,
+    /// no more and no less. Anything else is a tag this reader cannot honour (see
+    /// <see cref="ParseTag"/>), which is why the enum has no "unknown" member: an
+    /// unresolvable tag never becomes a value, it fails the read.
+    /// </summary>
+    private enum NodeTag : byte
+    {
+        None = 0,
+        Str,
+        Int,
+        Float,
+        Bool,
+        Null,
+        Map,
+        Seq,
+    }
+
     // Safety: prevents infinite loops in pathological YAML
     private const int MaxTokens = 100_000;
     private int _tokenCount;
@@ -423,6 +454,13 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     {
         get
         {
+            // An explicit tag outranks the shape, in both directions: `!!null ""` is null
+            // and `!!str null` is the four-letter text (PyYAML 6.0.3, the arbiter for this
+            // format: `{'A': None}` and `{'A': 'null'}` respectively).
+            if (_valueTag == NodeTag.Null)
+                return true;
+            if (_valueTag != NodeTag.None)
+                return false;
             if (_valueWasQuoted)
                 return false;
             var v = _valueSpan;
@@ -433,6 +471,230 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             return v.Length == 4 && System.Text.Ascii.EqualsIgnoreCase(v, "null"u8);
         }
     }
+
+    /// <summary>
+    /// Reads the tag that starts at <paramref name="pos"/> (a <c>'!'</c>), advances
+    /// <paramref name="pos"/> past it, and answers the standard tag it names.
+    /// <paramref name="offset"/> is only used for the message.
+    /// <para>
+    /// A tag is the format's type-extension point, so the names come from the YAML 1.2 core
+    /// schema and nothing else: <c>!!str</c>, <c>!!int</c>, <c>!!float</c>, <c>!!bool</c>,
+    /// <c>!!null</c>, <c>!!map</c>, <c>!!seq</c>. A tag this reader cannot honour is reported
+    /// by the caller as an error rather than skipped — silently ignoring it would hand back a
+    /// value the document said was something else, which is the one failure mode a tag exists
+    /// to prevent. Application tags (<c>!person</c>, <c>!myapp!Thing</c>) need a registration
+    /// mechanism this format does not have yet.
+    /// </para>
+    /// </summary>
+    private static NodeTag ParseTag(ReadOnlySpan<byte> text, ref int pos, int offset)
+    {
+        pos++; // past '!'
+        bool standard = pos < text.Length && text[pos] == (byte)'!';
+        if (standard)
+            pos++;
+        int nameStart = pos;
+        int handleBang = -1;
+        while (pos < text.Length)
+        {
+            var b = text[pos];
+            // The spec's tag charset (§6.8.2) has no flow indicators or space, so these end
+            // the name wherever the tag sits — block or flow.
+            if (b is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r')
+                break;
+            if (b is (byte)',' or (byte)']' or (byte)'}')
+                break;
+            if (!standard && b == (byte)'!')
+                handleBang = pos; // '!handle!suffix'
+            pos++;
+        }
+        int nameEnd = handleBang < 0 ? pos : handleBang;
+        var name = text[nameStart..nameEnd];
+        // Step 1 of the tag work resolves the standard names; a `!` tag is still read
+        // through here (step 2 makes an unresolvable tag fail the read).
+        if (!standard)
+            return NodeTag.None;
+        if (name.SequenceEqual("str"u8))
+            return NodeTag.Str;
+        if (name.SequenceEqual("int"u8))
+            return NodeTag.Int;
+        if (name.SequenceEqual("float"u8))
+            return NodeTag.Float;
+        if (name.SequenceEqual("bool"u8))
+            return NodeTag.Bool;
+        if (name.SequenceEqual("null"u8))
+            return NodeTag.Null;
+        if (name.SequenceEqual("map"u8))
+            return NodeTag.Map;
+        if (name.SequenceEqual("seq"u8))
+            return NodeTag.Seq;
+        return NodeTag.None;
+    }
+
+    /// <summary>Skips the separation spaces that follow a tag, if any.</summary>
+    private void SkipSpacesAfterTag()
+    {
+        while (_position < _data.Length && _data[_position] == (byte)' ')
+            _position++;
+    }
+
+    /// <summary>True when the scalar text is an integer in the grammar this reader parses.</summary>
+    private static bool IsIntegerScalar(ReadOnlySpan<byte> v) =>
+        (Utf8Parser.TryParse(v, out long _, out int n) && n == v.Length)
+        || (Utf8Parser.TryParse(v, out ulong _, out n) && n == v.Length);
+
+    /// <summary>True when the scalar text is a float in the grammar this reader parses.</summary>
+    private static bool IsFloatScalar(ReadOnlySpan<byte> v) =>
+        Utf8Parser.TryParse(v, out double _, out int n) && n == v.Length;
+
+    /// <summary>
+    /// True when the scalar text is a boolean in the grammar this reader parses — the same
+    /// <c>true</c>/<c>false</c> <see cref="TryGetBool"/> accepts, so a <c>!!bool</c> tag can
+    /// never pass a payload the typed read would then reject.
+    /// </summary>
+    private static bool IsBoolScalar(ReadOnlySpan<byte> v) =>
+        v.SequenceEqual("true"u8) || v.SequenceEqual("false"u8);
+
+    /// <summary>The wire spelling of a tag, for messages.</summary>
+    private static string TagText(NodeTag tag) =>
+        tag switch
+        {
+            NodeTag.Str => "!!str",
+            NodeTag.Int => "!!int",
+            NodeTag.Float => "!!float",
+            NodeTag.Bool => "!!bool",
+            NodeTag.Null => "!!null",
+            NodeTag.Map => "!!map",
+            NodeTag.Seq => "!!seq",
+            _ => "!!",
+        };
+
+    /// <summary>
+    /// Fails the read because the tag and the node's kind disagree — `!!map [1]`,
+    /// `!!seq {a: 1}`, `!!str []`. PyYAML raises ConstructorError for exactly these
+    /// ("expected a mapping node, but found sequence"); a tag that lies about its node is
+    /// not a value to be coerced, it is a malformed document.
+    /// </summary>
+    private static void ThrowTagKind(NodeTag tag, bool isMapping, bool isSequence, int offset)
+    {
+        string expected = tag switch
+        {
+            NodeTag.Map => "a mapping node",
+            NodeTag.Seq => "a sequence node",
+            _ => "a scalar node",
+        };
+        string found =
+            isMapping ? "a mapping node"
+            : isSequence ? "a sequence node"
+            : "a scalar node";
+        throw new FormatException(
+            $"Invalid YAML tag '{TagText(tag)}' at offset {offset}: expected {expected} but found {found}."
+        );
+    }
+
+    /// <summary>
+    /// Checks the pending tag against a collection node that is about to be delivered.
+    /// A tag that is not <c>!!map</c>/<c>!!seq</c> cannot label a collection at all.
+    /// </summary>
+    private void RequireTagKind(bool isMapping, bool isSequence, int offset)
+    {
+        switch (_valueTag)
+        {
+            case NodeTag.None:
+                return;
+            case NodeTag.Map when isMapping:
+                return;
+            case NodeTag.Seq when isSequence:
+                return;
+            default:
+                ThrowTagKind(_valueTag, isMapping, isSequence, offset);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Applies the pending tag to the scalar the token is about to carry. `!!str` and
+    /// `!!null` need no check — they are answered by <see cref="IsNullLiteral"/> — while
+    /// `!!int` / `!!float` / `!!bool` must BE that type: the payload is validated against the
+    /// same grammar the typed readers use, so a tag can never promise a value the reader
+    /// would then read as something else (or refuse to read at all).
+    /// </summary>
+    private void ApplyScalarTag(ReadOnlySpan<byte> value, int offset)
+    {
+        switch (_valueTag)
+        {
+            case NodeTag.None:
+            case NodeTag.Str:
+            case NodeTag.Null:
+                return;
+            case NodeTag.Int:
+                if (IsIntegerScalar(value))
+                    return;
+                throw new FormatException(
+                    $"Invalid value '{Encoding.UTF8.GetString(value)}' for tag !!int at offset {offset}: "
+                        + "the tag promises an integer and the payload is not one."
+                );
+            case NodeTag.Float:
+                if (IsFloatScalar(value))
+                    return;
+                throw new FormatException(
+                    $"Invalid value '{Encoding.UTF8.GetString(value)}' for tag !!float at offset {offset}: "
+                        + "the tag promises a float and the payload is not one."
+                );
+            case NodeTag.Bool:
+                if (IsBoolScalar(value))
+                    return;
+                throw new FormatException(
+                    $"Invalid value '{Encoding.UTF8.GetString(value)}' for tag !!bool at offset {offset}: "
+                        + "the tag promises a boolean and the payload is not 'true' or 'false'."
+                );
+            default:
+                // !!map / !!seq on a node that is not a collection.
+                ThrowTagKind(_valueTag, isMapping: false, isSequence: false, offset);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Applies the tag a sequence item carries to the item's own text. The one collection an
+    /// item can BE here is the flow-empty marker (`- []`), so a scalar tag on one is a tag
+    /// that lies about its node — exactly the case PyYAML raises ConstructorError for.
+    /// </summary>
+    private void ApplyItemTag(int offset)
+    {
+        if (
+            _valueTag != NodeTag.None
+            && !_valueSpan.IsEmpty
+            && _valueSpan[0] is (byte)'[' or (byte)'{'
+        )
+        {
+            RequireTagKind(_valueSpan[0] == (byte)'{', _valueSpan[0] == (byte)'[', offset);
+            return;
+        }
+        ApplyScalarTag(_valueSpan, offset);
+    }
+
+    /// <summary>
+    /// Validates a standard tag written on its own line against the node that follows it,
+    /// once that node's first token says which kind it is. A root mapping delivers a
+    /// <see cref="TokenType.PropertyName"/> straight away (no container token), which is why
+    /// a key counts as "a mapping node" here.
+    /// </summary>
+    private void ValidatePendingNodeTag()
+    {
+        if (_pendingNodeTag == NodeTag.None)
+            return;
+        var tag = _pendingNodeTag;
+        int offset = _pendingNodeTagOffset;
+        _pendingNodeTag = NodeTag.None;
+        bool isMapping = _tokenType is TokenType.ObjectStart or TokenType.PropertyName;
+        bool isSequence = _tokenType is TokenType.ArrayStart;
+        if (tag == NodeTag.Map && isMapping)
+            return;
+        if (tag == NodeTag.Seq && isSequence)
+            return;
+        ThrowTagKind(tag, isMapping, isSequence, offset);
+    }
+
     public int Depth => _depth;
     public long BytesConsumed => _isSequence ? _seqReader.Consumed : _position;
 
@@ -627,6 +889,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     {
         _valueWasQuoted = false;
         _seqItemWasBareDash = false;
+        _valueTag = NodeTag.None;
         // R2 Task 4: the value span belongs to the token that CARRIES an inline value. It
         // used to survive into the next token, so a PropertyName whose value is the indented
         // block below it (`k:` + block) reported the PREVIOUS token's value ("null", a number,
@@ -654,9 +917,13 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 _replayAnchorIdx = -1;
                 _replayPairCount = 0;
             }
+            ValidatePendingNodeTag();
             return true;
         }
-        return _isSequence ? ReadSeq() : ReadSpan();
+        var read = _isSequence ? ReadSeq() : ReadSpan();
+        if (read)
+            ValidatePendingNodeTag();
+        return read;
     }
 
     public bool TryGetInt32(out int v)
@@ -850,13 +1117,24 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             SkipLineSpan();
             goto Retry;
         }
-        // Standalone node tag line (e.g. "!person") applies to the following block node.
-        // The deserializer ignores the tag itself, so skip the whole line. Doing so also
-        // guarantees forward progress: without this branch the key scan below would consume
-        // across the newline looking for ':', mis-parsing the document and stalling.
+        // A tag on a line of its own is a node property for the node that starts on that
+        // line (or the next one). A standard tag is remembered and checked against that
+        // node's kind; a `!name` tag — the form our writer emits for a [YamlTag] type — is
+        // read through, because in this library the mapped type comes from the TARGET, and
+        // the tag names a type this reader has no registration for (see PicoYaml/README.md,
+        // "Tags"). Only the tag is consumed: `!person Name: x` is a mapping the tag labels,
+        // and consuming the whole line would throw that mapping away. Forward progress is
+        // guaranteed by ParseTag always advancing past at least the '!'.
         if (_data[_position] == (byte)'!')
         {
-            SkipLineSpan();
+            int tagOffset = _position;
+            var tag = ParseTag(_data, ref _position, tagOffset);
+            if (tag != NodeTag.None)
+            {
+                _pendingNodeTag = tag;
+                _pendingNodeTagOffset = tagOffset;
+            }
+            SkipSpacesAfterTag();
             goto Retry;
         }
         // Multi-document separator: --- at indent 0
@@ -1025,6 +1303,14 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _position++;
             if (_position < _data.Length && _data[_position] == (byte)' ')
                 _position++;
+            // A tag is a node property, so `- !!str 1` labels the ITEM: the tag used to be
+            // scanned as part of the item's text and `- !!str 1` read back as "!!str 1".
+            if (_position < _data.Length && _data[_position] == (byte)'!')
+            {
+                _valueTagOffset = _position;
+                _valueTag = ParseTag(_data, ref _position, _valueTagOffset);
+                SkipSpacesAfterTag();
+            }
             if (_position < _data.Length && _data[_position] == (byte)'"')
             {
                 _position++;
@@ -1087,6 +1373,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 // any). A quoted or aliased item never sets this.
                 _seqItemWasBareDash = HasNoInlineValue(itemText);
             }
+            ApplyItemTag(_valueTagOffset);
             if (_position >= _data.Length && !_isFinalBlock)
                 throw new IncompleteInputException();
             SkipNewlineSpan();
@@ -1161,6 +1448,36 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _position++;
         if (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;
+
+        // Node properties: `&anchor` and `!tag`, in either order (spec §8.2.2 lets them be
+        // written both ways round). They are read BEFORE the block scalar, so `A: !!int |`
+        // tags the block below instead of leaving the `|` behind to be scanned as a scalar.
+        while (true)
+        {
+            if (_position < _data.Length && _data[_position] == (byte)'&')
+            {
+                _position++;
+                int anchorStart = _position;
+                while (
+                    _position < _data.Length
+                    && _data[_position] != (byte)' '
+                    && _data[_position] != (byte)'\n'
+                    && _data[_position] != (byte)'\r'
+                )
+                    _position++;
+                _pendingAnchorName = Encoding.UTF8.GetString(_data[anchorStart.._position]);
+                while (_position < _data.Length && _data[_position] == (byte)' ')
+                    _position++;
+            }
+            else if (_position < _data.Length && _data[_position] == (byte)'!')
+            {
+                _valueTagOffset = _position;
+                _valueTag = ParseTag(_data, ref _position, _valueTagOffset);
+                SkipSpacesAfterTag();
+            }
+            else
+                break;
+        }
 
         // Check for block scalar: | or >
         if (_position < _data.Length && _data[_position] is (byte)'|' or (byte)'>')
@@ -1272,47 +1589,15 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             }
             _valueWasQuoted = true;
             _valueSpan = buf.AsSpan(0, di);
+            // A block scalar is still a scalar: `!!int |` + "42" is 42, `!!null |` is null,
+            // and `!!map |` is a tag that lies about its node.
+            ApplyScalarTag(_valueSpan, _valueTagOffset);
             _tokenType = TokenType.PropertyName;
             StoreAnchorIfNeeded();
             AccumulateMappingPair();
             return true;
         }
         int afterKey = _position;
-
-        // Check for &anchor before value
-        if (_position < _data.Length && _data[_position] == (byte)'&')
-        {
-            _position++;
-            int anchorStart = _position;
-            while (
-                _position < _data.Length
-                && _data[_position] != (byte)' '
-                && _data[_position] != (byte)'\n'
-                && _data[_position] != (byte)'\r'
-            )
-                _position++;
-            _pendingAnchorName = Encoding.UTF8.GetString(_data[anchorStart.._position]);
-            while (_position < _data.Length && _data[_position] == (byte)' ')
-                _position++;
-            afterKey = _position;
-        }
-
-        // Skip !tag before value
-        if (_position < _data.Length && _data[_position] == (byte)'!')
-        {
-            _position++;
-            while (
-                _position < _data.Length
-                && _data[_position] != (byte)' '
-                && _data[_position] != (byte)'\n'
-                && _data[_position] != (byte)'\r'
-            )
-                _position++;
-            while (_position < _data.Length && _data[_position] == (byte)' ')
-                _position++;
-            afterKey = _position;
-        }
-
         SkipLineSpan();
         int nextIndent = 0;
         while (_position < _data.Length && _data[_position] == (byte)' ')
@@ -1320,12 +1605,17 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             nextIndent++;
             _position++;
         }
+        // A tag labelling a block node: its kind is the shape of the line it starts on — a
+        // dash line is a sequence, anything else a mapping. Read here, before the position
+        // is rewound to the value.
+        bool taggedBlockIsSeq = IsBlockDashAt(_position);
         _position = afterKey;
         // Flow collections are detected BEFORE the "indented block follows" test:
         // `G: [` puts the '[' at the end of the key line, so that test would return
         // a PropertyName with no value and the bracketed text would never be read.
         if (_position < _data.Length && _data[_position] == (byte)'{')
         {
+            RequireTagKind(isMapping: true, isSequence: false, _valueTagOffset);
             if (!FlowValueComplete(_position) && !_isFinalBlock)
                 throw new IncompleteInputException();
             _position++;
@@ -1336,6 +1626,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         }
         if (_position < _data.Length && _data[_position] == (byte)'[')
         {
+            RequireTagKind(isMapping: false, isSequence: true, _valueTagOffset);
             // Flow SEQUENCE: `[1, 2, 3]`. Without this branch the bracketed text fell
             // through to the scalar path, so a member written that way deserialized to
             // an empty list - silent data loss.
@@ -1349,6 +1640,11 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         }
         if (nextIndent > lineIndent)
         {
+            RequireTagKind(
+                isMapping: !taggedBlockIsSeq,
+                isSequence: taggedBlockIsSeq,
+                _valueTagOffset
+            );
             // If a pending anchor exists, defer it for mapping anchor accumulation.
             // Without this, StoreAnchorIfNeeded() called on the first inner scalar
             // would incorrectly store it as a scalar anchor.
@@ -1432,6 +1728,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 SkipNewlineSpan();
             }
         }
+        ApplyScalarTag(_valueSpan, _valueTagOffset);
         _tokenType = TokenType.PropertyName;
         StoreAnchorIfNeeded();
         AccumulateMappingPair();
@@ -1511,6 +1808,14 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             );
         }
 
+        // `[!!str 1]` — an element of a flow sequence is a node, so it can be tagged.
+        if (_data[_position] == (byte)'!')
+        {
+            _valueTagOffset = _position;
+            _valueTag = ParseTag(_data, ref _position, _valueTagOffset);
+            SkipSpacesAfterTag();
+        }
+
         if (_data[_position] is (byte)'\"' or (byte)'\'')
         {
             var q = _data[_position];
@@ -1531,6 +1836,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _valueWasQuoted = false;
         }
 
+        ApplyItemTag(_valueTagOffset);
         _seqItemWasBareDash = false;
         _tokenType = TokenType.String;
         return true;
@@ -1596,6 +1902,13 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         _position++;
         if (_position < _data.Length && _data[_position] == (byte)' ')
             _position++;
+        // `{A: !!str 1}` — a flow mapping's value is a node, so it can be tagged.
+        if (_position < _data.Length && _data[_position] == (byte)'!')
+        {
+            _valueTagOffset = _position;
+            _valueTag = ParseTag(_data, ref _position, _valueTagOffset);
+            SkipSpacesAfterTag();
+        }
         if (
             _position < _data.Length
             && (_data[_position] == (byte)'"' || _data[_position] == (byte)'\'')
@@ -1621,6 +1934,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 _position++;
             _valueSpan = StripInlineComment(_data[vs.._position]);
         }
+        ApplyScalarTag(_valueSpan, _valueTagOffset);
         _tokenType = TokenType.PropertyName;
         return true;
     }
