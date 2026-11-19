@@ -15,7 +15,16 @@ internal static class FormatCapabilities_Probe_S11bYaml_a17ed51634e851beYamlInne
         if (value.B != null)
         {
         yw.WritePropertyName("B"u8);
+        if (global::PicoYaml.YamlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.S11bYamlPartner>())
+        {
+            var __rcb = new System.Buffers.ArrayBufferWriter<byte>();
+            global::PicoYaml.YamlSerializer.SerializeCustom<global::FormatCapabilities.Probe.S11bYamlPartner>(__rcb, value.B);
+            yw.WriteString(__rcb.WrittenSpan);
+        }
+        else
+        {
         global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bYamlPartner_bd1cb1bf8e810b18YamlInner.Serialize(yw, value.B);
+        }
         }
         yw.WriteEndMapping();
     }
@@ -27,7 +36,16 @@ internal static class FormatCapabilities_Probe_S11bYaml_a17ed51634e851beYamlInne
         if (value.B != null)
         {
         yw.WritePropertyName("B"u8);
+        if (global::PicoYaml.YamlSerializer.HasCustomSerializer<global::FormatCapabilities.Probe.S11bYamlPartner>())
+        {
+            var __rcb = new System.Buffers.ArrayBufferWriter<byte>();
+            global::PicoYaml.YamlSerializer.SerializeCustom<global::FormatCapabilities.Probe.S11bYamlPartner>(__rcb, value.B);
+            yw.WriteString(__rcb.WrittenSpan);
+        }
+        else
+        {
         global::FormatCapabilities.Probe.FormatCapabilities_Probe_S11bYamlPartner_bd1cb1bf8e810b18YamlInner.Serialize(yw, value.B);
+        }
         }
     }
 

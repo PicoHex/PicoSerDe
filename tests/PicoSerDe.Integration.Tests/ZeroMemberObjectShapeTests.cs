@@ -746,9 +746,14 @@ public class ZeroMemberObjectShapeTests
             .Because(
                 $"an empty table is TOML's empty object, so the nested-table arm is right: no member of ShapeMark reached the emitter"
             );
+        // The SCALAR arm is what this pins: it handed the object itself to WriteKeyValue, a
+        // compile error in the consumer's build. The pattern names the ACCESSOR, not just the
+        // key, because a RegisterCustom<T> registration legitimately writes `Mark` as a
+        // key/value line too (a STRING — TomlSerializer.SerializeCustom produces the text), so
+        // "any WriteKeyValue of Mark" would fail for the right code.
         await Assert
             .That(generated)
-            .DoesNotContain("WriteKeyValue(\"Mark\"u8, ")
+            .DoesNotContain("WriteKeyValue(\"Mark\"u8, value.Mark")
             .Because(
                 "the scalar arm would write the OBJECT as a value — a compile error in the "
                     + "consumer's build, which is the bug IsEmptyObjectShape closed"

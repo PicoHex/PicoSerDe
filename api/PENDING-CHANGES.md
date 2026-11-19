@@ -1,6 +1,16 @@
 # Pending public API additions
 
-**Status: empty as of `v2026.11.0`.** That release read all seven entries this table carried into the
+**Status: nine entries pending as of `v2026.16.0`** — `RegisterCustom` reached TOML, YAML and INI
+(they had `Register` only, while `PicoJetson.JsonSerializer` and `PicoMsgPack.MsgPackSerializer` have had
+`RegisterCustom` + `HasCustomSerializer` all along). Nine lines, three per package, one shape:
+`M:XxxSerializer.RegisterCustom``1(ISerializer`1<T>, IDeserializer`1<T>)`,
+`M:XxxSerializer.HasCustomSerializer``1()`, `M:XxxSerializer.SerializeCustom``1(IBufferWriter`1<byte>, T)`.
+`SerializeCustom` is the emitted call site the generators use, so it is the one member of the three a
+hand-written consumer would rarely touch — it is public because generated code lives in the consumer's
+assembly and cannot reach an `internal` one (the same reason `JsonSerializer.SerializeCustom` is public).
+`-DryRun` of the release script reports `API changed : true` (+9 / -0) and would bump `x` to `v2026.17.0`.
+
+**Status history: empty as of `v2026.11.0`.** That release read all seven entries this table carried into the
 committed baselines (`e19304b`, `chore(release): v2026.11.0`: `+57`, six files, `-0`), so nothing is
 waiting for the next release. Where each one landed is recorded under "Released by `v2026.11.0`" below,
 pinned to the baseline **entry** that carries it, so the handover can be checked without trusting this file
@@ -32,7 +42,15 @@ the member"; an empty table means the two agree again.
 
 | # | Package | Addition | Ruled | Why it is worth public surface |
 |---|---|---|---|---|
-| - | - | - | - | *(no pending entries: `v2026.11.0` released all seven - see below)* |
+| one (RC-1) | `PicoToml` | `M:TomlSerializer.RegisterCustom``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static` | ruled | TOML nested values had no user override: `Register` is top level only, so a member/element/dict value of a user type could only be a `[table]`. Same contract, same signature as `PicoJetson.JsonSerializer.RegisterCustom` |
+| two (RC-1) | `PicoToml` | `M:TomlSerializer.HasCustomSerializer``1() : bool static` | ruled | The generator tests the registration at the emit site; a format without the probe cannot emit the override |
+| three (RC-1) | `PicoToml` | `M:TomlSerializer.SerializeCustom``1(System.Buffers.IBufferWriter`1<byte> writer, T value) : void static` | ruled | The call the generated code makes (it lives in the consumer's assembly, so `internal` is not an option) |
+| four (RC-1) | `PicoYaml` | `M:YamlSerializer.RegisterCustom``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static` | ruled | as RC-1, for YAML |
+| five (RC-1) | `PicoYaml` | `M:YamlSerializer.HasCustomSerializer``1() : bool static` | ruled | as RC-1, for YAML |
+| six (RC-1) | `PicoYaml` | `M:YamlSerializer.SerializeCustom``1(System.Buffers.IBufferWriter`1<byte> writer, T value) : void static` | ruled | as RC-1, for YAML |
+| seven (RC-1) | `PicoIni` | `M:IniSerializer.RegisterCustom``1(PicoSerDe.Core.ISerializer`1<T> serializer, PicoSerDe.Core.IDeserializer`1<T> deserializer) : void static` | ruled | as RC-1, for INI (member position and the top-level list's comma-joined element line) |
+| eight (RC-1) | `PicoIni` | `M:IniSerializer.HasCustomSerializer``1() : bool static` | ruled | as RC-1, for INI |
+| nine (RC-1) | `PicoIni` | `M:IniSerializer.SerializeCustom``1(System.Buffers.IBufferWriter`1<byte> writer, T value) : void static` | ruled | as RC-1, for INI |
 
 ## Released by `v2026.11.0` (commit `e19304b`)
 
