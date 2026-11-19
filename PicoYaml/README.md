@@ -4,8 +4,11 @@ The only YAML library in this comparison that maps **typed POCOs** under NativeA
 reflection-free source generation with `ref struct` readers/writers. Supports indentation-based
 block mappings/sequences, anchors & aliases, and multi-document streams.
 
-**Coverage:** Core YAML 1.2 subset. Complex block scalar combinations, advanced merge key
-patterns and full tag resolution are not yet supported. Flow sequences (`[a, b]`) are
+**Coverage:** Core YAML 1.2 subset. Complex block scalar combinations and advanced merge key
+patterns are not yet supported. **Tags** are: the core schema's seven `!!` tags are resolved on
+read and a tag the reader cannot honour fails the read (see [Tags](#tags)), rather than being
+skipped as it used to be. Application tags (`!person` on a value, `!myapp!Thing`) need a
+registration mechanism this format does not have yet. Flow sequences (`[a, b]`) are
 **read** — one line, trailing comma and line breaks inside the brackets included, with
 nested flow `[[1, 2], [3]]` failing loudly (`FormatException`) — but never **written**: the
 writer emits only the empty-sequence marker `[]`. Flow mappings (`{key: value}`) are
@@ -52,6 +55,9 @@ var restored = YamlSerializer.Deserialize<Config>(Encoding.UTF8.GetBytes(yaml));
 - **Only YAML library with typed POCO mapping under NativeAOT** — YamlDotNet parses a DOM
   there but its reflection-based typed mapping fails; VYaml was not verified either way
 - **Anchors & aliases** — `&name` / `*name` with self-referencing support
+- **Tags** — the YAML 1.2 core schema's `!!str` / `!!int` / `!!float` / `!!bool` / `!!null` /
+  `!!map` / `!!seq`, validated against the payload; a tag the reader cannot honour is a
+  `FormatException`, never a silently untagged value (see [Tags](#tags))
 - **Multi-document** — `---` separator support
 - **Complex keys** — `? key\n: value` syntax
 - **Flow collections** — inline `{key: value}` mappings (partial) and `[1, 2, 3]` sequences on the
@@ -206,6 +212,95 @@ form carries no count — you read the items.
   `FormatException`; an unannotated `string` member receives `null` (the
   generators' NRT-lenient contract).
 
+## Tags
+
+A tag is the format's type-extension point — YAML 1.2 §2.3 makes a node's tag part of the node —
+and PyYAML is the arbiter for what a tagged document means here (the same rule that settled the
+null literal). The reader resolves the **core schema's seven tags**, and a tag it *cannot* honour
+**fails the read**. Dropping a tag is the one failure a tag exists to prevent: `A: !foo 1` says
+"this value is a `foo`", and answering `1` as if the document had never been tagged is a silent
+lie about the wire.
+
+| Tag | Read as | PyYAML 6.0.3, `yaml.safe_load` |
+| --- | --- | --- |
+| `!!str` | the payload as **text**, never the null shorthand | `A: !!str null` → `{'A': 'null'}`; `A: !!str` → `{'A': ''}` |
+| `!!null` | **null**, whatever the payload says | `A: !!null ""` / `!!null gone` / `!!null` → `{'A': None}` |
+| `!!int` | an **integer**, else `FormatException` | `A: !!int "42"` → `{'A': 42}`; `A: !!int "abc"` → `ValueError` |
+| `!!float` | a **float**, else `FormatException` | `A: !!float "1e3"` → `1000.0`; `A: !!float "abc"` → `ValueError` |
+| `!!bool` | a **boolean**, else `FormatException` | `A: !!bool "true"` → `True`; `A: !!bool "1"` → `KeyError` |
+| `!!map` | the node must be a **mapping** (an indented block or `{a: 1}`) | `A: !!map [1]` → `ConstructorError` |
+| `!!seq` | the node must be a **sequence** (an indented dash block or `[1, 2]`) | `A: !!seq {b: 1}` → `ConstructorError` |
+
+`!!int`, `!!float` and `!!bool` are validated with **the same grammar the typed readers use**, so a
+tag can never pass a payload the member's own read would then reject: `!!int` is a decimal integer
+(sign allowed), `!!float` what `TryGetFloat64` parses, and `!!bool` exactly `true` / `false` — which
+is where this reader is stricter than PyYAML's YAML 1.1 table (`!!bool yes` is `True` there, and a
+`FormatException` here, exactly as the untagged word `yes` is).
+
+Two consequences worth knowing before you write a tag:
+
+- **The whole scalar must be the type the tag names.** `A: !!int "42x"` fails, where the untagged
+  `A: 42x` would stop at the `42` — a pre-existing prefix soft spot the tag does not inherit.
+- **`0x` / `0o` are not in the YAML 1.2 core integer form**, so `A: !!int "0x1f"` is PyYAML's `31`
+  and a `FormatException` here. (Untagged, `A: 0x1f` reads as `0` for the prefix reason above —
+  also pre-existing, and not a shape this section promises.)
+
+**A tag does not relabel the token stream.** The reader has no target type — the generated
+deserializer maps the scalar to the member's own type — so a tag *asserts* and *validates* the
+node's type rather than overriding the destination: `!!int "42"` read into an `int` member is `42`
+and into a `string` member is the text `"42"`. What the tag does change is how the scalar reads:
+`!!str` is never null and `!!null` always is (that is [Null Handling](#null-handling) with the tag
+outranking the shape).
+
+**What is not resolved, and what happens instead.** Every one of these used to be skipped in
+silence; now the read stops at the tag that carries it, as a `FormatException` naming the tag:
+
+```text
+A: !foo 1               Unsupported YAML tag '!foo' at offset 3: application tags need a
+                        registration mechanism this reader does not have — the tags it resolves
+                        are !!str, !!int, !!float, !!bool, !!null, !!map and !!seq.
+A: !!unknown 1          Unknown YAML tag '!!unknown' at offset 3: the reader resolves the core
+                        schema's tags (...) and refuses to read a tagged value as if it were
+                        untagged.
+A: !myapp!Thing {x: 1}  Undefined YAML tag handle '!myapp!' at offset 3: a named handle must be
+                        declared with a %TAG directive, and this reader declares none.
+```
+
+- **Application tags** (`!person`, `!foo`) have no constructor here: resolving them needs a
+  **registration mechanism** — a way to declare "tag `!foo` means type `Foo`" — which this
+  format does not have yet, and which the writer's `[YamlTag]` support does not provide either
+  (it emits a node-level tag and reads it through, see the last bullet). PyYAML fails the same
+  documents (`ConstructorError: could not determine a constructor for the tag '!foo'`).
+- **Tag handles** (`!myapp!Thing`) need a `%TAG` directive to declare them; this reader declares
+  none. PyYAML fails at the parser for exactly this reason (`ParserError: found undefined tag
+  handle '!myapp!'`).
+- `!` **alone** is the non-specific tag — "resolve this node by its own shape" — which is what an
+  untagged node already gets here (PyYAML: `A: ! 1` → `{'A': 1}`).
+- A **node-level** `!name` on a line of its own (`!person` above `Name: Alice`) is **read
+  through**: that is the form [the writer emits](#customization) for a `[YamlTag]` type, and the
+  mapped type comes from the target type, so the tag names an identity this typed reader has no
+  use for. It is the one deliberate read-through, and it is stated rather than implied.
+
+Tags apply at **every node position a document can put one**, which is the list this reader
+ends up holding:
+
+- a **mapping value** — `A: !!int "42"`, `A: !!null ""`, `A: !!seq [1, 2]`
+- a **block scalar** — `A: !!int |` with `42` below it
+- a **sequence item** — `- !!str 1` is the text `1`, not the seven characters `!!str 1`
+- a **flow collection** — a flow mapping's value (`{A: !!str 1}`) and a flow sequence's element
+  (`[!!str 1]`)
+- a **mapping key** — `!!str A: 1`, `{!!int 7: x}`, and the complex-key form (`? !!str key`).
+  Keys are text in this reader, so the tag is validated against the key's own text and then
+  dropped; `!!map A: 1` is still the `ConstructorError` PyYAML raises, because a key is not a
+  mapping
+- **on its own line above the node it labels** — `A:` then `!!seq` then `- 1`
+
+Anchors and tags are independent node **properties** and may be written in either order
+(`&a !!str null` or `!!str &a null`), on a mapping value and on a sequence item alike. A node
+carries **one** tag: a second one is a `FormatException`, where PyYAML raises a `ParserError`.
+An alias carries the scalar's *text*, not its style or its tag. In a `---` stream each document
+resolves its own tags. Tags are **read** only — the writer emits one, for a `[YamlTag]` type.
+
 ## Limits
 
 Nested sequences are **supported** and written as block sequences (there is no flow `[a, b]`
@@ -252,6 +347,10 @@ An **`object?` member** round-trips its text both ways — the writer emits the 
 `ToString()` and the reader returns the scalar's bytes as a string, the same rule a
 `Dictionary<string, object?>` *value* follows (`AnyMemberCrossFormatTests.Yaml_any_member_*`); the
 value is kept, its .NET type is not, and nothing is dropped silently.
+
+Application tags are **not resolvable** (a `!foo` value and a `!myapp!Thing` handle both fail
+the read); the seven core-schema `!!` tags are, in full — [Tags](#tags) has the table, the
+grammar each one validates against, and why a node-level `!name` is read through.
 
 Not representable, dropped at generation time with a warning (never emitted as code that would
 not compile):
