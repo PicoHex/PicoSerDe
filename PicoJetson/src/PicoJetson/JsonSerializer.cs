@@ -127,6 +127,10 @@ public static partial class JsonSerializer
             func,
             options,
             Step<T>,
+            // Trailing-data gate (see StreamingRunner): the reader's own consumed count says
+            // where the document ended, so a stray value behind `}` is rejected here instead of
+            // being discarded.
+            static s => s.BytesConsumed,
             ct
         );
     }

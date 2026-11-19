@@ -161,15 +161,52 @@ public static partial class MsgPackSerializer
             );
 
             ReadStatus status;
+            T? decoded = default;
+            // Absolute offset where the document ended — only meaningful on Success, and filled
+            // inside the try because the ref-struct reader cannot cross an `await` (CS4007) while the
+            // drain below has to.
+            long documentEnd = -1;
             try
             {
-                status = func(ref reader, out var result);
+                status = func(ref reader, out decoded);
                 if (status == ReadStatus.Success)
-                    return result!;
+                {
+                    // Trailing-data gate — the mirror of StreamingRunner's, and of this reader's
+                    // own span-mode check (MsgPackReader.ReadSequential closes the root container
+                    // with `if (_position < _data.Length) throw TrailingGarbage`). Sequence mode
+                    // deliberately skips that check, so a second value — or one stray byte — behind
+                    // the document used to be dropped here while Deserialize<T> threw on it. Same
+                    // message, same offset as the span path: the first byte the document did not
+                    // claim (the accumulator starts at stream offset 0, so its index is the offset).
+                    documentEnd = reader.BytesConsumed;
+                    if (accum.WrittenCount > documentEnd)
+                        throw new FormatException(
+                            $"Unexpected data after the document at offset {documentEnd}"
+                        );
+                }
             }
             finally
             {
                 reader.Dispose();
+            }
+
+            if (status == ReadStatus.Success)
+            {
+                // A value that completes before the stream does is only provably the last one at end
+                // of stream, so keep reading rather than trusting the first Success.
+                while (!r.IsCompleted)
+                {
+                    var tail = await pipe.ReadAsync(ct);
+                    if (!tail.Buffer.IsEmpty)
+                        throw new FormatException(
+                            $"Unexpected data after the document at offset {documentEnd}"
+                        );
+                    bool done = tail.IsCompleted;
+                    pipe.AdvanceTo(tail.Buffer.End);
+                    if (done)
+                        break;
+                }
+                return decoded!;
             }
 
             if (status == ReadStatus.NeedMoreData)
