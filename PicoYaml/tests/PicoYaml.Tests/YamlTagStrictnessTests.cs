@@ -171,4 +171,50 @@ public class YamlTagStrictnessTests
         var doc = YamlSerializer.Deserialize<TagScalarDoc>(Doc("!person\nText: hi\n"));
         await Assert.That(doc!.Text).IsEqualTo("hi");
     }
+
+    // ── the two documented divergences, pinned so the README cannot drift ───
+
+    // PyYAML (a YAML 1.1 resolver) reads `!!int "0x1f"` as 31. This reader's integer grammar is
+    // the 1.2 core schema's decimal form, so the tag fails — and it fails the SAME way the
+    // untagged `Number: 0x1f` does, which is the point: a tag never widens the grammar.
+    [Test]
+    public async Task IntTag_OnAHexForm_FailsNamingTheTag()
+    {
+        var message = MessageOf(() =>
+            YamlSerializer.Deserialize<TagScalarDoc>(Doc("Number: !!int \"0x1f\"\n"))
+        );
+        await Assert.That(message).Contains("!!int");
+    }
+
+    // The untagged control for the test above would not fail: `Number: 0x1f` reads as 0 today,
+    // because the untagged scalar read stops at the leading `0` (a pre-existing prefix soft spot,
+    // not a contract this file wants to freeze). What the TAG guarantees instead is that the WHOLE
+    // scalar is the type it names — "42x" is not an integer even though its prefix is one.
+    [Test]
+    public async Task IntTag_RequiresTheWholeScalarToBeAnInteger()
+    {
+        var message = MessageOf(() =>
+            YamlSerializer.Deserialize<TagScalarDoc>(Doc("Number: !!int \"42x\"\n"))
+        );
+        await Assert.That(message).Contains("!!int");
+    }
+
+    // PyYAML's bool table is YAML 1.1's (yes/no/on/off); this reader's is the 1.2 core schema's
+    // true/false, so `!!bool yes` fails here and `!!bool true` does not.
+    [Test]
+    public async Task BoolTag_OnAYaml11Word_FailsNamingTheTag()
+    {
+        var message = MessageOf(() =>
+            YamlSerializer.Deserialize<TagScalarDoc>(Doc("Flag: !!bool yes\n"))
+        );
+        await Assert.That(message).Contains("!!bool");
+    }
+
+    // The same word with no tag at all fails too — the tag did not narrow anything.
+    [Test]
+    public async Task UntaggedYaml11Word_IsNotABooleanEither()
+    {
+        var message = MessageOf(() => YamlSerializer.Deserialize<TagScalarDoc>(Doc("Flag: yes\n")));
+        await Assert.That(message).Contains("FormatException");
+    }
 }
