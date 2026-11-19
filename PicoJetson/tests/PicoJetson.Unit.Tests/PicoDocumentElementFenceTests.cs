@@ -35,6 +35,37 @@ public class PicoDocumentElementFenceTests
         Assert.Throws<IndexOutOfRangeException>(() => _ = doc.RootElement[0]);
     }
 
+    // ── #9 a negative index fails like any other out-of-range index ──
+    //
+    // The walk `for (int i = 0; i < index && c >= 0; i++)` never executes for a negative index,
+    // so the cursor stays on the first child: [7,8,9][-1] answers 7 and [-5] answers 7 as well,
+    // while [-1] on [] throws. One expression, two behaviours — and the non-empty one is a wrong
+    // value that looks right. Fenced to throw, so a negative index reads the same as [3].
+
+    [Test]
+    public void ArrayIndexer_WithANegativeIndexOnANonEmptyArray_ThrowsIndexOutOfRange()
+    {
+        var doc = PicoDocument.Parse("[7,8,9]"u8.ToArray());
+        Assert.Throws<IndexOutOfRangeException>(() => _ = doc.RootElement[-1]);
+    }
+
+    [Test]
+    public void ArrayIndexer_WithANegativeIndexOnAnEmptyArray_ThrowsIndexOutOfRange()
+    {
+        var doc = PicoDocument.Parse("[]"u8.ToArray());
+        Assert.Throws<IndexOutOfRangeException>(() => _ = doc.RootElement[-1]);
+    }
+
+    // …and the fence must not have been bought by breaking the indices that do resolve.
+
+    [Test]
+    public async Task ArrayIndexer_WithLegalIndexes_StillResolves()
+    {
+        var doc = PicoDocument.Parse("[7,8,9]"u8.ToArray());
+        await Assert.That(doc.RootElement[0].GetInt32()).IsEqualTo(7);
+        await Assert.That(doc.RootElement[2].GetInt32()).IsEqualTo(9);
+    }
+
     // ── #2 GetString refuses everything that is not a string ──
     //
     // The string slice of a number node covers its raw token, so dropping the kind guard

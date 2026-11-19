@@ -68,6 +68,8 @@ public readonly struct PicoElement
         {
             if (ValueKind != PicoValueKind.Array)
                 throw new InvalidOperationException("Not an array.");
+            if (index < 0)
+                throw new IndexOutOfRangeException();
             int c = _doc._nodes[_nodeIdx].FirstChild;
             for (int i = 0; i < index && c >= 0; i++)
                 c = _doc._nodes[c].NextSibling;
