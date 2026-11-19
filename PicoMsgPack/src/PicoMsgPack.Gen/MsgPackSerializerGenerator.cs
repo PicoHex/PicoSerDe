@@ -306,7 +306,12 @@ public sealed class MsgPackSerializerGenerator : IIncrementalGenerator
             var hintName = $"{sn}_MsgPackInner.g.cs";
             if (!hintNames.Add(hintName))
                 continue;
-            var polyTarget = types.FirstOrDefault(t =>
+            // validTypes, not the raw merged array: the same question the JSON generator asks of the
+            // same list. (Measured: asking `types` here answers the same for every shape in the tree,
+            // because the predicate itself already requires DerivedTypes - this line is CONSISTENCY,
+            // not the fix. The fix for this shape was elsewhere: the member arms below now route a
+            // polymorphic base through this helper instead of inlining the base's own members.)
+            var polyTarget = validTypes.FirstOrDefault(t =>
                 t.FullyQualifiedName == fullName && !t.DerivedTypes.IsDefaultOrEmpty
             );
             spc.AddSource(
@@ -1819,6 +1824,31 @@ file static class __PicoMsgPackBulk {
                 s.AppendLine("mw.WriteEndObject();");
                 break;
             case "object":
+                if (p.IsPolyBase)
+                {
+                    // A member whose declared type declares [PicoDerivedType]: the discriminator is
+                    // the only thing that says which derived type is on the wire, so the value goes
+                    // through the type's POLYMORPHIC helper. Inlining the base's own members - what
+                    // the arm below does for an ordinary object - was this shape's whole bug: the
+                    // wire carried `{Id: 3}` with no tag and no `Lives`, while JSON carried
+                    // `{"$type":"cat","Id":3,"Lives":9}`. The ELEMENT position never had the bug
+                    // because WriteSerElem already goes through that same helper.
+                    var polySerSn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        "MsgPackInner",
+                        p.TypeFullName!
+                    );
+                    s.Append(ind);
+                    s.Append("if (");
+                    s.Append(a);
+                    s.AppendLine(" == null) mw.WriteNull();");
+                    s.Append(ind);
+                    s.Append("else ");
+                    s.Append(polySerSn);
+                    s.Append(".Serialize(ref mw, ");
+                    s.Append(a);
+                    s.AppendLine(");");
+                    break;
+                }
                 if (p.NestedProperties.Length == 0)
                 {
                     if (p.IsRecursiveRef)
@@ -3151,6 +3181,37 @@ file static class __PicoMsgPackBulk {
                 }
                 break;
             case "object":
+                if (p.IsPolyBase)
+                {
+                    // Mirror of the serializer arm: a polymorphic base member is read through the
+                    // type's polymorphic helper, which reads the discriminator and builds the
+                    // DERIVED instance. Inlining the base's members always produced a base instance
+                    // with every derived member silently gone.
+                    var polyDesSn = PicoSerDe.Gen.GenInfrastructure.InnerClassName(
+                        "MsgPackInner",
+                        p.TypeFullName!
+                    );
+                    s.Append(ind);
+                    s.AppendLine("if (reader.TokenType == TokenType.Null) {");
+                    if (p.IsNullable || p.IsNullableReference)
+                    {
+                        s.Append(ind);
+                        s.Append("    ");
+                        s.Append(t);
+                        s.AppendLine(" = null;");
+                    }
+                    s.Append(ind);
+                    s.AppendLine("} else {");
+                    s.Append(ind);
+                    s.Append("    ");
+                    s.Append(t);
+                    s.Append(" = ");
+                    s.Append(polyDesSn);
+                    s.AppendLine(".Deserialize(ref reader);");
+                    s.Append(ind);
+                    s.AppendLine("}");
+                    break;
+                }
                 if (p.NestedProperties.Length == 0)
                 {
                     if (p.IsRecursiveRef)

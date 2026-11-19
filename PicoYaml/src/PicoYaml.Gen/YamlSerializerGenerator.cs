@@ -281,9 +281,21 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
             var hintName = $"{sn}_YamlInner.g.cs";
             if (!hintNames.Add(hintName))
                 continue;
+            // The same question the JSON generator asks of the same list: is this nested type a
+            // polymorphic BASE? Then its helper has to dispatch on the discriminator instead of
+            // emitting the base's own members — which dropped the tag and every derived member,
+            // silently, while JSON carried both.
+            var polyTarget = validTypes.FirstOrDefault(t =>
+                t.FullyQualifiedName == fullName && !t.DerivedTypes.IsDefaultOrEmpty
+            );
             spc.AddSource(
                 hintName,
-                SourceText.From(GenerateInnerHelper(cleanName, sn, props), Encoding.UTF8)
+                SourceText.From(
+                    polyTarget.FullyQualifiedName is not null
+                        ? GeneratePolyInnerHelper(cleanName, sn, polyTarget)
+                        : GenerateInnerHelper(cleanName, sn, props),
+                    Encoding.UTF8
+                )
             );
         }
 
@@ -4310,15 +4322,16 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
 
     static string GenPoly(TypeInfo type, Dictionary<string, TypeInfo> typeMap)
     {
-        var dpn = type.DiscriminatorPropertyName ?? "$type";
+        var dpn = PicoSerDe.Gen.GenInfrastructure.DiscriminatorName(type);
         // Concrete bases get a synthesized discriminator so a base-typed
         // instance serializes as a valid value (and round-trips).
         var __baseDisc = PicoSerDe.Gen.GenInfrastructure.BaseDiscriminator(type);
-        var __cases = __baseDisc is null
-            ? type.DerivedTypes
-            : type.DerivedTypes.Add(
-                new PicoSerDe.Gen.DerivedTypeInfo(type.FullyQualifiedName!, __baseDisc)
-            );
+        // The ONE definition of the case list, shared with the other generators: the MEMBER-position
+        // dispatch below has to agree with the ROOT one about which cases exist.
+        var __cases = PicoSerDe.Gen.GenInfrastructure.PolyCases(type);
+        // The classes BOTH positions call. They cannot be `file`-scoped: the member-position helper
+        // lives in another generated file, and the name must be unique per TYPE.
+        var __polyPrefix = PicoSerDe.Gen.GenInfrastructure.PolyClassPrefix(type);
 
         var dpnEsc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dpn);
         var s = new StringBuilder();
@@ -4335,7 +4348,11 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         }
         s.AppendLine();
 
-        // ── Serializer ──
+        // ── Serializer (root document) ──
+        // Its tag+switch is NOT spelled here: a polymorphic base is also reached as a MEMBER of
+        // another document and as an ITEM of a block sequence, and a `file` struct taking a whole
+        // document cannot be called from those other generated files — which is how a member was
+        // written as the BASE's own members, with the tag and every derived member silently gone.
         s.Append("file readonly struct ");
         s.Append(type.Name);
         s.Append("YamlSerializer : ISerializer<");
@@ -4353,40 +4370,18 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine(
             "        var yw = new YamlWriter(writer, indented: __opts?.Indented ?? false);"
         );
-        s.AppendLine("        yw.WriteStartMapping();");
-        s.Append("        yw.WritePropertyName(\"");
-        s.Append(dpnEsc);
-        s.AppendLine("\"u8);");
-        s.AppendLine("        switch (value)");
-        s.AppendLine("        {");
-        foreach (var dt in __cases)
-        {
-            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti))
-                continue;
-            var ds = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
-            var desc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dt.TypeDiscriminator);
-            s.Append("            case ");
-            s.Append(ds);
-            s.AppendLine(" __v:");
-            s.Append("                yw.WriteString(\"");
-            s.Append(desc);
-            s.AppendLine("\"u8);");
-            foreach (var prop in dti.Properties)
-            {
-                // Shared member emitter: scalars, nested objects/dicts and
-                // object collections (the poly branch previously handled
-                // scalars only).
-                EmitSerialize(s, prop, "__v", "                ");
-            }
-            s.AppendLine("                break;");
-        }
-        s.AppendLine("        }");
-        s.AppendLine("        yw.WriteEndMapping();");
+        s.Append("        ");
+        s.Append(__polyPrefix);
+        s.AppendLine("YamlPolySer.Serialize(yw, value);");
         s.AppendLine("    }");
         s.AppendLine("}");
         s.AppendLine();
 
-        // ── Deserializer ──
+        // ── the dispatch both positions share ──
+        EmitPolySer(s, type, dpnEsc, __baseDisc, __cases, typeMap, __polyPrefix);
+        EmitPolyDes(s, type, dpnEsc, __cases, typeMap, __polyPrefix);
+
+        // ── Deserializer (root document) ──
         s.Append("file readonly struct ");
         s.Append(type.Name);
         s.Append("YamlDeserializer : IDeserializer<");
@@ -4397,109 +4392,9 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine(" Deserialize(ReadOnlySpan<byte> data) {");
         // The shared member emitter expects `r` as the reader variable.
         s.AppendLine("        var r = new YamlReader(data);");
-        s.AppendLine("        r.Read(); // mapping start");
-        s.AppendLine("        r.Read(); // discriminator key");
-        s.AppendLine("        var __discVal = r.ValueSpan;");
-        s.Append("        if (!MemoryExtensions.SequenceEqual(r.KeySpan, \"");
-        s.Append(dpnEsc);
-        s.AppendLine("\"u8))");
-        s.Append("            throw new FormatException(\"Expected discriminator '");
-        s.Append(dpnEsc);
-        s.AppendLine("'\");");
-
-        for (int i = 0; i < __cases.Length; i++)
-        {
-            var dt = __cases[i];
-            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti))
-                continue;
-            var kw = i == 0 ? "if" : "else if";
-            var ds = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
-            var desc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dt.TypeDiscriminator);
-
-            s.Append("        ");
-            s.Append(kw);
-            s.Append(" (MemoryExtensions.SequenceEqual(__discVal, \"");
-            s.Append(desc);
-            s.AppendLine("\"u8)) {");
-
-            var hasCtor = !dti.CtorParams.IsDefaultOrEmpty && dti.CtorParams.Length > 0;
-            if (hasCtor)
-            {
-                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
-                {
-                    var cp = dti.CtorParams[ci];
-                    s.Append("            ");
-                    s.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
-                    s.Append(" __cp_");
-                    s.Append(ci);
-                    s.Append(" = ");
-                    s.Append(DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTempNull));
-                    s.AppendLine(";");
-                }
-            }
-            else
-            {
-                s.Append("            var obj = new ");
-                s.Append(ds);
-                s.AppendLine("();");
-            }
-
-            // Plain-path loop shape: `EmitDeserialize` advances the reader
-            // itself, so the loop must not read at the top.
-            s.AppendLine("            r.Read();");
-            s.AppendLine("            while (true) {");
-            s.AppendLine("                if (r.TokenType == TokenType.PropertyName) {");
-            s.AppendLine("                var __k = r.KeySpan;");
-            var __polyCtorMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            if (!dti.CtorParams.IsDefaultOrEmpty)
-                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
-                    if (!string.IsNullOrEmpty(dti.CtorParams[ci].Name))
-                        __polyCtorMap[dti.CtorParams[ci].Name!] = ci;
-            var first = true;
-            foreach (var prop in dti.Properties)
-            {
-                if (hasCtor && !__polyCtorMap.ContainsKey(prop.Name))
-                    continue;
-                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
-                var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
-                s.Append("                ");
-                s.Append(kw2);
-                s.Append(" (MemoryExtensions.SequenceEqual(__k, \"");
-                s.Append(pn);
-                s.AppendLine("\"u8)) {");
-                // Shared member read (scalars, collections, nested objects)
-                // with ctor-parameter redirection.
-                EmitDeserialize(s, prop, "obj", "                    ", ctorMap: __polyCtorMap);
-                s.AppendLine("                }");
-            }
-            s.AppendLine("                    continue;");
-            s.AppendLine("                }");
-            s.AppendLine("                if (!r.Read()) break;");
-            s.AppendLine("            }");
-            if (hasCtor)
-            {
-                s.Append("            return new ");
-                s.Append(ds);
-                s.Append("(");
-                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
-                {
-                    if (ci > 0)
-                        s.Append(", ");
-                    s.Append("__cp_");
-                    s.Append(ci);
-                }
-                s.AppendLine(");");
-            }
-            else
-            {
-                s.AppendLine("            return obj;");
-            }
-            s.AppendLine("        }");
-        }
-
-        s.AppendLine(
-            "        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");"
-        );
+        s.Append("        return ");
+        s.Append(__polyPrefix);
+        s.AppendLine("YamlPolyDes.Deserialize(ref r);");
         s.AppendLine("    }");
         s.AppendLine("}");
         s.AppendLine();
@@ -4525,6 +4420,342 @@ public sealed class YamlSerializerGenerator : IIncrementalGenerator
         s.AppendLine("}");
 
         return s.ToString();
+    }
+
+    /// <summary>
+    /// The one place a polymorphic type's WRITE dispatch is spelled: the discriminator pair, then the
+    /// runtime-type switch. Emitted as a cross-file class because the MEMBER position calls it from
+    /// another generated file — which is what this shape was missing (a `file` struct taking a whole
+    /// document had nowhere to be called from).
+    /// <para>
+    /// TWO write entry points because YAML carries an object two ways: <c>Serialize</c> writes a whole
+    /// mapping (a document, or a member the writer opens itself) and <c>SerializeBlock</c> writes the
+    /// pairs of a mapping somebody else opened (a block-sequence item).
+    /// </para>
+    /// </summary>
+    static void EmitPolySer(
+        StringBuilder s,
+        TypeInfo type,
+        string dpnEsc,
+        string? __baseDisc,
+        ImmutableArray<PicoSerDe.Gen.DerivedTypeInfo> __cases,
+        Dictionary<string, TypeInfo> typeMap,
+        string __polyPrefix
+    )
+    {
+        s.Append("internal static class ");
+        s.Append(__polyPrefix);
+        s.AppendLine("YamlPolySer {");
+        s.Append("    internal static void Serialize(YamlWriter yw, ");
+        s.Append(type.Name);
+        s.AppendLine(" value) {");
+        // A null value has no runtime type, so no case of the switch below would match and the
+        // document would gain a key with no value of its own. The null LITERAL is what YAML has for
+        // it (and it is what the reader turns back into null).
+        s.AppendLine("        if (value == null) { yw.WriteNull(); return; }");
+        s.AppendLine("        yw.WriteStartMapping();");
+        s.AppendLine("        Core(ref yw, value);");
+        s.AppendLine("        yw.WriteEndMapping();");
+        s.AppendLine("    }");
+        s.AppendLine();
+        // The block entry keeps taking the writer BY VALUE, exactly like the plain inner helper's
+        // `SerializeBlock`: the list arm that calls it owns the surrounding mapping bookkeeping.
+        s.Append("    internal static void SerializeBlock(YamlWriter yw, ");
+        s.Append(type.Name);
+        s.AppendLine(" value) {");
+        s.AppendLine("        if (value == null) { yw.WriteNull(); return; }");
+        s.AppendLine("        Core(ref yw, value);");
+        s.AppendLine("    }");
+        s.AppendLine();
+        // Why the shared body takes `ref YamlWriter`: the writer is a REF STRUCT, so a by-value
+        // parameter hands the body a COPY — its bytes still reach the buffer, but none of its own
+        // state (`_depth`, `_afterKey`, `_mappingEmpty`) comes back to the caller. `Serialize`
+        // delegating by value therefore closed a mapping the writer still believed nothing had been
+        // written into, and every polymorphic MEMBER gained a stray ` {}` line right after it
+        // (measured, and it round-tripped wrong). One body, entered by ref, keeps both entry points.
+        s.Append("    static void Core(ref YamlWriter yw, ");
+        s.Append(type.Name);
+        s.AppendLine(" value) {");
+        s.Append("        yw.WritePropertyName(\"");
+        s.Append(dpnEsc);
+        s.AppendLine("\"u8);");
+        s.AppendLine("        switch (value)");
+        s.AppendLine("        {");
+        foreach (var dt in __cases)
+        {
+            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti))
+                continue;
+            var ds = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
+            var desc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dt.TypeDiscriminator);
+            s.Append("            case ");
+            s.Append(ds);
+            s.AppendLine(" __v:");
+            s.Append("                yw.WriteString(\"");
+            s.Append(desc);
+            s.AppendLine("\"u8);");
+            foreach (var prop in dti.Properties)
+            {
+                // Shared member emitter: scalars, nested objects/dicts and object collections (the
+                // poly branch previously handled scalars only).
+                EmitSerialize(s, prop, "__v", "                ");
+            }
+            s.AppendLine("                break;");
+        }
+        s.AppendLine("        }");
+        s.AppendLine("    }");
+        s.AppendLine("}");
+        s.AppendLine();
+    }
+
+    /// <summary>
+    /// The one place a polymorphic type's READ dispatch is spelled. Contract, identical to the plain
+    /// inner helper's: the reader sits BEFORE the value's mapping, so <c>Read()</c> yields its
+    /// <c>ObjectStart</c>, and the discriminator is that mapping's first key (the writer puts it
+    /// there). Both reader positions — a whole document and a MEMBER/item inside somebody else's
+    /// mapping — are therefore the same code.
+    /// <para>
+    /// The per-case reader is an ordinary <c>IKeyedBlockBody</c>-shaped loop over the case's OWN
+    /// members: it stops on the case mapping's <c>ObjectEnd</c> (a member position sits INSIDE the
+    /// enclosing mapping, so running to EOF would read the owner's remaining members and spin on a
+    /// key this case does not own — measured: an eight-minute hang).
+    /// </para>
+    /// </summary>
+    static void EmitPolyDes(
+        StringBuilder s,
+        TypeInfo type,
+        string dpnEsc,
+        ImmutableArray<PicoSerDe.Gen.DerivedTypeInfo> __cases,
+        Dictionary<string, TypeInfo> typeMap,
+        string __polyPrefix
+    )
+    {
+        s.Append("internal static class ");
+        s.Append(__polyPrefix);
+        s.AppendLine("YamlPolyDes {");
+        s.Append("    internal static ");
+        s.Append(type.Name);
+        s.AppendLine(" Deserialize(ref YamlReader r) {");
+        s.AppendLine("        if (!r.Read() || r.TokenType != TokenType.ObjectStart)");
+        s.AppendLine(
+            "            throw new FormatException(\"Expected a mapping for the polymorphic value\");"
+        );
+        s.AppendLine("        if (!r.Read() || r.TokenType != TokenType.PropertyName)");
+        s.Append("            throw new FormatException(\"Expected discriminator '");
+        s.Append(dpnEsc);
+        s.AppendLine("'\");");
+        s.Append("        if (!MemoryExtensions.SequenceEqual(r.KeySpan, \"");
+        s.Append(dpnEsc);
+        s.AppendLine("\"u8))");
+        s.Append("            throw new FormatException(\"Expected discriminator '");
+        s.Append(dpnEsc);
+        s.AppendLine("'\");");
+        // The value span cannot outlive the per-case reader's Read() calls.
+        s.AppendLine("        var __discVal = r.ValueSpan.ToArray();");
+        foreach (var dt in __cases)
+        {
+            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out _))
+                continue;
+            var desc = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(dt.TypeDiscriminator);
+            s.Append("        if (MemoryExtensions.SequenceEqual(__discVal, \"");
+            s.Append(desc);
+            s.AppendLine("\"u8))");
+            s.Append("            return Read");
+            s.Append(PicoSerDe.Gen.GenInfrastructure.SafeName(dt.FullyQualifiedName));
+            s.AppendLine("(ref r);");
+        }
+        s.AppendLine(
+            "        throw new FormatException($\"Unknown discriminator: {Encoding.UTF8.GetString(__discVal)}\");"
+        );
+        s.AppendLine("    }");
+
+        foreach (var dt in __cases)
+        {
+            if (!typeMap.TryGetValue(dt.FullyQualifiedName, out var dti))
+                continue;
+            var ds = PicoSerDe.Gen.GenInfrastructure.ShortName(dt.FullyQualifiedName);
+            var caseName = PicoSerDe.Gen.GenInfrastructure.SafeName(dt.FullyQualifiedName);
+            s.AppendLine();
+            s.Append("    static ");
+            s.Append(type.Name);
+            s.Append(" Read");
+            s.Append(caseName);
+            s.AppendLine("(ref YamlReader r) {");
+
+            var hasCtor = !dti.CtorParams.IsDefaultOrEmpty && dti.CtorParams.Length > 0;
+            if (hasCtor)
+            {
+                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                {
+                    var cp = dti.CtorParams[ci];
+                    s.Append("        ");
+                    s.Append(cp.TypeFullNameAnnotated ?? cp.TypeFullName);
+                    s.Append(" __cp_");
+                    s.Append(ci);
+                    s.Append(" = ");
+                    s.Append(DefaultLiterals.For(cp.TypeKind, DefaultLiteralRow.CtorTempNull));
+                    s.AppendLine(";");
+                }
+            }
+            else
+            {
+                s.Append("        var obj = new ");
+                s.Append(ds);
+                s.AppendLine("();");
+            }
+
+            var __polyCtorMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (!dti.CtorParams.IsDefaultOrEmpty)
+                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                    if (!string.IsNullOrEmpty(dti.CtorParams[ci].Name))
+                        __polyCtorMap[dti.CtorParams[ci].Name!] = ci;
+
+            // Same loop shape as the plain inner helper: `EmitDeserialize` advances the reader
+            // itself, so the body must not read at the top, and the loop exits on this mapping's
+            // own ObjectEnd — a member/item position sits INSIDE the enclosing mapping.
+            // The current token is the discriminator PAIR; its INDENTATION level is this value's
+            // own, and it is what tells the end of this mapping apart from the end of a NESTED one
+            // (a nested mapping's `ObjectEnd` arrives at this level, this value's own arrives one
+            // level UP). Breaking on any `ObjectEnd` dropped every member after a nested object —
+            // measured: `PolyEmployee.Name` came back empty right after `Address`.
+            s.AppendLine("        var __depth = r.Depth;");
+            s.AppendLine("        r.Read();");
+            s.AppendLine("        while (true) {");
+            s.AppendLine("            if (r.TokenType is TokenType.None) break;");
+            s.AppendLine(
+                "            if (r.TokenType == TokenType.ObjectEnd && r.Depth < __depth) break;"
+            );
+            s.AppendLine(
+                "            if (r.TokenType != TokenType.PropertyName) { if (!r.Read()) break; continue; }"
+            );
+            s.AppendLine("            {");
+            s.AppendLine("                var __k = r.KeySpan;");
+            var first = true;
+            foreach (var prop in dti.Properties)
+            {
+                if (hasCtor && !__polyCtorMap.ContainsKey(prop.Name))
+                    continue;
+                var kw2 = PicoSerDe.Gen.GenInfrastructure.ChainKeyword(ref first);
+                var pn = PicoSerDe.Gen.GenInfrastructure.EscapeCSharpString(prop.JsonName);
+                s.Append("                ");
+                s.Append(kw2);
+                s.Append(" (MemoryExtensions.SequenceEqual(__k, \"");
+                s.Append(pn);
+                s.AppendLine("\"u8)) {");
+                // Shared member read (scalars, collections, nested objects) with ctor-parameter
+                // redirection. The discriminator's own key matches no member, so it falls through to
+                // the "unknown member" arm below and is skipped — which is exactly right.
+                EmitDeserialize(s, prop, "obj", "                    ", ctorMap: __polyCtorMap);
+                s.AppendLine("                }");
+            }
+            if (first)
+            {
+                // A case with no readable member still has to consume an unknown key's value, or
+                // the loop re-dispatches the same token for ever.
+                s.AppendLine(
+                    "                if (!r.Read()) break; // unknown member: skip its value"
+                );
+            }
+            else
+            {
+                s.AppendLine("                else");
+                s.AppendLine(
+                    "                { if (!r.Read()) break; } // unknown member: skip its value"
+                );
+            }
+            s.AppendLine("                continue;");
+            s.AppendLine("            }");
+            s.AppendLine("        }");
+            if (hasCtor)
+            {
+                s.Append("        return new ");
+                s.Append(ds);
+                s.Append("(");
+                for (int ci = 0; ci < dti.CtorParams.Length; ci++)
+                {
+                    if (ci > 0)
+                        s.Append(", ");
+                    s.Append("__cp_");
+                    s.Append(ci);
+                }
+                s.AppendLine(");");
+            }
+            else
+            {
+                s.AppendLine("        return obj;");
+            }
+            s.AppendLine("    }");
+        }
+
+        s.AppendLine("}");
+        s.AppendLine();
+    }
+
+    /// <summary>
+    /// The member/item-position helper of a POLYMORPHIC base: it does not emit the base's own members
+    /// at all, it forwards to the type's discriminator dispatch
+    /// (<c>&lt;prefix&gt;YamlPolySer/Des</c>). Without it a member declared as the base type was
+    /// written as the BASE's members only — the discriminator and every derived member silently gone,
+    /// while JSON carried both — and, for an abstract base, the generated
+    /// <c>new &lt;abstract&gt;()</c> did not even compile (CS0144).
+    /// <para>
+    /// All three entry points of the plain helper are kept, because the emitter picks between them:
+    /// <c>Serialize</c> (a whole mapping), <c>SerializeBlock</c> (a block-sequence item) and
+    /// <c>Deserialize</c> (a value whose mapping the caller has not entered yet).
+    /// </para>
+    /// </summary>
+    private static string GeneratePolyInnerHelper(
+        string fullName,
+        string shortName,
+        TypeInfo polyType
+    )
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine(
+            "using System; using System.Buffers; using System.Text; using System.Globalization;"
+        );
+        sb.AppendLine("using PicoSerDe.Core; using PicoYaml;");
+
+        // Same namespace rule as GenerateInnerHelper: a generic type name (it contains '<') puts the
+        // helper at GLOBAL scope, so the file must not declare a namespace at all.
+        var lastDot = fullName.LastIndexOf('.');
+        if (!fullName.Contains('<') && lastDot > 0)
+        {
+            sb.AppendLine();
+            sb.Append("namespace ");
+            sb.Append(fullName.Substring(0, lastDot));
+            sb.AppendLine(";");
+        }
+        sb.AppendLine();
+
+        var poly = PicoSerDe.Gen.GenInfrastructure.PolyClassPrefix(polyType);
+        sb.Append("internal static class ");
+        sb.Append(shortName);
+        sb.AppendLine("YamlInner");
+        sb.AppendLine("{");
+        sb.Append("    internal static void Serialize(YamlWriter yw, ");
+        sb.Append(fullName);
+        sb.AppendLine(" value)");
+        sb.Append("        => ");
+        sb.Append(poly);
+        sb.AppendLine("YamlPolySer.Serialize(yw, value);");
+        sb.AppendLine();
+        sb.Append("    internal static void SerializeBlock(YamlWriter yw, ");
+        sb.Append(fullName);
+        sb.AppendLine(" value)");
+        sb.Append("        => ");
+        sb.Append(poly);
+        sb.AppendLine("YamlPolySer.SerializeBlock(yw, value);");
+        sb.AppendLine();
+        sb.Append("    internal static ");
+        sb.Append(fullName);
+        sb.AppendLine(" Deserialize(ref YamlReader r)");
+        sb.Append("        => ");
+        sb.Append(poly);
+        sb.AppendLine("YamlPolyDes.Deserialize(ref r);");
+        sb.AppendLine("}");
+        return sb.ToString();
     }
 
     private static string EmitYamlValue(AnonFieldInfo f, string vv, string wv) =>
