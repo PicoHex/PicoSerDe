@@ -42,6 +42,12 @@ sentence in a README) is settled by the first arbiter that exists for that forma
    carry is not part of the format** — it is one implementation's extension, and emitting it means
    simulating a construct the format does not have, which this rule forbids.
 
+**Every claim names its arbiter.** A ⛔/⏸ verdict, a matrix cell or a README sentence is incomplete
+until it says which arbiter answered: the clause (§Keys, RFC 8259 §7, …) or the implementations that
+were measured, by name. A claim with neither is the shape this rule exists to stop - it reads as a
+format fact while resting on our own habit, and the next reader cannot check it. If no clause and no
+measurement is available, say that too: "nobody has shown this" is an answer, and it is not ⛔.
+
 **The arbiter is never us.** "We could emit it" is not evidence: the question is whether the *format*
 carries the meaning, and the test is another party's reader, not our writer. Measured for INI
 (2026-11-06): all three implementations give back `[V]` as a key→value mapping and a comma-joined value as
