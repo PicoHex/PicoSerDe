@@ -343,6 +343,80 @@ public class YamlTagResolutionTests
         await Assert.That(doc!.Items).IsEquivalentTo(new List<int> { 1 });
     }
 
+    // ── a tag in front of a KEY labels the key (PyYAML: '!!str A: 1' -> {'A': 1}) ──
+
+    // PyYAML: '!!str 1: v' -> {'1': 'v'} — the tag is a property of the key node, and keys are
+    // text here, so nothing changes but the validation.
+    [Test]
+    public async Task StrTagOnAMappingKey_LabelsTheKey()
+    {
+        var doc = YamlSerializer.Deserialize<TagScalarDoc>(Doc("!!str Text: hi\n"));
+        await Assert.That(doc!.Text).IsEqualTo("hi");
+    }
+
+    // PyYAML: '{!!str A: 1}' -> {'A': 1} — the same rule inside a flow mapping, where the tag
+    // used to be scanned INTO the key ("!!str A").
+    [Test]
+    public async Task StrTagOnAFlowMappingKey_LabelsTheKey()
+    {
+        var doc = YamlSerializer.Deserialize<TagCollectionDoc>(Doc("Map: {!!str A: 1}\n"));
+        await Assert.That(doc!.Map!["A"]).IsEqualTo("1");
+    }
+
+    // PyYAML: '{!!int 7: x}' -> {7: 'x'} — the key keeps its text, and 7 is what that text is.
+    [Test]
+    public async Task IntTagOnAFlowMappingKey_KeepsTheKeyText()
+    {
+        var doc = YamlSerializer.Deserialize<TagCollectionDoc>(Doc("Map: {!!int 7: x}\n"));
+        await Assert.That(doc!.Map!["7"]).IsEqualTo("x");
+    }
+
+    // PyYAML: '!!map A: 1' -> ConstructorError: expected a mapping node, but found scalar
+    [Test]
+    public async Task MapTagOnAMappingKey_FailsNamingTheTag()
+    {
+        var message = MessageOf(() =>
+            YamlSerializer.Deserialize<TagScalarDoc>(Doc("!!map Text: hi\n"))
+        );
+        await Assert.That(message).Contains("!!map");
+    }
+
+    // PyYAML: '!!int abc: 1' -> ValueError: invalid literal for int() with base 10: 'abc'
+    [Test]
+    public async Task IntTagOnANonIntegerKey_FailsNamingTheTag()
+    {
+        var message = MessageOf(() =>
+            YamlSerializer.Deserialize<TagScalarDoc>(Doc("!!int abc: 1\n"))
+        );
+        await Assert.That(message).Contains("!!int");
+    }
+
+    // PyYAML: "Items:\n  - &a 1\n  - *a" -> {'Items': [1, 1]} — a dash item carries node
+    // properties like any other node; the anchor used to be scanned into the value ("&a 1").
+    [Test]
+    public async Task DashItem_CarriesAnAnchor()
+    {
+        var doc = YamlSerializer.Deserialize<TagCollectionDoc>(Doc("Items:\n  - &a 1\n  - *a\n"));
+        await Assert.That(doc!.Items).IsEquivalentTo(new List<int> { 1, 1 });
+    }
+
+    // PyYAML: "Words:\n  - !!str &a null" -> {'Words': ['null']} — both orders of the two
+    // properties, on an item.
+    [Test]
+    public async Task DashItem_TagThenAnchor_KeepsTheTagMeaning()
+    {
+        var doc = YamlSerializer.Deserialize<TagCollectionDoc>(Doc("Words:\n  - !!str &a null\n"));
+        await Assert.That(doc!.Words).IsEquivalentTo(new List<string> { "null" });
+    }
+
+    // PyYAML: "Words:\n  - &a !!str null" -> {'Words': ['null']}
+    [Test]
+    public async Task DashItem_AnchorThenTag_KeepsTheTagMeaning()
+    {
+        var doc = YamlSerializer.Deserialize<TagCollectionDoc>(Doc("Words:\n  - &a !!str null\n"));
+        await Assert.That(doc!.Words).IsEquivalentTo(new List<string> { "null" });
+    }
+
     // ── the neighbouring features must not regress ───────────────────────────
 
     // PyYAML: 'A: &a 1\nB: *a' -> {'A': 1, 'B': 1} — anchors/aliases are untouched by

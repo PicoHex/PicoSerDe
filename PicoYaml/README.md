@@ -281,13 +281,25 @@ A: !myapp!Thing {x: 1}  Undefined YAML tag handle '!myapp!' at offset 3: a named
   mapped type comes from the target type, so the tag names an identity this typed reader has no
   use for. It is the one deliberate read-through, and it is stated rather than implied.
 
-Tags apply at **every node position**: a mapping value, a block scalar (`A: !!int |` + `42`),
-a sequence item (`- !!str 1` is the text `1`, not the seven characters `!!str 1`), a flow mapping
-value (`{A: !!str 1}`) and a flow sequence element (`[!!str 1]`), as well as on their own line
-above the node they label (`A:` + `!!seq` + `- 1`). Anchors and tags are independent node
-properties and may be written in **either order** (`&a !!str null` or `!!str &a null`); an alias
-carries the scalar's *text*, not its style or its tag. In a `---` stream each document resolves
-its own tags. Tags are **read** only — the writer emits one, for a `[YamlTag]` type.
+Tags apply at **every node position a document can put one**, which is the list this reader
+ends up holding:
+
+- a **mapping value** — `A: !!int "42"`, `A: !!null ""`, `A: !!seq [1, 2]`
+- a **block scalar** — `A: !!int |` with `42` below it
+- a **sequence item** — `- !!str 1` is the text `1`, not the seven characters `!!str 1`
+- a **flow collection** — a flow mapping's value (`{A: !!str 1}`) and a flow sequence's element
+  (`[!!str 1]`)
+- a **mapping key** — `!!str A: 1`, `{!!int 7: x}`, and the complex-key form (`? !!str key`).
+  Keys are text in this reader, so the tag is validated against the key's own text and then
+  dropped; `!!map A: 1` is still the `ConstructorError` PyYAML raises, because a key is not a
+  mapping
+- **on its own line above the node it labels** — `A:` then `!!seq` then `- 1`
+
+Anchors and tags are independent node **properties** and may be written in either order
+(`&a !!str null` or `!!str &a null`), on a mapping value and on a sequence item alike. A node
+carries **one** tag: a second one is a `FormatException`, where PyYAML raises a `ParserError`.
+An alias carries the scalar's *text*, not its style or its tag. In a `---` stream each document
+resolves its own tags. Tags are **read** only — the writer emits one, for a `[YamlTag]` type.
 
 ## Limits
 

@@ -712,6 +712,48 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
     }
 
     /// <summary>
+    /// Resolves a tag that sits at the head of the span being read rather than at the reader's
+    /// own position (`? k` + `: !!int 42`, and every sequence-mode value, where the scalar has
+    /// already been copied into a buffer). Strips it, then validates what is left.
+    /// </summary>
+    private void ApplyTagInsideSpan(int baseOffset)
+    {
+        int pos = 0;
+        if (_valueSpan.IsEmpty || _valueSpan[0] != (byte)'!')
+        {
+            ApplyScalarTag(_valueSpan, baseOffset);
+            return;
+        }
+        _valueTag = ParseTag(_valueSpan, ref pos, baseOffset);
+        while (pos < _valueSpan.Length && _valueSpan[pos] == (byte)' ')
+            pos++;
+        _valueSpan = _valueSpan[pos..];
+        ApplyScalarTag(_valueSpan, baseOffset);
+    }
+
+    /// <summary>
+    /// A tag written in front of a mapping KEY labels the key — properties belong to the node
+    /// (§8.2), and a mapping entry's key is a node. Keys are text in this reader, so the tag is
+    /// validated against the key's own text and then dropped: PyYAML reads `!!str A: 1` as
+    /// {'A': 1}, fails `!!int abc: 1` with its ValueError and `!!map A: 1` with its
+    /// ConstructorError, and this answers the same three ways.
+    /// </summary>
+    private void ApplyKeyTag(ReadOnlySpan<byte> key, int offset)
+    {
+        if (_valueTag == NodeTag.None)
+            return;
+        if (_valueTag is NodeTag.Map or NodeTag.Seq)
+        {
+            ThrowTagKind(_valueTag, isMapping: false, isSequence: false, offset);
+            return;
+        }
+        ApplyScalarTag(key, offset);
+        // The key's tag is done; the value on this line carries its own (a `A: !!str 1` value is
+        // parsed after this point, so the field has to be clean when it gets there).
+        _valueTag = NodeTag.None;
+    }
+
+    /// <summary>
     /// Validates a standard tag written on its own line against the node that follows it,
     /// once that node's first token says which kind it is. A root mapping delivers a
     /// <see cref="TokenType.PropertyName"/> straight away (no container token), which is why
@@ -1167,12 +1209,30 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         {
             int tagOffset = _position;
             var tag = ParseTag(_data, ref _position, tagOffset, nodeProperty: true);
+            SkipSpacesAfterTag();
             if (tag != NodeTag.None)
             {
-                _pendingNodeTag = tag;
-                _pendingNodeTagOffset = tagOffset;
+                // What is left on this line decides who the tag belongs to. Nothing (or a
+                // comment) means it labels the node that starts here; a flow collection or a
+                // dash line is that node too. Anything else is a `key:` line, and there the tag
+                // is a property of the KEY (PyYAML: `!!str A: 1` -> {'A': 1}).
+                int eol = _position;
+                while (eol < _data.Length && _data[eol] is not ((byte)'\n' or (byte)'\r'))
+                    eol++;
+                var rest = Trim(_data[_position..eol]);
+                bool labelsTheNode =
+                    rest.IsEmpty || rest[0] is (byte)'#' or (byte)'[' or (byte)'{' or (byte)'-';
+                if (labelsTheNode)
+                {
+                    _pendingNodeTag = tag;
+                    _pendingNodeTagOffset = tagOffset;
+                }
+                else
+                {
+                    _valueTag = tag;
+                    _valueTagOffset = tagOffset;
+                }
             }
-            SkipSpacesAfterTag();
             goto Retry;
         }
         // Multi-document separator: --- at indent 0
@@ -1341,13 +1401,34 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _position++;
             if (_position < _data.Length && _data[_position] == (byte)' ')
                 _position++;
-            // A tag is a node property, so `- !!str 1` labels the ITEM: the tag used to be
-            // scanned as part of the item's text and `- !!str 1` read back as "!!str 1".
-            if (_position < _data.Length && _data[_position] == (byte)'!')
+            // Node properties of the ITEM: `&anchor` and `!tag`, either order. A tag used to be
+            // scanned as part of the item's text, so `- !!str 1` read back as "!!str 1"; an anchor
+            // was scanned as text too, so `- &a 1` failed on the "&a 1" it produced.
+            while (true)
             {
-                _valueTagOffset = _position;
-                _valueTag = ParseTag(_data, ref _position, _valueTagOffset);
-                SkipSpacesAfterTag();
+                if (_position < _data.Length && _data[_position] == (byte)'&')
+                {
+                    _position++;
+                    int anchorStart = _position;
+                    while (
+                        _position < _data.Length
+                        && _data[_position] != (byte)' '
+                        && _data[_position] != (byte)'\n'
+                        && _data[_position] != (byte)'\r'
+                    )
+                        _position++;
+                    _pendingAnchorName = Encoding.UTF8.GetString(_data[anchorStart.._position]);
+                    while (_position < _data.Length && _data[_position] == (byte)' ')
+                        _position++;
+                }
+                else if (_position < _data.Length && _data[_position] == (byte)'!')
+                {
+                    _valueTagOffset = _position;
+                    _valueTag = ParseTag(_data, ref _position, _valueTagOffset);
+                    SkipSpacesAfterTag();
+                }
+                else
+                    break;
             }
             if (_position < _data.Length && _data[_position] == (byte)'"')
             {
@@ -1412,6 +1493,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 _seqItemWasBareDash = HasNoInlineValue(itemText);
             }
             ApplyItemTag(_valueTagOffset);
+            StoreAnchorIfNeeded();
             if (_position >= _data.Length && !_isFinalBlock)
                 throw new IncompleteInputException();
             SkipNewlineSpan();
@@ -1424,6 +1506,13 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             _position++;
             if (_position < _data.Length && _data[_position] == (byte)' ')
                 _position++;
+            // `? !!str key` — the tag labels the key, exactly as a plain key line's does.
+            if (_position < _data.Length && _data[_position] == (byte)'!')
+            {
+                _valueTagOffset = _position;
+                _valueTag = ParseTag(_data, ref _position, _valueTagOffset);
+                SkipSpacesAfterTag();
+            }
             int ckStart = _position;
             while (
                 _position < _data.Length
@@ -1432,6 +1521,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             )
                 _position++;
             _keySpan = Trim(_data[ckStart.._position]);
+            ApplyKeyTag(_keySpan, _valueTagOffset);
             SkipNewlineSpan();
             // Expect ': value' on next line
             while (_position < _data.Length && _data[_position] == (byte)' ')
@@ -1449,6 +1539,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 )
                     _position++;
                 _valueSpan = StripInlineComment(_data[cvStart.._position]);
+                ApplyTagInsideSpan(cvStart);
             }
             SkipNewlineSpan();
             _tokenType = TokenType.PropertyName;
@@ -1479,6 +1570,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 _position++;
             _keySpan = TrimEnd(_data[ks.._position]);
         }
+        ApplyKeyTag(_keySpan, _valueTagOffset);
         if (_position >= _data.Length && !_isFinalBlock)
             throw new IncompleteInputException();
         if (_position >= _data.Length || _data[_position] != (byte)':')
@@ -1509,6 +1601,13 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
             }
             else if (_position < _data.Length && _data[_position] == (byte)'!')
             {
+                // A node carries ONE tag; a second one is a malformed document, not a
+                // last-one-wins (PyYAML: ParserError, "while parsing a block mapping ... found
+                // duplicate tag").
+                if (_valueTag != NodeTag.None)
+                    throw new FormatException(
+                        $"Duplicate YAML tag at offset {_position}: a node carries one tag, and this one already has '{TagText(_valueTag)}'."
+                    );
                 _valueTagOffset = _position;
                 _valueTag = ParseTag(_data, ref _position, _valueTagOffset);
                 SkipSpacesAfterTag();
@@ -1914,6 +2013,13 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
         // the escapes would come back as literal backslash sequences. The content is
         // exact, so it is NOT trimmed — a quoted key may legitimately end with a space
         // (spec §3 S9 x yaml).
+        // `{!!str A: 1}` — a tag in front of a flow mapping's KEY labels the key.
+        if (_position < _data.Length && _data[_position] == (byte)'!')
+        {
+            _valueTagOffset = _position;
+            _valueTag = ParseTag(_data, ref _position, _valueTagOffset);
+            SkipSpacesAfterTag();
+        }
         if (_position < _data.Length && _data[_position] == (byte)'"')
         {
             _position++;
@@ -1933,6 +2039,7 @@ public ref struct YamlReader : ITokenReader, ITransactionalTokenReader, IFusedTo
                 _position++;
             _keySpan = TrimEnd(_data[ks.._position]);
         }
+        ApplyKeyTag(_keySpan, _valueTagOffset);
         if (_position >= _data.Length && !_isFinalBlock)
             throw new IncompleteInputException();
         if (_position >= _data.Length || _data[_position] != (byte)':')
